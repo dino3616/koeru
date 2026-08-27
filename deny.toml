@@ -1,0 +1,44 @@
+# cargo-deny の設定。AGPL-3.0-or-later のプロジェクトとして取り込めるライセンスだけを許可する。
+# 外部からの PR が非互換の依存を持ち込んだとき、CI がここで止める。
+
+[licenses]
+# 許可リスト方式。ここに無いライセンスは「不明」として失敗させる。
+# 判定を人手に委ねないことが目的なので、allow に足すときは理由を PR に書くこと。
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "CC0-1.0",
+  "Unlicense",
+  "Unicode-3.0",
+  "BSL-1.0",
+  # コピーレフト系。AGPL-3.0-or-later なので取り込める。
+  "MPL-2.0",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-or-later",
+  "GPL-2.0-or-later",
+  "GPL-3.0-or-later",
+  "AGPL-3.0-or-later",
+]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+
+# 非商用限定・再配布禁止・独自条項は allow に載らないので自動的に失敗する。
+# 意図的に例外を作る場合はここに明示し、理由を書く。
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

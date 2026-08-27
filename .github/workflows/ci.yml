@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: rustc --version && cargo --version
+      - name: rustfmt
+        run: cargo fmt --all --check
+      # リポジトリ全体で clippy::all を deny する。設定は Cargo.toml の
+      # [workspace.lints] にあり、ここは通過を強制するだけ。
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --workspace --all-features
+
+  licenses:
+    name: license policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。
+      # 外部 PR に対する防波堤。
+      - name: cargo-deny
+        run: cargo deny check
