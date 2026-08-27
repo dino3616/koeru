@@ -1,0 +1,32 @@
+name: 機能の提案
+description: こうなってほしい
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **先に [product-vision.md](https://github.com/dino3616/koeru/blob/main/docs/product-vision.md) の Scope を読んでください。**
+        意図的に背負わないと決めているものがあります（録音環境、動機の設計、配布の場、UI の多言語対応など）。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 何に困っているか
+      description: 解決策ではなく、困っていること自体を書いてください。
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 思いつく解決策（あれば）
+  - type: dropdown
+    id: persona
+    attributes:
+      label: 誰の話か
+      options:
+        - これから音源を作りたい人（作ったことはない）
+        - 現役の音源制作者
+        - 音源を歌わせる側
+        - 公開する予定はないが自分の声で作りたい
+        - その他
+    validations:
+      required: true

@@ -1,0 +1,68 @@
+name: 不具合の報告
+description: 動作がおかしい、落ちる、期待と違う
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **音源名・ファイルパス・歌詞を貼らないでください。** 必要な場合は伏せてください。
+  - type: textarea
+    id: what
+    attributes:
+      label: 何が起きたか
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 何が起きると思っていたか
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現の手順
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: dropdown
+    id: phase
+    attributes:
+      label: どの工程で起きたか
+      options:
+        - プロジェクト作成 / オンボーディング
+        - 録音
+        - 試唱
+        - 原音設定（通常モード）
+        - 原音設定（上級モード）
+        - 書き出し / パッケージング
+        - その他 / 分からない
+    validations:
+      required: true
+  - type: dropdown
+    id: method
+    attributes:
+      label: 方式
+      options:
+        - 単独音
+        - 連続音
+        - CVVC
+        - 多音階連続音
+        - 分からない
+  - type: input
+    id: os
+    attributes:
+      label: OS とバージョン
+      placeholder: Windows 11 24H2 / macOS 15.3 / Ubuntu 24.04
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KOERU のバージョン
+  - type: textarea
+    id: error_kind
+    attributes:
+      label: エラーの分類（分かる場合）
+      description: ログに出る `error.kind`（例 `recording.disk_full`）があれば貼ってください。

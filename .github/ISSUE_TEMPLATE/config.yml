@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 設計方針についての議論
+    url: https://github.com/dino3616/koeru/blob/main/docs/product-vision.md
+    about: 確定している方針はここにあります。方針そのものを変えたい場合は Discussion か Issue で提起してください。
