@@ -1,6 +1,6 @@
 //! ドメイン層のエラー型。
 //!
-//! 方針は [docs/rust-conventions.md] に準拠する。
+//! 方針は `.agents/skills/rust-conventions/SKILL.md` に準拠する。
 //!
 //! - **回復が必要な失敗は、この層で `thiserror` の列挙体として定義する。**
 //!   呼び出し側が `match` で網羅的に分岐できることを保証する。

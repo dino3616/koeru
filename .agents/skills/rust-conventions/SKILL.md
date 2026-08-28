@@ -1,9 +1,13 @@
+---
+name: rust-conventions
+description: KOERU の Rust コードを書く・直す・レビューするときに必ず読む規約。エラー型の設計（thiserror と anyhow の層別使い分け）、tracing の入れ方と送信してよいフィールド、clippy の方針と例外の入れ方、検証コマンドを定める。Rust ファイルの追加・編集、エラーハンドリングの実装、ログやトレースの追加、clippy 違反の修正、crate の追加、FFI の実装、PR レビューのときに使う。
+---
+
 # KOERU — Rust の規約
 
-実装は Rust + Tauri。この文書は**エラーハンドリング・トレース・lint の方針**を定める。
-コードの書き方の好みではなく、**破ると後から回復しにくいもの**だけを書く。
+エラーハンドリング・トレース・lint の方針。**コードの書き方の好みではなく、破ると後から回復しにくいものだけを書く。**
 
-関連: [tech-requirements.md](./tech-requirements.md) ／ [product-vision.md](./product-vision.md)
+プロダクトの前提は [docs/product-vision.md](../../../docs/product-vision.md)、技術要件は [docs/tech-requirements.md](../../../docs/tech-requirements.md)。
 
 ## 前提として置いている性質
 
@@ -72,6 +76,8 @@ fn finalize_take(pcm: &[f32], take_index: usize, method: Method) -> Result<TakeI
 
 `clippy::all` は `priority = -1` にしてあるので、**個別の lint 指定が常に優先される。**
 
+**新しいクレートを追加したら、必ず `[lints] workspace = true` を書く。**
+
 ### 追加している lint
 
 | lint | 水準 | 理由 |
@@ -98,6 +104,12 @@ let frames = raw_frames as usize;
 
 テストコードでの緩和は `clippy.toml` 側で設定済み（`allow-unwrap-in-tests`、`allow-expect-in-tests`、`allow-panic-in-tests`）。**`dbg!` はテストでも禁止のままにしてある**（消し忘れがそのまま入るため）。
 
+## 依存を追加するとき
+
+**KOERU は AGPL-3.0-or-later。** 許可リストは `deny.toml` にあり、`cargo deny check` が機械判定する。**非商用限定（CC BY-NC 系）、再配布禁止、独自条項のものは通らない。**
+
+**学習済みモデルやデータセットはより慎重に見る。** モデル側の表示ライセンスが、学習に使われたコーパスの条件を上書きできるとは限らない。**「モデルに CC BY と書いてあるから大丈夫」は根拠にならない。** この判断を誤って一度候補を落としている。
+
 ## 検証
 
 ```bash
@@ -107,4 +119,4 @@ cargo test --workspace --all-features
 cargo deny check
 ```
 
-CI で同じものを実行する。`cargo deny check` は **AGPL-3.0-or-later に取り込めないライセンスの依存が入ったら落とす**ためのもので、外部からの PR に対する防波堤である。設定は `deny.toml`。
+CI で同じものを実行する。

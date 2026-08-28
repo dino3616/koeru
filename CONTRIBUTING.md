@@ -24,7 +24,7 @@ KOERU は **AGPL-3.0-or-later** です。ここから2つの制約が出ます�
 
 ## コードの規約
 
-エラーハンドリング・トレース・lint の方針は **[docs/rust-conventions.md](docs/rust-conventions.md) に書いてあります。** 特に次の3つは PR で必ず見ます。
+エラーハンドリング・トレース・lint の方針は **[`.agents/skills/rust-conventions/SKILL.md`](.agents/skills/rust-conventions/SKILL.md) に書いてあります。** Rust の作業をするときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。特に次の3つは PR で必ず見ます。
 
 - **ドメイン層で `anyhow::Error` を返さない。** `thiserror` の列挙体を返す。畳むのはアプリケーション境界だけ
 - **`?` を並べる関数には `#[tracing::instrument(err)]` を付ける**

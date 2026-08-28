@@ -23,7 +23,7 @@ KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音�
 | [journey-map.md](docs/journey-map.md) | 体験の時系列（現状と理想） |
 | [usecase-map.md](docs/usecase-map.md) | 機能と利用関係 |
 | [tech-requirements.md](docs/tech-requirements.md) | 何を満たさないと成立しないか |
-| [rust-conventions.md](docs/rust-conventions.md) | エラーハンドリング・トレース・lint の方針 |
+| [AGENTS.md](AGENTS.md) | エージェントが作業するときの前提と、破ってはいけないもの |
 
 ## 実装の方針
 
@@ -41,7 +41,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
-`clippy::all` はリポジトリ全体で deny です。詳細は [rust-conventions.md](docs/rust-conventions.md)。
+`clippy::all` はリポジトリ全体で deny です。エラーハンドリング・トレース・lint の方針は `.agents/skills/rust-conventions/SKILL.md` にあります（Rust の作業をするときに読み込まれる Agent Skill）。
 
 ## 貢献
 

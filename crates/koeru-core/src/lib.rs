@@ -6,7 +6,7 @@
 //!
 //! # エラーハンドリング
 //!
-//! 詳細は `docs/rust-conventions.md`。要点は3つ。
+//! 詳細は `.agents/skills/rust-conventions/SKILL.md`。要点は3つ。
 //!
 //! - **この層は `thiserror` の列挙体を返す。** 呼び出し側が `match` で網羅的に分岐できる。
 //! - **`anyhow` はアプリケーション境界だけで使う。** 畳んだ時点で網羅性は失われる。
