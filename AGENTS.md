@@ -30,7 +30,7 @@
 
 **2. `println!` / `eprintln!` / `dbg!` を使わない。** 出力は `tracing` に統一する。lint で deny されている。
 
-**3. トレースに音源名・ファイルパス・歌詞・プロジェクト名を載せない。** 送信フィールドはホワイトリスト方式（`koeru_core::telemetry::SENDABLE_FIELDS`）。**KOERU は「非公開のまま完成できる」ことを担保している製品なので、これが漏れると前提が崩れる。**
+**3. トレースに音源名・ファイルパス・歌詞・プロジェクト名を載せない。** 送信フィールドはホワイトリスト方式にする。送ってよいフィールド名を列挙した定数を1箇所に置き、そこに無いものは通さない。**KOERU は「非公開のまま完成できる」ことを担保している製品なので、これが漏れると前提が崩れる。**
 
 **4. 依存を追加するときはライセンスを確認する。** AGPL-3.0-or-later に取り込めるものだけ。許可リストは `deny.toml`、判定は `cargo deny check`。**学習済みモデルは、モデル側の表示ライセンスが学習コーパスの条件を上書きできるとは限らない。**
 
@@ -54,7 +54,7 @@ CI（`.github/workflows/ci.yml`）で同じものを実行する。`clippy::all`
 ```
 .agents/skills/     Skills の正本
 .claude/skills/     .agents/skills への symlink
-crates/koeru-core/  ドメイン層。GUI と OS に依存しない
+crates/koeru-core/  ドメイン層。GUI と OS に依存しない（実装は未着手）
 docs/               設計文書
 Cargo.toml          [workspace.lints] で clippy::all を deny
 deny.toml           AGPL 互換ライセンスの許可リスト
