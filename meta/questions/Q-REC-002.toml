@@ -12,6 +12,6 @@ how_to_close = """
 RAW ストリーム要求の成否と OS 側音響効果の検出、収録中のデバイス消失、xrun の検出、
 マイク権限の取得と拒否からの回復の6点。
 """
-blocks_profiles = ["PROFILE-V0"]
+blocks_profiles = []
 affects_requirements = ["TR-REC-05", "TR-REC-09", "TR-REC-24"]
 affects_decisions = ["DEC-REC-001"]

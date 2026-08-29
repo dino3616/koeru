@@ -12,3 +12,6 @@ blocks_profiles = []
 affects_requirements = ["TR-ALN-04"]
 affects_decisions = ["DEC-ALN-001"]
 affects_evidence = ["EVID-LIC-001"]
+
+# 移行前の原文。言い換えで意味が動いていないかを突き合わせるために残す。
+source_text = '**[Unknown]** License.md は対象を "the Software" と定義するだけで、同梱のモデルファイルを明示的に含んでいない。学習コーパスの出所も未確認。**MFA を落とした結果これが唯一の権利クリアな候補になっているため、根拠の薄さがそのままリスクになる。**'

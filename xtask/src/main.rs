@@ -7,6 +7,7 @@
 //! - `check-meta`     meta の必須項目と、参照先 ID の実在を確かめる
 //! - `check-budgets`  配分の合計が上限を超えていないかを確かめる
 //! - `check-profile`  未決の Question が塞いでいるリリースプロファイルを落とす
+//! - `dump-requirements`  要件の登録簿を区切り文字形式で書き出す（外部ツール向け）
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -20,7 +21,7 @@ use std::{
 
 const META_DIR: &str = "meta";
 const SPEC_DIR: &str = "specs";
-const REQUIREMENTS_DOC: &str = "docs/tech-requirements.md";
+const REQUIREMENTS_DIR: &str = "requirements";
 
 /// meta の種類。ディレクトリ名と ID の接頭辞、必須項目を持つ。
 #[derive(Debug, Clone, Copy)]
@@ -133,6 +134,24 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("check-meta") => check_meta(&root, &entries),
         Some("check-budgets") => check_budgets(&entries),
+        Some("dump-requirements") => {
+            // 移行の照合用。US(0x1f) 区切りのフィールド、RS(0x1e) 区切りのレコード。
+            let (reqs, _) = requirements(&root);
+            for (id, t) in reqs {
+                let get = |k: &str| {
+                    t.get(k)
+                        .and_then(toml::Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned()
+                };
+                let mut fields = vec![id, get("title"), get("confidence")];
+                fields.push(list_of(&t, "depends_on").join(","));
+                fields.push(get("statement"));
+                fields.extend(list_of(&t, "notes"));
+                print!("{}\u{1e}", fields.join("\u{1f}"));
+            }
+            ExitCode::SUCCESS
+        }
         Some("check-profile") => match args.get(1) {
             Some(id) => check_profile(&entries, id),
             None => {
@@ -141,7 +160,9 @@ fn main() -> ExitCode {
             }
         },
         _ => {
-            println!("使い方: cargo xtask <check-meta|check-budgets|check-profile <ID>>");
+            println!(
+                "使い方: cargo xtask <check-meta|check-budgets|check-profile <ID>|dump-requirements>"
+            );
             ExitCode::FAILURE
         }
     }
@@ -245,19 +266,180 @@ fn collect_ids(text: &str, out: &mut BTreeSet<String>) {
     }
 }
 
-/// 技術要件が所有している TR-* を集める。見出し行が正本。
-fn tr_ids(root: &Path) -> BTreeSet<String> {
-    let mut ids = BTreeSet::new();
-    let Ok(text) = fs::read_to_string(root.join(REQUIREMENTS_DOC)) else {
-        return ids;
+/// 技術要件の登録簿。`meta/requirements/*.toml` の `[[requirement]]` が正本。
+/// 同じ ID が2度現れたら、あとから来たほうを重複として返す。
+fn requirements(root: &Path) -> (BTreeMap<String, toml::Table>, Vec<String>) {
+    let mut out = BTreeMap::new();
+    let mut dups = Vec::new();
+    let dir = root.join(META_DIR).join(REQUIREMENTS_DIR);
+    let Ok(rd) = fs::read_dir(&dir) else {
+        return (out, dups);
     };
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("#### ")
-            && let Some(id) = rest.split_whitespace().next()
-            && id.starts_with("TR-")
-        {
-            ids.insert(id.to_owned());
+    let mut paths: Vec<PathBuf> = rd
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(table) = text.parse::<toml::Table>() else {
+            continue;
+        };
+        let Some(items) = table.get("requirement").and_then(toml::Value::as_array) else {
+            continue;
+        };
+        for item in items {
+            let Some(entry) = item.as_table() else {
+                continue;
+            };
+            let Some(id) = entry.get("id").and_then(toml::Value::as_str) else {
+                continue;
+            };
+            if out.insert(id.to_owned(), entry.clone()).is_some() {
+                dups.push(format!("{}: id `{id}` が重複している", path.display()));
+            }
         }
+    }
+    (out, dups)
+}
+
+/// 候補技術の登録簿。`meta/technologies/*.toml` の `[[technology]]`。
+fn technologies(root: &Path) -> Vec<(PathBuf, toml::Table)> {
+    collection(root, "technologies", "technology")
+}
+
+/// 領域ごとの性能目標。`meta/targets/*.toml` の `[[target]]`。
+fn targets(root: &Path) -> Vec<(PathBuf, toml::Table)> {
+    collection(root, "targets", "target")
+}
+
+/// 配列で持つ登録簿を読む。1ファイルに複数の項目が入る形。
+fn collection(root: &Path, dir_name: &str, key: &str) -> Vec<(PathBuf, toml::Table)> {
+    let mut out = Vec::new();
+    let dir = root.join(META_DIR).join(dir_name);
+    let Ok(rd) = fs::read_dir(&dir) else {
+        return out;
+    };
+    let mut paths: Vec<PathBuf> = rd
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    paths.sort();
+    for path in paths {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(table) = text.parse::<toml::Table>() else {
+            continue;
+        };
+        for item in table
+            .get(key)
+            .and_then(toml::Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
+            if let Some(t) = item.as_table() {
+                out.push((path.clone(), t.clone()));
+            }
+        }
+    }
+    out
+}
+
+const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
+
+/// 文中に現れる `TR-XXX-NN` を拾う。参照先が実在するかを見るために使う。
+fn find_tr(text: &str) -> Vec<String> {
+    let b: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 9 <= b.len() {
+        if b[i] == 'T' && b[i + 1] == 'R' && b[i + 2] == '-' {
+            let mut j = i + 3;
+            let mut alpha = 0;
+            while j < b.len() && b[j].is_ascii_uppercase() {
+                j += 1;
+                alpha += 1;
+            }
+            if alpha == 3 && j < b.len() && b[j] == '-' {
+                let k = j + 1;
+                let mut e = k;
+                while e < b.len() && b[e].is_ascii_digit() {
+                    e += 1;
+                }
+                if e > k {
+                    out.push(b[i..e].iter().collect());
+                    i = e;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// 技術要件の登録簿そのものを検査する。ここが「本文の無い ID を参照する」の再発を止める箇所。
+fn check_requirements(root: &Path, fsl: &BTreeSet<String>, rep: &mut Report) -> BTreeSet<String> {
+    let (reqs, dups) = requirements(root);
+    for d in dups {
+        rep.error(d);
+    }
+    let ids: BTreeSet<String> = reqs.keys().cloned().collect();
+    let mut dangling = BTreeSet::new();
+    for (id, r) in &reqs {
+        for key in ["id", "title", "confidence", "statement"] {
+            if !r.contains_key(key) {
+                rep.error(format!("{id}: 必須項目 `{key}` が無い"));
+            }
+        }
+        match r.get("confidence").and_then(toml::Value::as_str) {
+            Some(c) if CONFIDENCE.contains(&c) => {}
+            Some(c) => rep.error(format!(
+                "{id}: 確度 `{c}` は Fact / Assumption / Unknown のいずれでもない"
+            )),
+            None => {}
+        }
+        if r.get("statement")
+            .and_then(toml::Value::as_str)
+            .is_none_or(str::is_empty)
+        {
+            rep.error(format!("{id}: 本文が空"));
+        }
+        for d in list_of(r, "depends_on") {
+            if !ids.contains(&d) {
+                rep.error(format!("{id}: depends_on の `{d}` は登録簿に存在しない"));
+            }
+        }
+        for f in list_of(r, "formalized_as") {
+            if !fsl.contains(&f) {
+                rep.error(format!("{id}: formalized_as の `{f}` は FSL に存在しない"));
+            }
+        }
+        // 本文と注記から他要件を参照しているなら、その要件が実在すること
+        let mut text = r
+            .get("statement")
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        for n in list_of(r, "notes") {
+            text.push('\n');
+            text.push_str(&n);
+        }
+        for referenced in find_tr(&text) {
+            if !ids.contains(&referenced) {
+                dangling.insert(format!(
+                    "{id} が参照する `{referenced}` は登録簿に存在しない"
+                ));
+            }
+        }
+    }
+    for d in dangling {
+        rep.error(d);
     }
     ids
 }
@@ -265,11 +447,27 @@ fn tr_ids(root: &Path) -> BTreeSet<String> {
 fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
     let mut rep = Report::default();
     let fsl = fsl_ids(root);
-    let tr = tr_ids(root);
+    let tr = check_requirements(root, &fsl, &mut rep);
+    for (path, t) in technologies(root) {
+        for key in ["name", "purpose", "license", "verdict"] {
+            if !t.contains_key(key) {
+                rep.error(format!("{}: 候補技術に `{key}` が無い", path.display()));
+            }
+        }
+    }
+    for (path, t) in targets(root) {
+        for key in ["item", "goal"] {
+            if !t.contains_key(key) {
+                rep.error(format!("{}: 性能目標に `{key}` が無い", path.display()));
+            }
+        }
+    }
     rep.note(format!(
-        "FSL の要求 ID {} 件 / 技術要件 {} 件を読んだ",
+        "FSL の要求 {} 件 / 技術要件 {} 件 / 候補技術 {} 件 / 性能目標 {} 件",
         fsl.len(),
-        tr.len()
+        tr.len(),
+        technologies(root).len(),
+        targets(root).len()
     ));
 
     let mut ids: BTreeMap<String, PathBuf> = BTreeMap::new();
@@ -388,12 +586,23 @@ fn check_budgets(entries: &[Entry]) -> ExitCode {
 
         let mut total = 0i64;
         let mut unmeasured = 0usize;
+        let mut steps = 0usize;
+        let mut without_value = 0usize;
         for a in allocations {
             let Some(t) = a.as_table() else { continue };
-            total += t
-                .get("value")
-                .and_then(toml::Value::as_integer)
-                .unwrap_or(0);
+            // 小計行と参考行は二重計上になるので合計に入れない。
+            let kind = t
+                .get("kind")
+                .and_then(toml::Value::as_str)
+                .unwrap_or("step");
+            if kind != "step" {
+                continue;
+            }
+            steps += 1;
+            match t.get("value").and_then(toml::Value::as_integer) {
+                Some(v) => total += v,
+                None => without_value += 1,
+            }
             if t.get("measured").and_then(toml::Value::as_bool) != Some(true) {
                 unmeasured += 1;
             }
@@ -401,8 +610,7 @@ fn check_budgets(entries: &[Entry]) -> ExitCode {
 
         let ratio = if limit > 0 { total * 100 / limit } else { 0 };
         rep.note(format!(
-            "{id}: 配分 {total}{unit} / 上限 {limit}{unit}（{ratio}%）実測済みでない配分 {unmeasured}/{} 件",
-            allocations.len()
+            "{id}: 配分 {total}{unit} / 上限 {limit}{unit}（{ratio}%）工程 {steps} 件 / 実測済みでない {unmeasured} / 数値未設定 {without_value}"
         ));
         if total > limit {
             rep.error(format!(

@@ -12,3 +12,6 @@ blocks_profiles = []
 affects_requirements = ["TR-SYN-06"]
 affects_decisions = ["DEC-SYN-001"]
 affects_evidence = ["EVID-LIC-001"]
+
+# 移行前の原文。言い換えで意味が動いていないかを突き合わせるために残す。
+source_text = '**[Unknown]** 重みのライセンス表示が無く、学習データに非商用限定のものが含まれる可能性がある。**採用の前提条件。** 不合格なら WORLD の Harvest に戻り、`.frq` 生成の予算が変わる。'

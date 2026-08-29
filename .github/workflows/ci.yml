@@ -58,11 +58,11 @@ jobs:
           fslc --version
       # ID 規約と edition の診断。仕様そのものの検査ではない。
       - name: fslc lint
-        run: fslc lint specs/ --project specs/fsl-project-v0.toml
+        run: fslc lint specs/ --project specs/fsl-project.toml
       # requirements を検証し、design を検証し、層の継ぎ目を refine で検証する。
       # 層が1つでも落ちれば exit 1 になる（実際に落ちることを確認済み）。
       - name: fslc chain
-        run: fslc chain specs/fsl-project-v0.toml
+        run: fslc chain specs/fsl-project.toml
       # 生成した要件文書が仕様とずれていないか。Markdown から FSL への逆同期はしない。
       # 直すのは常に FSL 側で、文書は再生成する。
       - name: document drift

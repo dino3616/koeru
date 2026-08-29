@@ -1,0 +1,29 @@
+id = 'DEC-PLT-003'
+title = '配布は直接ダウンロードを主経路とし、Microsoft Store を取らない'
+constraint_label = '配布'
+constraint = '直接ダウンロードを主経路。Microsoft Store は GPL 系と整合しないため取らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '直接ダウンロード主経路',
+  'Microsoft Store 主経路',
+  '両方を同格',
+]
+selected = '直接ダウンロード主経路'
+rationale = '''
+Microsoft Store の標準ライセンス条項は GPL 系と整合しない。**これは配布形態の選択ではなくライセンス上の帰結。**
+実行ファイルとインストーラは Authenticode 署名する。EV 証明書を SmartScreen 回避目的で購入しない。
+初期リリースで警告が出ることを前提に、配布ページで実際の画面を事前に見せる。
+'''
+review_triggers = [
+  'Store の条項が GPL 系と両立するよう変わったとき',
+  '署名の実績が貯まっても SmartScreen 警告が消えないと判明したとき',
+]
+affects_requirements = [
+  'TR-PLT-12',
+  'TR-PLT-13',
+  'TR-PLT-14',
+]
+affects_decisions = [
+  'DEC-PLT-002',
+]

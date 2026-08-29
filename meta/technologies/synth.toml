@@ -1,0 +1,138 @@
+# 即時試唱と合成エンジン の候補技術
+#
+# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
+# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+
+domain = 'synth'
+
+[[technology]]
+name = 'WORLD (mmorise/World)'
+purpose = '合成コアの基礎。F0 推定（DIO / Harvest）、スペクトル包絡（CheapTrick）、非周期性指標（D4C）、合成'
+license = 'BSD-3-Clause'
+verdict = '採用候補'
+
+[[technology]]
+name = 'worldline のソース（`@spline` 除去後に自前ビルド）'
+purpose = 'UTAU classic 引数互換の resampler ＋ フレーズ単位合成 API。周波数表の読み込み、時間伸縮、フラグ処理'
+license = 'MIT（推移的依存に GPL-2.0-or-later を含むため除去が前提）'
+verdict = '条件付き（**プリビルドバイナリは使わない**。B1）'
+
+[[technology]]
+name = 'libpyin + libgvps'
+purpose = '周波数表が無いサンプルの F0 推定（pYIN）'
+license = 'BSD-3-Clause'
+verdict = '条件付き'
+
+[[technology]]
+name = 'miniaudio'
+purpose = '録音・再生の音声入出力'
+license = 'Public Domain (Unlicense) / MIT-0 の選択制'
+verdict = '採用候補'
+
+[[technology]]
+name = 'xxHash（ライブラリ部）'
+purpose = 'フレーズ中間表現のハッシュ（キャッシュキー）'
+license = 'BSD-2-Clause'
+verdict = '採用候補'
+
+[[technology]]
+name = 'KissFFT'
+purpose = 'ネイティブ実装での FFT'
+license = 'BSD-3-Clause'
+verdict = '採用候補'
+
+[[technology]]
+name = 'OpenUtau 日本語 phonemizer'
+purpose = '単独音 / VCV / CVVC のエイリアス列生成'
+license = 'MIT'
+verdict = '採用候補（著作権表示を保持して移植）'
+
+[[technology]]
+name = 'OpenUtau.Core Classic 層'
+purpose = '音源ディレクトリ読み込み、prefix.map → subbank 展開、presamp のエイリアス優先順位、FREQ0003 の読み書き'
+license = 'MIT'
+verdict = '採用候補（同上）'
+
+[[technology]]
+name = 'hound'
+purpose = 'WAV の読み書きとフォーマット検証'
+license = 'Apache-2.0'
+verdict = '採用候補'
+
+[[technology]]
+name = 'dr_wav (dr_libs)'
+purpose = 'wav の読み書き（ネイティブ側）'
+license = 'Unlicense または MIT-0 の選択'
+verdict = '採用候補'
+
+[[technology]]
+name = 'abseil-cpp'
+purpose = 'worldline の引数パースとログ'
+license = 'Apache-2.0'
+verdict = '条件付き（NOTICE 保持）'
+
+[[technology]]
+name = 'libnpy'
+purpose = 'worldline のデバッグ用ベクタダンプ'
+license = 'MIT'
+verdict = '条件付き（配布物から外せる）'
+
+[[technology]]
+name = 'WanaKana-net / csharp-kana'
+purpose = 'かな・ローマ字の相互変換と正規化'
+license = 'MIT / Apache-2.0'
+verdict = '条件付き'
+
+[[technology]]
+name = 'straycat'
+purpose = 'WORLD ベースの UTAU resampler'
+license = 'MIT'
+verdict = '条件付き（Python 実装のため同梱経路にはならない）'
+
+[[technology]]
+name = 'ttk592/spline'
+purpose = 'worldline の `effects.cpp` が使う三次スプライン補間'
+license = '**GPL-2.0-or-later**（デュアルライセンスの提示なし）'
+verdict = '**不適**（自前実装で置換。B1）'
+
+[[technology]]
+name = 'moresampler'
+purpose = 'UTAU 向け高品質 resampler'
+license = '**Unknown**'
+verdict = '不適（Windows 専用、かつライセンス不明）'
+
+[[technology]]
+name = 'UTAU 同梱 resampler.exe'
+purpose = 'UTAU 標準の resampler'
+license = '**Unknown**'
+verdict = '不適（Windows 専用）'
+
+[[technology]]
+name = 'ONNX Runtime + CREPE'
+purpose = '高精度 F0 推定（Harvest の代替）'
+license = 'MIT / MIT'
+verdict = '要調査（ONNX Runtime を積む理由が他にないため優先度は低い）'
+
+[[technology]]
+name = 'WORLD（C++ を自前 FFI で束縛）'
+purpose = '分析・合成'
+license = 'BSD-3-Clause'
+verdict = '採用'
+
+[[technology]]
+name = 'worldline'
+purpose = 'resampler。AGPL-3.0 を選んだため取り込める'
+license = 'GPL-2.0-or-later'
+verdict = '採用候補'
+
+[[technology]]
+name = 'Rust-WORLD'
+purpose = 'WORLD の Rust 束縛（対抗案）'
+license = 'MIT'
+verdict = '不適（約6年更新がない）'
+
+[[technology]]
+name = 'rustfft / realfft'
+purpose = 'STFT。メルフィルタバンクは自前'
+license = 'MIT / Apache-2.0'
+verdict = '採用候補'

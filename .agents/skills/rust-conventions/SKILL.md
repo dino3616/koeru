@@ -7,7 +7,7 @@ description: KOERU の Rust コードを書く・直す・レビューすると�
 
 エラーハンドリング・トレース・lint の方針。**コードの書き方の好みではなく、破ると後から回復しにくいものだけを書く。**
 
-プロダクトの前提は [docs/product-vision.md](../../../docs/product-vision.md)、技術要件は [docs/tech-requirements.md](../../../docs/tech-requirements.md)。
+プロダクトの前提は [docs/product-vision.md](../../../docs/product-vision.md)、技術要件は [meta/requirements/](../../../meta/requirements/)。
 
 ## 前提として置いている性質
 

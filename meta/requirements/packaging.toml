@@ -1,0 +1,619 @@
+# パッケージング・互換性・データ永続化
+#
+# 満たさなければ製品が成立しない条件。実装仕様ではない。
+# 形式的な契約（状態・遷移・不変条件）は specs/ の FSL が正本で、
+# formalized_as がある要件は FSL 側が正。
+
+domain = 'packaging'
+domain_title = 'パッケージング・互換性・データ永続化'
+prefix = 'TR-PKG'
+
+# この領域が抱える [Risk] と [Unknown]。個別の要件ではなく領域全体にかかる。
+domain_risks = [
+  '**[Risk] 音源名の自由入力と classic 互換（CP932）は両立しない場合がある。** 音源名は character.txt の name として配布物に現れるため、CP932 で表現できない文字（絵文字、簡体字、ハングル、結合ダイアクリティカル）を含む名前は classic 互換プロファイルで書き出せない。「仮名で始めて後から改名できる」（UC-F01-02）を成立させるには、表示名と配布名を分離してユーザーに配布名を別途決めさせるか、入力時点で文字集合を制限するかのどちらかが要る。**どちらも「名前で止まらない」という要件を削る。**',
+  '**[Unknown] classic UTAU 本体および setParam・各リサンプラーが、oto.ini の先頭 `#Charset:` 行と UTF-8 の oto.ini をどこまで許容するかが確認できていない。** 許容しないツールが多ければ CP932 固定しか安全な選択肢が無くなる。',
+  '**[Unknown] 推奨音域を機械可読に持つ場所が、多音階音源の character.yaml の `subbanks.tone_ranges` しか無い。** 単一音階の音源では subbanks を持たないため、推奨音域は readme.txt の自由文にしか残らない。単一音階でも subbanks を1つだけ書いて音域を宣言するのが妥当かは、OpenUtau 側の挙動を実機で確認する必要がある。',
+  '**[Unknown] UAR（install.txt 同梱・拡張子 `.uar`）を出すかが未決。** UTAU 本体へのドラッグ&ドロップでインストールできる利点があるが、ZIP と UAR の2種類を出すと配布物が増える。OpenUtau は install.txt を無視して展開するため UAR を単独で出しても両対応にはなる。',
+  '**周波数表は同梱する。** `.frq` は録音時に作ると決めたため、書き出し時の追加コストは無い。ZIP が約3%増える代わりに、受け手の初回再生の待ち時間が消える。',
+  '**[Unknown] 既存音源の取り込み（他ツールで作った音源を KOERU プロジェクトへ）を製品範囲に含めるかが未決。** 含めると符号化の推定、NFD の修復、大小不一致の修復、アーカイブ展開が発生し、本領域の実装量がおよそ倍になる。**含めないと、既存音源を持つハルは3本目を必ずゼロから始めることになる。**',
+  '''
+**[Unknown] 利用規約テンプレートを何種類・どの粒度で同梱するかが未決。** 設問から生成する方式は決まるが、生成された文面の法的有効性を KOERU がどこまで表明するか（あるいは一切表明しないか）は決まっていない。
+
+---
+
+
+---
+
+# 性能予算（エンドツーエンドの内訳）
+''',
+]
+
+[[requirement]]
+id = 'TR-PKG-01'
+title = '音源ルートの必須成果物'
+confidence = 'Fact'
+depends_on = []
+statement = '音源ルート直下に character.txt を必ず生成する（最低限 name= を書く）。WAV を含む各フォルダに oto.ini を1つ生成する。readme.txt を音源ルート直下に生成する'
+notes = [
+  'character.txt を生成しないと、他のファイルが全て正しくても音源として一切読まれない',
+]
+
+[[requirement]]
+id = 'TR-PKG-02'
+title = 'character.txt に書くキーを7種に固定する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-01',
+]
+statement = 'character.txt に書き出すキーを name / image / author / voice / sample / web / version の7種に限定し、区切り文字は = を使う。これ以外の情報（キャラクター設定、推奨音域、収録機材など）を独自キーとして追加しない'
+
+[[requirement]]
+id = 'TR-PKG-03'
+title = 'character.yaml を必ず同時生成する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-02',
+  'TR-PKG-12',
+]
+statement = 'character.yaml を必ず同時生成する。書き出すキーを name / localized_names / singer_type / text_file_encoding / image / portrait / portrait_opacity / portrait_height / author / voice / web / version / sample / default_phonemizer / symbol_set / subbanks / use_filename_as_alias に限定し、未知のキーを追加しない'
+
+[[requirement]]
+id = 'TR-PKG-04'
+title = '多音階は prefix.map と subbanks を同内容で両方生成する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-03',
+]
+statement = '多音階では prefix.map を「音階名 TAB prefix TAB suffix」の1行1音階で生成し、同じ割り当てを character.yaml の subbanks（color / prefix / suffix / tone_ranges）としても生成する。tone_ranges は "C3-C4" または "C5" の形式で書く'
+
+[[requirement]]
+id = 'TR-PKG-05'
+title = '周波数表は .frq のみを生成する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-20',
+]
+statement = '周波数表は `.frq` のみを生成する。ファイル名は WAV 名の拡張子のドットをアンダースコアに置換して `.frq` を付ける。形式は先頭 ASCII 8バイト "FREQ0003"、int32 hopSize（256）、double 平均F0、16バイトの予約領域（ゼロ）、int32 サンプル数、以降 double f0 と double amp の対。**生成は F0 の再推定を要しない。必要なのは (1) 内部 F0 系列を hopSize=256 の時間格子へ補間、(2) WAV 全長を覆うフレーム数ぶんの f0/amp を用意、(3) 無声・無音フレームの f0 を 0 とし内部で補間している連続 F0 をそのまま書かない、(4) amp を録音停止時に算出して DB に保存し書き出し時に WAV を再走査しない、の4点**（録音時に作ると決めたため）'
+
+[[requirement]]
+id = 'TR-PKG-06'
+title = '.frc / .llsm / .pmk / .vs4ufrq / desc.mrq を生成しない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-05',
+]
+statement = '`.frc` / `.llsm` / `.pmk` / `.vs4ufrq` / `desc.mrq` を生成・同梱しない。周波数表が無い形式については「受け手のリサンプラーが初回再生時に自動生成する」旨を readme.txt に明記する'
+notes = [
+  '生成しないことで、特定リサンプラー利用者の初回再生が遅くなる',
+]
+
+[[requirement]]
+id = 'TR-PKG-07'
+title = 'アイコンと立ち絵を役割で分ける'
+confidence = 'Assumption'
+depends_on = []
+statement = 'character.txt の image= が指す音源アイコンは 100×100 の BMP を生成する。立ち絵は character.yaml の portrait / portrait_opacity / portrait_height でのみ指定し、character.txt には書かない。'
+notes = [
+  'classic UTAU が PNG を表示できるかは一次仕様として確認できていない。BMP に固定することで安全側に倒す',
+]
+
+[[requirement]]
+id = 'TR-PKG-08'
+title = 'oto.ini の WAV 参照はフォルダ内の相対名のみ'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-01',
+]
+statement = "oto.ini の <wav> 欄には同一フォルダ内のファイル名のみを書き、/ と \\ を含めない。WAV を含むフォルダごとに oto.ini を1つ置き、1つの oto.ini が別フォルダの WAV を参照しない。"
+
+[[requirement]]
+id = 'TR-PKG-09'
+title = 'install.txt と UAR の生成規則'
+confidence = 'Fact'
+depends_on = []
+statement = 'install.txt を生成する場合、type=voiceset、folder=<インストール先ディレクトリ名。省略不可>、contentsdir=<アーカイブ内の格納先ディレクトリ名。同階層なら省略可>、description=<1行の説明。省略可> の4項目のみを書く。install.txt はアーカイブのルート直下に置き、音源フォルダをその下に置く二層構造にする。拡張子を .uar にしたものは UTAU 本体へのドラッグ&ドロップでインストールできる。'
+notes = [
+  'ZIP と UAR の2種類を出すと、受け手にどちらを使うか選ばせることになる',
+]
+
+[[requirement]]
+id = 'TR-PKG-10'
+title = '$read を生成しない'
+confidence = 'Assumption'
+depends_on = []
+statement = '$read ファイルを生成・同梱しない。'
+
+[[requirement]]
+id = 'TR-PKG-11'
+title = '内部表現を UTF-8 / NFC に固定する'
+confidence = 'Fact'
+depends_on = []
+statement = 'アプリ内部の全文字列を UTF-8 かつ NFC 正規化で保持する。外部から文字列が入る全ての境界（ユーザー入力、ファイル読み込み、ディレクトリ列挙）で NFC 化する。以後、ファイルシステムから読み戻した名前ではなく内部モデルの文字列を正として扱う'
+notes = [
+  'NFD の混入は macOS 上でのローカル動作では一切再現せず、配布後に受け手の環境で初めて表面化する',
+]
+
+[[requirement]]
+id = 'TR-PKG-12'
+title = '書き出しプロファイルを3つ持ち、両対応を既定にする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-03',
+]
+statement = '書き出しプロファイルを3つ実装する。(a) classic 互換: character.txt / oto.ini / prefix.map / readme.txt を CP932、改行 CRLF、ZIP エントリ名を CP932 かつ EFS フラグ無し。(b) OpenUtau 互換: テキストを UTF-8、character.yaml の text_file_encoding に utf-8、ZIP エントリ名を UTF-8 かつ EFS フラグ有り。(c) 両対応: テキストを CP932、character.yaml の text_file_encoding に shift_jis、ZIP エントリ名を CP932。既定は (c) とする。'
+notes = [
+  'classic UTAU 側の周辺ツール（setParam、各リサンプラー、外部プラグイン）が UTF-8 の oto.ini をどこまで許容するかは未確認で、(b) を既定にできる根拠が無い',
+]
+
+[[requirement]]
+id = 'TR-PKG-13'
+title = 'CP932 を実行時登録なしで使い、変換できない文字を検出する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-12',
+]
+statement = 'CP932（Windows-31J）の符号化・復号は、**実行時のプロバイダ登録にも OS のロケール設定にも依存しない形で持つ。** `encoding_rs` の `SHIFT_JIS`（実体は Windows-31J）のように、ライブラリへ静的に含まれるものを使う。**符号化できない文字を黙って置換文字に落とさない。** エンコード時は不可逆な変換が起きた位置を呼び出し側へ返し、TR-PKG-11 / TR-EDT-42 の警告に使う。起動時に既知文字列の往復変換で健全性を検査し、失敗したら classic 互換と両対応の書き出しを無効化する。'
+
+[[requirement]]
+id = 'TR-PKG-14'
+title = 'ZIP エントリ名の符号化を明示する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-13',
+]
+statement = 'ZIP 生成時は ZipArchive(stream, mode, leaveOpen, entryNameEncoding) を使い、entryNameEncoding を必ず明示する。classic 互換・両対応プロファイルでは CP932 を、OpenUtau 互換プロファイルでは UTF-8 を渡す。entryNameEncoding に null を渡さない。'
+
+[[requirement]]
+id = 'TR-PKG-15'
+title = 'ZIP エントリ名を内部モデルから組み立てる'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-11',
+  'TR-PKG-14',
+]
+statement = 'ZIP エントリ名と oto.ini の <wav> 欄は、内部モデル（NFC）の文字列から組み立てる。Directory.GetFiles / DirectoryInfo の戻り値をそのままエントリ名や oto.ini の参照に使わない。書き出し後、生成した ZIP を読み戻してエントリ名が内部モデルとバイト単位で一致することを検査する。'
+
+[[requirement]]
+id = 'TR-PKG-16'
+title = 'ファイル名に使える文字を制限する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-12',
+]
+statement = "生成する WAV 名・フォルダ名・ZIP エントリ名は、次を全て満たす文字だけで構成する。(1) CP932 で往復変換できる、(2) Windows の予約文字 < > : \" / \\ | ? * と NUL および制御文字（1–31）を含まない、(3) 末尾がスペースまたはピリオドでない、(4) CON / PRN / AUX / NUL / COM1–COM9 / LPT1–LPT9 とその上付き数字変種を基底名としない、(5) oto.ini のパーサを壊す = と , を含まない。"
+
+[[requirement]]
+id = 'TR-PKG-17'
+title = 'CP932 に変換できない文字を暗黙置換しない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-11',
+  'TR-PKG-16',
+]
+statement = '音源名・エイリアス・ファイル名に CP932 で表現できない文字（絵文字、結合ダイアクリティカル U+3099 / U+309A、簡体字、ハングル等）が含まれる場合、? への暗黙置換を禁止する。書き出し前に該当箇所を全件列挙して代替案を提示し、ユーザーが解決するまで classic 互換・両対応プロファイルでの書き出しを実行しない。'
+notes = [
+  'この検査を怠ると、破損した音源が検証を通過して配布される',
+]
+
+[[requirement]]
+id = 'TR-PKG-18'
+title = 'エイリアスの生成規則'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-11',
+]
+statement = '生成するエイリアスに、先頭・末尾の半角スペース、2個以上の半角スペース、全角スペース U+3000、NFD 形を含めない。'
+
+[[requirement]]
+id = 'TR-PKG-19'
+title = 'エイリアスを音源全体で一意にする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-04',
+]
+statement = 'エイリアスは音源全体（全 oto.ini 横断）で一意にする。多音階でサブフォルダを分けた場合も、各サブフォルダのエイリアスに prefix.map と同じ prefix / suffix を必ず付与し、フォルダ間で同名エイリアスが生じないようにする。'
+notes = [
+  '多音階の書き出しで最も踏みやすい罠。実装時に必ず多音階の検証ケースを用意する',
+]
+
+[[requirement]]
+id = 'TR-PKG-20'
+title = 'WAV フォーマットと大文字小文字の規則'
+confidence = 'Fact'
+depends_on = []
+statement = '配布する WAV を 44100 Hz / 16 bit / 1ch に固定する。同一フォルダ内で小文字化すると衝突する WAV 名を作らない。oto.ini の <wav> 欄は実ファイル名と大文字小文字まで完全一致させる。character.txt / character.yaml / prefix.map / oto.ini のファイル名も規定どおりの小文字で生成する。'
+notes = [
+  '大小不一致と小文字化衝突は macOS / Windows のいずれでも再現せず、受け手が Linux で使ったときだけ壊れる',
+]
+
+[[requirement]]
+id = 'TR-PKG-21'
+title = 'oto.ini に #Charset: 行を書かない'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-12',
+]
+statement = '生成する oto.ini の先頭に #Charset: 行を書かない。読み込み側（既存音源の取り込みを実装する場合）は、先頭10行以内の #Charset: 行を解釈する。'
+notes = [
+  '書かない選択により、character.yaml を読まない古いツールでは符号化の宣言が一切残らない',
+]
+
+[[requirement]]
+id = 'TR-PKG-22'
+title = '方式の上下関係を有向グラフで持つ'
+confidence = 'Fact'
+depends_on = []
+statement = '収録方式の関係を「上位で録った素材から下位のパッケージを作れる」有向グラフとしてデータモデルに持ち、下位方向の書き出しのみを許可する。逆方向の導線を UI に存在させない'
+
+[[requirement]]
+id = 'TR-PKG-23'
+title = '下位方式書き出しの可否をエイリアス被覆で判定する'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-22',
+]
+statement = '下位方式への書き出しは、対象方式が要求するエイリアス表を既存素材のエイリアス集合が100%被覆できるときのみ許可する。1件でも不足する場合は書き出しを実行せず、不足エイリアスを全件列挙する。部分的なパッケージを出さない。'
+notes = [
+  '被覆はしているが品質が実用に達しないケースを、この判定は検出できない',
+]
+
+[[requirement]]
+id = 'TR-PKG-24'
+title = '下位方式パッケージは独立した音源ルート・独立した ZIP として作る'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-23',
+]
+formalized_as = [
+  'REQ-PKG-001',
+]
+statement = '**下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。** WAV は複製されるため、コストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる（多音階連続音では 275MB × 2）。**再切り出しを行わない点だけが節約になる**（デコード・再エンコードは不要）。**下位方式が参照する WAV の集合のみを複製する**ことを性能上の最適化として明記する。書き出し前に容量をユーザーに提示する。**5値は下位方式の規約プリセットで再導出する**（align の新設要件）'
+notes = [
+  '連続音の語頭 CV は前後の文脈を含むため、単独音として使ったときの先行発声・オーバーラップの許容幅が実用に足るかは未検証',
+]
+
+[[requirement]]
+id = 'TR-PKG-25'
+title = '下位方式パッケージを同一 ZIP に同梱しない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-19',
+  'TR-PKG-24',
+]
+statement = '**下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。同一 ZIP への同梱は行わない。** 接頭辞を付ければ単独音として使えなくなり、付けなければ全 oto.ini 横断のエイリアス重複で Error になるため、両立しない。**WAV は複製されるため、下位方式書き出しのコストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる。** 節約になるのは再切り出しを行わない点だけで、デコード・再エンコードは不要である。多音階連続音で 275MB × 2 の配布物になることを、書き出し前に提示する。容量削減のため、**下位方式が参照する WAV の集合のみを複製する。** **[Unknown] 語頭 CV の母音持続長が単独音として実用に足るかは未実測。**'
+
+[[requirement]]
+id = 'TR-PKG-26'
+title = 'ZIP の構造と除外対象'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-14',
+]
+statement = 'ZIP は音源ルートフォルダ1つを内包する単層構造とし、パス区切りを / に統一する。`__MACOSX`、`.DS_Store`、`Thumbs.db`、`desktop.ini`、KOERU のプロジェクトファイル、DB、レンダーキャッシュ、スナップショットを除外する。エントリに `..` を含めない'
+
+[[requirement]]
+id = 'TR-PKG-27'
+title = 'WAV は無圧縮、テキストと画像は Deflate'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-26',
+]
+statement = 'ZIP エントリの圧縮方式をエントリ種別で分ける。.wav と .frq は無圧縮（Store）、テキスト・YAML・画像は Deflate で格納する。'
+notes = [
+  '配布ファイルサイズが数%大きくなる',
+]
+
+[[requirement]]
+id = 'TR-PKG-28'
+title = 'readme.txt に必ず含める節'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-01',
+]
+statement = 'readme.txt に次の節を必ず含める。音源名 / 制作者名義 / バージョン / 収録方式 / 推奨音域 / 同梱物一覧 / 利用規約 / クレジット表記例 / 連絡先 / 免責 / 周波数表の扱い'
+
+[[requirement]]
+id = 'TR-PKG-29'
+title = '推奨音域を機械可読な形でも出す'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-04',
+  'TR-PKG-28',
+]
+statement = '多音階音源では、推奨音域を character.yaml の subbanks.tone_ranges として機械可読な形でも出す。単一音階音源では subbanks を持たないため、readme.txt の自由文のみとする。'
+
+[[requirement]]
+id = 'TR-PKG-30'
+title = '利用規約を設問から定型文で生成する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-28',
+]
+statement = '利用規約は自由記述ではなく設問への回答から定型文を生成する。設問は最低限、商用利用（可 / 不可 / 要相談）、クレジット表記（必須 / 任意 / 不要）、改変の可否と範囲、再配布（原本 / 改変版）、成人向け・政治宗教・暴力表現の可否、他の声素材との混用、法人利用、利用報告の要否、免責を含む。生成後に全文をユーザーが編集できる'
+
+[[requirement]]
+id = 'TR-PKG-31'
+title = '配布物に KOERU 固有の情報を混ぜない'
+confidence = 'Assumption'
+depends_on = []
+statement = '生成する配布パッケージに、KOERU のバージョン、プロジェクト ID、生成ログ、宣伝文、免責文を含めない。配布物は UTAU / OpenUtau が解釈するファイルとユーザーが書いた文章のみで構成する。'
+
+[[requirement]]
+id = 'TR-PKG-32'
+title = 'キャラクター情報の置き場'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-02',
+]
+statement = 'キャラクター設定（一人称、年齢、身長、性格など）は readme.txt の自由文と character.yaml の localized_names のみに出す。character.txt に独自キーを追加しない。'
+
+[[requirement]]
+id = 'TR-PKG-33'
+title = '完成状態と手渡し状態を直交させる'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-34',
+]
+formalized_as = [
+  'INV-PKG-001',
+  'REQ-VIS-001',
+]
+statement = 'プロジェクトの状態を2つの独立した軸で持つ。`coverage_state` は録音カバレッジ・原音設定の解決状況・検証結果から機械的に決まる。`handoff_state` は書き出し履歴の有無から決まる。**完成判定は `coverage_state` のみを参照し `handoff_state` を一切参照しない**'
+
+[[requirement]]
+id = 'TR-PKG-34'
+title = '完成の定義'
+confidence = 'Fact'
+depends_on = []
+formalized_as = [
+  'INV-PKG-001',
+  'REQ-PKG-002',
+]
+statement = '完成 = 選択した方式の必須エイリアス表を100%被覆し、全 oto が書き出し前検証を通り、表示名が設定されている状態。**制作者名義・利用規約・web・アイコン・sample・立ち絵は完成の必要条件にしない**'
+
+[[requirement]]
+id = 'TR-PKG-35'
+title = '進捗表示に配布を含めない'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-33',
+]
+statement = '進捗ゲージ・チェックリスト・完了表示のいずれの分母にも、書き出し・公開・配布・作者情報の入力を含めない。「公開」「配布」「作者」「規約」の語を必須ステップとして通常モードに出さない。'
+
+[[requirement]]
+id = 'TR-PKG-36'
+title = 'ZIP を1度も作らなくても完成として扱う'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-33',
+  'TR-PKG-34',
+]
+statement = 'ZIP を1度も生成していないプロジェクトを、完成条件を満たしていれば一覧上で完成として表示し、再生・再開・再編集できる。書き出し時のみ制作者名義を求め、その場合も既定値（音源名と同一、または未設定を表す固定値）で通過できる。'
+
+[[requirement]]
+id = 'TR-PKG-37'
+title = 'プロジェクトのディレクトリ名を不変の UUID にする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-16',
+]
+statement = 'プロジェクトはアプリ管理のライブラリ配下に置き、ディレクトリ名を不変の UUID とする。表示名はメタデータとして持ち、改名でディレクトリ名を変更しない。表示名に FS 上不正な文字や CP932 で表現できない文字が入っても保存・再開が破綻しない。**副作用として「ライブラリ配下を人が見ても中身が判別できない」ため、各プロジェクトディレクトリ直下に人間可読な manifest（表示名・方式・項目数）を平文で置く**'
+
+[[requirement]]
+id = 'TR-PKG-38'
+title = 'プロジェクトを単一ファイルではなくディレクトリにする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-37',
+]
+statement = 'プロジェクトの実体をディレクトリとし、manifest（人間可読なメタデータ）、audio/（録音 WAV）、db（構造化データ）、renders/（試唱キャッシュ）、exports/（生成済みパッケージ）、snapshots/ で構成する。単一ファイルにパックしない。**利用者にフォルダ操作を要求しない。** 録音の保存先選択、oto.ini の配置、WAV のリネーム、バックアップフォルダ作成は通常フローから排除し、通常モードの画面にパスを表示しない。**ただし到達経路は必ず残す。** (1) プロジェクトのフォルダを OS のファイルマネージャで開く導線、(2) 録音済み WAV 一式と現在の oto.ini を任意のフォルダへ非破壊で書き出す「外部ツール用に書き出す」導線、(3) その書き出し先を再取り込みする導線（TR-PKG-48）。この3つはディレクトリの不変性を損なわない。**ライブラリ配下を人が見ても中身が判別できないため、各プロジェクトディレクトリ直下に人間可読な manifest（表示名・方式・項目数）を平文で置く。**'
+
+[[requirement]]
+id = 'TR-PKG-39'
+title = 'WAV を不変資産として扱う'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-38',
+]
+statement = '録音した WAV は録音停止時点でディスクへ確定書き込みし、以後 KOERU が書き換えない。トリム、無音除去、オフセット調整、切り出しは全て非破壊とし DB 側の数値としてのみ保持する。再録音は既存 WAV を上書きせず新しい WAV を追加し採用を DB で持つ。**不変性はマスター（32bit float）に適用する。前処理済み派生アセットは再生成可能なキャッシュとして別層に置く**（B10）'
+
+[[requirement]]
+id = 'TR-PKG-40'
+title = 'oto.ini を作業ファイルにしない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-38',
+]
+statement = 'タイミング5値とエイリアスは DB を正とする。oto.ini は書き出し時に生成する派生物として扱い、プロジェクトディレクトリ内に作業ファイルとして置かない'
+
+[[requirement]]
+id = 'TR-PKG-41'
+title = 'メタデータ更新をトランザクショナルにする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-38',
+]
+statement = 'メタデータの更新をトランザクショナルに行う。SQLite を WAL モードで使うか、一時ファイルへ書いてからアトミックな rename で置き換える。プロセスが強制終了しても直前にコミットされた一貫した状態で開ける。部分的に書かれた manifest が残る状態を作らない'
+
+[[requirement]]
+id = 'TR-PKG-42'
+title = '中断・再開で復元する内容'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-38',
+  'TR-PKG-41',
+]
+statement = 'アプリの終了・クラッシュ後の再開で、選択した方式、録音済み項目、次に録音すべき項目、残り項目数、カバレッジ、上級モードでの編集途中の状態を復元する。復元処理は WAV の全走査を要求しない。WAV の長さ・ピーク・波形サムネイルは録音時に算出して DB に保存する。'
+
+[[requirement]]
+id = 'TR-PKG-43'
+title = '破壊的操作の直前に自動スナップショットを取る'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-39',
+]
+statement = '自動原音設定の再実行、方式ダウングレード書き出し、一括エイリアス置換、項目削除、方式変更の直前に自動スナップショットを取り、1操作単位で元に戻せるようにする。スナップショットは WAV を複製せず、DB とメタデータのみを複製して WAV を参照する。'
+
+[[requirement]]
+id = 'TR-PKG-44'
+title = 'バージョン管理を書き出し単位で行う'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-38',
+]
+statement = 'バージョン管理は ZIP の書き出し単位で行う。書き出しのたびに不変のリリースレコード（ユーザーが付けたバージョン文字列、単調増加する連番、含めた方式、エイリアス数、検証結果、生成した oto.ini の内容ハッシュ、規約本文のハッシュ）を残す。過去バージョンの ZIP を上書きしない。'
+
+[[requirement]]
+id = 'TR-PKG-45'
+title = 'ユーザーにフォルダ操作を要求しない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-37',
+  'TR-PKG-42',
+]
+statement = '**ユーザーにフォルダ操作を「要求」しない。** 録音の保存先選択、oto.ini の配置、WAV のリネーム、バックアップフォルダ作成を通常フローから排除し、通常モードの画面にパスを表示しない。**ただし到達経路は必ず残す**: (1) プロジェクトのフォルダを OS のファイルマネージャで開く導線、(2) 録音済み WAV 一式と現在の oto.ini を任意のフォルダへ非破壊で書き出す「外部ツール用に書き出す」導線、(3) その書き出し先を再取り込みする導線。**この3つは UUID ディレクトリの不変性を一切損なわない**'
+notes = [
+  '現役制作者が vLabeler / OpenUtau と併用したい場合、WAV に外部から到達できないと部分利用すら成立しない',
+]
+
+[[requirement]]
+id = 'TR-PKG-46'
+title = '同名で意味の違う成果物を作れなくする'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-44',
+]
+statement = 'プロジェクトの複製は「派生」として親子関係を保持し、複製元と複製先の関係をデータモデルに残す。書き出しは常に最新の状態に対して行い、過去のリリースは履歴 UI からのみ取り出せるようにする。ユーザーが同じライブラリ内に同名・同内容の別プロジェクトを手で作れる導線を置かない。'
+
+[[requirement]]
+id = 'TR-PKG-47'
+title = 'ライブラリのバックアップと移行を1操作にする'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-38',
+]
+statement = 'ライブラリ全体を1つのアーカイブに書き出し、別の PC で取り込める機能を持つ。このアーカイブは配布パッケージとは別の拡張子・別の導線とし、UI 上でも取り違えられない表現にする。'
+
+[[requirement]]
+id = 'TR-PKG-48'
+title = '外部編集された oto.ini の検出と取り込み'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-44',
+  'TR-PKG-12',
+]
+statement = '書き出し時に生成した oto.ini の内容ハッシュをリリースレコードに保存する（TR-PKG-44）。書き出し済みパッケージを再度取り込む導線を提供する場合、ハッシュの不一致から外部ツールでの編集を検出し、差分を DB へ取り込むか破棄するかをユーザーが選べるようにする。取り込み時は符号化の判定（character.yaml の text_file_encoding、oto.ini の #Charset:、既定 shift_jis の順）と NFC 正規化を行う。'
+notes = [
+  '再取り込みを実装すると、取り込み側で扱う符号化・NFD・大小の異常系が一気に増える',
+]
+
+[[requirement]]
+id = 'TR-PKG-49'
+title = '書き出し前検証で止める Error の一覧'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-19',
+  'TR-PKG-20',
+]
+statement = '書き出し前に全件検査し、1件でも該当すれば書き出しを実行しない。character.txt 不在 / oto の行形式不正 / WAV 不在 / WAV 長が 0 以下 / サンプリング周波数 ≠ 44100 / 量子化ビット数 ≠ 16 / offset<0 / offset>WAV長 / preutter<0 / offset+preutter>WAV長 / consonant<0 / offset+consonant>WAV長 / offset+overlap>WAV長 / cutoff位置<offset+preutter / cutoff位置<offset+overlap / cutoff位置≤offset+consonant / cutoff位置>WAV長 / エイリアスの全体重複 / WAV 名の NFD / 小文字化衝突 / oto.ini の参照と実ファイル名の大小不一致。**追加で `.frq` のフレーム数 × 256 が WAV サンプル長を覆っているか、無声フレームが 0 になっているかの2項目を加える**（録音時に作ると決めたため）。**さらにフルスケール到達サンプル数の集計を書き出し直前に一度だけ提示する関門を置く**（recording 領域の残存リスク対策）'
+
+[[requirement]]
+id = 'TR-PKG-50'
+title = 'Info 相当の警告を生成側で発生させない'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-03',
+  'TR-PKG-18',
+  'TR-PKG-20',
+]
+statement = 'character.yaml 不在、非モノラル、エイリアスの前後スペース・複数スペース・全角スペース・NFD は、生成側で発生させない。受け手の検証画面に Info が1件も出ないパッケージを既定の出力とする。'
+
+[[requirement]]
+id = 'TR-PKG-51'
+title = '検証結果から編集画面へ直接遷移できる'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-49',
+]
+statement = '検証結果は「どのエイリアスの、どの数値が、どの WAV に対して、どう不正か」まで特定して提示し、該当箇所の編集画面へ1操作で遷移できるようにする。ファイルパスと行番号だけを提示して終わらない。'
+
+[[requirement]]
+id = 'TR-PKG-52'
+title = '生成した ZIP を読み戻して検証する'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-14',
+  'TR-PKG-15',
+]
+statement = 'ZIP 生成の直後に生成した ZIP を自前で読み戻し、(1) エントリ名の符号化が指定どおりか、(2) EFS フラグの状態が指定どおりか、(3) 階層が単層構造か、(4) 必須ファイルが存在するか、(5) テキストが指定符号化で再デコードできて内部モデルと一致するか、を検査する。1つでも不一致なら書き出しを失敗として扱い ZIP を残さない'
+
+[[requirement]]
+id = 'TR-PKG-53'
+title = '利用計測の共通制約'
+confidence = 'Fact'
+depends_on = []
+formalized_as = [
+  'INV-TEL-001',
+  'INV-TEL-002',
+]
+statement = '利用計測をどの方式で実装する場合でも、音声データ、WAV、エイリアス文字列、音源名、プロジェクト名、ファイルパス、ユーザーが入力した任意の文字列を計測対象に含めない。記録できるイベントの語彙をあらかじめ列挙型として固定し、フリーテキストを記録できない型にする。値は列挙型とカウンタと所要時間のみ'
+
+[[requirement]]
+id = 'TR-PKG-54'
+title = '利用計測は既定オフのオプトインとする'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-53',
+]
+formalized_as = [
+  'REQ-TEL-001',
+  'FB-TEL-002',
+]
+statement = '**利用計測は既定オフのオプトインとする。** 初回起動時に同意を求め、同意が無い限り送信経路を開かない。同意はいつでも撤回でき、撤回後は送信しない。**同意ダイアログを、プロジェクト作成と最初の録音より前に挟まない**（TR-PLT-17 の4操作を侵さない）。'
+notes = [
+  'ソラの実在規模、方式ごとの所要時間の妥当性、上級モードが vLabeler の粒度に届いたかを、リリース後に確かめる手段が無くなる',
+]
+
+[[requirement]]
+id = 'TR-PKG-55'
+title = '端末内の構造化ログは送信の可否と独立に持つ'
+confidence = 'Fact'
+depends_on = [
+  'TR-PKG-53',
+]
+formalized_as = [
+  'REQ-TEL-002',
+]
+statement = '**送信の可否と独立に、端末内の構造化ログを常に持つ。** 形式は JSON Lines または SQLite。保存期間と上限を定め、超えた分は古い順に捨てる。**本人がログをファイルとして書き出せる導線を置く。** 同意していない利用者も、自分の端末で何が記録されたかを読める。'
+notes = [
+  '能動的に協力した少数のログしか集まらず、離脱した人のログは定義上一件も得られない',
+  'ログを共有する経路が製品外にあるため、形式の互換性や真正性を保証できない',
+]
+
+[[requirement]]
+id = 'TR-PKG-56'
+title = '送信は SaaS 経由とし、フィールドをホワイトリストで絞る'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-53',
+]
+formalized_as = [
+  'REQ-TEL-003',
+  'INV-TEL-002',
+  'FB-TEL-001',
+]
+statement = '**送信は SaaS 経由とし、自前のサーバーを持たない。** 送信するフィールドはホワイトリスト方式で、列挙した名前に無いものは通さない。**音源名・ファイルパス・歌詞・プロジェクト名・波形を送らない。** 送信先、保持期間、プライバシーポリシー、および「声そのものは送らない」ことを、同意を求める画面に明示する。送信する内容の全文を利用者が確認できる。'
+notes = [
+  '「処理はローカルで完結」というメッセージと矛盾して受け取られうる',
+  'ソラ（非公開志向）にとって、同意ダイアログの存在自体が初回起動時の離脱要因になりうる',
+  '送信先を持つことで、配布の場を持たないという判断で回避したはずの運用責任が別の形で戻る',
+]
+
+[[requirement]]
+id = 'TR-PKG-57'
+title = 'クラッシュレポートを計測と別の同意単位にする'
+confidence = 'Assumption'
+depends_on = [
+  'TR-PKG-53',
+]
+statement = 'クラッシュレポートは利用計測とは別の同意単位で扱う。クラッシュ発生時にのみ、送信内容の全文をその場で提示し、都度送信の可否をユーザーが選べるようにする。自動送信を既定にしない。スタックトレースに含まれるファイルパスと音源名をマスクしてから提示する。'

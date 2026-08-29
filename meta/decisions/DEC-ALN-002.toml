@@ -1,0 +1,27 @@
+id = 'DEC-ALN-002'
+title = '原音設定は自動を既定とし、setParam / vLabeler と同等の編集機能を必ず持つ'
+constraint_label = '原音設定'
+constraint = '自動を既定。setParam / vLabeler と同等の編集機能を必ず持つ'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '自動のみ',
+  '自動を既定＋同等の編集機能',
+  '手動のみ',
+]
+selected = '自動を既定＋同等の編集機能'
+rationale = '''
+**「編集画面を一度も開かせない」は単独音なら成立しうるが、連続音以上では成立しない前提で設計する。**
+歌声の強制アライメントは最新手法でも境界の約2割が 20ms を超えて外れる。
+自動の到達水準がここを決めるため、編集機能を落とすことはできない。
+'''
+review_triggers = [
+  '境界精度が実測で編集を不要にする水準へ届いたとき',
+]
+affects_requirements = [
+  'TR-EDT-01',
+  'TR-ALN-24',
+]
+affects_questions = [
+  'Q-ALN-002',
+]

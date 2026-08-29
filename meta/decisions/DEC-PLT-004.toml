@@ -1,0 +1,26 @@
+id = 'DEC-PLT-004'
+title = 'Linux は Flatpak の1形態で配布する'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Flatpak 1形態',
+  'AppImage 1形態',
+  'deb + AppImage の2形態',
+  'rpm も含む',
+]
+selected = 'Flatpak 1形態'
+rationale = '''
+**WebKitGTK のディストリビューション依存を Flatpak runtime に吸収できる**のが決め手。
+Tauri を選んだ以上ここが最大のリスクになる。Linux は中核機能のみの第三対応環境という位置づけと整合する。
+'''
+review_triggers = [
+  'Flatpak を使わない利用者の比率が無視できないと判明したとき',
+  'Flatpak runtime の WebKitGTK が要求水準に届かないと判明したとき',
+]
+affects_requirements = [
+  'TR-PLT-01',
+  'TR-PLT-15',
+]
+affects_decisions = [
+  'DEC-PLT-001',
+]

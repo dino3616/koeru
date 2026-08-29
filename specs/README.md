@@ -4,8 +4,8 @@
 
 FSL に入れないものは3つある。
 
-- **決定・未決の論点・調査 Evidence・実測予算** → `meta/`
-- **実時間（ms、パーセンタイル）、確率、連続量、自由文の意味** → FSL の対象外。`meta/budgets/` と実機ベンチが持つ
+- **要件そのもの・判断・未決の論点・調査 Evidence・実測予算** → `meta/`（261件の要件は `meta/requirements/`）
+- **実時間（ms、パーセンタイル）、確率、連続量、自由文の意味** → FSL の対象外。`meta/targets/` と実機ベンチが持つ
 - **ビジョン、ペルソナ、ジャーニーマップ、調査の説明** → `docs/`
 
 ## いま形式化してあるもの
@@ -16,12 +16,12 @@ FSL に入れないものは3つある。
 requirements/project-lifecycle.fsl              要求層。何が成り立たなければならないか
 design/project-storage.fsl                      設計層。テイク確定を3手に割った実装の輪郭
 refinement/project-design-refines-requirements.fsl   層の継ぎ目
-fsl-project-v0.toml                             検証チェーンの定義
+fsl-project.toml                             検証チェーンの定義
 ```
 
 `business` 層はまだ無い。ビジョンの3原則を形式化できるかは未検証で、先に requirements と design の継ぎ目が有効かを確かめる段階にある。
 
-**261件の技術要件を一度に FSL へ移さないこと。** 形式化できない文章まで入れると、FSL が新しい巨大文書になる。
+**`meta/requirements/` の261件を一度に FSL へ移さないこと。** 大半は状態機械ではなく、形式化できない文章まで入れると FSL が新しい巨大文書になる。FSL へ上げるのは、**操作の順序や組み合わせで到達してはいけない状態がある**ものに限る。上げたら、その要件の `formalized_as` に FSL の ID を書く。
 
 ## 検証されている契約
 
@@ -44,7 +44,7 @@ fslc check   specs/requirements/project-lifecycle.fsl
 fslc verify  specs/requirements/project-lifecycle.fsl --depth 12
 fslc verify  specs/requirements/project-lifecycle.fsl --engine induction
 fslc mutate  specs/requirements/project-lifecycle.fsl --depth 8            # 空洞になっていないか
-fslc chain   specs/fsl-project-v0.toml                                     # 全層 + 継ぎ目
+fslc chain   specs/fsl-project.toml                                     # 全層 + 継ぎ目
 
 # 設計層の帰納法は depth 12 が要る（テイク確定が3手に割れているぶん深い）
 fslc verify  specs/design/project-storage.fsl --engine induction --depth 12

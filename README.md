@@ -22,7 +22,8 @@ KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音�
 | [personas.md](docs/personas.md) | 誰のために作るか |
 | [journey-map.md](docs/journey-map.md) | 体験の時系列（現状と理想） |
 | [usecase-map.md](docs/usecase-map.md) | 機能と利用関係 |
-| [tech-requirements.md](docs/tech-requirements.md) | 何を満たさないと成立しないか |
+| [meta/](meta/) | 何を満たさないと成立しないか。要件・判断・未決の論点・予算 |
+| [specs/](specs/) | 形式的な契約。反例探索にかけている |
 | [AGENTS.md](AGENTS.md) | エージェントが作業するときの前提と、破ってはいけないもの |
 
 ## 実装の方針

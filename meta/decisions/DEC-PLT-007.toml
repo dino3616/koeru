@@ -1,0 +1,24 @@
+id = 'DEC-PLT-007'
+title = 'アクセシビリティを既定要件とする'
+constraint_label = 'アクセシビリティ'
+constraint = '既定で満たす要件。選択的な追加機能ではない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '既定要件',
+  '選択的な追加機能',
+  '初期スコープ外',
+]
+selected = '既定要件'
+rationale = '''
+すべてのプロダクトで既定で必要な要件であり、選択的な追加機能ではない。
+ショートカット中心の設計はキーボード操作と親和的なので、要件化のコストは低い。
+Tauri を選んだのは、日本語 IME と OS のアクセシビリティ API への対応が最も確実だったことも理由になっている。
+'''
+review_triggers = []
+affects_requirements = [
+  'TR-PLT-24',
+]
+affects_questions = [
+  'Q-PLT-003',
+]

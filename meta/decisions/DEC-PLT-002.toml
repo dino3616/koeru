@@ -1,0 +1,26 @@
+id = 'DEC-PLT-002'
+title = 'ライセンスを AGPL-3.0-or-later にする'
+constraint_label = 'ライセンス'
+constraint = 'AGPL-3.0-or-later。OSS として公開し Issue / PR を受け付ける。DCO を導入'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'AGPL-3.0-or-later',
+  'GPL-3.0',
+  'MIT / Apache-2.0',
+  '非公開',
+]
+selected = 'AGPL-3.0-or-later'
+rationale = '''
+OSS として公開し Issue / PR を受け付ける。DCO を採用する。
+**この選択で GPL 系のコードを取り込めるようになった。** worldline（GPL-2.0-or-later）をそのまま使えるため
+`@spline` の自前実装が不要になり、Slint（GPLv3）・Qt（GPLv3）・Rubber Band Library（GPL）も候補に戻った。
+同時に Microsoft Store 経路は閉じた。
+'''
+review_triggers = [
+  'クローズドソース前提の事業判断を取る必要が出たとき',
+  'AGPL の到達範囲がデスクトップアプリで問題になると判明したとき',
+]
+affects_requirements = [
+  'TR-PLT-22',
+]

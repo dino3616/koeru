@@ -10,3 +10,10 @@ open_items = [
   "Julius segmentation-kit の .binhmm への MIT 適用（Q-ALN-001）",
 ]
 note = "学習済みモデルは、モデル側の表示ライセンスが学習コーパスの条件を上書きできるとは限らない。"
+
+# 技術的な比較の余地があると誤解しないための記録。
+ruled_out_by_license = [
+  '文字コード判定（uchardet 系）: MPL-1.1 が TR-PLT-22 の台帳ルールと字面で衝突する。**自前実装で落とせる。** UTAU 音源は CP932 と UTF-8 の2択なので汎用判定器は不要',
+  'LGPL 部品（alsa-lib、libsoxr）: 直接ダウンロード配布なら LGPL-2.1 の差し替え要件は満たせる。ただし libsoxr は libsamplerate（BSD-2-Clause）で置換でき、alsa-lib は miniaudio が `libasound` を実行時 dlopen するため配布物に入れる必要がない。**[Risk]** AppImage 作成時に依存収集ツールが `libasound.so.2` を自動で取り込む経路があるので、除外リストに入れ、生成後に `ldd` と同梱ファイル一覧を CI で検査する',
+  'ライセンス不明の部品（moresampler / setParam / resampler.exe）: **「調査中」ではなく「全権利留保」として扱う。** 逆コンパイル禁止の線を明示する',
+]

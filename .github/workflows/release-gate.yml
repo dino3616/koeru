@@ -3,14 +3,15 @@ name: release gate
 # リリース対象のプロファイルが、未決の論点に依存していないかを確かめる。
 # 通常の CI では落とさない。未決が残っているのは開発中は正常だが、
 # その状態でリリースするのは正常ではない、という線引き。
+#
+# プロファイルはまだ1つも無い（meta/profiles/README.md）。
+# マイルストーンを立てて最初のプロファイルを作ったら、タグ push でも走らせる。
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
       profile:
-        description: 検査するリリースプロファイル
-        default: PROFILE-V0
+        description: 検査するリリースプロファイルの ID
+        required: true
 
 permissions:
   contents: read
@@ -22,4 +23,4 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: check profile
-        run: cargo run --package xtask -- check-profile "${{ inputs.profile || 'PROFILE-V0' }}"
+        run: cargo run --package xtask -- check-profile "${{ inputs.profile }}"

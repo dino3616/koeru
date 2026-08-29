@@ -1,0 +1,58 @@
+# platform の性能予算（目標値）
+#
+# 実時間・パーセンタイル・スループットは FSL の対象外。ここが正本。
+# 実測に置き換わるまでは目標であって、達成の根拠ではない。
+
+domain = 'platform'
+
+[[target]]
+item = 'インストーラのダウンロードサイズ（win-x64）'
+goal = '≤ 120MB（圧縮後）'
+note = '**WebView2 固定版の同梱で約180MB 増えるため、120MB の予算は再計算が必要**（→ Q-PLT-001）'
+
+[[target]]
+item = '同（macOS arm64 / Linux x64）'
+goal = '≤ 110MB'
+note = 'macOS は WKWebView が OS 同梱のため増えない。Linux は Flatpak runtime に含める'
+
+[[target]]
+item = '同梱する推論モデルの合計サイズ'
+goal = '≤ 60MB'
+note = '実サイズ約 1.2MB（Julius 併載で約5MB）。**約50倍の過剰配分**'
+
+[[target]]
+item = '初回起動後に追加ダウンロードする総量'
+goal = '0MB'
+note = 'TR-PLT-19 / TR-PLT-20'
+
+[[target]]
+item = 'コールドスタート → プロジェクト作成画面'
+goal = '≤ 3秒'
+note = '購入5年程度のノート PC、SSD 前提'
+
+[[target]]
+item = '「録音」押下 → キャプチャ開始'
+goal = '≤ 200ms、プリロール ≥ 300ms で冒頭欠落ゼロ'
+
+[[target]]
+item = '8フレーズ録音直後の初回試唱までの待ち時間'
+goal = '≤ 30秒'
+note = '実見積もり 5〜5.5秒（Harvest が実時間相当なら 10〜12秒）'
+
+[[target]]
+item = '波形のパン・ズーム中のフレーム時間'
+goal = '≤ 16.7ms/frame（60fps 維持）'
+
+[[target]]
+item = 'スペクトログラムの初回計算'
+goal = '10秒素材の STFT を ≤ 150ms、再描画は ≤ 16.7ms（再計算なし）'
+
+[[target]]
+item = '原音設定エントリ間の移動'
+goal = '≤ 50ms（エントリ数 3000）'
+note = '**B6 によりディスクキャッシュ前提への変更が必要**'
+
+[[target]]
+item = 'ピークメモリ'
+goal = '≤ 1.5GB'
+note = '**B5 により実行モード別の内訳表として再定義が必要**'

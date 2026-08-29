@@ -7,7 +7,7 @@ renderer: fslc-document-renderer
 renderer_version: 1.3.0
 normative_scope: generated-claim-blocks-only
 spec_digest: sha256:790e1399c2fb6867045a432f14cafbde16c21e60613d5c7fd3c8c1e697626618
-claim_set_digest: sha256:10042ea68beb9ebe1c17bbf4bb6c41417a0fdf33fd012263716d704706380aa9
+claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac551ce4c095
 ---
 
 # 要件仕様書: KoeruProjectLifecycle
@@ -888,7 +888,7 @@ claim_set_digest: sha256:10042ea68beb9ebe1c17bbf4bb6c41417a0fdf33fd012263716d704
 ### `action:crash_and_recover`
 
 - 宣言: `action crash_and_recover`
-- 理由: クラッシュ復帰の契約が要件に存在しない（tech-requirements の「要件が存在しない空白」）。ここでは進行中のテイクだけが失われる仮の挙動を置いている
+- 理由: クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。ここでは進行中のテイクだけが失われる仮の挙動を置いている
 - 関連する要件: REQ-PKG-001, REQ-PKG-002, REQ-REC-001, REQ-REC-002, REQ-REC-003
 - 出典: `specs/requirements/project-lifecycle.fsl:105`
 
@@ -902,7 +902,7 @@ claim_set_digest: sha256:10042ea68beb9ebe1c17bbf4bb6c41417a0fdf33fd012263716d704
 
 - 生成元仕様: `specs/requirements/project-lifecycle.fsl`（`KoeruProjectLifecycle`、dialect: `requirements`）
 - spec digest: `sha256:790e1399c2fb6867045a432f14cafbde16c21e60613d5c7fd3c8c1e697626618`
-- claim set digest: `sha256:10042ea68beb9ebe1c17bbf4bb6c41417a0fdf33fd012263716d704706380aa9`
+- claim set digest: `sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac551ce4c095`
 - 形式要素の分類: rendered 25 件 / unattributed 2 件 / unsupported 1 件
 - 自然言語への言い換えを行わなかった式: 0 箇所
 - 由来情報は不完全である（completeness: `Partial`）。一部の要素について、FSL ソース上の出所を特定できていない。

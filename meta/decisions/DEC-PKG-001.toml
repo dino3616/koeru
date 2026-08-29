@@ -1,5 +1,7 @@
 id = "DEC-PKG-001"
 title = "完成状態と手渡し状態を直交させる"
+constraint_label = '完成'
+constraint = '非公開のまま完成できる状態を正規の完成形として残す'
 status = "accepted"
 owner = "dino3616"
 options = ["完成に公開を含める", "完成と手渡しを直交させる"]

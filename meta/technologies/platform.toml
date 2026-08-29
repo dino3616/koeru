@@ -1,0 +1,144 @@
+# 実装基盤とアプリケーション形態 の候補技術
+#
+# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
+# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+
+domain = 'platform'
+
+[[technology]]
+name = 'SkiaSharp'
+purpose = '波形・スペクトログラム描画'
+license = 'MIT'
+verdict = '採用候補'
+
+[[technology]]
+name = 'miniaudio'
+purpose = '音声入出力。WASAPI / CoreAudio / ALSA / PulseAudio を単一ヘッダで抽象化'
+license = 'Unlicense または MIT-0 の選択制'
+verdict = '採用候補'
+
+[[technology]]
+name = 'PortAudio'
+purpose = '音声入出力（miniaudio の代替）'
+license = 'MIT 相当（LICENSE.txt 実物確認）'
+verdict = '採用候補'
+
+[[technology]]
+name = 'WORLD (mmorise/World)'
+purpose = '合成コアの基礎'
+license = '修正 BSD 3条項（LICENSE.txt 実物確認）'
+verdict = '採用候補'
+
+[[technology]]
+name = 'OpenUtau / OpenUtau.Core'
+purpose = 'UTAU 形式 I/O、phonemizer、Classic 層の仕様と実装'
+license = 'MIT'
+verdict = '採用候補（vendoring または仕様参照）'
+
+[[technology]]
+name = 'NetSparkleUpdater'
+purpose = '直接ダウンロード経路の自動更新（appcast 方式）'
+license = 'MIT'
+verdict = '採用候補'
+
+[[technology]]
+name = 'Velopack'
+purpose = '自動更新とインストーラ生成（NetSparkle の代替）'
+license = 'MIT'
+verdict = '採用候補'
+
+[[technology]]
+name = 'ONNX Runtime（CPU のみ）'
+purpose = '推論ランタイム'
+license = 'MIT'
+verdict = '採用候補（SwiftF0 の推論に必要）'
+
+[[technology]]
+name = 'Qt 6'
+purpose = 'GUI（対抗案）'
+license = 'Community Edition は GPL / LGPL、別に商用。混在不可（qt.io/licensing 実物確認）'
+verdict = '**不適**（クローズドソース配布には有償ライセンス購入が前提）'
+
+[[technology]]
+name = 'JUCE 9'
+purpose = '音声 I/O を含むアプリフレームワーク'
+license = 'AGPLv3 と商用のデュアル'
+verdict = '**不適**（同上）'
+
+[[technology]]
+name = 'Slint'
+purpose = 'GUI（対抗案）'
+license = '**Unknown**（GitHub API は NOASSERTION。royalty-free 条項の本文が未確認）'
+verdict = '**候補外**（条項本文を入手して確認できるまで）'
+
+[[technology]]
+name = 'SwiftUI + WinUI 3 の OS 別実装'
+purpose = 'GUI（対抗案）'
+license = '各 SDK 利用条項（第三者への再配布ライセンスではない）'
+verdict = '不適'
+
+[[technology]]
+name = 'Azure Artifact Signing'
+purpose = 'Windows 直接経路のコード署名。CI 署名可能'
+license = '**Unknown**（日本の法人・個人が契約できるかを確定できていない）'
+verdict = '要調査'
+
+[[technology]]
+name = 'OV コード署名証明書'
+purpose = 'Azure Artifact Signing が使えない場合の署名'
+license = '**Unknown**（発行条件と価格を一次情報で未確認）'
+verdict = '要調査'
+
+[[technology]]
+name = 'Apple Developer Program / Developer ID'
+purpose = 'macOS の配布'
+license = '**Unknown**（契約条項・年額を一次情報で未確認）'
+verdict = '採用候補'
+
+[[technology]]
+name = 'SignPath Foundation'
+purpose = 'OSS 向けの無償コード署名'
+license = '**Unknown**（適格要件と条項を未確認）'
+verdict = '要調査'
+
+[[technology]]
+name = 'Sparkle 2.x'
+purpose = 'macOS の自動更新'
+license = '**Unknown**（GitHub API は NOASSERTION。同梱第三者コードの条項を未確認）'
+verdict = '要調査'
+
+[[technology]]
+name = 'UTF.Unknown'
+purpose = '既存音源フォルダの文字コード推定'
+license = 'MPL-1.1 / GPL-2.0+ / LGPL-2.1+ のトライライセンス（README 実物確認。GitHub API は license: null）'
+verdict = '**不適**（自前実装で置換。下記参照）'
+
+[[technology]]
+name = 'MFA 3.x'
+purpose = '強制アライメント'
+license = 'コード MIT / 日本語音響モデル・辞書は CC BY 4.0 表示'
+verdict = '不適（Python / Conda / Kaldi ランタイムを要する）'
+
+[[technology]]
+name = 'SOFA'
+purpose = '歌声専用アライメント。境界信頼度の参照設計'
+license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
+verdict = '不適（配布モデルの再配布許諾が確認できない）'
+
+[[technology]]
+name = 'Rust 1.95 / edition 2024'
+purpose = '実行基盤。FFI でネイティブライブラリを直接呼べる'
+license = 'MIT / Apache-2.0'
+verdict = '採用'
+
+[[technology]]
+name = 'Tauri'
+purpose = 'GUI。フロントは WebView、描画は Canvas / WebGL'
+license = 'Apache-2.0 / MIT'
+verdict = '採用'
+
+[[technology]]
+name = 'WebView2（固定バージョン同梱）'
+purpose = 'Windows の WebView。環境依存を排除する代わりに約180MB 増える'
+license = 'Microsoft ソフトウェア ライセンス条項（再頒布可）'
+verdict = '採用'

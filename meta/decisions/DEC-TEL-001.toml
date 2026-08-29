@@ -1,5 +1,7 @@
 id = "DEC-TEL-001"
 title = "利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する"
+constraint_label = '利用計測'
+constraint = 'オプトイン。自前サーバーを持たず SaaS 経由。送信フィールドはホワイトリスト方式'
 status = "accepted"
 owner = "dino3616"
 options = ["実装しない", "ローカルに留める", "明示的オプトインで送信"]

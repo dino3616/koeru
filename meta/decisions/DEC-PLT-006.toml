@@ -1,0 +1,24 @@
+id = 'DEC-PLT-006'
+title = 'まず UTAU エコシステムを対象とし、ニューラル音源データセット系は初期サポート外'
+constraint_label = '対象'
+constraint = 'まず UTAU エコシステム。ニューラル音源データセット系は初期サポート外'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'UTAU 優先',
+  'ニューラル音源優先',
+  '両対応',
+]
+selected = 'UTAU 優先'
+rationale = '''
+既存の制作文化と道具（OpenUtau / vLabeler / RecStar / setParam）が積み上げてきた形式に合わせる。
+出力互換の実質的な保証は「生成した音源が OpenUtau の最新リリースで読み込めることを CI で検証する」に置く。
+'''
+review_triggers = [
+  'UTAU 形式が実質的に使われなくなったとき',
+  'ニューラル音源側のデータセット形式が事実上の標準になったとき',
+]
+affects_requirements = [
+  'TR-PLT-10',
+  'TR-PKG-01',
+]

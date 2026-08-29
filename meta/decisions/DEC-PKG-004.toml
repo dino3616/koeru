@@ -1,0 +1,30 @@
+id = 'DEC-PKG-004'
+title = '書き出すファイル名は ASCII 固定とし、読み込みは日本語にも対応する'
+constraint_label = 'ファイル名'
+constraint = '書き出しは ASCII 固定。読み込みは日本語にも対応'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'ASCII 固定',
+  '日本語ファイル名を維持',
+  '両方を選ばせる',
+]
+selected = 'ASCII 固定'
+rationale = '''
+CP932 表現可能性、macOS の NFD 正規化、大文字小文字だけが違う重複の回避が、
+**書き出し側では一括で解ける。** 代償として既存の UTAU 音源の慣例（日本語ファイル名）からは外れるので、
+読み込み側は日本語にも対応する。
+'''
+review_triggers = [
+  'ASCII 固定が既存音源との往復を壊すと判明したとき',
+]
+affects_requirements = [
+  'TR-PKG-11',
+  'TR-PKG-14',
+  'TR-PKG-39',
+  'TR-PKG-45',
+  'TR-EDT-42',
+]
+affects_questions = [
+  'Q-ALL-002',
+]

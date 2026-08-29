@@ -102,7 +102,7 @@ requirements KoeruProjectLifecycle {
     sent_events = sent_events + 1
   }
 
-  @undecided("クラッシュ復帰の契約が要件に存在しない（tech-requirements の「要件が存在しない空白」）。ここでは進行中のテイクだけが失われる仮の挙動を置いている")
+  @undecided("クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。ここでは進行中のテイクだけが失われる仮の挙動を置いている")
   action crash_and_recover() {
     requires recording
     requires crashes < 2

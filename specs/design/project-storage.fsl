@@ -113,7 +113,7 @@ spec KoeruProjectStorage {
   }
 
   // 書きかけだけが失われる。確定済みファイルと DB の行は残る（ASSUME-7）
-  @undecided("クラッシュ復帰の契約が要件に存在しない。確定済みの耐久性はここでは仮に置いている")
+  @undecided("クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。確定済みの耐久性はここでは仮に置いている")
   action crash_and_recover() {
     requires recording
     requires crashes < 2

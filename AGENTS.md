@@ -22,8 +22,21 @@
 | [docs/personas.md](docs/personas.md) | 誰のために作るか。ミナ / ハル / ソラ |
 | [docs/journey-map.md](docs/journey-map.md) | 体験の時系列（As-Is / To-Be） |
 | [docs/usecase-map.md](docs/usecase-map.md) | 機能と利用関係。F01〜F05、UC-* |
-| [docs/tech-requirements.md](docs/tech-requirements.md) | 何を満たさないと成立しないか。TR-* と未解決の設計課題 |
 | [docs/generated/](docs/generated/) | **FSL から生成した要件文書。手で編集しない** |
+
+技術的なことは `docs/` には無い。**要件・判断・未決の論点・予算は [meta/](meta/)、形式的な契約は [specs/](specs/) が正本。**
+
+| 場所 | 何の正本か |
+|---|---|
+| [meta/requirements/](meta/requirements/) | 満たさなければ成立しない条件。`TR-*` 261件 |
+| [meta/decisions/](meta/decisions/) | 何を選び、なぜ選び、何が起きたら覆すか。`DEC-*` |
+| [meta/questions/](meta/questions/) | まだ決まっていないこと。`Q-*` |
+| [meta/budgets/](meta/budgets/) ・ [meta/targets/](meta/targets/) | 上限と配分、領域ごとの性能目標 |
+| [meta/technologies/](meta/technologies/) | 候補技術とライセンス、採否 |
+| [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、ライセンス、実測 |
+| [specs/](specs/) | 状態・遷移・不変条件・受入・禁止。反例探索にかけている |
+
+読み方と規律は [meta/README.md](meta/README.md) と [specs/README.md](specs/README.md)。
 
 ## Skills
 
@@ -70,12 +83,12 @@ cargo deny check   # 要 cargo install cargo-deny --locked
 仕様側は別に検証する。
 
 ```bash
-fslc lint specs/ --project specs/fsl-project-v0.toml   # ID 規約
-fslc chain specs/fsl-project-v0.toml                   # 各層の検証と、層の継ぎ目の refine
+fslc lint specs/ --project specs/fsl-project.toml   # ID 規約
+fslc chain specs/fsl-project.toml                   # 各層の検証と、層の継ぎ目の refine
 fslc document check specs/requirements/project-lifecycle.fsl docs/generated/project-lifecycle.md
 cargo xtask check-meta                                 # meta の参照先が実在するか
 cargo xtask check-budgets                              # 配分の合計が上限を超えていないか
-cargo xtask check-profile PROFILE-V0                   # 未決の論点がリリースを塞いでいないか
+cargo xtask check-profile <ID>                         # 未決の論点がリリースを塞いでいないか
 ```
 
 CI（`.github/workflows/ci.yml`）で同じものを実行する。`clippy::all` はリポジトリ全体で deny。
@@ -108,7 +121,7 @@ deny.toml           AGPL 互換ライセンスの許可リスト
 - **実装は Rust + Tauri。** 単一のネイティブアプリ、PC 前提。処理はローカル完結で、声をサーバへ送らない
 - **音声 I/O は miniaudio を FFI で使う。** 必要なのは OS 側の音声加工を無効化する経路（排他モード、または共有モード＋ RAW ストリーム要求）へ到達できることで、`cpal` はそのどちらにも降りられない
 - **合成は WORLD ベース。** ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
-- **未解決の設計課題が2件ある**（`docs/tech-requirements.md` の B5 / B6）。いずれもメモリ予算の破綻で、実装着手前に数値を積み直す必要がある
+- **未解決の設計課題が2件ある**（`meta/questions/Q-PLT-001` と `Q-EDT-001`）。いずれもメモリ予算の破綻で、実装着手前に数値を積み直す必要がある
 - **FSL 化してあるのは縦切り1本だけ**（録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し）。261件の技術要件を一度に FSL へ移さないこと。形式化できない文章まで入れると、FSL が新しい巨大文書になる
 - **`fslc` はバージョンと SHA-256 で固定している**（CI 参照）。更新は Renovate 任せにせず、semantic diff を確認してから上げる。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する
 

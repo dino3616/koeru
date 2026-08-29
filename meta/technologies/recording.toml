@@ -1,0 +1,108 @@
+# 録音サブシステム の候補技術
+#
+# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
+# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+
+domain = 'recording'
+
+[[technology]]
+name = 'miniaudio'
+purpose = '音声 I/O 抽象（WASAPI / CoreAudio / ALSA / PulseAudio / JACK）'
+license = 'Public Domain または MIT No Attribution の選択制'
+verdict = '採用候補'
+
+[[technology]]
+name = 'WASAPI / IAudioClient3 + IAudioEffectsManager'
+purpose = 'Windows の低レベル入力、RAW 要求、効果の列挙と無効化'
+license = 'OS 付属 API'
+verdict = '採用候補'
+
+[[technology]]
+name = 'CoreAudio HAL / AUHAL'
+purpose = 'macOS の低レベル入力、デバイス通知、入力ゲイン制御'
+license = 'OS 付属 API'
+verdict = '採用候補'
+
+[[technology]]
+name = 'AVCaptureDevice マイクモード API'
+purpose = 'macOS の Voice Isolation / Wide Spectrum の検知と設定 UI の提示'
+license = 'OS 付属 API'
+verdict = '条件付き（下記 [Unknown]）'
+
+[[technology]]
+name = 'PipeWire'
+purpose = 'Linux の音声グラフへの接続（ノードレート・レイテンシの明示指定）'
+license = 'MIT'
+verdict = '採用候補'
+
+[[technology]]
+name = 'libsamplerate'
+purpose = '非 44100 のキャプチャから 44100 Hz へのリサンプル'
+license = 'BSD-2-Clause'
+verdict = '採用候補'
+
+[[technology]]
+name = 'SQLite'
+purpose = 'テイク・セッション・カバレッジのメタデータ永続化（WAL モード）'
+license = 'Public Domain'
+verdict = '採用候補'
+
+[[technology]]
+name = 'PortAudio'
+purpose = '音声 I/O（代替）'
+license = 'MIT'
+verdict = '条件付き'
+
+[[technology]]
+name = 'cpal'
+purpose = '音声 I/O（対抗案）'
+license = 'Apache-2.0'
+verdict = '不適（上記と同じ理由）'
+
+[[technology]]
+name = 'RtAudio'
+purpose = '音声 I/O（C++）'
+license = 'MIT 類似（改変版の扱いに関する条項あり。原文の逐語確認が未了）'
+verdict = '要調査'
+
+[[technology]]
+name = 'alsa-lib'
+purpose = 'ALSA デバイスへの直接アクセス'
+license = 'LGPL-2.1'
+verdict = '**不適**（Store / 署名配布と両立しない。miniaudio の実行時 dlopen 経由でのみ ALSA に到達する）'
+
+[[technology]]
+name = 'libsoxr'
+purpose = 'リサンプル'
+license = 'LGPL-2.1 以降'
+verdict = '**不適**（libsamplerate で置換）'
+
+[[technology]]
+name = 'JUCE 9'
+purpose = '音声 I/O を含むフレームワーク'
+license = 'AGPLv3 と商用のデュアル'
+verdict = '不適'
+
+[[technology]]
+name = 'RecStar'
+purpose = '録音セッション構造の仕様参照元（同梱対象ではない）'
+license = 'Apache-2.0'
+verdict = '参照のみ'
+
+[[technology]]
+name = 'OpenUtau (VoicebankErrorChecker)'
+purpose = '配布物の検証仕様の一次資料（同梱対象ではない）'
+license = 'MIT'
+verdict = '参照のみ'
+
+[[technology]]
+name = 'miniaudio（FFI）'
+purpose = '音声 I/O。WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱う'
+license = 'パブリックドメイン または MIT-0'
+verdict = '採用'
+
+[[technology]]
+name = 'cpal'
+purpose = '音声 I/O（対抗案）'
+license = 'Apache-2.0'
+verdict = '**不適。排他モードにも RAW ストリーム要求にも到達できず、OS 側の音声加工を無効化する経路が無い**'

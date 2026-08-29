@@ -3,7 +3,7 @@ title = "クラッシュから復帰したとき、どこまでの録音が残�
 status = "open"
 owner = "dino3616"
 why_it_matters = """
-tech-requirements の「要件が存在しない空白」に自分で挙げている項目。
+要件が存在しない空白として挙げている項目（Q-REC-003 / Q-REC-004 と同じ性格）。
 録音はやり直しが高い操作なので、ここが壊れると製品の前提が崩れる。
 要件が無いため FSL 側では undecided: として記録しており、
 設計層は「書きかけだけが失われる」を仮に置いている（ASSUME-7）。
@@ -16,3 +16,6 @@ undecided_in = [
   "specs/requirements/project-lifecycle.fsl",
   "specs/design/project-storage.fsl",
 ]
+
+# 移行前の原文。言い換えで意味が動いていないかを突き合わせるために残す。
+source_text = '| クラッシュ時の録音データ保護 | 多音階連続音の途中でプロセスが落ちた場合。予期しない終了からの復帰 |'

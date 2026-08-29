@@ -1,5 +1,7 @@
 id = "DEC-PLT-001"
 title = "実装スタックを Rust + Tauri にする"
+constraint_label = '形態'
+constraint = '単一のネイティブアプリケーション。PC 前提。実装は **Rust + Tauri**'
 status = "accepted"
 owner = "dino3616"
 options = ["Rust + Tauri", ".NET + Avalonia", "Compose Multiplatform", "Rust + Slint"]

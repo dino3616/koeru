@@ -1,0 +1,28 @@
+id = 'DEC-PKG-002'
+title = '`.frq` は録音時に作る'
+constraint_label = '周波数表'
+constraint = '`.frq` は録音時に作る（試唱の F0 解析の副産物）'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '録音時に作る',
+  '書き出し時に作る',
+  '受け手の初回再生に任せる',
+]
+selected = '録音時に作る'
+rationale = '''
+即時試唱のための F0 解析がどうせ走るので、その副産物として書き出す。
+**書き出し時にすると、パッケージング予算が約50倍外れる。** 3秒の想定に対して実際は数分規模になる。
+同梱すると ZIP が約3%増える代わりに、受け手の初回再生の待ち時間が消える。
+'''
+review_triggers = [
+  'SwiftF0 のコーパス監査が不合格になり Harvest に戻るとき（RTF が変わる）',
+]
+affects_requirements = [
+  'TR-PKG-05',
+  'TR-PKG-49',
+  'TR-SYN-01',
+]
+affects_decisions = [
+  'DEC-SYN-001',
+]
