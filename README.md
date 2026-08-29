@@ -10,7 +10,7 @@ KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音�
 
 - **Create before configure** — 設定する前に、まず歌える
 - **Own your voice** — 自分の声は自分のもの
-- **Made to be shared** — 誰かに使われて、初めて完成する
+- **Made to be handed on** — 手渡せる状態まで、つくる
 
 ## 状態
 
