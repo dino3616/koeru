@@ -1,0 +1,194 @@
+// 配布パッケージの書き出し（要求層）
+//
+// **スコープは書き出しの関門。** 完成と手渡しの直交は project-lifecycle、
+// 利用計測は telemetry-consent が持つ。ここで扱うのは
+// 「何を満たせば書き出してよいか、失敗したら何を残さないか」。
+//
+// ASSUME-1: 書き出し前検証の項目（TR-PKG-49 の約20条件）は、通ったか通らないかの
+//           1つの述語に畳む。個々の条件は算法で、meta/requirements が持つ。
+// ASSUME-2: 方式数は検証用に3へ閉じる（表現上の仮定）。
+// ASSUME-3: エイリアスの一意性（TR-PKG-19）は、衝突が無いという述語に畳む。
+//
+// **方式の上下関係のグラフは method-downgrade.fsl が持つ。** 関心が別で、
+// どちらも小さく保てる。
+
+requirements KoeruPackagingExport {
+  entity Method
+  number Count
+
+  const MAX_SNAPSHOTS = 3
+
+  enum Zip { NoZip, Built, Verified }
+
+  state {
+    covered:         Map<Method, Bool>,
+    exported:        Map<Method, Bool>,
+    alias_unique:    Bool,
+    validated:       Bool,
+    zip:             Zip,
+    snapshots:       Count,
+    destructive_ops: Count
+  }
+
+  init {
+    forall m: Method { covered[m] = false }
+    forall m: Method { exported[m] = false }
+    alias_unique = true
+    validated = false
+    zip = NoZip
+    snapshots = 0
+    destructive_ops = 0
+  }
+
+  @requirement("REQ-PKG-102", "対象方式のエイリアス表を素材が100%被覆できたときだけ、書き出せる状態になる")
+  fair action coverage_becomes_complete(m: Method) {
+    requires not covered[m]
+    covered[m] = true
+  }
+
+  @requirement("REQ-PKG-103", "エイリアスが音源全体で衝突していたら、書き出し前検証は通らない")
+  action alias_collision_found() {
+    requires alias_unique
+    alias_unique = false
+    validated = false
+  }
+
+  @requirement("REQ-PKG-104", "書き出し前に全件検査し、1件でも該当すれば書き出しを実行しない")
+  fair action validate() {
+    requires alias_unique
+    requires not validated
+    validated = true
+  }
+
+  @requirement("REQ-PKG-104", "検証で違反が見つかれば、書き出せる状態から外れる")
+  action validation_failed() {
+    requires validated
+    requires zip == NoZip
+    validated = false
+  }
+
+  @requirement("REQ-PKG-105", "検証を通り、被覆できている方式だけを ZIP にする")
+  fair action build_zip(m: Method) {
+    requires validated
+    requires covered[m]
+    requires not exported[m]
+    requires zip == NoZip
+    zip = Built
+  }
+
+  @requirement("REQ-PKG-106", "生成した ZIP を読み戻して検証する")
+  fair action verify_zip(m: Method) {
+    requires zip == Built
+    requires covered[m]
+    zip = Verified
+    exported[m] = true
+  }
+
+  @requirement("REQ-PKG-106", "読み戻し検証に失敗したら、書き出しを失敗として扱い ZIP を残さない")
+  action zip_verification_failed() {
+    requires zip == Built
+    zip = NoZip
+  }
+
+  @requirement("REQ-PKG-105", "下位方式のパッケージは、独立した音源ルート・独立した ZIP として作る")
+  action finish_export() {
+    requires zip == Verified
+    zip = NoZip
+  }
+
+  @requirement("REQ-PKG-107", "破壊的な操作の直前に自動スナップショットを取る")
+  action destructive_operation() {
+    requires zip == NoZip
+    requires snapshots < MAX_SNAPSHOTS
+    snapshots = snapshots + 1
+    destructive_ops = destructive_ops + 1
+    validated = false
+  }
+
+  @requirement("MODEL-PKG-001", "ASSUME-2: スナップショットは検証用に有限へ閉じる")
+  invariant SnapshotsBounded {
+    snapshots <= MAX_SNAPSHOTS
+  }
+
+  @requirement("INV-PKG-107", "破壊的な操作の数と、取ったスナップショットの数は一致する")
+  invariant DestructiveMatchesSnapshots {
+    destructive_ops == snapshots
+  }
+
+  @requirement("INV-PKG-102", "書き出せたのは、被覆できている方式だけ")
+  invariant ExportedImpliesCovered {
+    forall m: Method { exported[m] => covered[m] }
+  }
+
+  @requirement("INV-PKG-103", "読み戻し検証を通っていない ZIP は残らない")
+  invariant NoUnverifiedZipLeft {
+    (zip == Verified) => exists m: Method { exported[m] }
+  }
+
+  @requirement("INV-PKG-104", "エイリアスが衝突している間は、書き出せる状態にならない")
+  invariant NoValidationWithCollision {
+    validated => alias_unique
+  }
+
+  @requirement("REQ-PKG-107", "破壊的な操作は、必ずスナップショットを1つ増やす")
+  trans DestructiveTakesSnapshot {
+    (destructive_ops != old(destructive_ops)) => snapshots > old(snapshots)
+  }
+
+  @requirement("REQ-PKG-104", "破壊的な操作のあとは、検証をやり直す")
+  trans DestructiveInvalidatesValidation {
+    (destructive_ops != old(destructive_ops)) => not validated
+  }
+
+  @requirement("REQ-PKG-105", "被覆できている方式を書き出せる")
+  reachable CanExport {
+    exists m: Method { exported[m] }
+  }
+
+  @requirement("REQ-PKG-106", "読み戻し検証に失敗して ZIP を残さない経路が存在する")
+  reachable ZipDiscardedOnFailure {
+    zip == NoZip and validated and exists m: Method { covered[m] and not exported[m] }
+  }
+
+  acceptance AC-PKG-101 "被覆できた方式を、検証して書き出し、読み戻して確かめる" {
+    coverage_becomes_complete(0)
+    validate()
+    build_zip(0)
+    verify_zip(0)
+    expect exported[0] and zip == Verified
+  }
+
+  acceptance AC-PKG-102 "破壊的な操作はスナップショットを取り、検証をやり直させる" {
+    coverage_becomes_complete(0)
+    validate()
+    destructive_operation()
+    expect snapshots == 1 and not validated
+  }
+
+  forbidden FB-PKG-101 "被覆できていない方式は書き出せない" {
+    validate()
+    build_zip(0)
+    expect rejected
+  }
+
+  forbidden FB-PKG-102 "検証を通らないまま書き出せない" {
+    coverage_becomes_complete(0)
+    build_zip(0)
+    expect rejected
+  }
+
+  forbidden FB-PKG-103 "エイリアスが衝突している間は検証を通せない" {
+    alias_collision_found()
+    validate()
+    expect rejected
+  }
+
+  terminal {
+    zip == NoZip and forall m: Method { exported[m] }
+  }
+}
+
+verify {
+  instances Method = 3
+  values Count = 0..3
+}

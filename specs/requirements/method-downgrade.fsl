@@ -1,0 +1,89 @@
+// 収録方式の上下関係（要求層）
+//
+// **スコープは方式どうしの関係だけ。** 書き出しの関門は packaging-export が持つ。
+//
+// ASSUME-1: 方式の上下関係は全順序ではない。単独音 / 連続音 / CVVC / 多音階に
+//           一列の順位を付けると、成り立たない関係（CVVC から連続音など）を
+//           成り立つことにしてしまう。**有向グラフとして持つ。**
+// ASSUME-2: 方式数は検証用に3へ閉じる（表現上の仮定）。
+// ASSUME-3: 関係は空から始める。**初期化を省くと空ではなく任意の関係になり、
+//           自己ループを持った状態から始まってしまう。**
+
+requirements KoeruMethodDowngrade {
+  entity Method
+
+  state {
+    // 「上位で録った素材から下位のパッケージを作れる」という向き
+    downgrade: relation Method -> Method,
+    exported:  Map<Method, Bool>
+  }
+
+  init {
+    downgrade = Set {}
+    forall m: Method { exported[m] = false }
+  }
+
+  @requirement("REQ-PKG-108", "下位方向にだけ辺を張る。上位へ戻る経路は作らない")
+  action declare_downgrade(a: Method, b: Method) {
+    requires a != b
+    requires not downgrade.contains(a, b)
+    requires not reachable(downgrade, b, a)
+    downgrade = downgrade.add(a, b)
+  }
+
+  @requirement("REQ-PKG-109", "下位方式のパッケージを出せるのは、辺がある向きだけ")
+  action export_downgrade(a: Method, b: Method) {
+    requires downgrade.contains(a, b)
+    requires not exported[b]
+    exported[b] = true
+  }
+
+  @requirement("INV-PKG-105", "方式の上下関係に巡回は無い。逆方向の導線が生まれない")
+  invariant DowngradeIsAcyclic {
+    acyclic(downgrade)
+  }
+
+  @requirement("INV-PKG-106", "書き出した下位方式には、必ず上位からの辺がある")
+  invariant ExportedHasUpstream {
+    forall b: Method { exported[b] => exists a: Method { downgrade.contains(a, b) } }
+  }
+
+  @requirement("REQ-PKG-108", "辺を張って、その向きに書き出せる")
+  reachable CanDowngrade {
+    exists m: Method { exported[m] }
+  }
+
+  @requirement("REQ-PKG-108", "3方式が一列に連なる形を作れる")
+  reachable ChainOfThree {
+    exists a: Method { exists c: Method { a != c and reachable(downgrade, a, c) } }
+  }
+
+  acceptance AC-PKG-103 "辺を張った向きに書き出せる" {
+    declare_downgrade(0, 1)
+    export_downgrade(0, 1)
+    expect exported[1] and not exported[0]
+  }
+
+  forbidden FB-PKG-104 "上位へ戻る辺は張れない" {
+    declare_downgrade(0, 1)
+    declare_downgrade(1, 0)
+    expect rejected
+  }
+
+  forbidden FB-PKG-105 "辺の無い向きには書き出せない" {
+    declare_downgrade(0, 1)
+    export_downgrade(1, 0)
+    expect rejected
+  }
+
+  forbidden FB-PKG-106 "三つ巴の巡回は作れない" {
+    declare_downgrade(0, 1)
+    declare_downgrade(1, 2)
+    declare_downgrade(2, 0)
+    expect rejected
+  }
+}
+
+verify {
+  instances Method = 3
+}

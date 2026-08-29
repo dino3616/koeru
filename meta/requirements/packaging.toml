@@ -212,6 +212,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-04',
 ]
+formalized_as = [
+  'REQ-PKG-103',
+  'INV-PKG-104',
+  'FB-PKG-103',
+]
 statement = 'エイリアスは音源全体（全 oto.ini 横断）で一意にする。多音階でサブフォルダを分けた場合も、各サブフォルダのエイリアスに prefix.map と同じ prefix / suffix を必ず付与し、フォルダ間で同名エイリアスが生じないようにする。'
 notes = [
   '多音階の書き出しで最も踏みやすい罠。実装時に必ず多音階の検証ケースを用意する',
@@ -244,6 +249,12 @@ id = 'TR-PKG-22'
 title = '方式の上下関係を有向グラフで持つ'
 confidence = 'Fact'
 depends_on = []
+formalized_as = [
+  'REQ-PKG-108',
+  'INV-PKG-105',
+  'FB-PKG-104',
+  'FB-PKG-106',
+]
 statement = '収録方式の関係を「上位で録った素材から下位のパッケージを作れる」有向グラフとしてデータモデルに持ち、下位方向の書き出しのみを許可する。逆方向の導線を UI に存在させない'
 
 [[requirement]]
@@ -252,6 +263,11 @@ title = '下位方式書き出しの可否をエイリアス被覆で判定す�
 confidence = 'Assumption'
 depends_on = [
   'TR-PKG-22',
+]
+formalized_as = [
+  'REQ-PKG-102',
+  'INV-PKG-102',
+  'FB-PKG-101',
 ]
 statement = '下位方式への書き出しは、対象方式が要求するエイリアス表を既存素材のエイリアス集合が100%被覆できるときのみ許可する。1件でも不足する場合は書き出しを実行せず、不足エイリアスを全件列挙する。部分的なパッケージを出さない。'
 notes = [
@@ -453,6 +469,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-39',
 ]
+formalized_as = [
+  'REQ-PKG-107',
+  'INV-PKG-107',
+  'AC-PKG-102',
+]
 statement = '自動原音設定の再実行、方式ダウングレード書き出し、一括エイリアス置換、項目削除、方式変更の直前に自動スナップショットを取り、1操作単位で元に戻せるようにする。スナップショットは WAV を複製せず、DB とメタデータのみを複製して WAV を参照する。'
 
 [[requirement]]
@@ -516,6 +537,10 @@ depends_on = [
   'TR-PKG-19',
   'TR-PKG-20',
 ]
+formalized_as = [
+  'REQ-PKG-104',
+  'FB-PKG-102',
+]
 statement = '書き出し前に全件検査し、1件でも該当すれば書き出しを実行しない。character.txt 不在 / oto の行形式不正 / WAV 不在 / WAV 長が 0 以下 / サンプリング周波数 ≠ 44100 / 量子化ビット数 ≠ 16 / offset<0 / offset>WAV長 / preutter<0 / offset+preutter>WAV長 / consonant<0 / offset+consonant>WAV長 / offset+overlap>WAV長 / cutoff位置<offset+preutter / cutoff位置<offset+overlap / cutoff位置≤offset+consonant / cutoff位置>WAV長 / エイリアスの全体重複 / WAV 名の NFD / 小文字化衝突 / oto.ini の参照と実ファイル名の大小不一致。**追加で `.frq` のフレーム数 × 256 が WAV サンプル長を覆っているか、無声フレームが 0 になっているかの2項目を加える**（録音時に作ると決めたため）。**さらにフルスケール到達サンプル数の集計を書き出し直前に一度だけ提示する関門を置く**（recording 領域の残存リスク対策）'
 
 [[requirement]]
@@ -545,6 +570,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-14',
   'TR-PKG-15',
+]
+formalized_as = [
+  'REQ-PKG-106',
+  'INV-PKG-103',
+  'AC-PKG-101',
 ]
 statement = 'ZIP 生成の直後に生成した ZIP を自前で読み戻し、(1) エントリ名の符号化が指定どおりか、(2) EFS フラグの状態が指定どおりか、(3) 階層が単層構造か、(4) 必須ファイルが存在するか、(5) テキストが指定符号化で再デコードできて内部モデルと一致するか、を検査する。1つでも不一致なら書き出しを失敗として扱い ZIP を残さない'
 

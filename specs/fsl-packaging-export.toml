@@ -1,0 +1,8 @@
+# 配布パッケージの書き出しの関門。
+#
+# **スコープは書き出しの関門。** 完成と手渡しの直交は fsl-project.toml、
+# 利用計測は fsl-telemetry.toml が持つ。
+
+[requirements]
+file = "requirements/packaging-export.fsl"
+depth = 12
