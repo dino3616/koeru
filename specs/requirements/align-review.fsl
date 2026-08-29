@@ -7,7 +7,10 @@
 //           **上限を超えたかどうかという離散の述語**に畳む。測り方は meta/budgets が持つ。
 // ASSUME-2: 5値の固定はエントリ単位ではなく値単位（TR-ALN-30）。入れ子の Map は使えないので、
 //           スロットを平坦に持ち `slot / VALUES` で所属エントリを復元する。
-// ASSUME-3: エントリ数は検証用に2、1エントリあたりの値は2へ閉じる（表現上の仮定）。
+// ASSUME-3: 5値の中身は検証用に 0..2 の小さな域へ閉じる（表現上の仮定）。
+//           **守るべき値そのものを持たないと「上書きしない」が検証できない。**
+//           自動推定は 1 を、人の編集は 2 を書くものとして区別する。
+// ASSUME-4: エントリ数は検証用に2、1エントリあたりの値は2へ閉じる（表現上の仮定）。
 //           **製品では5値だが、「一部が固定されている」を表すのに5は要らない。**
 //           値の個数は契約に効かず、検証時間だけを押し上げる。
 
@@ -20,13 +23,14 @@ requirements KoeruAlignReview {
   type Entry = 0..1
   type Slot = 0..3
 
-  enum Source     { Auto, Human }
+  type Val = 0..2
+
   enum EntryState { NotEstimated, AutoConfirmed, InQueue, Blocked }
   enum ReviewMode { Individual, Batch, SuggestRerecord }
 
   state {
     pinned:      Map<Slot, Bool>,
-    source:      Map<Slot, Source>,
+    value:       Map<Slot, Val>,
     entry:       Map<Entry, EntryState>,
     mode:        ReviewMode,
     over_budget: Bool,
@@ -36,7 +40,7 @@ requirements KoeruAlignReview {
 
   init {
     forall s: Slot { pinned[s] = false }
-    forall s: Slot { source[s] = Auto }
+    forall s: Slot { value[s] = 0 }
     forall e: Entry { entry[e] = NotEstimated }
     mode = Individual
     over_budget = false
@@ -87,7 +91,7 @@ requirements KoeruAlignReview {
     requires not exported
     requires entry[owner(s)] != NotEstimated
     pinned[s] = true
-    source[s] = Human
+    value[s] = 2
     auto_pass = false
   }
 
@@ -96,7 +100,6 @@ requirements KoeruAlignReview {
     requires pinned[s]
     requires not exported
     pinned[s] = false
-    source[s] = Auto
     auto_pass = false
   }
 
@@ -105,7 +108,7 @@ requirements KoeruAlignReview {
     requires not pinned[s]
     requires not exported
     pinned[s] = true
-    source[s] = Human
+    value[s] = 2
     auto_pass = false
   }
 
@@ -114,16 +117,27 @@ requirements KoeruAlignReview {
     requires entry[e] != NotEstimated
     requires not exported
     forall s: Slot {
-      source[s] = if (owner(s) == e and not pinned[s]) then Auto else source[s]
+      value[s] = if (owner(s) == e and not pinned[s]) then 1 else value[s]
     }
     auto_pass = true
   }
 
-  @requirement("REQ-ALN-008", "確認キューの項目は、人が確認すれば確定する")
+  @requirement("REQ-ALN-008", "個別確認は、個別確認モードのときだけできる")
   fair action confirm(e: Entry) {
+    requires mode == Individual
     requires entry[e] == InQueue
     requires not exported
     entry[e] = AutoConfirmed
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-010", "まとめて確認は、個別確認をやめたあとだけできる")
+  fair action confirm_all() {
+    requires mode == Batch
+    requires not exported
+    forall e: Entry {
+      entry[e] = if entry[e] == InQueue then AutoConfirmed else entry[e]
+    }
     auto_pass = false
   }
 
@@ -163,14 +177,14 @@ requirements KoeruAlignReview {
     auto_pass = false
   }
 
-  @requirement("INV-ALN-002", "固定されていることと、人が入れた値であることは同じ")
-  invariant PinnedIffHuman {
-    forall s: Slot { pinned[s] == (source[s] == Human) }
+  @requirement("INV-ALN-002", "固定されている値は、人が入れた値である")
+  invariant PinnedMeansHumanValue {
+    forall s: Slot { pinned[s] => value[s] == 2 }
   }
 
   @requirement("INV-ALN-001", "自動の再推定は、固定された値に触れない")
   trans AutoPassNeverTouchesPinned {
-    auto_pass => forall s: Slot { old(pinned[s]) => source[s] == old(source[s]) }
+    auto_pass => forall s: Slot { old(pinned[s]) => value[s] == old(value[s]) }
   }
 
   @requirement("INV-ALN-003", "確認が残っているものがあるうちは、書き出されていない")
@@ -185,7 +199,7 @@ requirements KoeruAlignReview {
 
   @requirement("REQ-ALN-007", "再推定しても、固定した値は残る")
   reachable ReEstimateKeepsPinned {
-    exists s: Slot { pinned[s] and source[s] == Human and entry[owner(s)] == AutoConfirmed }
+    exists s: Slot { pinned[s] and value[s] == 2 and entry[owner(s)] == AutoConfirmed }
   }
 
   @requirement("REQ-ALN-009", "確認から録り直しへ回る経路が存在する")
@@ -210,6 +224,42 @@ requirements KoeruAlignReview {
     estimate_confident(1)
     validation_unrepairable(1)
     export()
+    expect rejected
+  }
+
+  acceptance AC-ALN-001 "再推定は、固定した値を残し、固定していない値だけを書き換える" {
+    estimate_confident(0)
+    human_edit(0)
+    re_estimate(0)
+    expect value[0] == 2 and value[1] == 1 and pinned[0]
+  }
+
+  acceptance AC-ALN-002 "固定を解けば、次の再推定で自動の値に戻る" {
+    estimate_confident(0)
+    human_edit(0)
+    revert_to_auto(0)
+    re_estimate(0)
+    expect value[0] == 1 and not pinned[0]
+  }
+
+  acceptance AC-ALN-003 "まとめて確認は、確認待ちを一度にすべて確定させる" {
+    estimate_low_confidence(0)
+    estimate_low_confidence(1)
+    budget_exceeded_to_batch()
+    confirm_all()
+    expect entry[0] == AutoConfirmed and entry[1] == AutoConfirmed
+  }
+
+  acceptance AC-ALN-004 "外部ツールで変わった値は、固定として取り込まれる" {
+    estimate_confident(0)
+    import_external_edit(0)
+    re_estimate(0)
+    expect pinned[0] and value[0] == 2 and value[1] == 1
+  }
+
+  forbidden FB-ALN-004 "個別確認モードのままでは、まとめて確認できない" {
+    estimate_low_confidence(0)
+    confirm_all()
     expect rejected
   }
 

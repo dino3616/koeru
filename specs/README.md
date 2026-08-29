@@ -73,9 +73,13 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 ```
 
 **すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
-project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）を
-基準線として扱う。
+project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）/
+align-review 0.52（深さ6）を基準線として扱う。
 **絶対値ではなく、基準線からの後退が信号。**
+
+**ゴースト変数は kill 率を下げる。** `align-review` は「直前の手が自動の再推定だったか」を
+14 の操作に置いているが、そのうち13は消しても何も壊れない。良性の変異が母数を押し上げるので、
+**仕様どうしで kill 率を比べない。比べるのは同じ仕様の基準線からの後退だけ。**
 
 **Map を持つ仕様は検証が重い。** 設計層と align-review は深さ 8 以下で回すこと。
 align-review は帰納法も深さ 8 で回す（深さ 12 では終わらない）。**帰納法が通れば
