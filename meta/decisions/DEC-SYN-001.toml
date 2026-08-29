@@ -1,0 +1,18 @@
+id = "DEC-SYN-001"
+title = "合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える"
+status = "accepted"
+owner = "dino3616"
+options = ["WORLD 一式", "WORLD + SwiftF0 (F0 のみ)", "ニューラルボコーダ"]
+selected = "WORLD + SwiftF0 (F0 のみ)"
+rationale = """
+ニューラルボコーダは採らない。ユーザーの声でモデルを学習・適応させることになり、
+「あなたの声そのもの」が「生成された声」に変わるため、ビジョンの Own your voice と衝突する。
+F0 推定だけは、録音条件（イヤホンマイク・家庭のノイズ）でノイズ耐性が効く SwiftF0 に差し替える。
+CheapTrick・D4C・合成は WORLD のまま。
+"""
+review_triggers = [
+  "SwiftF0 の学習コーパス監査が不合格になったとき（Harvest に戻す）",
+  "SwiftF0 のフレーム周期 16ms から WORLD の 5ms への内挿が精度を落とすと判明したとき",
+]
+affects_requirements = ["TR-SYN-06", "TR-SYN-07"]
+affects_questions = ["Q-SYN-002"]

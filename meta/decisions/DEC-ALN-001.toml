@@ -1,0 +1,18 @@
+id = "DEC-ALN-001"
+title = "強制アライメントは Julius セグメンテーションキットを一次経路にする"
+status = "accepted"
+owner = "dino3616"
+options = ["MFA", "snfa 移植", "Julius segmentation-kit", "自前学習"]
+selected = "Julius segmentation-kit"
+rationale = """
+MFA は Python / Conda / Kaldi ランタイムを要し、単一ネイティブアプリと両立しない。
+日本語音響モデルの CC BY 4.0 表示も、上流コーパスの再配布禁止・非商用限定を上書きできない。
+snfa は境界の教師信号を持たず、公開された境界精度の数値が存在しない。
+Julius はエンジンが BSD-3-Clause で、libjulius を直接リンクすれば 10ms 丸めを回避できる。
+"""
+review_triggers = [
+  "Julius の .binhmm の権利状況が、配布できないと判明したとき",
+  "内部評価ハーネスの実測で、境界精度が編集の手間を減らさないと判明したとき",
+]
+affects_requirements = ["TR-ALN-03", "TR-ALN-04", "TR-ALN-05", "TR-PLT-07"]
+affects_questions = ["Q-ALN-001"]

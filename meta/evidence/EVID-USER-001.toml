@@ -1,0 +1,12 @@
+id = "EVID-USER-001"
+title = "UTAU 歌声ライブラリ制作環境の調査（n=600）"
+kind = "user_research"
+source = "docs/utau_voicebank_creation_research_2026-08-26.pdf"
+provenance = "AI 支援で作成した調査資料。回答は一次ソースだが、要約と解釈は検証されていない"
+confidence = "Assumption"
+supports_requirements = ["TR-RCL-16", "TR-SYN-18"]
+supports_decisions = []
+note = """
+「配布の知識・技術がない」27.0%、「恥ずかしい・自信がない」22.2%（n=63）。
+この2つの切り分けができていないことが、ソラ（非公開志向）の実在規模が不明である根拠になっている。
+"""

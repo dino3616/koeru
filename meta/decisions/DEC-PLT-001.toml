@@ -1,0 +1,19 @@
+id = "DEC-PLT-001"
+title = "実装スタックを Rust + Tauri にする"
+status = "accepted"
+owner = "dino3616"
+options = ["Rust + Tauri", ".NET + Avalonia", "Compose Multiplatform", "Rust + Slint"]
+selected = "Rust + Tauri"
+rationale = """
+GUI 基盤の必須条件はライセンスが許諾表記のみで同梱・再配布できることで、そこは複数候補が満たす。
+差が出たのは日本語 IME と OS のアクセシビリティ API への対応の確実さで、Tauri が最も確実だった。
+アクセシビリティを既定要件と決めた判断と整合する。
+WebView が別プロセスになりメモリ予算に数百MB乗る代償は受け入れる。
+"""
+review_triggers = [
+  "WebView の常駐メモリ実測がプロセス全体予算 1.5GB を単独で圧迫すると判明したとき",
+  "Windows の WebView2 固定版同梱 +180MB が配布サイズとして許容できないと判明したとき",
+  "エディタの描画がタイル受け渡しでも 60fps を維持できないと判明したとき",
+]
+affects_requirements = ["TR-PLT-03", "TR-PLT-12", "TR-PLT-15", "TR-PLT-21"]
+affects_budgets = ["BUDGET-MEMORY-001"]

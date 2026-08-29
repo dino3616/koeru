@@ -1,0 +1,14 @@
+id = "DEC-PKG-001"
+title = "完成状態と手渡し状態を直交させる"
+status = "accepted"
+owner = "dino3616"
+options = ["完成に公開を含める", "完成と手渡しを直交させる"]
+selected = "完成と手渡しを直交させる"
+rationale = """
+ビジョンの「非公開のまま完成できる状態を、正規の完成形として残す」を、状態として担保する。
+coverage_state は録音カバレッジから機械的に決まり、handoff_state は書き出し履歴から決まる。
+完成判定は coverage_state のみを参照する。
+"""
+review_triggers = ["完成の定義（必須エイリアス100%被覆）が方式ごとに割れたとき"]
+affects_requirements = ["TR-PKG-33", "TR-PKG-34"]
+affects_fsl = ["INV-PKG-001", "INV-PKG-002", "REQ-VIS-001", "REQ-PKG-001", "REQ-PKG-002"]

@@ -1,0 +1,12 @@
+id = "EVID-LIC-001"
+title = "同梱候補のライセンス確認"
+kind = "license_audit"
+source = "deny.toml と cargo deny check、および各上流リポジトリの原文"
+provenance = "CI が依存全体を機械判定する。許可リストに無いライセンスは「不明」として失敗する"
+confidence = "Fact"
+supports_decisions = ["DEC-SYN-001", "DEC-ALN-001"]
+open_items = [
+  "SwiftF0 の学習コーパス一覧（Q-SYN-002）",
+  "Julius segmentation-kit の .binhmm への MIT 適用（Q-ALN-001）",
+]
+note = "学習済みモデルは、モデル側の表示ライセンスが学習コーパスの条件を上書きできるとは限らない。"

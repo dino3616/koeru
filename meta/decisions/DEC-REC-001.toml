@@ -1,0 +1,19 @@
+id = "DEC-REC-001"
+title = "音声 I/O は miniaudio を FFI で使う"
+status = "accepted"
+owner = "dino3616"
+options = ["miniaudio (FFI)", "cpal", "各 OS の API を直接叩く"]
+selected = "miniaudio (FFI)"
+rationale = """
+必要なのは OS 側の音声加工を無効化する経路へ到達できることで、特定のモードではない。
+Windows でその経路は排他モードと、共有モード + AUDCLNT_STREAMOPTIONS_RAW の2つがある。
+KOERU は後者を既定に採る（フォーマット一致を取りやすく、他アプリの音を止めない）。
+cpal はそのどちらにも到達できない。排他モードに未対応で、SetClientProperties のような
+バックエンド固有の制御も露出していない。
+"""
+review_triggers = [
+  "技術スパイクで、miniaudio の抽象化だけでは RAW ストリーム要求へ到達できないと判明したとき",
+  "cpal が排他モードとバックエンド固有制御の両方に対応したとき",
+]
+affects_requirements = ["TR-REC-05", "TR-REC-09", "TR-REC-24", "TR-PLT-05"]
+affects_questions = ["Q-REC-002"]

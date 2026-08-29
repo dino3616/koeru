@@ -1,0 +1,15 @@
+# KOERU v0 の検証チェーン。
+# 縦切り1本：録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し
+#
+# business 層はまだ書いていない。ビジョンの3原則を形式化できるかは未検証で、
+# 先に requirements と design の継ぎ目が有効かを確かめる段階にある。
+
+[requirements]
+file = "requirements/project-lifecycle.fsl"
+depth = 12
+
+[design]
+file = "design/project-storage.fsl"
+depth = 12
+refine_against = "requirements"
+mapping = "refinement/project-design-refines-requirements.fsl"

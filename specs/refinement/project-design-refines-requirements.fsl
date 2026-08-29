@@ -1,0 +1,18 @@
+// 設計層 KoeruProjectStorage が、要求層 KoeruProjectLifecycle を壊していないことの検証。
+//
+// 要求層で1手だった「テイクの確定」を設計層は3手に割っている。
+// 割ったうち、抽象に見えてよいのは DB コミットの1手だけで、
+// 残り2手（.wav.part を開く／fsync + rename）は要求層から見て何も起きていない。
+
+refinement ProjectDesignRefinesRequirements {
+  impl KoeruProjectStorage
+  abs  KoeruProjectLifecycle
+
+  maps auto
+
+  // ファイル確定は、要求層から見れば何も起きていない
+  action finalize_file() -> stutter
+
+  // DB へ行が載った瞬間が、要求層の「テイクが確定した」
+  action commit_take() -> finalize_valid_take()
+}

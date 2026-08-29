@@ -1,0 +1,44 @@
+id = "BUDGET-LATENCY-001"
+title = "8フレーズ録音直後の初回試唱までの待ち時間"
+limit = 30000
+unit = "ms"
+scope = "単独音・4コア想定・押下から最初の音が鳴るまで"
+source_requirements = ["TR-SYN-33", "TR-PLT-17"]
+note = """
+実時間なので FSL の対象外。実見積もりは 5〜5.5 秒（Harvest が実時間相当なら 10〜12 秒）。
+破綻しているのは予算の定義であって体験ではない。align 枠 3.0s は実測 13.5ms に対して
+200倍以上の過大確保で、そこを詰めれば約2.5秒になる。
+"""
+
+[[allocations]]
+name = "WAV 確定（ディスク）"
+value = 300
+measured = false
+
+[[allocations]]
+name = "解析 + 強制アライメント + oto 5値導出"
+value = 3000
+measured = false
+note = "実測 13.5ms。200倍以上の過大確保"
+
+[[allocations]]
+name = "周波数表（.frq）の生成"
+value = 1000
+measured = false
+note = "Harvest の RTF が未実測"
+
+[[allocations]]
+name = "該当フレーズのプリレンダ"
+value = 480
+measured = false
+
+[[allocations]]
+name = "先頭フレーズのレンダリング"
+value = 480
+measured = false
+
+[[allocations]]
+name = "出力デバイス open + バッファ投入"
+value = 200
+measured = false
+note = "どの領域の予算表にも存在しなかった行"

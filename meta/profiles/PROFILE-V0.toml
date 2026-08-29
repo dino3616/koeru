@@ -1,0 +1,26 @@
+id = "PROFILE-V0"
+title = "最初の縦切り：録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し"
+fsl_project = "specs/fsl-project-v0.toml"
+status = "in_progress"
+
+includes_fsl = [
+  "REQ-REC-001", "REQ-REC-002", "REQ-REC-003",
+  "REQ-PKG-001", "REQ-PKG-002",
+  "REQ-TEL-001", "REQ-TEL-002", "REQ-TEL-003",
+  "REQ-VIS-001", "REQ-SYN-001",
+  "INV-PKG-001", "INV-PKG-002", "INV-REC-001", "INV-TEL-001", "INV-TEL-002",
+]
+
+excludes = [
+  "原音設定エディタ",
+  "多音階と prefix.map",
+  "方式の選択と録音リスト生成",
+  "上位方式から下位方式への書き出し",
+  "自動更新と3 OS の配布・署名",
+]
+
+decisions = [
+  "DEC-PLT-001", "DEC-REC-001", "DEC-PKG-001", "DEC-TEL-001",
+]
+
+budgets = ["BUDGET-LATENCY-001"]

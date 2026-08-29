@@ -38,6 +38,44 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: cargo test --workspace --all-features
 
+  specs:
+    name: specs (FSL + meta)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # 配布バイナリはバージョンと SHA-256 の両方で固定する。
+      # 更新は Renovate 任せにせず、semantic diff を確認してから上げること。
+      - name: Install fslc
+        env:
+          FSL_VERSION: v4.0.0
+          FSL_SHA256: 5c818a952d0cdddba060e68f255b361865a08c9d48621d9ee410c2b5c29aeefa
+        run: |
+          set -euo pipefail
+          curl -fsSL -o fslc \
+            "https://github.com/ymm-oss/fsl/releases/download/${FSL_VERSION}/fslc-linux-x64"
+          echo "${FSL_SHA256}  fslc" | sha256sum -c -
+          chmod +x fslc && sudo mv fslc /usr/local/bin/fslc
+          fslc --version
+      # ID 規約と edition の診断。仕様そのものの検査ではない。
+      - name: fslc lint
+        run: fslc lint specs/ --project specs/fsl-project-v0.toml
+      # requirements を検証し、design を検証し、層の継ぎ目を refine で検証する。
+      # 層が1つでも落ちれば exit 1 になる（実際に落ちることを確認済み）。
+      - name: fslc chain
+        run: fslc chain specs/fsl-project-v0.toml
+      # 生成した要件文書が仕様とずれていないか。Markdown から FSL への逆同期はしない。
+      # 直すのは常に FSL 側で、文書は再生成する。
+      - name: document drift
+        run: |
+          fslc document check \
+            specs/requirements/project-lifecycle.fsl \
+            docs/generated/project-lifecycle.md
+      # FSL が扱わない情報が、FSL と技術要件の ID へ実際に繋がっているか。
+      - name: meta registries
+        run: |
+          cargo run --package xtask -- check-meta
+          cargo run --package xtask -- check-budgets
+
   licenses:
     name: license policy
     runs-on: ubuntu-latest

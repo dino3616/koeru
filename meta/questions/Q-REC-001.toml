@@ -1,0 +1,18 @@
+id = "Q-REC-001"
+title = "クラッシュから復帰したとき、どこまでの録音が残っている契約にするか"
+status = "open"
+owner = "dino3616"
+why_it_matters = """
+tech-requirements の「要件が存在しない空白」に自分で挙げている項目。
+録音はやり直しが高い操作なので、ここが壊れると製品の前提が崩れる。
+要件が無いため FSL 側では undecided: として記録しており、
+設計層は「書きかけだけが失われる」を仮に置いている（ASSUME-7）。
+"""
+how_to_close = "確定済みテイクと DB 行の耐久性をどこまで保証するかを決め、TR-REC 領域へ要件として追加する。"
+blocks_profiles = []
+affects_requirements = []
+affects_fsl = []
+undecided_in = [
+  "specs/requirements/project-lifecycle.fsl",
+  "specs/design/project-storage.fsl",
+]

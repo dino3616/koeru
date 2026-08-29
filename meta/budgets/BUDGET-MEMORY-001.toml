@@ -1,0 +1,38 @@
+id = "BUDGET-MEMORY-001"
+title = "プロセス全体のピークメモリ"
+limit = 1500
+unit = "MB"
+scope = "多音階連続音・約3時間分の素材を持つプロジェクトを開いた状態（8GB 搭載機で他アプリと共存）"
+source_requirements = ["TR-PLT-19"]
+note = """
+tech-requirements の未解決の設計課題 B5。領域ごとの独立キャップの合計が上限を超えている。
+WebView の常駐分がまだ実測されておらず、内訳表に空欄がある。
+"""
+
+[[allocations]]
+name = "align"
+value = 64
+measured = false
+note = "実測 13.5ms / 重み 1.25MB から見て、従来の 500MB は2桁過大"
+
+[[allocations]]
+name = "synth (解析結果の LRU)"
+value = 512
+measured = false
+
+[[allocations]]
+name = "editor (音声 + チャート画像)"
+value = 512
+measured = false
+note = "B6 によりディスクキャッシュ前提へ変更が必要"
+
+[[allocations]]
+name = "editor (undo 履歴)"
+value = 200
+measured = false
+
+[[allocations]]
+name = "WebView プロセス"
+value = 0
+measured = false
+note = "未実測。ここが空欄のまま他を詰めても意味がない（DEC-PLT-001 の帰結）"

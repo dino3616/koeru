@@ -1,0 +1,152 @@
+// KOERU プロジェクトの永続化（設計層）
+//
+// 要求層 KoeruProjectLifecycle を詳細化する。詳細化するのは1点だけ：
+// 要求層で1手だった「テイクの確定」を、実装で必ず分かれる3手に割る。
+//   録音開始（.wav.part を開く）→ ファイル確定（fsync + rename）→ DB コミット
+//
+// ASSUME-6: DB に載ったテイク行は、必ず確定済みの WAV を指していなければならない。
+//           順序を逆にすると、ファイルの無い行が DB に残る。
+//           これは要求層からは見えない、この層が背負う契約。
+// ASSUME-7: クラッシュで失われるのは書きかけ（.wav.part）だけとする。
+//           確定済みファイルと DB の耐久性は要件が未決なので、ここでは仮に置く。
+
+spec KoeruProjectStorage {
+  type TakeCount = 0..4
+
+  enum Coverage { Empty, Partial, Complete }
+  enum Handoff  { NotExported, Exported }
+  enum Consent  { NotAsked, Granted, Revoked }
+  enum WavFile  { NoFile, Writing, Finalized }
+
+  const REQUIRED_TAKES = 3
+
+  state {
+    recording:       Bool,
+    wav:             WavFile,
+    finalized_files: TakeCount,
+    valid_takes:     TakeCount,
+    invalid_takes:   TakeCount,
+    coverage:        Coverage,
+    handoff:         Handoff,
+    consent:         Consent,
+    sent_events:     TakeCount,
+    crashes:         TakeCount
+  }
+
+  init {
+    recording = false
+    wav = NoFile
+    finalized_files = 0
+    valid_takes = 0
+    invalid_takes = 0
+    coverage = Empty
+    handoff = NotExported
+    consent = NotAsked
+    sent_events = 0
+    crashes = 0
+  }
+
+  // 録音開始。ここで .wav.part を開く
+  fair action start_take() {
+    requires not recording
+    requires wav == NoFile
+    requires finalized_files < REQUIRED_TAKES
+    recording = true
+    wav = Writing
+  }
+
+  // fsync してから .wav へ rename する。ここまでは DB に何も書かない
+  fair action finalize_file() {
+    requires recording
+    requires wav == Writing
+    wav = Finalized
+    finalized_files = finalized_files + 1
+  }
+
+  // ファイルが確定してからだけ DB に行を足す
+  fair action commit_take() {
+    requires recording
+    requires wav == Finalized
+    requires valid_takes < REQUIRED_TAKES
+    recording = false
+    wav = NoFile
+    valid_takes = valid_takes + 1
+    coverage = if valid_takes + 1 >= REQUIRED_TAKES then Complete else Partial
+  }
+
+  action discard_invalid_take() {
+    requires recording
+    requires wav == Writing
+    requires invalid_takes < 2
+    recording = false
+    wav = NoFile
+    invalid_takes = invalid_takes + 1
+  }
+
+  action export_zip() {
+    requires coverage == Complete
+    requires not recording
+    handoff = Exported
+  }
+
+  action edit_breaks_coverage() {
+    requires coverage == Complete
+    requires not recording
+    valid_takes = valid_takes - 1
+    coverage = Partial
+  }
+
+  action grant_consent() {
+    requires consent != Granted
+    consent = Granted
+  }
+
+  action revoke_consent() {
+    requires consent == Granted
+    consent = Revoked
+  }
+
+  action send_event() {
+    requires consent == Granted
+    requires sent_events < 2
+    sent_events = sent_events + 1
+  }
+
+  // 書きかけだけが失われる。確定済みファイルと DB の行は残る（ASSUME-7）
+  @undecided("クラッシュ復帰の契約が要件に存在しない。確定済みの耐久性はここでは仮に置いている")
+  action crash_and_recover() {
+    requires recording
+    requires crashes < 2
+    recording = false
+    wav = NoFile
+    crashes = crashes + 1
+  }
+
+  // この層が背負う契約：ファイルの無いテイク行が DB にできない
+  invariant NoOrphanTakeRow { valid_takes <= finalized_files }
+
+  // 書きかけは、録音中にしか存在しない
+  invariant PartFileOnlyWhileRecording { wav == Writing => recording }
+
+  // 確定済みで未コミットのファイルが1本あるなら、確定数はコミット数より必ず多い。
+  // NoOrphanTakeRow を帰納法で示すために要る補助（この領域の真理）。
+  invariant FinalizedAheadOfCommitted { wav == Finalized => valid_takes < finalized_files }
+
+  // start_take が finalized_files < REQUIRED_TAKES を要求しているので、
+  // 確定数はそこで頭打ちになる。書きかけを持てるのは、まだ余裕があるときだけ。
+  invariant FinalizedFilesBounded { finalized_files <= REQUIRED_TAKES }
+  invariant WritingOnlyWithRoom { wav == Writing => finalized_files < REQUIRED_TAKES }
+
+  invariant TakesBounded { valid_takes <= REQUIRED_TAKES }
+  invariant CoverageIsMechanical { (coverage == Complete) == (valid_takes >= REQUIRED_TAKES) }
+
+  trans SendOnlyWhileConsented { sent_events != old(sent_events) => consent == Granted }
+  trans ExportOnlyWhenComplete { handoff != old(handoff) => coverage == Complete }
+
+  // クラッシュしても、確定済みファイルの数は減らない
+  trans FinalizedFilesNeverLost { finalized_files >= old(finalized_files) }
+
+  reachable CompleteWhileUnpublished { coverage == Complete and handoff == NotExported }
+
+  terminal { coverage == Complete and handoff == Exported and not recording }
+}

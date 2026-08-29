@@ -1,0 +1,216 @@
+// KOERU プロジェクトのライフサイクル（要求層）
+//
+// ASSUME-1: coverage_state は録音カバレッジから機械的に決まる（TR-PKG-33）。
+//           したがって完成後の編集で被覆が崩れれば Complete から Partial へ戻る。
+// ASSUME-2: 「連続して鳴らせる長さ（秒）」は実時間なので FSL の対象外。
+//           離散化して「鳴らせるフレーズ数 >= PREVIEW_MIN」で表す。
+//           PREVIEW_MIN の根拠は meta/questions/Q-SYN-001.toml が持つ。
+// ASSUME-3: REQUIRED_TAKES / PREVIEW_MIN の具体値は検証用の最小値であり、
+//           製品の値ではない（meta/budgets が持つ）。
+// ASSUME-4: 確定テイク数は検証用に REQUIRED_TAKES を上限とする（表現上の仮定）。
+//           必須被覆を超えて録り足せること（歌える範囲を広げる）はこの縦切りの対象外。
+// ASSUME-5: 検証範囲ではクラッシュと無効テイクを有限回に閉じる（表現上の仮定）。
+//           無限にクラッシュし続ける実行は完成へ到達しないが、それは
+//           クラッシュ復帰の契約が未決であることの帰結であって、製品の欠陥ではない。
+
+requirements KoeruProjectLifecycle {
+  number TakeCount
+
+  enum Coverage { Empty, Partial, Complete }
+  enum Handoff  { NotExported, Exported }
+  enum Consent  { NotAsked, Granted, Revoked }
+
+  const REQUIRED_TAKES = 3
+  const PREVIEW_MIN    = 2
+
+  state {
+    valid_takes:   TakeCount,
+    invalid_takes: TakeCount,
+    coverage:      Coverage,
+    handoff:       Handoff,
+    consent:       Consent,
+    sent_events:   TakeCount,
+    crashes:       TakeCount,
+    recording:     Bool
+  }
+
+  init {
+    valid_takes = 0
+    invalid_takes = 0
+    coverage = Empty
+    handoff = NotExported
+    consent = NotAsked
+    sent_events = 0
+    crashes = 0
+    recording = false
+  }
+
+  @requirement("REQ-REC-001", "録音を開始すると、確定するまで進行中のテイクが1件ある")
+  fair action start_take() {
+    requires not recording
+    recording = true
+  }
+
+  @requirement("REQ-REC-002", "取りこぼしのないテイクは確定し、カバレッジに加算される")
+  fair action finalize_valid_take() {
+    requires recording
+    requires valid_takes < REQUIRED_TAKES
+    recording = false
+    valid_takes = valid_takes + 1
+    coverage = if valid_takes + 1 >= REQUIRED_TAKES then Complete else Partial
+  }
+
+  @requirement("REQ-REC-003", "取りこぼし（xrun）を検出したテイクは無効として保存し、カバレッジに加算しない")
+  action discard_invalid_take() {
+    requires recording
+    requires invalid_takes < 2
+    recording = false
+    invalid_takes = invalid_takes + 1
+  }
+
+  @requirement("REQ-PKG-001", "完成した音源は配布 ZIP として書き出せる。書き出しは完成状態を変えない")
+  action export_zip() {
+    requires coverage == Complete
+    requires not recording
+    handoff = Exported
+  }
+
+  @requirement("REQ-PKG-002", "完成後も編集でき、被覆が崩れれば完成状態から外れる")
+  action edit_breaks_coverage() {
+    requires coverage == Complete
+    requires not recording
+    valid_takes = valid_takes - 1
+    coverage = Partial
+  }
+
+  @requirement("REQ-TEL-001", "利用計測は既定オフで、明示的な同意を得るまで送信経路を開かない")
+  action grant_consent() {
+    requires consent != Granted
+    consent = Granted
+  }
+
+  @requirement("REQ-TEL-002", "同意はいつでも撤回でき、撤回後は送信しない")
+  action revoke_consent() {
+    requires consent == Granted
+    consent = Revoked
+  }
+
+  @requirement("REQ-TEL-003", "送信は同意がある間だけ行える")
+  action send_event() {
+    requires consent == Granted
+    requires sent_events < 2
+    sent_events = sent_events + 1
+  }
+
+  @undecided("クラッシュ復帰の契約が要件に存在しない（tech-requirements の「要件が存在しない空白」）。ここでは進行中のテイクだけが失われる仮の挙動を置いている")
+  action crash_and_recover() {
+    requires recording
+    requires crashes < 2
+    recording = false
+    crashes = crashes + 1
+  }
+
+  @requirement("MODEL-REC-001", "ASSUME-4: 確定テイク数は検証用に必須本数を上限とする")
+  invariant TakesBounded { valid_takes <= REQUIRED_TAKES }
+
+  @requirement("INV-PKG-001", "完成判定は coverage のみで決まり、書き出し履歴を一切参照しない")
+  invariant CoverageIsMechanical {
+    (coverage == Complete) == (valid_takes >= REQUIRED_TAKES)
+  }
+
+  @requirement("INV-REC-001", "無効テイクはカバレッジに加算されない")
+  invariant InvalidTakesNeverCount {
+    coverage == Complete => valid_takes >= REQUIRED_TAKES
+  }
+
+  @requirement("INV-TEL-001", "同意を得たことが一度もなければ送信は発生しない")
+  invariant NoSendWithoutConsent {
+    sent_events > 0 => consent != NotAsked
+  }
+
+  @requirement("REQ-PKG-001", "ZIP の書き出しは完成状態を変更しない")
+  trans ExportDoesNotChangeCoverage {
+    handoff != old(handoff) => coverage == old(coverage)
+  }
+
+  @requirement("INV-TEL-002", "送信が起きるのは同意がある間だけで、撤回後は起きない")
+  trans SendOnlyWhileConsented {
+    sent_events != old(sent_events) => consent == Granted
+  }
+
+  @requirement("INV-PKG-002", "書き出せるのは完成しているときだけ")
+  trans ExportOnlyWhenComplete {
+    handoff != old(handoff) => coverage == Complete
+  }
+
+  @requirement("REQ-TEL-001", "同意を得たうえで送信が起きる経路が存在する")
+  reachable SentAfterConsent {
+    sent_events > 0 and consent == Granted
+  }
+
+  @requirement("REQ-REC-002", "録り続ければいずれ完成へ到達する")
+  leadsTo EventuallyComplete {
+    coverage == Partial ~> coverage == Complete
+  }
+
+  @requirement("REQ-VIS-001", "公開操作なしに完成状態へ到達できる")
+  reachable CompleteWhileUnpublished {
+    coverage == Complete and handoff == NotExported
+  }
+
+  @requirement("REQ-SYN-001", "必要な本数が揃う前でも試唱できる")
+  reachable PreviewableBeforeComplete {
+    valid_takes >= PREVIEW_MIN and coverage != Complete
+  }
+
+  acceptance AC-VIS-001 "公開操作を一度も行わずに完成へ到達する" {
+    start_take() finalize_valid_take()
+    start_take() finalize_valid_take()
+    start_take() finalize_valid_take()
+    expect coverage == Complete and handoff == NotExported
+  }
+
+  acceptance AC-PKG-001 "完成したあとに書き出しても完成状態は変わらない" {
+    start_take() finalize_valid_take()
+    start_take() finalize_valid_take()
+    start_take() finalize_valid_take()
+    export_zip()
+    expect coverage == Complete and handoff == Exported
+  }
+
+  forbidden FB-TEL-001 "同意を撤回したあとに送信できない" {
+    grant_consent()
+    revoke_consent()
+    send_event()
+    expect rejected
+  }
+
+  forbidden FB-TEL-002 "同意を得ないまま送信できない" {
+    send_event()
+    expect rejected
+  }
+
+  forbidden FB-PKG-001 "完成していない音源は書き出せない" {
+    start_take()
+    finalize_valid_take()
+    export_zip()
+    expect rejected
+  }
+
+  forbidden FB-REC-001 "無効テイクだけでは完成に到達しない" {
+    start_take()
+    discard_invalid_take()
+    start_take()
+    discard_invalid_take()
+    export_zip()
+    expect rejected
+  }
+
+  terminal {
+    coverage == Complete and handoff == Exported and not recording
+  }
+}
+
+verify {
+  values TakeCount = 0..4
+}
