@@ -18,7 +18,6 @@ requirements KoeruProjectLifecycle {
 
   enum Coverage { Empty, Partial, Complete }
   enum Handoff  { NotExported, Exported }
-  enum Consent  { NotAsked, Granted, Revoked }
 
   const REQUIRED_TAKES = 3
   const PREVIEW_MIN    = 2
@@ -28,8 +27,6 @@ requirements KoeruProjectLifecycle {
     invalid_takes: TakeCount,
     coverage:      Coverage,
     handoff:       Handoff,
-    consent:       Consent,
-    sent_events:   TakeCount,
     crashes:       TakeCount,
     recording:     Bool
   }
@@ -39,8 +36,6 @@ requirements KoeruProjectLifecycle {
     invalid_takes = 0
     coverage = Empty
     handoff = NotExported
-    consent = NotAsked
-    sent_events = 0
     crashes = 0
     recording = false
   }
@@ -83,26 +78,7 @@ requirements KoeruProjectLifecycle {
     coverage = Partial
   }
 
-  @requirement("REQ-TEL-001", "利用計測は既定オフで、明示的な同意を得るまで送信経路を開かない")
-  action grant_consent() {
-    requires consent != Granted
-    consent = Granted
-  }
-
-  @requirement("REQ-TEL-002", "同意はいつでも撤回でき、撤回後は送信しない")
-  action revoke_consent() {
-    requires consent == Granted
-    consent = Revoked
-  }
-
-  @requirement("REQ-TEL-003", "送信は同意がある間だけ行える")
-  action send_event() {
-    requires consent == Granted
-    requires sent_events < 2
-    sent_events = sent_events + 1
-  }
-
-  @undecided("クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。ここでは進行中のテイクだけが失われる仮の挙動を置いている")
+  @requirement("REQ-REC-004", "異常終了で失われるのは進行中のテイクだけで、確定済みは残る")
   action crash_and_recover() {
     requires recording
     requires crashes < 2
@@ -123,29 +99,14 @@ requirements KoeruProjectLifecycle {
     coverage == Complete => valid_takes >= REQUIRED_TAKES
   }
 
-  @requirement("INV-TEL-001", "同意を得たことが一度もなければ送信は発生しない")
-  invariant NoSendWithoutConsent {
-    sent_events > 0 => consent != NotAsked
-  }
-
   @requirement("REQ-PKG-001", "ZIP の書き出しは完成状態を変更しない")
   trans ExportDoesNotChangeCoverage {
     handoff != old(handoff) => coverage == old(coverage)
   }
 
-  @requirement("INV-TEL-002", "送信が起きるのは同意がある間だけで、撤回後は起きない")
-  trans SendOnlyWhileConsented {
-    sent_events != old(sent_events) => consent == Granted
-  }
-
   @requirement("INV-PKG-002", "書き出せるのは完成しているときだけ")
   trans ExportOnlyWhenComplete {
     handoff != old(handoff) => coverage == Complete
-  }
-
-  @requirement("REQ-TEL-001", "同意を得たうえで送信が起きる経路が存在する")
-  reachable SentAfterConsent {
-    sent_events > 0 and consent == Granted
   }
 
   @requirement("REQ-REC-002", "録り続ければいずれ完成へ到達する")
@@ -176,18 +137,6 @@ requirements KoeruProjectLifecycle {
     start_take() finalize_valid_take()
     export_zip()
     expect coverage == Complete and handoff == Exported
-  }
-
-  forbidden FB-TEL-001 "同意を撤回したあとに送信できない" {
-    grant_consent()
-    revoke_consent()
-    send_event()
-    expect rejected
-  }
-
-  forbidden FB-TEL-002 "同意を得ないまま送信できない" {
-    send_event()
-    expect rejected
   }
 
   forbidden FB-PKG-001 "完成していない音源は書き出せない" {

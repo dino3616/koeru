@@ -59,17 +59,24 @@ jobs:
       # ID 規約と edition の診断。仕様そのものの検査ではない。
       - name: fslc lint
         run: fslc lint specs/ --project specs/fsl-project.toml
-      # requirements を検証し、design を検証し、層の継ぎ目を refine で検証する。
+      # manifest 1つにつき層ごと1仕様なので、スコープごとに chain を回す。
       # 層が1つでも落ちれば exit 1 になる（実際に落ちることを確認済み）。
       - name: fslc chain
-        run: fslc chain specs/fsl-project.toml
+        run: |
+          set -euo pipefail
+          for m in specs/fsl-*.toml; do
+            echo "== $m"
+            fslc chain "$m"
+          done
       # 生成した要件文書が仕様とずれていないか。Markdown から FSL への逆同期はしない。
       # 直すのは常に FSL 側で、文書は再生成する。
       - name: document drift
         run: |
-          fslc document check \
-            specs/requirements/project-lifecycle.fsl \
-            docs/generated/project-lifecycle.md
+          set -euo pipefail
+          for f in docs/generated/*.md; do
+            [ "$(basename "$f")" = "README.md" ] && continue
+            fslc document check "specs/requirements/$(basename "$f" .md).fsl" "$f"
+          done
       # FSL が扱わない情報が、FSL と技術要件の ID へ実際に繋がっているか。
       - name: meta registries
         run: |

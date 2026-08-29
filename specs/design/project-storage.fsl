@@ -7,15 +7,15 @@
 // ASSUME-6: DB に載ったテイク行は、必ず確定済みの WAV を指していなければならない。
 //           順序を逆にすると、ファイルの無い行が DB に残る。
 //           これは要求層からは見えない、この層が背負う契約。
-// ASSUME-7: クラッシュで失われるのは書きかけ（.wav.part）だけとする。
-//           確定済みファイルと DB の耐久性は要件が未決なので、ここでは仮に置く。
+// ASSUME-7: クラッシュで失われるのは書きかけ（.wav.part）だけ。確定済みファイルと
+//           コミット済みの行は残る。これは仮定ではなく DEC-REC-004 が定める契約で、
+//           fsync してから rename し、rename が成功してから DB へコミットすることで満たす。
 
 spec KoeruProjectStorage {
   type TakeCount = 0..4
 
   enum Coverage { Empty, Partial, Complete }
   enum Handoff  { NotExported, Exported }
-  enum Consent  { NotAsked, Granted, Revoked }
   enum WavFile  { NoFile, Writing, Finalized }
 
   const REQUIRED_TAKES = 3
@@ -28,8 +28,6 @@ spec KoeruProjectStorage {
     invalid_takes:   TakeCount,
     coverage:        Coverage,
     handoff:         Handoff,
-    consent:         Consent,
-    sent_events:     TakeCount,
     crashes:         TakeCount
   }
 
@@ -41,8 +39,6 @@ spec KoeruProjectStorage {
     invalid_takes = 0
     coverage = Empty
     handoff = NotExported
-    consent = NotAsked
-    sent_events = 0
     crashes = 0
   }
 
@@ -96,24 +92,7 @@ spec KoeruProjectStorage {
     coverage = Partial
   }
 
-  action grant_consent() {
-    requires consent != Granted
-    consent = Granted
-  }
-
-  action revoke_consent() {
-    requires consent == Granted
-    consent = Revoked
-  }
-
-  action send_event() {
-    requires consent == Granted
-    requires sent_events < 2
-    sent_events = sent_events + 1
-  }
-
-  // 書きかけだけが失われる。確定済みファイルと DB の行は残る（ASSUME-7）
-  @undecided("クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。確定済みの耐久性はここでは仮に置いている")
+  // 書きかけだけが失われる。確定済みファイルと DB の行は残る（DEC-REC-004）
   action crash_and_recover() {
     requires recording
     requires crashes < 2
@@ -140,7 +119,6 @@ spec KoeruProjectStorage {
   invariant TakesBounded { valid_takes <= REQUIRED_TAKES }
   invariant CoverageIsMechanical { (coverage == Complete) == (valid_takes >= REQUIRED_TAKES) }
 
-  trans SendOnlyWhileConsented { sent_events != old(sent_events) => consent == Granted }
   trans ExportOnlyWhenComplete { handoff != old(handoff) => coverage == Complete }
 
   // クラッシュしても、確定済みファイルの数は減らない

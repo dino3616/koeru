@@ -6,8 +6,8 @@ source: specs/requirements/project-lifecycle.fsl
 renderer: fslc-document-renderer
 renderer_version: 1.3.0
 normative_scope: generated-claim-blocks-only
-spec_digest: sha256:790e1399c2fb6867045a432f14cafbde16c21e60613d5c7fd3c8c1e697626618
-claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac551ce4c095
+spec_digest: sha256:52d881afba64195c55965343201e952f7da0fd91f05973540fdc8d59f70f08af
+claim_set_digest: sha256:ded9671414d726296c3514272a6a058c420ab3e8037be0a61a41535b313f01c5
 ---
 
 # 要件仕様書: KoeruProjectLifecycle
@@ -59,15 +59,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 完成したあとに書き出しても完成状態は変わらない
 
-（出典: `specs/requirements/project-lifecycle.fsl:173`）
+（出典: `specs/requirements/project-lifecycle.fsl:134`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="acceptance:AC-PKG-001#acceptance_trace" digest="sha256:2190cf2717b9e54751aba913209cc0ec324395daa4db79e2910e43f56ee96750" -->
+<!-- fsl:claim begin id="acceptance:AC-PKG-001#acceptance_trace" digest="sha256:f00d40ceb5fdf6991f97181b600c2a553310760b4c0f6283f04a1f6df111a800" -->
 #### 受け入れ基準: `AC-PKG-001`
 
 - 識別子: `acceptance:AC-PKG-001#acceptance_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:173`
+- 出典: `specs/requirements/project-lifecycle.fsl:134`
 - 表題: 完成したあとに書き出しても完成状態は変わらない
 
 この受け入れ基準は、一つの具体的な実行例である。
@@ -98,15 +98,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 公開操作を一度も行わずに完成へ到達する
 
-（出典: `specs/requirements/project-lifecycle.fsl:166`）
+（出典: `specs/requirements/project-lifecycle.fsl:127`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="acceptance:AC-VIS-001#acceptance_trace" digest="sha256:fbff5a9210d790b28ef262cdcb9509e14c4b458c4e80613cd7379b8f9c5f1a71" -->
+<!-- fsl:claim begin id="acceptance:AC-VIS-001#acceptance_trace" digest="sha256:f1c1a416a8a73ed0e8231b37e4f6f0b164c717773bfd8206189887b81a0ff90d" -->
 #### 受け入れ基準: `AC-VIS-001`
 
 - 識別子: `acceptance:AC-VIS-001#acceptance_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:166`
+- 出典: `specs/requirements/project-lifecycle.fsl:127`
 - 表題: 公開操作を一度も行わずに完成へ到達する
 
 この受け入れ基準は、一つの具体的な実行例である。
@@ -136,15 +136,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 完成していない音源は書き出せない
 
-（出典: `specs/requirements/project-lifecycle.fsl:193`）
+（出典: `specs/requirements/project-lifecycle.fsl:142`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-PKG-001#forbidden_trace" digest="sha256:e992e32489d0136eeabc1e5a5aacc51efe6d4a32cfe56227db8a803bdedf4480" -->
+<!-- fsl:claim begin id="forbidden:FB-PKG-001#forbidden_trace" digest="sha256:38a56b6c758ca2ad5b3212d5179f409a3024fd9b3790a8191b69593a3d6bb08f" -->
 #### 禁止手順: `FB-PKG-001`
 
 - 識別子: `forbidden:FB-PKG-001#forbidden_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:193`
+- 出典: `specs/requirements/project-lifecycle.fsl:142`
 - 表題: 完成していない音源は書き出せない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -170,15 +170,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 無効テイクだけでは完成に到達しない
 
-（出典: `specs/requirements/project-lifecycle.fsl:200`）
+（出典: `specs/requirements/project-lifecycle.fsl:149`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-001#forbidden_trace" digest="sha256:e6b2b085525cfee835163ba990eecfafbfe4819e13d94d7d2d3d0bddf6ff4c97" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-001#forbidden_trace" digest="sha256:a7976e0c5ec33316c49e6dd6ca100ef6cc4c7647351fd9e42bd4854e41337d25" -->
 #### 禁止手順: `FB-REC-001`
 
 - 識別子: `forbidden:FB-REC-001#forbidden_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:200`
+- 出典: `specs/requirements/project-lifecycle.fsl:149`
 - 表題: 無効テイクだけでは完成に到達しない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -200,87 +200,21 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 - 実装適合: `not_run` — 対応するエビデンスは供給されていない。
 - 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
 
-### FB-TEL-001
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 同意を撤回したあとに送信できない
-
-（出典: `specs/requirements/project-lifecycle.fsl:181`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="forbidden:FB-TEL-001#forbidden_trace" digest="sha256:e4f15e5d82bacbbd55fbf09c3600913861903854bc9be30067c0530e8b0c0142" -->
-#### 禁止手順: `FB-TEL-001`
-
-- 識別子: `forbidden:FB-TEL-001#forbidden_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:181`
-- 表題: 同意を撤回したあとに送信できない
-
-この禁止手順は、一つの具体的な実行例である。
-
-- 前提（Given）: 初期化直後の状態から開始する。
-- 先行手順（When）: 次の操作をこの順に実行する。いずれも成功しなければならない。
-  1. `grant_consent()`
-  2. `revoke_consent()`
-- 期待（Then）: 続けて実行しようとする最後の操作 `send_event()` は、拒否されなければならない（この時点では実行できてはならない）。
-
-この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
-### FB-TEL-002
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 同意を得ないまま送信できない
-
-（出典: `specs/requirements/project-lifecycle.fsl:188`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="forbidden:FB-TEL-002#forbidden_trace" digest="sha256:89fb8d6a0a8b5c534c3a24a56746df84f8d1de70b2769b92f0fede9c2d5afa00" -->
-#### 禁止手順: `FB-TEL-002`
-
-- 識別子: `forbidden:FB-TEL-002#forbidden_trace`
-- 出典: `specs/requirements/project-lifecycle.fsl:188`
-- 表題: 同意を得ないまま送信できない
-
-この禁止手順は、一つの具体的な実行例である。
-
-- 前提（Given）: 初期化直後の状態から開始する。
-- 先行手順（When）: 先行する操作はない。初期化直後の状態で、次の操作を試みる。
-- 期待（Then）: 続けて実行しようとする最後の操作 `send_event()` は、拒否されなければならない（この時点では実行できてはならない）。
-
-この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
 ### INV-PKG-001
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
 > 完成判定は coverage のみで決まり、書き出し履歴を一切参照しない
 
-（出典: `specs/requirements/project-lifecycle.fsl:116`）
+（出典: `specs/requirements/project-lifecycle.fsl:92`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:CoverageIsMechanical#state_rule" digest="sha256:cfc62d59afdaf07cea864bbf65156a3bec54430da7c797b1283c9992c76df867" -->
+<!-- fsl:claim begin id="property:invariant:CoverageIsMechanical#state_rule" digest="sha256:709dea6c2f6ca734741385ac325f5a8d62580f26893123b20a3fb7ffa52c4493" -->
 #### 状態不変条件: `CoverageIsMechanical`
 
 - 識別子: `property:invariant:CoverageIsMechanical#state_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:117`
+- 出典: `specs/requirements/project-lifecycle.fsl:93`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -301,15 +235,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 書き出せるのは完成しているときだけ
 
-（出典: `specs/requirements/project-lifecycle.fsl:141`）
+（出典: `specs/requirements/project-lifecycle.fsl:107`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:trans:ExportOnlyWhenComplete#transition_rule" digest="sha256:0a4ec85ca16656e4f576a6081a126c78497e9a356b4eb2b0ac6f4803c9be36e3" -->
+<!-- fsl:claim begin id="property:trans:ExportOnlyWhenComplete#transition_rule" digest="sha256:112930d9f68ed1c37f8d85b33954ca13288e40901eea9cc994d4978df3b6fcdf" -->
 #### 遷移条件: `ExportOnlyWhenComplete`
 
 - 識別子: `property:trans:ExportOnlyWhenComplete#transition_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:142`
+- 出典: `specs/requirements/project-lifecycle.fsl:108`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -330,15 +264,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 無効テイクはカバレッジに加算されない
 
-（出典: `specs/requirements/project-lifecycle.fsl:121`）
+（出典: `specs/requirements/project-lifecycle.fsl:97`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:InvalidTakesNeverCount#state_rule" digest="sha256:12dc861605514ad611f4e694c0b0e0c263d8242e3ed8d38a9a0cacf043eb6f38" -->
+<!-- fsl:claim begin id="property:invariant:InvalidTakesNeverCount#state_rule" digest="sha256:b58e56d6ff7ae4885701fa3a1408c0a1b8500f3bd577ae9261959b233f92117d" -->
 #### 状態不変条件: `InvalidTakesNeverCount`
 
 - 識別子: `property:invariant:InvalidTakesNeverCount#state_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:122`
+- 出典: `specs/requirements/project-lifecycle.fsl:98`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -353,79 +287,21 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 - 実装適合: `not_run` — 対応するエビデンスは供給されていない。
 - 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
 
-### INV-TEL-001
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 同意を得たことが一度もなければ送信は発生しない
-
-（出典: `specs/requirements/project-lifecycle.fsl:126`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="property:invariant:NoSendWithoutConsent#state_rule" digest="sha256:8e46f8e84488bfca234d81980990b94987674f67ccb1404be037c3fd1c994ac4" -->
-#### 状態不変条件: `NoSendWithoutConsent`
-
-- 識別子: `property:invariant:NoSendWithoutConsent#state_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:127`
-
-初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
-
-`sent_events` が `0` より大きいならば、`consent` が `NotAsked` でない。
-
-この条件を満たさない候補遷移はコミットされない。条件が自動的に修復・回復されることを意味しない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
-### INV-TEL-002
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 送信が起きるのは同意がある間だけで、撤回後は起きない
-
-（出典: `specs/requirements/project-lifecycle.fsl:136`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="property:trans:SendOnlyWhileConsented#transition_rule" digest="sha256:1fe97b101beadb6a56bcfff0386116ef087347b8cd5f1db42809032822775a43" -->
-#### 遷移条件: `SendOnlyWhileConsented`
-
-- 識別子: `property:trans:SendOnlyWhileConsented#transition_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:137`
-
-成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
-
-`sent_events` が 遷移前の `sent_events` に等しくないならば、`consent` が `Granted` である。
-
-この関係を満たさない候補遷移はコミットされない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
 ### MODEL-REC-001
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
 > ASSUME-4: 確定テイク数は検証用に必須本数を上限とする
 
-（出典: `specs/requirements/project-lifecycle.fsl:113`）
+（出典: `specs/requirements/project-lifecycle.fsl:89`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:TakesBounded#state_rule" digest="sha256:2bb07b1c61791fe15d7fba04f69f2054f3c97e8c1914a358f2b49a7d70c32719" -->
+<!-- fsl:claim begin id="property:invariant:TakesBounded#state_rule" digest="sha256:f5954e731c3b92a9cf5c38c6080cd3a19dff2896fa7b75c8692710454ed5b846" -->
 #### 状態不変条件: `TakesBounded`
 
 - 識別子: `property:invariant:TakesBounded#state_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:114`
+- 出典: `specs/requirements/project-lifecycle.fsl:90`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -446,19 +322,19 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > ZIP の書き出しは完成状態を変更しない
 
-（出典: `specs/requirements/project-lifecycle.fsl:131`）
+（出典: `specs/requirements/project-lifecycle.fsl:102`）
 
 > 完成した音源は配布 ZIP として書き出せる。書き出しは完成状態を変えない
 
-（出典: `specs/requirements/project-lifecycle.fsl:71`）
+（出典: `specs/requirements/project-lifecycle.fsl:66`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:export_zip#operation" digest="sha256:e238f280c7295b39379ff4a9a03857684418fdbe6b8ccba2b8a66072e658664b" -->
+<!-- fsl:claim begin id="action:export_zip#operation" digest="sha256:86a5d6b71dbfa6631dece1d39f7c29a7f76f802f6de196b0210944e785a0ad92" -->
 #### 操作: `export_zip`
 
 - 識別子: `action:export_zip#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:72`
+- 出典: `specs/requirements/project-lifecycle.fsl:67`
 - パラメータ: なし
 
 操作 `export_zip` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -473,11 +349,11 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:ExportDoesNotChangeCoverage#transition_rule" digest="sha256:28ad56a377ead5453641be0c8d841534f937d2c431e3f4fcb019357e1325e229" -->
+<!-- fsl:claim begin id="property:trans:ExportDoesNotChangeCoverage#transition_rule" digest="sha256:ce7af8063b173decea32ec906f7ce9c58bdd5146d5a0a3d99b279bedfe580646" -->
 #### 遷移条件: `ExportDoesNotChangeCoverage`
 
 - 識別子: `property:trans:ExportDoesNotChangeCoverage#transition_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:132`
+- 出典: `specs/requirements/project-lifecycle.fsl:103`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -498,15 +374,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 完成後も編集でき、被覆が崩れれば完成状態から外れる
 
-（出典: `specs/requirements/project-lifecycle.fsl:78`）
+（出典: `specs/requirements/project-lifecycle.fsl:73`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:edit_breaks_coverage#operation" digest="sha256:63be3034b1df5a972756dc1a01330a0568e84d507e42539ba3eac59410de92bb" -->
+<!-- fsl:claim begin id="action:edit_breaks_coverage#operation" digest="sha256:2032b0652c564f35abc597a1c0f7ab2d6c384d73105047ed6e572dfed92aa2e1" -->
 #### 操作: `edit_breaks_coverage`
 
 - 識別子: `action:edit_breaks_coverage#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:79`
+- 出典: `specs/requirements/project-lifecycle.fsl:74`
 - パラメータ: なし
 
 操作 `edit_breaks_coverage` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -534,15 +410,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 録音を開始すると、確定するまで進行中のテイクが1件ある
 
-（出典: `specs/requirements/project-lifecycle.fsl:48`）
+（出典: `specs/requirements/project-lifecycle.fsl:43`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:start_take#operation" digest="sha256:d44a60e58d7c82cf0dc289505febecfb553a39498ab5b0b092f775aa32138d56" -->
+<!-- fsl:claim begin id="action:start_take#operation" digest="sha256:a1b200f121f592a4bdc5ee4a5c428658d3fa0167be78e433c20c11ee3e3e3b82" -->
 #### 操作: `start_take`
 
 - 識別子: `action:start_take#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:49`
+- 出典: `specs/requirements/project-lifecycle.fsl:44`
 - パラメータ: なし
 
 操作 `start_take` を実行できるのは、次の条件を満たす場合に限る。
@@ -568,19 +444,19 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 取りこぼしのないテイクは確定し、カバレッジに加算される
 
-（出典: `specs/requirements/project-lifecycle.fsl:54`）
+（出典: `specs/requirements/project-lifecycle.fsl:49`）
 
 > 録り続ければいずれ完成へ到達する
 
-（出典: `specs/requirements/project-lifecycle.fsl:151`）
+（出典: `specs/requirements/project-lifecycle.fsl:112`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:finalize_valid_take#operation" digest="sha256:9320a1f9aacc51bc42961f75a57b3f2df3c6a99a96498423d8231a77c749d892" -->
+<!-- fsl:claim begin id="action:finalize_valid_take#operation" digest="sha256:4abe120ccdb367944652d7e284459852a2ec166e6d610aecceab4cbb57d473dd" -->
 #### 操作: `finalize_valid_take`
 
 - 識別子: `action:finalize_valid_take#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:55`
+- 出典: `specs/requirements/project-lifecycle.fsl:50`
 - パラメータ: なし
 
 操作 `finalize_valid_take` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -597,11 +473,11 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 この操作には弱い公平性（weak fairness）を仮定する。これはスケジューリング上の仮定であり、この操作が実行可能（enabled）であり続けるならば、いつかは実行される、という意味である。直ちに実行されることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:leadsTo:EventuallyComplete#progress_rule" digest="sha256:977bed241fa441254294ddf77b970a9469152ddcb92c5692ebfa611e4889ac5d" -->
+<!-- fsl:claim begin id="property:leadsTo:EventuallyComplete#progress_rule" digest="sha256:b88fa8e3c759e6b258d88e1f04654829fecc738cde60141eeca38b96882ffc08" -->
 #### 進行条件: `EventuallyComplete`
 
 - 識別子: `property:leadsTo:EventuallyComplete#progress_rule`
-- 出典: `specs/requirements/project-lifecycle.fsl:152`
+- 出典: `specs/requirements/project-lifecycle.fsl:113`
 
 次の進行条件（liveness）が、FSL 上の要求として宣言されている。
 
@@ -623,15 +499,15 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 > 取りこぼし（xrun）を検出したテイクは無効として保存し、カバレッジに加算しない
 
-（出典: `specs/requirements/project-lifecycle.fsl:63`）
+（出典: `specs/requirements/project-lifecycle.fsl:58`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:discard_invalid_take#operation" digest="sha256:1c3068cd041e5af4231bba187dc9ad59867bbeea0b409d10afcce3c563c615ec" -->
+<!-- fsl:claim begin id="action:discard_invalid_take#operation" digest="sha256:1d2d55e4e98eaf705e87298f26a054a4f3dbdc4de998b85e678dfe1dc4098df9" -->
 #### 操作: `discard_invalid_take`
 
 - 識別子: `action:discard_invalid_take#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:64`
+- 出典: `specs/requirements/project-lifecycle.fsl:59`
 - パラメータ: なし
 
 操作 `discard_invalid_take` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -653,21 +529,57 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 - 実装適合: `not_run` — 対応するエビデンスは供給されていない。
 - 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
 
+### REQ-REC-004
+
+**要件原文（意図。形式意味との一致は人間が確認する）**
+
+> 異常終了で失われるのは進行中のテイクだけで、確定済みは残る
+
+（出典: `specs/requirements/project-lifecycle.fsl:81`）
+
+**形式化された意味（FSLから決定論的に生成）**
+
+<!-- fsl:claim begin id="action:crash_and_recover#operation" digest="sha256:5c9ce00cae11d19106c0da4a60e554061c2ecb5208564ed83ca61c3d88225b22" -->
+#### 操作: `crash_and_recover`
+
+- 識別子: `action:crash_and_recover#operation`
+- 出典: `specs/requirements/project-lifecycle.fsl:82`
+- パラメータ: なし
+
+操作 `crash_and_recover` を実行できるのは、次の条件をすべて満たす場合に限る。
+
+1. `recording` が `true` である。
+2. `crashes` が `2` より小さい。
+
+操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
+
+1. `recording` を `false` にする。
+2. `crashes` を `crashes + 1` にする。
+
+この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
+<!-- fsl:claim end -->
+
+**保証クラス**
+
+- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
+- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
+- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
+
 ### REQ-SYN-001
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
 > 必要な本数が揃う前でも試唱できる
 
-（出典: `specs/requirements/project-lifecycle.fsl:161`）
+（出典: `specs/requirements/project-lifecycle.fsl:122`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:reachable:PreviewableBeforeComplete#reachability_goal" digest="sha256:ff237677f1183a47620a8f4c90077d52d50c80534619ad52765b982f99cd4052" -->
+<!-- fsl:claim begin id="property:reachable:PreviewableBeforeComplete#reachability_goal" digest="sha256:de262cc12725a48b5acbf94ee2544f40fcff4ff48eb174d98c366a3f8a3eb3f9" -->
 #### 到達目標: `PreviewableBeforeComplete`
 
 - 識別子: `property:reachable:PreviewableBeforeComplete#reachability_goal`
-- 出典: `specs/requirements/project-lifecycle.fsl:162`
+- 出典: `specs/requirements/project-lifecycle.fsl:123`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -684,143 +596,21 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 - 実装適合: `not_run` — 対応するエビデンスは供給されていない。
 - 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
 
-### REQ-TEL-001
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 利用計測は既定オフで、明示的な同意を得るまで送信経路を開かない
-
-（出典: `specs/requirements/project-lifecycle.fsl:86`）
-
-> 同意を得たうえで送信が起きる経路が存在する
-
-（出典: `specs/requirements/project-lifecycle.fsl:146`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="action:grant_consent#operation" digest="sha256:3cda48c39cf3ad4f76391dbc09b4089561420404e6e6d7f8381b117b661a1f32" -->
-#### 操作: `grant_consent`
-
-- 識別子: `action:grant_consent#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:87`
-- パラメータ: なし
-
-操作 `grant_consent` を実行できるのは、次の条件を満たす場合に限る。
-
-1. `consent` が `Granted` でない。
-
-操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
-
-1. `consent` を `Granted` にする。
-
-この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
-<!-- fsl:claim end -->
-
-<!-- fsl:claim begin id="property:reachable:SentAfterConsent#reachability_goal" digest="sha256:2127007c7934639ce3ee744a19dc757beb4dbe56ce0aed328caa6e69c27e2b7f" -->
-#### 到達目標: `SentAfterConsent`
-
-- 識別子: `property:reachable:SentAfterConsent#reachability_goal`
-- 出典: `specs/requirements/project-lifecycle.fsl:147`
-
-次の状態に到達する実行例が存在しなければならない（到達目標）。
-
-`sent_events` が `0` より大きい、かつ、`consent` が `Granted` である。
-
-これは「少なくとも一つの実行が存在する」ことを求める到達目標であり、すべての状態での成立を求める不変条件ではない。
-
-- 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
-### REQ-TEL-002
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 同意はいつでも撤回でき、撤回後は送信しない
-
-（出典: `specs/requirements/project-lifecycle.fsl:92`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="action:revoke_consent#operation" digest="sha256:37ad6feef9d3d42fb6442103b72153826a691994628f0e9b3571b079601c46f1" -->
-#### 操作: `revoke_consent`
-
-- 識別子: `action:revoke_consent#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:93`
-- パラメータ: なし
-
-操作 `revoke_consent` を実行できるのは、次の条件を満たす場合に限る。
-
-1. `consent` が `Granted` である。
-
-操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
-
-1. `consent` を `Revoked` にする。
-
-この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
-### REQ-TEL-003
-
-**要件原文（意図。形式意味との一致は人間が確認する）**
-
-> 送信は同意がある間だけ行える
-
-（出典: `specs/requirements/project-lifecycle.fsl:98`）
-
-**形式化された意味（FSLから決定論的に生成）**
-
-<!-- fsl:claim begin id="action:send_event#operation" digest="sha256:1272588dcad140680d5867401576a1cdc049f4c7203ebc932df6698932d42575" -->
-#### 操作: `send_event`
-
-- 識別子: `action:send_event#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:99`
-- パラメータ: なし
-
-操作 `send_event` を実行できるのは、次の条件をすべて満たす場合に限る。
-
-1. `consent` が `Granted` である。
-2. `sent_events` が `2` より小さい。
-
-操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
-
-1. `sent_events` を `sent_events + 1` にする。
-
-この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
-<!-- fsl:claim end -->
-
-**保証クラス**
-
-- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
-- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
-- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
-
 ### REQ-VIS-001
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
 > 公開操作なしに完成状態へ到達できる
 
-（出典: `specs/requirements/project-lifecycle.fsl:156`）
+（出典: `specs/requirements/project-lifecycle.fsl:117`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:reachable:CompleteWhileUnpublished#reachability_goal" digest="sha256:9f7b6fe415ee00f23b1e259fcfff40dd2f453231042575b6e4526d9aaf59f5ea" -->
+<!-- fsl:claim begin id="property:reachable:CompleteWhileUnpublished#reachability_goal" digest="sha256:cdb70eb4924165c06ef63d824a1417700f5da01f6c01820919cbdddcc92e7196" -->
 #### 到達目標: `CompleteWhileUnpublished`
 
 - 識別子: `property:reachable:CompleteWhileUnpublished#reachability_goal`
-- 出典: `specs/requirements/project-lifecycle.fsl:157`
+- 出典: `specs/requirements/project-lifecycle.fsl:118`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -840,26 +630,6 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 ## 要件 ID に紐づかない形式要素
 
 次の形式要素は要件 ID に紐づけられていないが、本仕様の一部として検査される。
-
-<!-- fsl:claim begin id="action:crash_and_recover#operation" digest="sha256:366683ce153d528cc9a152cdc815ae969de28f21d24fbb233967a5432e4bcb68" -->
-#### 操作: `crash_and_recover`
-
-- 識別子: `action:crash_and_recover#operation`
-- 出典: `specs/requirements/project-lifecycle.fsl:106`
-- パラメータ: なし
-
-操作 `crash_and_recover` を実行できるのは、次の条件をすべて満たす場合に限る。
-
-1. `recording` が `true` である。
-2. `crashes` が `2` より小さい。
-
-操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
-
-1. `recording` を `false` にする。
-2. `crashes` を `crashes + 1` にする。
-
-この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
-<!-- fsl:claim end -->
 
 <!-- fsl:claim begin id="terminal#terminal_rule" digest="sha256:6f1c150be6eed609ec9523aecad0c42fe45f74e064e633704f6ee08093267625" -->
 #### 終端条件
@@ -883,14 +653,7 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 
 ## 未決定事項
 
-次の事項は未決定であり、検証条件ではない。本仕様の検証結果は、これらの事項について何も保証しない。
-
-### `action:crash_and_recover`
-
-- 宣言: `action crash_and_recover`
-- 理由: クラッシュ復帰の契約が要件に存在しない（meta/questions/Q-REC-001）。ここでは進行中のテイクだけが失われる仮の挙動を置いている
-- 関連する要件: REQ-PKG-001, REQ-PKG-002, REQ-REC-001, REQ-REC-002, REQ-REC-003
-- 出典: `specs/requirements/project-lifecycle.fsl:105`
+未決定として宣言された事項はない。
 
 ## 解析スコープ
 
@@ -901,9 +664,9 @@ claim_set_digest: sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac5
 ## 生成情報
 
 - 生成元仕様: `specs/requirements/project-lifecycle.fsl`（`KoeruProjectLifecycle`、dialect: `requirements`）
-- spec digest: `sha256:790e1399c2fb6867045a432f14cafbde16c21e60613d5c7fd3c8c1e697626618`
-- claim set digest: `sha256:10e9c51b9962601362eaa50c57b6f8cbcbdbec32d05208e9cf3cac551ce4c095`
-- 形式要素の分類: rendered 25 件 / unattributed 2 件 / unsupported 1 件
+- spec digest: `sha256:52d881afba64195c55965343201e952f7da0fd91f05973540fdc8d59f70f08af`
+- claim set digest: `sha256:ded9671414d726296c3514272a6a058c420ab3e8037be0a61a41535b313f01c5`
+- 形式要素の分類: rendered 18 件 / unattributed 1 件 / unsupported 1 件
 - 自然言語への言い換えを行わなかった式: 0 箇所
 - 由来情報は不完全である（completeness: `Partial`）。一部の要素について、FSL ソース上の出所を特定できていない。
 - 次の形式要素は RCIR v1 が対応していないため、本書には規範文として現れない。省略は明示され、黙って落とされることはない。

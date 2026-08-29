@@ -1,0 +1,167 @@
+// 利用計測とクラッシュレポートの同意（要求層）
+//
+// **スコープは製品全体。プロジェクトではない。**
+// 同意はプロジェクトが1つも無い時点から存在し、プロジェクトを跨いで1つしかない。
+// プロジェクトの状態として持つと、プロジェクトが2つになった瞬間に同意が複製される。
+//
+// ASSUME-1: 「初回起動時に同意を求める」は、プロジェクト作成と最初の録音より後に置く
+//           （TR-PKG-54）。ここでは「最初の録音が終わるまで訊かない」という順序制約として表す。
+// ASSUME-2: 送信回数は検証用に有限へ閉じる（表現上の仮定）。
+
+requirements KoeruTelemetryConsent {
+  number Count
+
+  enum Consent { NotAsked, Granted, Revoked }
+
+  state {
+    project_created: Bool,
+    first_take_done: Bool,
+    asked:           Bool,
+    telemetry:       Consent,
+    crash_report:    Consent,
+    sent_events:     Count,
+    sent_crashes:    Count
+  }
+
+  init {
+    project_created = false
+    first_take_done = false
+    asked = false
+    telemetry = NotAsked
+    crash_report = NotAsked
+    sent_events = 0
+    sent_crashes = 0
+  }
+
+  @requirement("REQ-TEL-004", "プロジェクトを作る前に同意を求めない")
+  action create_project() {
+    requires not project_created
+    project_created = true
+  }
+
+  @requirement("REQ-TEL-005", "最初の録音を終える前に同意を求めない")
+  action finish_first_take() {
+    requires project_created
+    requires not first_take_done
+    first_take_done = true
+  }
+
+  @requirement("REQ-TEL-006", "同意を求めるのは、プロジェクト作成と最初の録音を終えたあと。一度だけ")
+  action ask_consent() {
+    requires not asked
+    requires project_created
+    requires first_take_done
+    asked = true
+  }
+
+  @requirement("REQ-TEL-001", "利用計測は既定オフのオプトイン。訊いていない間は同意を得られない")
+  action grant_telemetry() {
+    requires asked
+    requires telemetry != Granted
+    telemetry = Granted
+  }
+
+  @requirement("REQ-TEL-002", "同意はいつでも撤回できる")
+  action revoke_telemetry() {
+    requires telemetry == Granted
+    telemetry = Revoked
+  }
+
+  @requirement("REQ-TEL-007", "クラッシュレポートは計測と別の同意単位にする")
+  action grant_crash_report() {
+    requires asked
+    requires crash_report != Granted
+    crash_report = Granted
+  }
+
+  @requirement("REQ-TEL-007", "クラッシュレポートの同意も独立に撤回できる")
+  action revoke_crash_report() {
+    requires crash_report == Granted
+    crash_report = Revoked
+  }
+
+  @requirement("REQ-TEL-003", "送信は同意がある間だけ行える")
+  action send_event() {
+    requires telemetry == Granted
+    requires sent_events < 2
+    sent_events = sent_events + 1
+  }
+
+  @requirement("REQ-TEL-007", "クラッシュレポートの送信は、その同意がある間だけ行える")
+  action send_crash_report() {
+    requires crash_report == Granted
+    requires sent_crashes < 2
+    sent_crashes = sent_crashes + 1
+  }
+
+  @requirement("INV-TEL-003", "同意を求める前に、プロジェクト作成と最初の録音が終わっている")
+  invariant AskedOnlyAfterFirstUse {
+    asked => (project_created and first_take_done)
+  }
+
+  @requirement("INV-TEL-003", "同意の状態が動いているなら、必ず訊いたあと")
+  invariant ConsentImpliesAsked {
+    (telemetry != NotAsked or crash_report != NotAsked) => asked
+  }
+
+  @requirement("INV-TEL-001", "訊いていないうちは、どちらの送信も起きない")
+  invariant NothingSentBeforeAsking {
+    (sent_events > 0 or sent_crashes > 0) => asked
+  }
+
+  @requirement("INV-TEL-002", "送信が起きるのは、その種別の同意がある間だけ")
+  trans SendOnlyWhileConsented {
+    (sent_events != old(sent_events) => telemetry == Granted)
+    and (sent_crashes != old(sent_crashes) => crash_report == Granted)
+  }
+
+  @requirement("REQ-TEL-001", "同意を得たうえで送信が起きる経路が存在する")
+  reachable SentAfterConsent {
+    sent_events > 0 and telemetry == Granted
+  }
+
+  @requirement("REQ-TEL-004", "同意を一度も求めないまま、録音を終えて使い続けられる")
+  reachable UsableWithoutAsking {
+    first_take_done and not asked
+  }
+
+  forbidden FB-TEL-002 "同意を求める前に送信できない" {
+    create_project()
+    finish_first_take()
+    send_event()
+    expect rejected
+  }
+
+  forbidden FB-TEL-001 "撤回したあとに送信できない" {
+    create_project()
+    finish_first_take()
+    ask_consent()
+    grant_telemetry()
+    revoke_telemetry()
+    send_event()
+    expect rejected
+  }
+
+  forbidden FB-TEL-003 "計測に同意しただけでは、クラッシュレポートは送られない" {
+    create_project()
+    finish_first_take()
+    ask_consent()
+    grant_telemetry()
+    send_crash_report()
+    expect rejected
+  }
+
+  forbidden FB-TEL-004 "最初の録音を終える前に同意を求められない" {
+    create_project()
+    ask_consent()
+    expect rejected
+  }
+
+  terminal {
+    asked and telemetry != NotAsked and crash_report != NotAsked
+  }
+}
+
+verify {
+  values Count = 0..3
+}

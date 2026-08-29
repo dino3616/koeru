@@ -1,0 +1,9 @@
+# 利用計測とクラッシュレポートの同意。
+#
+# **スコープは製品全体。** プロジェクトを跨いで1つしかないので、
+# プロジェクトのライフサイクル（fsl-project.toml）とは別の manifest にする。
+# manifest 1つにつき層ごと1仕様なので、スコープごとに分ける。
+
+[requirements]
+file = "requirements/telemetry-consent.fsl"
+depth = 10
