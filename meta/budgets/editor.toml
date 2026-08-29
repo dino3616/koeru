@@ -8,57 +8,70 @@ schema = 'target-set'
 domain = 'editor'
 
 [[target]]
+id = 'TGT-EDT-001'
 item = 'ハンドルのドラッグ追従'
 goal = '遅れ1フレーム以内、メインスレッドの1フレーム作業 8ms 以下'
 
 [[target]]
+id = 'TGT-EDT-002'
 item = '水平スクロール・ズームの追従'
 goal = '60fps 以上'
 
 [[target]]
+id = 'TGT-EDT-003'
 item = '隣接エントリへの移動'
 goal = '事前計算済み 50ms 以内 / 未計算は波形 200ms 以内（スペクトログラムは遅延して差し込む）'
 
 [[target]]
+id = 'TGT-EDT-004'
 item = '水平ズームの下限 / 上限'
 goal = '0.25 ms/px 以下 / 9 ms/px 以上'
 
 [[target]]
+id = 'TGT-EDT-005'
 item = 'スペクトログラムの時間分解能 / 窓長 / 強度レンジ'
 goal = 'ホップ 2.5ms 以下 / 既定 512（可変 128〜4096）/ 既定 -20dB〜55dB'
 
 [[target]]
+id = 'TGT-EDT-006'
 item = 'チャート事前計算のスループット'
 goal = '**分母を方式ごとの実音声長に置き換える**（単独音 約4分 / 連続音1音階 約26分 / 多音階3音階 約52分 / 多音階5音階 約87分）'
 note = 'Q-EDT-001'
 
 [[target]]
+id = 'TGT-EDT-007'
 item = '**スペクトログラムキャッシュのディスク使用量**'
 goal = '**新設**（3音階で 350MB、5音階で 600MB）'
 note = 'Q-EDT-001'
 
 [[target]]
+id = 'TGT-EDT-008'
 item = '常駐メモリ（音声＋チャート画像）'
 goal = '512MB 以下（可視域＋前後数エントリのウィンドウのみ）'
 note = 'Q-PLT-001・Q-EDT-001'
 
 [[target]]
+id = 'TGT-EDT-009'
 item = '一括編集の実行 / プレビュー生成'
 goal = '5000エントリを1秒以内 / 200ms 以内'
 
 [[target]]
+id = 'TGT-EDT-010'
 item = '数値テーブルのスクロール'
 goal = '5000行で 60fps'
 
 [[target]]
+id = 'TGT-EDT-011'
 item = 'undo 履歴'
 goal = '100操作以上、メモリ上限 200MB'
 note = 'Q-PLT-001'
 
 [[target]]
+id = 'TGT-EDT-012'
 item = 'oto.ini の書き出し'
 goal = '5000エントリを 200ms 以内。2回書き出して同一バイト列'
 
 [[target]]
+id = 'TGT-EDT-013'
 item = 'ゼロクロス吸着の探索窓 / 境界同士の最小距離'
 goal = '既定 ±5ms を上限（窓内に無ければ吸着しない）/ 既定 3ms'

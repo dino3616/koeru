@@ -7,37 +7,39 @@ why_it_matters = '''
 部品台帳（meta/evidence/ledger-*.toml）で `採用` または `不適` と判定しているのに、
 判断記録（decided_by）が無いもの。**なぜそう決めたのか、何が起きたら覆すのかが残っていない。**
 台帳の status だけが残ると、あとから「本当にそれでよかったのか」を確かめる手段が無くなる。
-
-- align: SOFA（不適）
-- align: HubertFA（不適）
-- align: narabas（不適）
-- align: torchaudio forced_align + MMS_FA（不適）
-- align: BFA（不適）
-- align: Charsiu / MAPS（不適）
-- align: setParam の自動推定（不適）
-- align: MAUS / WebMAUS（不適）
-- align: PyInstaller（不適）
-- editor: setParam（不適）
-- editor: KiraOtoToolbox（不適）
-- editor: snack（不適）
-- editor: FFTW（不適）
-- editor: uchardet（不適）
-- packaging: tracing ＋ tracing-subscriber（採用）
-- packaging: SharpZipLib（不適）
-- platform: Qt 6（不適）
-- platform: JUCE 9（不適）
-- platform: SwiftUI + WinUI 3 の OS 別実装（不適）
-- platform: UTF.Unknown（不適）
-- platform: SOFA（不適）
-- reclist: hikari one crystal ja（不適）
-- reclist: reclist-gen-cvvc / new_cvvc_generator（不適）
-- recording: alsa-lib（不適）
-- recording: libsoxr（不適）
-- recording: JUCE 9（不適）
-- synth: ttk592/spline（不適）
-- synth: moresampler（不適）
-- synth: UTAU 同梱 resampler.exe（不適）
 '''
 how_to_close = '1件ずつ、選択肢・理由・撤回条件を書いて DEC にする。単一の事実だけで落ちているもの（Windows 専用、ライセンス不明など）は、台帳の note を根拠として DEC の rationale に引く。'
 blocks_profiles = []
-affects_requirements = []
+affects_components = [
+  'CMP-ALN-007',
+  'CMP-ALN-008',
+  'CMP-ALN-009',
+  'CMP-ALN-010',
+  'CMP-ALN-011',
+  'CMP-ALN-012',
+  'CMP-ALN-014',
+  'CMP-ALN-016',
+  'CMP-ALN-017',
+  'CMP-EDT-009',
+  'CMP-EDT-010',
+  'CMP-EDT-011',
+  'CMP-EDT-012',
+  'CMP-EDT-013',
+  'CMP-PKG-007',
+  'CMP-PKG-008',
+  'CMP-PLT-009',
+  'CMP-PLT-010',
+  'CMP-PLT-012',
+  'CMP-PLT-018',
+  'CMP-PLT-020',
+  'CMP-RCL-011',
+  'CMP-RCL-012',
+  'CMP-REC-011',
+  'CMP-REC-012',
+  'CMP-REC-013',
+  'CMP-SYN-015',
+  'CMP-SYN-016',
+  'CMP-SYN-017',
+]
+
+# どの部品かは affects_components が指す。名前で書くと、改名で黙って古くなる。

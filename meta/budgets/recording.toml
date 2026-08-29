@@ -8,59 +8,72 @@ schema = 'target-set'
 domain = 'recording'
 
 [[target]]
+id = 'TGT-REC-001'
 item = '配布用 WAV'
 goal = '44100 Hz / 16bit PCM / 1ch、fmt と data 以外のチャンクなし'
 note = 'Fact'
 
 [[target]]
+id = 'TGT-REC-002'
 item = 'マスター WAV'
 goal = '44100 Hz / 32bit float / 1ch、書き込み後は不変'
 
 [[target]]
+id = 'TGT-REC-003'
 item = 'キャプチャ周期'
 goal = '10ms 相当（モニタリング無効時はこれより縮めない）'
 
 [[target]]
+id = 'TGT-REC-004'
 item = 'モニタリング往復レイテンシ'
 goal = '目標 15ms / 上限 25ms。超える環境では機能を提示しない（既定は無効）'
 
 [[target]]
+id = 'TGT-REC-005'
 item = 'プリロール'
 goal = 'リングバッファ 1000ms 以上を常時保持、開始点は指示より 500ms 前'
 
 [[target]]
+id = 'TGT-REC-006'
 item = 'テイク前後の無音マージン'
 goal = '前 300ms 以上 / 後 300ms 以上'
 
 [[target]]
+id = 'TGT-REC-007'
 item = '取りこぼし（xrun）'
 goal = '1テイクあたり 0 フレーム。3時間セッションで発生 0 回'
 note = '1フレームでも欠落したテイクは自動で無効化'
 
 [[target]]
+id = 'TGT-REC-008'
 item = 'リサンプル品質'
 goal = 'エイリアシングと帯域の確保。**群遅延をサンプル単位で既知としマスター上で補償済み**'
 note = '**SNR / 帯域を境界誤差予算の根拠にしない**'
 
 [[target]]
+id = 'TGT-REC-009'
 item = 'ガイド音と録音の時刻対応の誤差'
 goal = '±10ms 以内'
 note = '**セグメンテーションの根拠には使わない**'
 
 [[target]]
+id = 'TGT-REC-010'
 item = '入力レベル校正の目標ピーク'
 goal = '-12 dBFS 以上 **-6 dBFS 以下**。最大2回で収束、失敗しても収録に進める'
 note = '校正発声は最も高い音高の全力発声'
 
 [[target]]
+id = 'TGT-REC-011'
 item = 'プロジェクト読み込み（再開時）'
 goal = 'テイク 2000 件規模で 2秒以内'
 
 [[target]]
+id = 'TGT-REC-012'
 item = 'ディスク書き込み帯域'
 goal = '176.4 kB/s。テイク境界の fsync が連続収録の送りをブロックしない'
 
 [[target]]
+id = 'TGT-REC-013'
 item = 'プロジェクト容量（想定最大）'
 goal = '総容量 4GB を超えたら非採用テイクの削除候補を提示（自動削除はしない）'
 note = '**「3時間の多音階連続音」の規模が領域ごとに食い違っているため、確定後に再計算が必要**'

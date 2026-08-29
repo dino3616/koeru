@@ -8,74 +8,90 @@ schema = 'target-set'
 domain = 'synth'
 
 [[target]]
+id = 'TGT-SYN-001'
 item = '押下 → 最初の音（初回・直前の録音の前処理を含む）'
 goal = '中央値 6秒 / p95 10秒'
 note = '**新設ケース**'
 
 [[target]]
+id = 'TGT-SYN-002'
 item = '同（2回目以降・前処理完了済み・キャッシュ無し）'
 goal = '中央値 1.5秒 / p95 5秒'
 
 [[target]]
+id = 'TGT-SYN-003'
 item = '同（前処理が未完了の最悪ケース）'
 goal = '30秒以内'
 
 [[target]]
+id = 'TGT-SYN-004'
 item = '追加録音後の差分再試唱 / 再再生'
 goal = '中央値 0.5秒 / 0.1秒'
 
 [[target]]
+id = 'TGT-SYN-005'
 item = 'phonemizer + エイリアス解決 + カバレッジ判定'
 goal = '50ms（50音符）'
 
 [[target]]
+id = 'TGT-SYN-006'
 item = '1音符あたりの合成'
 goal = '80ms（音符長 0.5秒、**FFT 長 2048**、フレーム 10ms）'
 note = '**[Assumption] 係数は未実測。最初の実測項目に格上げする**'
 
 [[target]]
+id = 'TGT-SYN-007'
 item = '曲全体の合成の RTF'
 goal = '0.5 以下'
 
 [[target]]
+id = 'TGT-SYN-008'
 item = '周波数表の生成'
 goal = '1.0秒（録音1件・4秒 WAV・**F0 下限 55Hz**）'
 note = '**[Unknown] Harvest の RTF は未実測。最初の実測項目**'
 
 [[target]]
+id = 'TGT-SYN-009'
 item = '自動原音設定（録音1件）'
 goal = '3.0秒'
 note = '**実測に対して200倍以上の過大確保。0.3秒へ詰める**'
 
 [[target]]
+id = 'TGT-SYN-010'
 item = '録音1件の確定 → 前処理の完了'
 goal = '5秒'
 note = '**確約ではなく計測対象として扱う**'
 
 [[target]]
+id = 'TGT-SYN-011'
 item = 'バックグラウンド前処理の同時実行数'
 goal = '論理コア数の 1/2 以下'
 note = '**ワーカプール全体の優先度を明示する**'
 
 [[target]]
+id = 'TGT-SYN-012'
 item = '周波数表のディスク使用量'
 goal = '約 2.7 KB / 音声1秒（単独音1本 約8分で約 1.3MB）'
 
 [[target]]
+id = 'TGT-SYN-013'
 item = 'スペクトル包絡＋非周期性指標のメモリ'
 goal = '約 1.6MB / 音声1秒'
 note = '永続化しない根拠'
 
 [[target]]
+id = 'TGT-SYN-014'
 item = '解析結果のメモリ LRU 上限'
 goal = '512MB（editor 前面時は 128MB へ縮退）'
 note = 'Q-PLT-001'
 
 [[target]]
+id = 'TGT-SYN-015'
 item = '合成済みフレーズのディスクキャッシュ上限'
 goal = '1GB / プロジェクト'
 
 [[target]]
+id = 'TGT-SYN-016'
 item = 'CheapTrick の FFT 長'
 goal = 'F0 下限 71Hz で 2048 / 55Hz で 4096（**解析コストが約2倍**）'
 note = '試唱は 2048 固定、`.frq` は 4096'

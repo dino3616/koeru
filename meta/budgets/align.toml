@@ -8,39 +8,47 @@ schema = 'target-set'
 domain = 'align'
 
 [[target]]
+id = 'TGT-ALN-001'
 item = '1テイクのアライメント + oto 5値推定'
 goal = 'p95 で 300ms 以下'
 note = '実測 13.5ms（20倍の余裕。**制約として機能していない**）'
 
 [[target]]
+id = 'TGT-ALN-002'
 item = '全件再推定（多音階連続音）'
 goal = '10分以下（バックグラウンド、中断・再開可）'
 note = '推論のみなら約36秒。**キャッシュ再構築の予算行が別に必要**'
 
 [[target]]
+id = 'TGT-ALN-003'
 item = '同梱物のサイズ'
 goal = '50MB 以下'
 note = '実サイズ 約1.2〜5MB'
 
 [[target]]
+id = 'TGT-ALN-004'
 item = 'ピークメモリ'
 goal = '**64MB 程度**（プロセス全体予算からの配分）'
 note = '従来の 500MB は2桁過大'
 
 [[target]]
+id = 'TGT-ALN-005'
 item = 'モデルロード → 初回推定可能'
 goal = '200ms 以下'
 
 [[target]]
+id = 'TGT-ALN-006'
 item = 'oto 各値の出力時間分解能'
 goal = '2ms 以下'
 
 [[target]]
+id = 'TGT-ALN-007'
 item = '境界誤差'
 goal = '**数値目標は内部評価ハーネスの実測まで確定しない。暫定参照値は MFA の CSJ 実測（10ms 以内 63.44%）**'
 note = '実測待ち'
 
 [[target]]
+id = 'TGT-ALN-008'
 item = '確認待ちの上限'
 goal = '**件数ではなく「確認の合計所要時間」で切る**（通常モードは合計5分ぶんまで）'
 note = '要件どうしの衝突'

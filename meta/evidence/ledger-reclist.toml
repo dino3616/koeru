@@ -7,18 +7,21 @@ schema = 'component-ledger'
 domain = 'reclist'
 
 [[component]]
+id = 'CMP-RCL-001'
 name = 'jpreprocess'
 purpose = '漢字混じり歌詞から仮名読み・音素列への変換（g2p）。OpenJTalk の Rust 再実装'
 license = 'BSD-3-Clause'
 status = '採用候補'
 
 [[component]]
+id = 'CMP-RCL-002'
 name = 'jpreprocess-naist-jdic'
 purpose = 'jpreprocess 用の日本語辞書'
 license = 'BSD-3-Clause'
 status = '採用候補'
 
 [[component]]
+id = 'CMP-RCL-003'
 name = 'OpenUtau'
 purpose = 'エイリアス文法（VCV / CVVC / presamp / prefix.map）とフォールバック探索順の参照実装'
 license = 'MIT'
@@ -26,24 +29,28 @@ status = '採用候補'
 note = '著作権表示を保持して移植'
 
 [[component]]
+id = 'CMP-RCL-004'
 name = 'pathfinding'
 purpose = '有向グラフのパス分解・オイラー路系の探索補助'
 license = 'Apache-2.0 OR MIT'
 status = '条件付き'
 
 [[component]]
+id = 'CMP-RCL-005'
 name = 'good_lp（+ HiGHS）'
 purpose = '最小被覆・辺被覆パス分解を厳密に解く場合の MIP ソルバ'
 license = 'MIT'
 status = '条件付き'
 
 [[component]]
+id = 'CMP-RCL-006'
 name = 'lindera / vibrato'
 purpose = '形態素解析（読み付与の代替）'
 license = 'MIT / MIT OR Apache-2.0'
 status = '条件付き'
 
 [[component]]
+id = 'CMP-RCL-007'
 name = 'adlez27/vcv-generator'
 purpose = '連続音録音リストと oto の生成器（先行実装の参照）'
 license = 'MIT'
@@ -51,18 +58,21 @@ status = '条件付き'
 note = '参照のみ'
 
 [[component]]
+id = 'CMP-RCL-008'
 name = 'RecStar'
 purpose = '録音リストとガイド音声設定のパーサ仕様の参照'
 license = 'Apache-2.0'
 status = '参照のみ'
 
 [[component]]
+id = 'CMP-RCL-009'
 name = 'vLabeler'
 purpose = 'reclist / oto / 多音階の扱いの参照'
 license = 'Apache-2.0'
 status = '参照のみ'
 
 [[component]]
+id = 'CMP-RCL-010'
 name = 'OREMO（付属リストとガイド BGM 制御ファイル形式）'
 purpose = '録音周期と標準リスト規模の実測データ'
 license = 'GPL-2.0'
@@ -70,18 +80,21 @@ status = '条件付き'
 note = 'ファイル形式と実測値の参照のみ。ファイルを同梱・再配布しない'
 
 [[component]]
+id = 'CMP-RCL-011'
 name = 'hikari one crystal ja'
 purpose = '多音階連続音音源の規模とエイリアス構成の実測データ'
 license = '**Unknown**'
 status = '不適'
 
 [[component]]
+id = 'CMP-RCL-012'
 name = 'reclist-gen-cvvc / new_cvvc_generator'
 purpose = 'CVVC 録音リスト生成器'
 license = '**Unknown**'
 status = '不適'
 
 [[component]]
+id = 'CMP-RCL-013'
 name = 'XieYunP/reclisrgen-'
 purpose = 'UTAU 録音リスト生成器'
 license = 'Apache-2.0'

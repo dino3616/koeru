@@ -33,8 +33,9 @@ struct Shape {
     dir: &'static str,
     /// 1件1ファイル。ID の接頭辞と必須項目。
     entity: Option<(&'static str, &'static [&'static str])>,
-    /// 配列で複数件。配列のキーと、各項目の必須項目。
-    collection: Option<(&'static str, &'static [&'static str])>,
+    /// 配列で複数件。配列のキー、項目 ID の接頭辞、各項目の必須項目。
+    /// **項目にも ID を持たせる。** 引けないものは参照できず、参照できないものは検査できない。
+    collection: Option<(&'static str, &'static str, &'static [&'static str])>,
 }
 
 const SHAPES: &[Shape] = &[
@@ -42,7 +43,11 @@ const SHAPES: &[Shape] = &[
         schema: "requirement-set",
         dir: "requirements",
         entity: None,
-        collection: Some(("requirement", &["id", "title", "confidence", "statement"])),
+        collection: Some((
+            "requirement",
+            "TR-",
+            &["id", "title", "confidence", "statement"],
+        )),
     },
     Shape {
         schema: "decision",
@@ -91,7 +96,11 @@ const SHAPES: &[Shape] = &[
         schema: "component-ledger",
         dir: "evidence",
         entity: None,
-        collection: Some(("component", &["name", "purpose", "license", "status"])),
+        collection: Some((
+            "component",
+            "CMP-",
+            &["id", "name", "purpose", "license", "status"],
+        )),
     },
     Shape {
         schema: "budget",
@@ -103,7 +112,7 @@ const SHAPES: &[Shape] = &[
         schema: "target-set",
         dir: "budgets",
         entity: None,
-        collection: Some(("target", &["item", "goal"])),
+        collection: Some(("target", "TGT-", &["id", "item", "goal"])),
     },
     Shape {
         schema: "profile",
@@ -123,7 +132,7 @@ struct Entry {
 impl Entry {
     /// 収集ファイルの各項目。1件1ファイルの形なら空。
     fn items(&self) -> Vec<toml::Table> {
-        let Some((key, _)) = self.shape.collection else {
+        let Some((key, _, _)) = self.shape.collection else {
             return Vec::new();
         };
         self.table
@@ -317,7 +326,7 @@ fn check_shape(e: &Entry, rep: &mut Report) {
             None => rep.error(format!("{file}: `id` が文字列でない")),
         }
     }
-    let Some((key, required)) = e.shape.collection else {
+    let Some((key, prefix, required)) = e.shape.collection else {
         return;
     };
     // 宣言したキー以外に表の配列があるのは、たいてい `[[component]]` を
@@ -357,6 +366,13 @@ fn check_shape(e: &Entry, rep: &mut Report) {
                     if !t.contains_key(*r) {
                         rep.error(format!("{file}: [[{key}]] の {i} 件目に `{r}` が無い"));
                     }
+                }
+                if let Some(id) = t.get("id").and_then(toml::Value::as_str)
+                    && !id.starts_with(prefix)
+                {
+                    rep.error(format!(
+                        "{file}: [[{key}]] の id `{id}` は `{prefix}` で始まる必要がある"
+                    ));
                 }
             }
         }
@@ -556,17 +572,24 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
         .map(|e| e.items().len())
         .sum();
 
-    // ID を持つファイルどうしの参照
+    // 参照できる ID。1件1ファイルのものと、収集ファイルの項目の両方。
     let mut ids: BTreeMap<String, PathBuf> = BTreeMap::new();
-    for e in entries.iter().filter(|e| e.shape.entity.is_some()) {
-        if let Some(id) = str_of(&e.table, "id")
-            && let Some(prev) = ids.insert(id.to_owned(), e.path.clone())
-        {
-            rep.error(format!(
-                "{}: id `{id}` が {} と重複している",
-                e.path.display(),
-                prev.display()
-            ));
+    for e in entries {
+        let mut seen = Vec::new();
+        if e.shape.entity.is_some() {
+            seen.extend(str_of(&e.table, "id").map(str::to_owned));
+        }
+        for t in e.items() {
+            seen.extend(str_of(&t, "id").map(str::to_owned));
+        }
+        for id in seen {
+            if let Some(prev) = ids.insert(id.clone(), e.path.clone()) {
+                rep.error(format!(
+                    "{}: id `{id}` が {} と重複している",
+                    e.path.display(),
+                    prev.display()
+                ));
+            }
         }
     }
     for e in entries {
@@ -588,6 +611,8 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
             "supports_decisions",
             "affects_questions",
             "affects_evidence",
+            "affects_components",
+            "affects_targets",
             "affects_budgets",
             "blocks_profiles",
             "decisions",
