@@ -1,0 +1,347 @@
+// 収録の入力経路（要求層）
+//
+// **スコープは収録セッション。** デバイスの選択から、効果の無効化、校正、
+// 入力経路の生死判定、収録中の消失までを扱う。
+// テイクの生涯とカバレッジは project-lifecycle が持つ。
+//
+// ASSUME-1: 「最初の 1.0 秒間」「-90 dBFS」（TR-REC-17）は実時間と連続量なので
+//           FSL の対象外。**「入力が届いているか」という離散の判定**に畳む。
+// ASSUME-2: 効果の構成は「無効化できた」「無効化できないものが残った」の2値に畳む。
+//           個々の効果種別（AGC / NS / AEC 等）は列挙しない。
+// ASSUME-3: テイク数は検証用に有限へ閉じる（表現上の仮定）。
+
+requirements KoeruRecordingInput {
+  number Count
+
+  const MAX_TAKES = 3
+
+  enum Device   { NotSelected, Selected, Lost }
+  enum Effects  { Unknown, Clean, SomeRemain }
+  enum Gain     { NotCalibrated, Calibrated }
+  enum Liveness { Unchecked, Alive, Dead }
+
+  state {
+    device:           Device,
+    stream_open:      Bool,
+    effects:          Effects,
+    prompts_shown:    Count,
+    gain:             Gain,
+    os_gain_changed:  Bool,
+    os_gain_restored: Bool,
+    guide_enabled:    Bool,
+    leak_checked:     Bool,
+    liveness:         Liveness,
+    recording:        Bool,
+    takes:            Count,
+    app_exited:       Bool
+  }
+
+  init {
+    device = NotSelected
+    stream_open = false
+    effects = Unknown
+    prompts_shown = 0
+    gain = NotCalibrated
+    os_gain_changed = false
+    os_gain_restored = false
+    guide_enabled = false
+    leak_checked = false
+    liveness = Unchecked
+    recording = false
+    takes = 0
+    app_exited = false
+  }
+
+  @requirement("REQ-REC-101", "入力デバイスは本人が明示的に選び、識別子でプロジェクトに固定する")
+  action select_device() {
+    requires device == NotSelected
+    requires not app_exited
+    device = Selected
+  }
+
+  @requirement("REQ-REC-102", "収録画面に入った時点でストリームを開き、テイクごとに開閉しない")
+  action open_stream() {
+    requires not app_exited
+    requires device == Selected
+    requires not stream_open
+    stream_open = true
+  }
+
+  @requirement("REQ-REC-103", "開いたストリームに適用中の効果を列挙し、無効化できたものは無効化する")
+  action disable_all_effects() {
+    requires not app_exited
+    requires stream_open
+    requires effects == Unknown
+    effects = Clean
+  }
+
+  @requirement("REQ-REC-103", "無効化できない効果が残ることがある")
+  action some_effects_remain() {
+    requires not app_exited
+    requires stream_open
+    requires effects == Unknown
+    effects = SomeRemain
+  }
+
+  @requirement("REQ-REC-104", "無効化できない効果が残ったら、収録開始前に一度だけ手順を提示する")
+  action show_prompt_once() {
+    requires not app_exited
+    requires effects == SomeRemain
+    requires prompts_shown == 0
+    requires not recording
+    prompts_shown = prompts_shown + 1
+  }
+
+  @requirement("REQ-REC-105", "入力レベルの校正は収録前の1回のセットアップ工程で、収録中は行わない")
+  action calibrate_gain() {
+    requires not app_exited
+    requires device == Selected
+    requires not recording
+    requires gain == NotCalibrated
+    gain = Calibrated
+    os_gain_changed = true
+  }
+
+  @requirement("REQ-REC-106", "入力経路の生死は収録開始後の冒頭で一度だけ判定する")
+  action input_is_alive() {
+    requires not app_exited
+    requires stream_open
+    requires liveness == Unchecked
+    liveness = Alive
+  }
+
+  @requirement("REQ-REC-106", "入力が届いていなければ収録を止め、テイクを作らずデバイス選択へ戻す")
+  action input_is_dead() {
+    requires not app_exited
+    requires stream_open
+    requires liveness == Unchecked
+    liveness = Dead
+    recording = false
+    stream_open = false
+    device = NotSelected
+  }
+
+  @requirement("REQ-REC-107", "ガイドを鳴らす前に、回り込みの有無を一度だけ確認する")
+  action check_guide_leak() {
+    requires not app_exited
+    requires stream_open
+    requires not leak_checked
+    requires not recording
+    leak_checked = true
+  }
+
+  @requirement("REQ-REC-107", "回り込みが無いと確認できたときだけガイドを鳴らす")
+  action enable_guide() {
+    requires not app_exited
+    requires leak_checked
+    requires not guide_enabled
+    guide_enabled = true
+  }
+
+  @requirement("REQ-REC-108", "収録は、デバイスが生きていて入力が届いているときだけ始められる")
+  fair action start_take() {
+    requires not app_exited
+    requires device == Selected
+    requires stream_open
+    requires liveness == Alive
+    requires gain == Calibrated
+    requires not recording
+    requires takes < MAX_TAKES
+    recording = true
+  }
+
+  @requirement("REQ-REC-108", "テイクが確定してもストリームは開いたままにする")
+  fair action finish_take() {
+    requires not app_exited
+    requires recording
+    recording = false
+    takes = takes + 1
+  }
+
+  @requirement("REQ-REC-109", "選択済みデバイスが録音中に消失したら、進行中テイクを破棄して収録を止める")
+  action device_lost() {
+    requires not app_exited
+    requires device == Selected
+    device = Lost
+    recording = false
+    stream_open = false
+    liveness = Unchecked
+  }
+
+  @requirement("REQ-REC-109", "復帰は同一識別子のデバイスが戻ったときだけ。別のデバイスへ自動で切り替えない")
+  action same_device_returned() {
+    requires not app_exited
+    requires device == Lost
+    device = Selected
+  }
+
+  @requirement("REQ-REC-105", "アプリが変更した OS 側のゲインは、終了時に変更前の値へ戻す")
+  action exit_app() {
+    requires not recording
+    requires not app_exited
+    app_exited = true
+    os_gain_restored = os_gain_changed
+  }
+
+  @requirement("INV-REC-108", "手順の提示は多くとも一度しか出ない")
+  invariant PromptAtMostOnce {
+    prompts_shown <= 1
+  }
+
+  @requirement("MODEL-REC-101", "ASSUME-3: 収録中なら、テイク数の上限にはまだ達していない")
+  invariant RecordingImpliesRoom {
+    recording => takes < MAX_TAKES
+  }
+
+  @requirement("INV-REC-101", "デバイスを失った状態では収録していない")
+  invariant NoRecordingWithoutDevice {
+    (device != Selected) => not recording
+  }
+
+  @requirement("INV-REC-102", "収録しているならストリームは開いている")
+  invariant RecordingRequiresOpenStream {
+    recording => stream_open
+  }
+
+  @requirement("INV-REC-103", "入力が届いていない、または未判定のまま収録することはない")
+  invariant NoRecordingWithoutLiveInput {
+    recording => liveness == Alive
+  }
+
+  @requirement("INV-REC-104", "校正していないまま収録することはない")
+  invariant NoRecordingWithoutCalibration {
+    recording => gain == Calibrated
+  }
+
+  @requirement("INV-REC-105", "回り込みを確認しないままガイドを鳴らすことはない")
+  invariant GuideRequiresLeakCheck {
+    guide_enabled => leak_checked
+  }
+
+  @requirement("INV-REC-106", "テイクが確定するのは、入力が届いていると判定できているときだけ")
+  trans TakeOnlyWhileAlive {
+    (takes != old(takes)) => liveness == Alive
+  }
+
+  @requirement("INV-REC-107", "アプリが OS 側のゲインを変えたなら、終了時に必ず戻している")
+  invariant GainRestoredOnExit {
+    (app_exited and os_gain_changed) => os_gain_restored
+  }
+
+  @requirement("REQ-REC-104", "手順の提示は収録中に出ない")
+  trans PromptNeverDuringRecording {
+    (prompts_shown != old(prompts_shown)) => not recording
+  }
+
+  @requirement("REQ-REC-104", "手順を提示するのは、無効化できない効果が残っているときだけ")
+  trans PromptOnlyWhenEffectsRemain {
+    (prompts_shown != old(prompts_shown)) => effects == SomeRemain
+  }
+
+  @requirement("REQ-REC-106", "入力が届いていないと判定したら、デバイス選択へ戻す")
+  trans DeadInputReturnsToDeviceSelection {
+    (liveness == Dead and old(liveness) != Dead) => device == NotSelected
+  }
+
+  @requirement("REQ-REC-105", "収録中にゲインを変えない")
+  trans GainFixedDuringRecording {
+    (gain != old(gain)) => (not recording and not old(recording))
+  }
+
+  @requirement("REQ-REC-102", "テイクが確定してもストリームを閉じない")
+  trans StreamStaysOpenAcrossTakes {
+    (takes != old(takes)) => (stream_open and old(stream_open))
+  }
+
+  @requirement("REQ-REC-104", "無効化できない効果が残ったまま、それでも収録へ進める")
+  reachable RecordsWithRemainingEffects {
+    takes > 0 and effects == SomeRemain and prompts_shown == 1
+  }
+
+  @requirement("REQ-REC-109", "デバイスが戻れば収録を再開できる")
+  reachable ResumesAfterDeviceReturn {
+    takes > 0 and device == Selected
+  }
+
+  @requirement("REQ-REC-109", "デバイスの消失は状態として記録される")
+  reachable DeviceCanBeLost {
+    device == Lost
+  }
+
+  @requirement("REQ-REC-106", "入力が届いていないことは状態として記録される")
+  reachable InputCanBeDead {
+    liveness == Dead
+  }
+
+  @requirement("REQ-REC-104", "手順が提示される経路が存在する")
+  reachable PromptCanBeShown {
+    prompts_shown == 1
+  }
+
+  acceptance AC-REC-101 "選んで、開いて、効果を無効化し、校正し、生死を確かめて録る" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    calibrate_gain()
+    input_is_alive()
+    start_take()
+    finish_take()
+    expect takes == 1 and stream_open
+  }
+
+  forbidden FB-REC-101 "デバイスが消失したまま収録を始められない" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    calibrate_gain()
+    input_is_alive()
+    device_lost()
+    start_take()
+    expect rejected
+  }
+
+  forbidden FB-REC-102 "入力が届いていないまま収録を始められない" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    calibrate_gain()
+    input_is_dead()
+    start_take()
+    expect rejected
+  }
+
+  forbidden FB-REC-103 "校正しないまま収録を始められない" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    input_is_alive()
+    start_take()
+    expect rejected
+  }
+
+  forbidden FB-REC-104 "収録中に手順の提示を出せない" {
+    select_device()
+    open_stream()
+    some_effects_remain()
+    calibrate_gain()
+    input_is_alive()
+    start_take()
+    show_prompt_once()
+    expect rejected
+  }
+
+  forbidden FB-REC-105 "回り込みを確認しないままガイドを鳴らせない" {
+    select_device()
+    open_stream()
+    enable_guide()
+    expect rejected
+  }
+
+  terminal {
+    app_exited
+  }
+}
+
+verify {
+  values Count = 0..3
+}

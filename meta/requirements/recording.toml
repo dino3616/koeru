@@ -51,6 +51,9 @@ id = 'TR-REC-03'
 title = '入力デバイスをユーザーが明示的に選択し、プロジェクトに固定する'
 confidence = 'Fact'
 depends_on = []
+formalized_as = [
+  'REQ-REC-101',
+]
 statement = '収録開始前に、入力デバイスの一覧（表示名、既定デバイスかどうか、ネイティブレート、チャンネル数）を提示し、選択結果をプロジェクトに永続化する。永続化する識別子は表示名ではなく、Windows はエンドポイント ID 文字列、macOS は kAudioDevicePropertyDeviceUID、Linux は ALSA/PipeWire のノード名とする。デバイス一覧の取得は 1 秒以内に完了させ、取得中も UI をブロックしない。'
 notes = [
   'USB デバイスは接続ポートによって識別子が変わる実装があり、同一デバイスと判定できない場合がある',
@@ -63,6 +66,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-REC-03',
   'TR-REC-31',
+]
+formalized_as = [
+  'REQ-REC-109',
+  'INV-REC-101',
+  'FB-REC-101',
 ]
 statement = '入力デバイスの追加・削除・状態変化・既定変更を OS の通知で受け取る（Windows: IMMNotificationClient、macOS: kAudioHardwarePropertyDevices / kAudioDevicePropertyDeviceIsAlive、Linux: PipeWire のノード監視または ALSA 列挙の再取得）。選択済みデバイスが録音中に消失したら進行中テイクを不完全としてマークして破棄し収録を停止する。**別のデバイスへ自動で切り替えてはならない。** 復帰後の再開は同一識別子のデバイスが戻ったときのみ自動で許可する'
 notes = [
@@ -103,7 +111,7 @@ depends_on = [
 ]
 formalized_as = [
   'REQ-REC-003',
-  'INV-REC-001',
+  'INV-REC-002',
   'FB-REC-001',
 ]
 statement = 'キャプチャのフレーム連続性をコールバックごとのフレーム数累積とデバイス位置で検証する。1テイクの中で1フレームでも欠落を検出したらそのテイクを invalid として保存し、同じフレーズを再提示する。欠落の発生数と位置をメタデータに記録する'
@@ -118,6 +126,9 @@ confidence = 'Fact'
 depends_on = [
   'TR-REC-05',
   'TR-REC-30',
+]
+formalized_as = [
+  'REQ-REC-103',
 ]
 statement = 'キャプチャストリームを開いた後、IAudioClient::GetService で IAudioEffectsManager を取得し、GetAudioEffects で適用中の効果を列挙する。少なくとも AUDIO_EFFECT_TYPE_AUTOMATIC_GAIN_CONTROL、AUDIO_EFFECT_TYPE_NOISE_SUPPRESSION、AUDIO_EFFECT_TYPE_DEEP_NOISE_SUPPRESSION、AUDIO_EFFECT_TYPE_ACOUSTIC_ECHO_CANCELLATION、AUDIO_EFFECT_TYPE_BEAMFORMING、AUDIO_EFFECT_TYPE_CONSTANT_TONE_REMOVAL、AUDIO_EFFECT_TYPE_DYNAMIC_RANGE_COMPRESSION、AUDIO_EFFECT_TYPE_EQUALIZER の有無を判別し、結果（id、state、canSetState）をセッションメタデータに記録する。RegisterAudioEffectsChangedNotificationCallback で変化も監視し、収録中に効果構成が変わったらセッション境界を切る。IAudioEffectsManager が使えない環境（Windows Build 22000 未満）では、列挙不能であることを記録する。'
 notes = [
@@ -146,6 +157,11 @@ confidence = 'Assumption'
 depends_on = [
   'TR-REC-08',
   'TR-REC-09',
+]
+formalized_as = [
+  'REQ-REC-104',
+  'INV-REC-108',
+  'FB-REC-104',
 ]
 statement = 'TR-REC-08 で適応処理（AGC / NS / Deep NS / AEC / DRC）が検出され、かつ canSetState が true の効果については、SetAudioEffectState(AUDIO_EFFECT_STATE_OFF) を試み、AUDCLNT_E_EFFECT_NOT_AVAILABLE および AUDCLNT_E_EFFECT_STATE_READ_ONLY は失敗として扱う。無効化できない効果が残った場合、収録開始前に一度だけ、OS の設定で切る手順を提示する。提示は収録中には出さず、テイクごとの警告や品質評価は出さない。ユーザーが提示を閉じた選択はプロジェクトに記録し、同一デバイス・同一効果構成では再提示しない。エンドポイントのプロパティストア（PKEY_AudioEndpoint_Disable_SysFx 等）をアプリが書き換えてシステム全体の設定を永続変更してはならない。'
 notes = [
@@ -205,6 +221,11 @@ depends_on = [
   'TR-REC-03',
   'TR-REC-15',
 ]
+formalized_as = [
+  'REQ-REC-105',
+  'INV-REC-104',
+  'FB-REC-103',
+]
 statement = 'プロジェクトの最初の収録に入る前に、**そのプロジェクトで最も高い音高の全力発声**を 3〜5 秒1回取り、その区間のサンプルピークと RMS を測る（多音階では最高音高で校正する）。ピークが **-12 dBFS 以上 -6 dBFS 以下**に入っていれば校正完了とする。16 bit のヘッドルームより 32 bit float マスターの余裕を優先する。**校正の目的は「破綻の防止」ではなく「初期値の妥当化」に限る。校正しても収録中の破綻は防げない。** 範囲外の場合は、OS の入力ゲインを調整して範囲内へ入れる。ゲイン調整の API は Windows はキャプチャエンドポイントの `IAudioEndpointVolume::SetMasterVolumeLevelScalar`、macOS は入力スコープの `kAudioDevicePropertyVolumeScalar`、Linux は PipeWire ノードまたは ALSA ミキサのボリュームを用いる。**[Fact] ゲイン制御はハードウェアボリュームを持つデバイスに限る。** ソフトウェア実装のボリュームは「校正に使えない」として区別して記録し、API が値を読み書きできないデバイスでは校正が自動で成立しない。その場合は自動調整せず、OS 設定での調整をその場で1回だけ案内する。校正は最大2回の測定で収束させ、収束しない場合も収録に進めること（校正を必須の関門にしない）。'
 notes = [
   'OS の入力ゲインはシステム全体の設定であり、変更には本人の明示同意が必要になる。同意を求める画面が「設定する前に、まず歌える」と衝突する',
@@ -217,6 +238,10 @@ title = '入力ゲインをプロジェクト期間中固定し、変更を検�
 confidence = 'Assumption'
 depends_on = [
   'TR-REC-14',
+]
+formalized_as = [
+  'REQ-REC-105',
+  'INV-REC-107',
 ]
 statement = '校正で決めたゲイン値をプロジェクトに保存し、以後の収録セッションの開始時に、現在のゲイン値と保存値を比較する。差があれば保存値へ戻すことを本人に確認する。アプリが変更した OS 側のゲインは、アプリ終了時に変更前の値へ戻す（変更前の値を保存しておく）。収録中はゲインを変更しない。ゲインの実測値は各セッションのメタデータに記録する。'
 notes = [
@@ -244,6 +269,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-REC-16',
 ]
+formalized_as = [
+  'REQ-REC-106',
+  'INV-REC-103',
+  'FB-REC-102',
+]
 statement = '収録開始後の最初の 1.0 秒間に、全サンプルが厳密にゼロ／DC 成分のみで交流成分の RMS が -90 dBFS を下回る、のいずれかに該当したら収録を停止しテイクを作らずデバイス選択へ戻す。**これは録音品質ではなく入力経路の生死判定として扱い、収録中の継続監視は行わない。** ミュート状態も併せて確認する'
 notes = [
   'きわめて静かな環境で入力ゲインが極端に低いデバイスは、生きているのに無入力と誤判定され得る',
@@ -269,6 +299,10 @@ depends_on = [
   'TR-REC-38',
   'TR-REC-40',
 ]
+formalized_as = [
+  'REQ-REC-102',
+  'INV-REC-102',
+]
 statement = '収録画面に入った時点でキャプチャストリームを開始し、フレーズ間も止めない。直近 1000ms 以上を保持するリングバッファを常時回し、録音開始の指示から 500ms 遡った位置をテイクの開始点とする。終了点は指示から 500ms 後ろへ延ばす。**ストリームの開始・停止をテイクごとに行ってはならない**'
 notes = [
   '常時キャプチャは消費電力とプライバシー上の印象に影響する。収録画面を離れたら必ず停止する必要がある',
@@ -293,6 +327,10 @@ title = '録り直しは上書きせず、世代として積む'
 confidence = 'Assumption'
 depends_on = [
   'TR-REC-28',
+]
+formalized_as = [
+  'REQ-REC-005',
+  'INV-REC-005',
 ]
 statement = '同じ録音リスト項目に対する録り直しは、既存のテイクを削除・上書きせず、新しいテイクとして保存し、その項目の採用テイクを新しい方へ切り替える。過去のテイクは非採用として保持し、いつでも採用を戻せる。録音リスト項目1つあたりのテイク保持数は上限を設けず、プロジェクトの総容量が閾値（既定 4 GB）を超えたときに、非採用テイクの古い順から削除候補として本人に提示する（自動削除はしない）。'
 notes = [
@@ -332,6 +370,11 @@ confidence = 'Assumption'
 depends_on = [
   'TR-REC-22',
   'TR-REC-23',
+]
+formalized_as = [
+  'REQ-REC-107',
+  'INV-REC-105',
+  'FB-REC-105',
 ]
 statement = '収録開始前に出力エンドポイントの種別を判定する（Windows: `PKEY_AudioEndpoint_FormFactor` の Headphones / Headset / Speakers、macOS: `kAudioDevicePropertyTransportType` と `kAudioDevicePropertyDataSource`）。スピーカと判定された場合、ガイド音・音高提示・モニタリングを再生しない。**[Fact] FormFactor / TransportType はドライバの自己申告であり、`UnknownFormFactor` が正規値として存在する。判定結果は記録するが、安全側の根拠として使わない。** FormFactor が Headphones でもヘッドホンが装着されている保証はないため、**出力経路の判定だけでは回り込み対策として不十分である。回り込みは録音側でしか確認できない。** したがって、**収録前に一度だけ、ガイドを鳴らしながら1秒キャプチャし、ガイドの既知信号との相関でリークの有無を確認する**セットアップ工程を持つ。既知の再生信号との相関を使うため声質評価を一切含まず、TR-REC-17（入力経路の生死判定）と同じ性質の静的な経路検査なので、リアルタイム品質判定をスコープ外とする方針と衝突しない。種別を判定できない場合は、収録開始前に一度だけ「イヤホンやヘッドホンを使っているか」を確認し、回答をプロジェクトに保存して同一出力デバイスでは再確認しない。判定結果と回答をセッションメタデータに記録する。**[Risk] この検査を置かない場合、全テイクにガイドが混入した音源が完成に到達しうる。**'
 notes = [
@@ -424,6 +467,11 @@ confidence = 'Fact'
 depends_on = [
   'TR-REC-21',
   'TR-REC-27',
+]
+formalized_as = [
+  'INV-REC-001',
+  'INV-REC-002',
+  'INV-REC-003',
 ]
 statement = '録音リストの各項目の状態を（未収録／採用テイクあり／全テイク無効）の3値で保持し採用テイク ID を持つ。**この状態は SQLite 上の単一テーブルを真実とし、`masters/` のファイル存在をスキャンして導出しない。** 試唱の可否・再開位置・書き出しの可否をすべてここから決める。整合性は起動時に検証し、不整合は提示して自動修復しない'
 notes = [

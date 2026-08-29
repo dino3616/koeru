@@ -1,165 +1,192 @@
 // KOERU プロジェクトのライフサイクル（要求層）
 //
-// ASSUME-1: coverage_state は録音カバレッジから機械的に決まる（TR-PKG-33）。
-//           したがって完成後の編集で被覆が崩れれば Complete から Partial へ戻る。
-// ASSUME-2: 「連続して鳴らせる長さ（秒）」は実時間なので FSL の対象外。
-//           離散化して「鳴らせるフレーズ数 >= PREVIEW_MIN」で表す。
-//           PREVIEW_MIN の根拠は meta/questions/Q-SYN-001.toml が持つ。
-// ASSUME-3: REQUIRED_TAKES / PREVIEW_MIN の具体値は検証用の最小値であり、
-//           製品の値ではない（meta/budgets が持つ）。
-// ASSUME-4: 確定テイク数は検証用に REQUIRED_TAKES を上限とする（表現上の仮定）。
-//           必須被覆を超えて録り足せること（歌える範囲を広げる）はこの縦切りの対象外。
-// ASSUME-5: 検証範囲ではクラッシュと無効テイクを有限回に閉じる（表現上の仮定）。
-//           無限にクラッシュし続ける実行は完成へ到達しないが、それは
-//           クラッシュ復帰の契約が未決であることの帰結であって、製品の欠陥ではない。
+// **スコープはプロジェクト1本。** 利用計測の同意は製品全体なので telemetry-consent が持つ。
+// 収録の入力経路（デバイス・効果・校正）は recording-input が持つ。
+//
+// ASSUME-1: 録音リストの各項目の状態は（未収録 / 採用テイクあり / 全テイク無効）の3値で、
+//           **これが単一の真実。** 完成もカバレッジもここから機械的に決まる（TR-REC-31、TR-PKG-33）。
+// ASSUME-2: テイクは世代として積み、削除も上書きもしない（TR-REC-21）。
+//           採用テイクは切り替えられるが、過去のテイクは残る。
+// ASSUME-3: 項目数とテイク数は検証用に小さい有限値へ閉じる（表現上の仮定）。
+//           容量閾値を超えたときの削除候補の提示は、自動削除ではないので状態を変えない。
+// ASSUME-4: 検証範囲ではクラッシュを有限回に閉じる（表現上の仮定）。
 
 requirements KoeruProjectLifecycle {
-  number TakeCount
+  entity ListItem
+  number Count
 
-  enum Coverage { Empty, Partial, Complete }
-  enum Handoff  { NotExported, Exported }
+  const MAX_TAKES = 2
+  const MAX_CRASHES = 1
 
-  const REQUIRED_TAKES = 3
-  const PREVIEW_MIN    = 2
+  enum ItemState { Unrecorded, Adopted, AllInvalid }
+  enum Handoff   { NotExported, Exported }
 
   state {
-    valid_takes:   TakeCount,
-    invalid_takes: TakeCount,
-    coverage:      Coverage,
-    handoff:       Handoff,
-    crashes:       TakeCount,
-    recording:     Bool
+    item:      Map<ListItem, ItemState>,
+    takes:     Map<ListItem, Count>,
+    invalid:   Map<ListItem, Count>,
+    recording: Option<ListItem>,
+    handoff:   Handoff,
+    crashes:   Count
   }
 
   init {
-    valid_takes = 0
-    invalid_takes = 0
-    coverage = Empty
+    forall i: ListItem { item[i] = Unrecorded }
+    forall i: ListItem { takes[i] = 0 }
+    forall i: ListItem { invalid[i] = 0 }
+    recording = none
     handoff = NotExported
     crashes = 0
-    recording = false
   }
 
-  @requirement("REQ-REC-001", "録音を開始すると、確定するまで進行中のテイクが1件ある")
-  fair action start_take() {
-    requires not recording
-    recording = true
+  // 完成は項目の状態からだけ決まる。書き出し履歴を一切参照しない。
+  def complete() = forall i: ListItem { item[i] == Adopted }
+
+  @requirement("REQ-REC-001", "録音を開始すると、確定するまで進行中の項目が1つある")
+  fair action start_take(i: ListItem) {
+    requires recording == none
+    requires takes[i] < MAX_TAKES
+    requires invalid[i] < MAX_TAKES
+    recording = some(i)
   }
 
-  @requirement("REQ-REC-002", "取りこぼしのないテイクは確定し、カバレッジに加算される")
+  @requirement("REQ-REC-002", "取りこぼしのないテイクは世代として積まれ、その項目の採用テイクになる")
   fair action finalize_valid_take() {
-    requires recording
-    requires valid_takes < REQUIRED_TAKES
-    recording = false
-    valid_takes = valid_takes + 1
-    coverage = if valid_takes + 1 >= REQUIRED_TAKES then Complete else Partial
+    requires recording is some(i)
+    recording = none
+    takes[i] = takes[i] + 1
+    item[i] = Adopted
   }
 
-  @requirement("REQ-REC-003", "取りこぼし（xrun）を検出したテイクは無効として保存し、カバレッジに加算しない")
+  @requirement("REQ-REC-003", "取りこぼしを検出したテイクは無効として保存し、採用テイクにしない")
   action discard_invalid_take() {
-    requires recording
-    requires invalid_takes < 2
-    recording = false
-    invalid_takes = invalid_takes + 1
+    requires recording is some(i)
+    recording = none
+    invalid[i] = invalid[i] + 1
+    item[i] = if takes[i] > 0 then Adopted else AllInvalid
   }
 
-  @requirement("REQ-PKG-001", "完成した音源は配布 ZIP として書き出せる。書き出しは完成状態を変えない")
+  @requirement("REQ-REC-005", "録り直しても過去のテイクは残り、採用をいつでも戻せる")
+  action readopt_earlier_take(i: ListItem) {
+    requires recording == none
+    requires takes[i] >= 2
+    item[i] = Adopted
+  }
+
+  @requirement("REQ-PKG-001", "完成した音源は配布 ZIP として書き出せる。書き出しは項目の状態を変えない")
   action export_zip() {
-    requires coverage == Complete
-    requires not recording
+    requires complete()
+    requires recording == none
     handoff = Exported
   }
 
-  @requirement("REQ-PKG-002", "完成後も編集でき、被覆が崩れれば完成状態から外れる")
-  action edit_breaks_coverage() {
-    requires coverage == Complete
-    requires not recording
-    valid_takes = valid_takes - 1
-    coverage = Partial
+  @requirement("REQ-PKG-002", "完成後も録り足せる。無効テイクを積んでも採用は外れない")
+  action record_more_after_complete(i: ListItem) {
+    requires complete()
+    requires recording == none
+    requires invalid[i] < MAX_TAKES
+    invalid[i] = invalid[i] + 1
   }
 
   @requirement("REQ-REC-004", "異常終了で失われるのは進行中のテイクだけで、確定済みは残る")
   action crash_and_recover() {
-    requires recording
-    requires crashes < 2
-    recording = false
+    requires recording != none
+    requires crashes < MAX_CRASHES
+    recording = none
     crashes = crashes + 1
   }
 
-  @requirement("MODEL-REC-001", "ASSUME-4: 確定テイク数は検証用に必須本数を上限とする")
-  invariant TakesBounded { valid_takes <= REQUIRED_TAKES }
-
-  @requirement("INV-PKG-001", "完成判定は coverage のみで決まり、書き出し履歴を一切参照しない")
-  invariant CoverageIsMechanical {
-    (coverage == Complete) == (valid_takes >= REQUIRED_TAKES)
+  @requirement("MODEL-REC-002", "ASSUME-3: 収録中の項目は、まだ録り足せる余地がある")
+  invariant RecordingImpliesRoom {
+    forall i: ListItem {
+      recording == some(i) => (takes[i] < MAX_TAKES and invalid[i] < MAX_TAKES)
+    }
   }
 
-  @requirement("INV-REC-001", "無効テイクはカバレッジに加算されない")
-  invariant InvalidTakesNeverCount {
-    coverage == Complete => valid_takes >= REQUIRED_TAKES
+  @requirement("INV-PKG-001", "完成は項目の状態だけで決まり、書き出し履歴を一切参照しない")
+  invariant CompletionIgnoresHandoff {
+    complete() => forall i: ListItem { item[i] == Adopted }
   }
 
-  @requirement("REQ-PKG-001", "ZIP の書き出しは完成状態を変更しない")
-  trans ExportDoesNotChangeCoverage {
-    handoff != old(handoff) => coverage == old(coverage)
+  @requirement("INV-REC-001", "採用テイクを持つ項目は、確定したテイクを1件以上持つ")
+  invariant AdoptedImpliesTake {
+    forall i: ListItem { item[i] == Adopted => takes[i] > 0 }
+  }
+
+  @requirement("INV-REC-002", "全テイク無効の項目は、確定したテイクを持たない")
+  invariant AllInvalidHasNoTake {
+    forall i: ListItem { item[i] == AllInvalid => takes[i] == 0 }
+  }
+
+  @requirement("INV-REC-003", "未収録の項目は、確定したテイクも無効テイクも持たない")
+  invariant UnrecordedHasNothing {
+    forall i: ListItem { item[i] == Unrecorded => (takes[i] == 0 and invalid[i] == 0) }
+  }
+
+  @requirement("INV-REC-005", "確定したテイクは、削除も上書きもされない")
+  trans TakesAreNeverLost {
+    forall i: ListItem { takes[i] >= old(takes[i]) }
   }
 
   @requirement("INV-PKG-002", "書き出せるのは完成しているときだけ")
   trans ExportOnlyWhenComplete {
-    handoff != old(handoff) => coverage == Complete
+    (handoff != old(handoff)) => complete()
   }
 
-  @requirement("REQ-REC-002", "録り続ければいずれ完成へ到達する")
-  leadsTo EventuallyComplete {
-    coverage == Partial ~> coverage == Complete
+  @requirement("REQ-PKG-001", "書き出しは項目の状態を変えない")
+  trans ExportDoesNotChangeItems {
+    (handoff != old(handoff)) => forall i: ListItem { item[i] == old(item[i]) }
+  }
+
+  @requirement("REQ-REC-004", "異常終了でも、確定したテイクの数は減らない")
+  trans CrashKeepsCommittedTakes {
+    (crashes != old(crashes)) => forall i: ListItem { takes[i] == old(takes[i]) }
   }
 
   @requirement("REQ-VIS-001", "公開操作なしに完成状態へ到達できる")
   reachable CompleteWhileUnpublished {
-    coverage == Complete and handoff == NotExported
+    complete() and handoff == NotExported
   }
 
-  @requirement("REQ-SYN-001", "必要な本数が揃う前でも試唱できる")
-  reachable PreviewableBeforeComplete {
-    valid_takes >= PREVIEW_MIN and coverage != Complete
+  @requirement("REQ-SYN-001", "すべての項目が揃う前でも、採用テイクを持つ項目が現れる")
+  reachable PartiallyRecorded {
+    (exists i: ListItem { item[i] == Adopted }) and not complete()
   }
 
-  acceptance AC-VIS-001 "公開操作を一度も行わずに完成へ到達する" {
-    start_take() finalize_valid_take()
-    start_take() finalize_valid_take()
-    start_take() finalize_valid_take()
-    expect coverage == Complete and handoff == NotExported
-  }
-
-  acceptance AC-PKG-001 "完成したあとに書き出しても完成状態は変わらない" {
-    start_take() finalize_valid_take()
-    start_take() finalize_valid_take()
-    start_take() finalize_valid_take()
-    export_zip()
-    expect coverage == Complete and handoff == Exported
+  @requirement("REQ-REC-003", "全テイク無効の項目が生じうる")
+  reachable ItemCanBeAllInvalid {
+    exists i: ListItem { item[i] == AllInvalid }
   }
 
   forbidden FB-PKG-001 "完成していない音源は書き出せない" {
-    start_take()
+    start_take(0)
     finalize_valid_take()
     export_zip()
     expect rejected
   }
 
   forbidden FB-REC-001 "無効テイクだけでは完成に到達しない" {
-    start_take()
+    start_take(0)
     discard_invalid_take()
-    start_take()
+    start_take(1)
     discard_invalid_take()
     export_zip()
     expect rejected
   }
 
+  // 停止してよい状態。完成して書き出したあとに加えて、
+  // **検証用の有限化で「これ以上録れない」に達した状態**も含める。
+  // 実際には録り直しに上限は無い（ASSUME-3）ので、後者はモデルの縁であって製品の状態ではない。
   terminal {
-    coverage == Complete and handoff == Exported and not recording
+    recording == none
+    and (
+      (complete() and handoff == Exported)
+      or forall i: ListItem { takes[i] >= MAX_TAKES or invalid[i] >= MAX_TAKES }
+    )
   }
 }
 
 verify {
-  values TakeCount = 0..4
+  instances ListItem = 2
+  values Count = 0..3
 }

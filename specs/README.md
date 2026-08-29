@@ -15,12 +15,14 @@ FSL に入れないものは3つある。
 | スコープ | 仕様 | 何を持つか |
 |---|---|---|
 | **製品全体** | `requirements/telemetry-consent.fsl` | 同意・撤回・送信。プロジェクトが1つも無い時点から存在する |
-| **プロジェクト1本** | `requirements/project-lifecycle.fsl` | カバレッジ・完成・手渡し |
+| **プロジェクト1本** | `requirements/project-lifecycle.fsl` | 録音リスト項目ごとの状態、テイクの世代、完成、手渡し |
 | （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭 |
+| **収録セッション** | `requirements/recording-input.fsl` | デバイス・効果の無効化・校正・入力経路の生死・消失 |
 
 ```
-fsl-project.toml      プロジェクトのチェーン（requirements → design → 継ぎ目）
-fsl-telemetry.toml    製品全体の同意
+fsl-project.toml          プロジェクトのチェーン（requirements → design → 継ぎ目）
+fsl-telemetry.toml        製品全体の同意
+fsl-recording-input.toml  収録の入力経路
 refinement/project-design-refines-requirements.fsl   層の継ぎ目
 ```
 
@@ -35,15 +37,19 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 
 | 契約 | どこで |
 |---|---|
-| 完成判定は coverage のみで決まり、書き出し履歴を参照しない | `INV-PKG-001` |
+| 完成は項目の状態だけで決まり、書き出し履歴を参照しない | `INV-PKG-001` |
 | 書き出せるのは完成しているときだけ | `INV-PKG-002` |
-| 無効テイクはカバレッジに加算されない | `INV-REC-001` |
+| **確定したテイクは、削除も上書きもされない** | `INV-REC-005` |
+| 全テイク無効の項目は、確定したテイクを持たない | `INV-REC-002` |
+| 異常終了でも、確定したテイクの数は減らない | `REQ-REC-004` |
+| 公開操作なしに完成状態へ到達できる | `REQ-VIS-001` |
+| ファイルの無いテイク行が DB にできない | `NoOrphanTakeRow`（設計層） |
+| **デバイスを失った状態では収録していない** | `INV-REC-101` |
+| 入力が届いていないまま収録することはない | `INV-REC-103` |
+| 手順の提示は多くとも一度しか出ない | `INV-REC-108` |
+| 回り込みを確認しないままガイドを鳴らさない | `INV-REC-105` |
 | 送信が起きるのは、その種別の同意がある間だけ | `INV-TEL-002` |
 | 同意を求めるのは、プロジェクト作成と最初の録音を終えたあと | `INV-TEL-003` |
-| 異常終了で失われるのは進行中のテイクだけ | `REQ-REC-004` |
-| 公開操作なしに完成状態へ到達できる | `REQ-VIS-001` |
-| 必要な本数が揃う前でも試唱できる | `REQ-SYN-001` |
-| ファイルの無いテイク行が DB にできない | `NoOrphanTakeRow`（設計層） |
 
 `forbidden` として、同意の撤回後の送信・同意を求める前の送信・**計測の同意だけでのクラッシュレポート送信**・最初の録音より前に同意を求めること・未完成の書き出し・無効テイクだけでの完成を、いずれも拒否することを検査している。
 
@@ -60,7 +66,11 @@ fslc chain   specs/fsl-project.toml                                     # 全層
 fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 ```
 
-**両層とも `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は要求層 0.73 / 設計層 0.54 で、これを基準線として扱う。**絶対値ではなく、基準線からの後退が信号。**
+**すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
+project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 を基準線として扱う。
+**絶対値ではなく、基準線からの後退が信号。**
+
+設計層は Map を持つため変異検査が重い。深さ 8 で回すこと。
 
 ```bash
 ```
