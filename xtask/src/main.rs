@@ -199,6 +199,10 @@ fn load(root: &Path) -> Result<Vec<Entry>, String> {
             let table = text
                 .parse::<toml::Table>()
                 .map_err(|e| format!("{}: {e}", path.display()))?;
+            // `[[target]]` のような収集ファイルは id を持たない。entity として扱わない。
+            if !table.contains_key("id") {
+                continue;
+            }
             out.push(Entry {
                 path,
                 kind: kind.dir,
@@ -306,14 +310,14 @@ fn requirements(root: &Path) -> (BTreeMap<String, toml::Table>, Vec<String>) {
     (out, dups)
 }
 
-/// 候補技術の登録簿。`meta/technologies/*.toml` の `[[technology]]`。
-fn technologies(root: &Path) -> Vec<(PathBuf, toml::Table)> {
-    collection(root, "technologies", "technology")
+/// 部品台帳。`meta/evidence/ledger-*.toml` の `[[component]]`。ライセンス監査の面。
+fn components(root: &Path) -> Vec<(PathBuf, toml::Table)> {
+    collection(root, "evidence", "component")
 }
 
-/// 領域ごとの性能目標。`meta/targets/*.toml` の `[[target]]`。
+/// 領域ごとの性能目標。`meta/budgets/*.toml` の `[[target]]`。上限を持たない予算。
 fn targets(root: &Path) -> Vec<(PathBuf, toml::Table)> {
-    collection(root, "targets", "target")
+    collection(root, "budgets", "target")
 }
 
 /// 配列で持つ登録簿を読む。1ファイルに複数の項目が入る形。
@@ -448,11 +452,25 @@ fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
     let mut rep = Report::default();
     let fsl = fsl_ids(root);
     let tr = check_requirements(root, &fsl, &mut rep);
-    for (path, t) in technologies(root) {
-        for key in ["name", "purpose", "license", "verdict"] {
+    let decisions: BTreeSet<String> = entries
+        .iter()
+        .filter(|e| e.kind == "decisions")
+        .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
+        .collect();
+    for (path, t) in components(root) {
+        for key in ["name", "purpose", "license", "status"] {
             if !t.contains_key(key) {
-                rep.error(format!("{}: 候補技術に `{key}` が無い", path.display()));
+                rep.error(format!("{}: 部品台帳に `{key}` が無い", path.display()));
             }
+        }
+        // 採否は判断記録が持つ。台帳が指す先が実在すること。
+        if let Some(d) = str_of(&t, "decided_by")
+            && !decisions.contains(d)
+        {
+            rep.error(format!(
+                "{}: decided_by の `{d}` という判断記録は存在しない",
+                path.display()
+            ));
         }
     }
     for (path, t) in targets(root) {
@@ -463,10 +481,10 @@ fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
         }
     }
     rep.note(format!(
-        "FSL の要求 {} 件 / 技術要件 {} 件 / 候補技術 {} 件 / 性能目標 {} 件",
+        "FSL の要求 {} 件 / 技術要件 {} 件 / 部品台帳 {} 件 / 性能目標 {} 件",
         fsl.len(),
         tr.len(),
-        technologies(root).len(),
+        components(root).len(),
         targets(root).len()
     ));
 

@@ -1,138 +1,155 @@
-# 即時試唱と合成エンジン の候補技術
+# 即時試唱と合成エンジン の部品台帳
 #
-# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
-# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+# ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
+# decided_by が無いものは、まだ判断記録になっていない採否。
 
 domain = 'synth'
 
-[[technology]]
+[[component]]
 name = 'WORLD (mmorise/World)'
 purpose = '合成コアの基礎。F0 推定（DIO / Harvest）、スペクトル包絡（CheapTrick）、非周期性指標（D4C）、合成'
 license = 'BSD-3-Clause'
-verdict = '採用候補'
+status = '採用候補'
+decided_by = 'DEC-SYN-001'
 
-[[technology]]
+[[component]]
 name = 'worldline のソース（`@spline` 除去後に自前ビルド）'
 purpose = 'UTAU classic 引数互換の resampler ＋ フレーズ単位合成 API。周波数表の読み込み、時間伸縮、フラグ処理'
 license = 'MIT（推移的依存に GPL-2.0-or-later を含むため除去が前提）'
-verdict = '条件付き（**プリビルドバイナリは使わない**。B1）'
+status = '条件付き'
+decided_by = 'DEC-SYN-001'
+note = 'プリビルドバイナリは使わない。→ DEC-PLT-002'
 
-[[technology]]
+[[component]]
 name = 'libpyin + libgvps'
 purpose = '周波数表が無いサンプルの F0 推定（pYIN）'
 license = 'BSD-3-Clause'
-verdict = '条件付き'
+status = '条件付き'
 
-[[technology]]
+[[component]]
 name = 'miniaudio'
 purpose = '録音・再生の音声入出力'
 license = 'Public Domain (Unlicense) / MIT-0 の選択制'
-verdict = '採用候補'
+status = '採用候補'
+decided_by = 'DEC-REC-001'
 
-[[technology]]
+[[component]]
 name = 'xxHash（ライブラリ部）'
 purpose = 'フレーズ中間表現のハッシュ（キャッシュキー）'
 license = 'BSD-2-Clause'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'KissFFT'
 purpose = 'ネイティブ実装での FFT'
 license = 'BSD-3-Clause'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'OpenUtau 日本語 phonemizer'
 purpose = '単独音 / VCV / CVVC のエイリアス列生成'
 license = 'MIT'
-verdict = '採用候補（著作権表示を保持して移植）'
+status = '採用候補'
+note = '著作権表示を保持して移植'
 
-[[technology]]
+[[component]]
 name = 'OpenUtau.Core Classic 層'
 purpose = '音源ディレクトリ読み込み、prefix.map → subbank 展開、presamp のエイリアス優先順位、FREQ0003 の読み書き'
 license = 'MIT'
-verdict = '採用候補（同上）'
+status = '採用候補'
+note = '同上'
 
-[[technology]]
+[[component]]
 name = 'hound'
 purpose = 'WAV の読み書きとフォーマット検証'
 license = 'Apache-2.0'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'dr_wav (dr_libs)'
 purpose = 'wav の読み書き（ネイティブ側）'
 license = 'Unlicense または MIT-0 の選択'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'abseil-cpp'
 purpose = 'worldline の引数パースとログ'
 license = 'Apache-2.0'
-verdict = '条件付き（NOTICE 保持）'
+status = '条件付き'
+note = 'NOTICE 保持'
 
-[[technology]]
+[[component]]
 name = 'libnpy'
 purpose = 'worldline のデバッグ用ベクタダンプ'
 license = 'MIT'
-verdict = '条件付き（配布物から外せる）'
+status = '条件付き'
+note = '配布物から外せる'
 
-[[technology]]
+[[component]]
 name = 'WanaKana-net / csharp-kana'
 purpose = 'かな・ローマ字の相互変換と正規化'
 license = 'MIT / Apache-2.0'
-verdict = '条件付き'
+status = '条件付き'
 
-[[technology]]
+[[component]]
 name = 'straycat'
 purpose = 'WORLD ベースの UTAU resampler'
 license = 'MIT'
-verdict = '条件付き（Python 実装のため同梱経路にはならない）'
+status = '条件付き'
+note = 'Python 実装のため同梱経路にはならない'
 
-[[technology]]
+[[component]]
 name = 'ttk592/spline'
 purpose = 'worldline の `effects.cpp` が使う三次スプライン補間'
 license = '**GPL-2.0-or-later**（デュアルライセンスの提示なし）'
-verdict = '**不適**（自前実装で置換。B1）'
+status = '不適'
+note = '自前実装で置換。→ DEC-PLT-002'
 
-[[technology]]
+[[component]]
 name = 'moresampler'
 purpose = 'UTAU 向け高品質 resampler'
 license = '**Unknown**'
-verdict = '不適（Windows 専用、かつライセンス不明）'
+status = '不適'
+note = 'Windows 専用、かつライセンス不明'
 
-[[technology]]
+[[component]]
 name = 'UTAU 同梱 resampler.exe'
 purpose = 'UTAU 標準の resampler'
 license = '**Unknown**'
-verdict = '不適（Windows 専用）'
+status = '不適'
+note = 'Windows 専用'
 
-[[technology]]
+[[component]]
 name = 'ONNX Runtime + CREPE'
 purpose = '高精度 F0 推定（Harvest の代替）'
 license = 'MIT / MIT'
-verdict = '要調査（ONNX Runtime を積む理由が他にないため優先度は低い）'
+status = '要調査'
+note = 'ONNX Runtime を積む理由が他にないため優先度は低い'
 
-[[technology]]
+[[component]]
 name = 'WORLD（C++ を自前 FFI で束縛）'
 purpose = '分析・合成'
 license = 'BSD-3-Clause'
-verdict = '採用'
+status = '採用'
+decided_by = 'DEC-SYN-001'
 
-[[technology]]
+[[component]]
 name = 'worldline'
 purpose = 'resampler。AGPL-3.0 を選んだため取り込める'
 license = 'GPL-2.0-or-later'
-verdict = '採用候補'
+status = '採用候補'
+decided_by = 'DEC-SYN-001'
 
-[[technology]]
+[[component]]
 name = 'Rust-WORLD'
 purpose = 'WORLD の Rust 束縛（対抗案）'
 license = 'MIT'
-verdict = '不適（約6年更新がない）'
+status = '不適'
+decided_by = 'DEC-SYN-001'
+note = '約6年更新がない'
 
-[[technology]]
+[[component]]
 name = 'rustfft / realfft'
 purpose = 'STFT。メルフィルタバンクは自前'
 license = 'MIT / Apache-2.0'
-verdict = '採用候補'
+status = '採用候補'

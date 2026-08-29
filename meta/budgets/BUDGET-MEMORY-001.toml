@@ -24,7 +24,7 @@ measured = false
 name = "editor (音声 + チャート画像)"
 value = 512
 measured = false
-note = "B6 によりディスクキャッシュ前提へ変更が必要"
+note = "Q-EDT-001 によりディスクキャッシュ前提へ変更が必要"
 
 [[allocations]]
 name = "editor (undo 履歴)"

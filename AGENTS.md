@@ -31,9 +31,8 @@
 | [meta/requirements/](meta/requirements/) | 満たさなければ成立しない条件。`TR-*` 261件 |
 | [meta/decisions/](meta/decisions/) | 何を選び、なぜ選び、何が起きたら覆すか。`DEC-*` |
 | [meta/questions/](meta/questions/) | まだ決まっていないこと。`Q-*` |
-| [meta/budgets/](meta/budgets/) ・ [meta/targets/](meta/targets/) | 上限と配分、領域ごとの性能目標 |
-| [meta/technologies/](meta/technologies/) | 候補技術とライセンス、採否 |
-| [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、ライセンス、実測 |
+| [meta/budgets/](meta/budgets/) | 上限と配分（`BUDGET-*`）、領域ごとの性能目標（`{領域}.toml`） |
+| [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、実測、部品台帳（`ledger-{領域}.toml`） |
 | [specs/](specs/) | 状態・遷移・不変条件・受入・禁止。反例探索にかけている |
 
 読み方と規律は [meta/README.md](meta/README.md) と [specs/README.md](specs/README.md)。
@@ -109,7 +108,7 @@ fslc mutate specs/requirements/project-lifecycle.fsl --depth 8
 crates/koeru-core/  ドメイン層。GUI と OS に依存しない（実装は未着手）
 xtask/              仕様ゲート。meta と FSL / 技術要件の ID を突き合わせる
 specs/              FSL の正本。requirements / design / refinement
-meta/               決定・未決の論点・Evidence・予算・リリースプロファイル
+meta/               要件・判断・未決の論点・Evidence・予算・リリースプロファイル
 docs/               設計文書
 docs/generated/     FSL から生成した文書。手で編集しない
 Cargo.toml          [workspace.lints] で clippy::all を deny

@@ -1,114 +1,130 @@
-# 自動原音設定（強制アライメントと oto 推定） の候補技術
+# 自動原音設定 の部品台帳
 #
-# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
-# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+# ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
+# decided_by が無いものは、まだ判断記録になっていない採否。
 
 domain = 'align'
 
-[[technology]]
+[[component]]
 name = 'snfa（推論経路の自前移植）'
 purpose = '日本語音素の強制アライメント。同梱可能な最小構成の一次候補'
 license = 'コード ISC / 日本語重み `jp.npz` は Public Domain 宣言（stft.py・util.py は librosa 由来の ISC、viterbi.py は torchaudio 由来の BSD-2-Clause）'
-verdict = '採用候補（**[Risk]** 重みの Public Domain 宣言に法的文書が伴わず SPDX も付かない。B3 参照）'
+status = '採用候補'
+decided_by = 'DEC-ALN-001'
+note = '[Risk] 重みの Public Domain 宣言に法的文書が伴わず SPDX も付かない。→ Q-ALN-003'
 
-[[technology]]
+[[component]]
 name = 'Julius segmentation-kit + libjulius'
 purpose = '日本語音素セグメンテーション。ライセンスが明確な代替経路'
 license = 'segmentation-kit: MIT（音響モデルを含むリポジトリ全体）/ Julius 本体: BSD-3-Clause'
-verdict = '採用候補（**[Unknown]** License.md が `.binhmm` を明示的に含むかと学習コーパスの書面確認が前提。B2 参照）'
+status = '採用候補'
+decided_by = 'DEC-ALN-001'
+note = '[Unknown] License.md が `.binhmm` を明示的に含むかと学習コーパスの書面確認が前提。→ Q-ALN-001'
 
-[[technology]]
+[[component]]
 name = 'MFA 日本語辞書 v3.0.0'
 purpose = '読み付与の参照'
 license = 'CC BY 4.0'
-verdict = '条件付き（帰属表示付きで流用可）'
+status = '条件付き'
+decided_by = 'DEC-ALN-001'
+note = '帰属表示付きで流用可'
 
-[[technology]]
+[[component]]
 name = 'MFA 日本語音響モデル v3.0.0'
 purpose = '境界精度の基準線'
 license = 'CC BY 4.0 表示（**上流コーパスに再配布禁止・非商用限定が含まれる**）'
-verdict = '**不適**（評価の対照としてのみ使う。B2 参照）'
+status = '不適'
+decided_by = 'DEC-ALN-001'
+note = '評価の対照としてのみ使う。→ Q-ALN-001'
 
-[[technology]]
+[[component]]
 name = 'oto_estimation_checker'
 purpose = '自動推定の失敗検出ヒューリスティクスの参照'
 license = 'THE SUSHI-WARE LICENSE'
-verdict = '採用候補（表示を残せば自由に利用可）'
+status = '採用候補'
+note = '表示を残せば自由に利用可'
 
-[[technology]]
+[[component]]
 name = 'utaupy'
 purpose = 'oto.ini / lab の読み書きと相互変換の参照実装'
 license = 'THE SUSHI-WARE LICENSE'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'SOFA'
 purpose = '歌声専用アライメント。境界確率ヘッドと確信度出力の参照設計'
 license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
-verdict = '不適（配布モデルの再配布許諾が確認できない）'
+status = '不適'
+note = '配布モデルの再配布許諾が確認できない'
 
-[[technology]]
+[[component]]
 name = 'HubertFA'
 purpose = '歌声向け強制アライメント'
 license = 'コード Apache-2.0 / 配布モデルは明示なし（**Unknown**）'
-verdict = '不適（同上。release ノートが第三者の歌唱データ提供者を列挙している）'
+status = '不適'
+note = '同上。release ノートが第三者の歌唱データ提供者を列挙している'
 
-[[technology]]
+[[component]]
 name = 'narabas'
 purpose = '日本語音素の強制アライメント（wav2vec2 ベース）'
 license = 'MIT（学習済みモデルもリポジトリ同梱）'
-verdict = '不適（サイズ帯が 200MB 超、かつ学習データが ReazonSpeech）'
+status = '不適'
+note = 'サイズ帯が 200MB 超、かつ学習データが ReazonSpeech'
 
-[[technology]]
+[[component]]
 name = 'torchaudio forced_align + MMS_FA'
 purpose = 'CTC 強制アライメント API と多言語モデル'
 license = 'コード BSD-2-Clause / **MMS_FA モデルは CC-BY-NC 4.0（非商用）**'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'BFA'
 purpose = '音素レベルのタイムスタンプ抽出、確信度付き'
 license = 'GPL-3.0'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'Charsiu / MAPS'
 purpose = 'フレーム分類型アライナ / サブフレーム境界推定手法の参照'
 license = 'MIT（学習済みモデルの条件は別途）'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'moresampler の自動 oto 生成'
 purpose = '既存到達水準の参照'
 license = '**Unknown**（公式サイト非公開で readme.txt の規約を実物確認できていない）'
-verdict = '要調査（**公開文書の機能仕様・ユーザー証言・入出力形式のみ参照可。逆コンパイルと出力の系統的観察によるアルゴリズム再現を禁止**）'
+status = '要調査'
+note = '公開文書の機能仕様・ユーザー証言・入出力形式のみ参照可。逆コンパイルと出力の系統的観察によるアルゴリズム再現を禁止'
 
-[[technology]]
+[[component]]
 name = 'setParam の自動推定'
 purpose = '既存の自動推定の規約と入力仕様の参照'
 license = '作者が snack に倣って GPL と明記'
-verdict = '不適（**GPL の Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める**）'
+status = '不適'
+note = 'GPL の Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める'
 
-[[technology]]
+[[component]]
 name = 'oto.ini まとめて改造ましーん'
 purpose = 'oto の一括操作と比率規約の参照'
 license = '**Unknown**'
-verdict = '要調査'
+status = '要調査'
 
-[[technology]]
+[[component]]
 name = 'MAUS / WebMAUS'
 purpose = '日本語アライメントの比較対象'
 license = '**Unknown**（Web サービス）'
-verdict = '不適（ローカル完結に反する）'
+status = '不適'
+note = 'ローカル完結に反する'
 
-[[technology]]
+[[component]]
 name = 'PyInstaller'
 purpose = 'Python 依存を残す場合の配布手段'
 license = 'GPL-2.0 with exception（生成物には制約なし）'
-verdict = '不適（TR-PLT-07 / TR-ALN-01 に反する）'
+status = '不適'
+note = 'TR-PLT-07 / TR-ALN-01 に反する'
 
-[[technology]]
+[[component]]
 name = 'ort'
 purpose = 'ONNX Runtime の Rust バインディング'
 license = 'Apache-2.0 / MIT（本体は MIT）'
-verdict = '採用候補'
+status = '採用候補'

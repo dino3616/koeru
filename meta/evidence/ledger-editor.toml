@@ -1,108 +1,114 @@
-# 原音設定エディタ（setParam / vLabeler 同等） の候補技術
+# 原音設定エディタ の部品台帳
 #
-# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
-# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+# ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
+# decided_by が無いものは、まだ判断記録になっていない採否。
 
 domain = 'editor'
 
-[[technology]]
+[[component]]
 name = 'OpenUtau'
 purpose = 'oto.ini / prefix.map / character.txt の書式仕様、CheckOto の11条件の検証規則、原音設定ビューの実装'
 license = 'MIT'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'KissFFT'
 purpose = 'ネイティブ実装での FFT'
 license = 'BSD-3-Clause'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'dr_wav (dr_libs)'
 purpose = 'wav の読み書き'
 license = 'Unlicense または MIT-0 の選択'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'chardetng'
 purpose = 'oto.ini・character.txt の文字コード判定'
 license = 'Apache-2.0 / MIT デュアル'
-verdict = '採用候補（ただし3分岐の自前実装で足りる場合は不要）'
+status = '採用候補'
+note = 'ただし3分岐の自前実装で足りる場合は不要'
 
-[[technology]]
+[[component]]
 name = 'ゼロクロス吸着'
 purpose = '5値の境界を立ち上がりゼロクロスへ吸着'
 license = '自前'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'RustFFT'
 purpose = 'Rust 実装での FFT'
 license = 'MIT / Apache-2.0 デュアル'
-verdict = '条件付き'
+status = '条件付き'
 
-[[technology]]
+[[component]]
 name = 'quickjs-ng'
 purpose = '将来の一括編集スクリプト開放'
 license = 'MIT'
-verdict = '条件付き（初期スコープ外）'
+status = '条件付き'
+note = '初期スコープ外'
 
-[[technology]]
+[[component]]
 name = 'vLabeler'
 purpose = '機能の基準線（同軸表示、5値ハンドル、lockedDrag、キーマップ、modules、macro）'
 license = 'Apache-2.0'
-verdict = '参照のみ'
+status = '参照のみ'
 
-[[technology]]
+[[component]]
 name = 'setParam'
 purpose = '機能の基準線（自動推定、ゼロクロス吸着、F1〜F5、確認再生、合成試聴、テーブル範囲編集）'
 license = 'GPL（作者が snack に倣って GPL と明記）'
-verdict = '**不適**（**Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める**）'
+status = '不適'
+note = 'Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める'
 
-[[technology]]
+[[component]]
 name = 'KiraOtoToolbox'
 purpose = '一括編集の必須集合を決めるための仕様源（5カテゴリ19ツール）'
 license = 'GPL-3.0'
-verdict = '**不適**（機能リストという事実の抽出のみ。実装は独立に行う）'
+status = '不適'
+note = '機能リストという事実の抽出のみ。実装は独立に行う'
 
-[[technology]]
+[[component]]
 name = 'snack'
 purpose = 'setParam の音声処理基盤'
 license = 'GPL'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'FFTW'
 purpose = 'FFT'
 license = 'GPL または商用'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'uchardet'
 purpose = '文字コード判定（ネイティブ）'
 license = 'MPL-1.1'
-verdict = '**不適**（自前実装で置換）'
+status = '不適'
+note = '自前実装で置換'
 
-[[technology]]
+[[component]]
 name = 'libsndfile'
 purpose = 'wav 以外の音声フォーマットの I/O'
 license = '**Unknown**'
-verdict = '要調査'
+status = '要調査'
 
-[[technology]]
+[[component]]
 name = 'Apache Tika (text module) / GraalVM JavaScript'
 purpose = '文字コード判定 / スクリプト（JVM）'
 license = '**Unknown**'
-verdict = '要調査'
+status = '要調査'
 
-[[technology]]
+[[component]]
 name = 'jDSP'
 purpose = 'JVM での FFT・窓関数'
 license = 'MIT'
-verdict = '条件付き（GUI 基盤が JVM 側になる場合）'
+status = '条件付き'
+note = 'GUI 基盤が JVM 側になる場合'
 
-[[technology]]
+[[component]]
 name = 'rustfft / realfft'
 purpose = 'STFT・スペクトログラム'
 license = 'MIT / Apache-2.0'
-verdict = '採用候補'
+status = '採用候補'

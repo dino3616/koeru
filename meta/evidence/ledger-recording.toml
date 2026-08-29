@@ -1,108 +1,117 @@
-# 録音サブシステム の候補技術
+# 録音サブシステム の部品台帳
 #
-# ライセンスは AGPL-3.0-or-later に取り込めるかで判断する。
-# 許可リストは deny.toml、依存として入ったものの判定は cargo deny check。
+# ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
+# decided_by が無いものは、まだ判断記録になっていない採否。
 
 domain = 'recording'
 
-[[technology]]
+[[component]]
 name = 'miniaudio'
 purpose = '音声 I/O 抽象（WASAPI / CoreAudio / ALSA / PulseAudio / JACK）'
 license = 'Public Domain または MIT No Attribution の選択制'
-verdict = '採用候補'
+status = '採用候補'
+decided_by = 'DEC-REC-001'
 
-[[technology]]
+[[component]]
 name = 'WASAPI / IAudioClient3 + IAudioEffectsManager'
 purpose = 'Windows の低レベル入力、RAW 要求、効果の列挙と無効化'
 license = 'OS 付属 API'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'CoreAudio HAL / AUHAL'
 purpose = 'macOS の低レベル入力、デバイス通知、入力ゲイン制御'
 license = 'OS 付属 API'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'AVCaptureDevice マイクモード API'
 purpose = 'macOS の Voice Isolation / Wide Spectrum の検知と設定 UI の提示'
 license = 'OS 付属 API'
-verdict = '条件付き（下記 [Unknown]）'
+status = '条件付き'
+note = '下記 [Unknown]'
 
-[[technology]]
+[[component]]
 name = 'PipeWire'
 purpose = 'Linux の音声グラフへの接続（ノードレート・レイテンシの明示指定）'
 license = 'MIT'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'libsamplerate'
 purpose = '非 44100 のキャプチャから 44100 Hz へのリサンプル'
 license = 'BSD-2-Clause'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'SQLite'
 purpose = 'テイク・セッション・カバレッジのメタデータ永続化（WAL モード）'
 license = 'Public Domain'
-verdict = '採用候補'
+status = '採用候補'
 
-[[technology]]
+[[component]]
 name = 'PortAudio'
 purpose = '音声 I/O（代替）'
 license = 'MIT'
-verdict = '条件付き'
+status = '条件付き'
 
-[[technology]]
+[[component]]
 name = 'cpal'
 purpose = '音声 I/O（対抗案）'
 license = 'Apache-2.0'
-verdict = '不適（上記と同じ理由）'
+status = '不適'
+decided_by = 'DEC-REC-001'
+note = '上記と同じ理由'
 
-[[technology]]
+[[component]]
 name = 'RtAudio'
 purpose = '音声 I/O（C++）'
 license = 'MIT 類似（改変版の扱いに関する条項あり。原文の逐語確認が未了）'
-verdict = '要調査'
+status = '要調査'
 
-[[technology]]
+[[component]]
 name = 'alsa-lib'
 purpose = 'ALSA デバイスへの直接アクセス'
 license = 'LGPL-2.1'
-verdict = '**不適**（Store / 署名配布と両立しない。miniaudio の実行時 dlopen 経由でのみ ALSA に到達する）'
+status = '不適'
+note = 'Store / 署名配布と両立しない。miniaudio の実行時 dlopen 経由でのみ ALSA に到達する'
 
-[[technology]]
+[[component]]
 name = 'libsoxr'
 purpose = 'リサンプル'
 license = 'LGPL-2.1 以降'
-verdict = '**不適**（libsamplerate で置換）'
+status = '不適'
+note = 'libsamplerate で置換'
 
-[[technology]]
+[[component]]
 name = 'JUCE 9'
 purpose = '音声 I/O を含むフレームワーク'
 license = 'AGPLv3 と商用のデュアル'
-verdict = '不適'
+status = '不適'
 
-[[technology]]
+[[component]]
 name = 'RecStar'
 purpose = '録音セッション構造の仕様参照元（同梱対象ではない）'
 license = 'Apache-2.0'
-verdict = '参照のみ'
+status = '参照のみ'
 
-[[technology]]
+[[component]]
 name = 'OpenUtau (VoicebankErrorChecker)'
 purpose = '配布物の検証仕様の一次資料（同梱対象ではない）'
 license = 'MIT'
-verdict = '参照のみ'
+status = '参照のみ'
 
-[[technology]]
+[[component]]
 name = 'miniaudio（FFI）'
 purpose = '音声 I/O。WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱う'
 license = 'パブリックドメイン または MIT-0'
-verdict = '採用'
+status = '採用'
+decided_by = 'DEC-REC-001'
 
-[[technology]]
+[[component]]
 name = 'cpal'
 purpose = '音声 I/O（対抗案）'
 license = 'Apache-2.0'
-verdict = '**不適。排他モードにも RAW ストリーム要求にも到達できず、OS 側の音声加工を無効化する経路が無い**'
+status = '不適'
+decided_by = 'DEC-REC-001'
+note = '。排他モードにも RAW ストリーム要求にも到達できず、OS 側の音声加工を無効化する経路が無い'
