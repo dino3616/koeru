@@ -19,12 +19,14 @@ FSL に入れないものは3つある。
 | （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭 |
 | **収録セッション** | `requirements/recording-input.fsl` | デバイス・効果の無効化・校正・入力経路の生死・消失 |
 | **oto エントリ** | `requirements/align-review.fsl` | 確認キュー、人の編集の固定、書き出しの関門 |
+| **課題曲1本の試唱** | `requirements/preview-synthesis.fsl` | 鳴らせるかの判定、短縮版、キャッシュの無効化、中断 |
 
 ```
 fsl-project.toml          プロジェクトのチェーン（requirements → design → 継ぎ目）
 fsl-telemetry.toml        製品全体の同意
 fsl-recording-input.toml  収録の入力経路
 fsl-align-review.toml     自動原音設定の確認キュー
+fsl-preview-synthesis.toml 即時試唱の可否とキャッシュ
 refinement/project-design-refines-requirements.fsl   層の継ぎ目
 ```
 
@@ -50,6 +52,9 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 | 入力が届いていないまま収録することはない | `INV-REC-103` |
 | 手順の提示は多くとも一度しか出ない | `INV-REC-108` |
 | 回り込みを確認しないままガイドを鳴らさない | `INV-REC-105` |
+| **鳴らせる長さが足りない曲は試唱に出さない** | `INV-SYN-101` |
+| キャッシュに載っているのは、解決できるフレーズだけ | `INV-SYN-103` |
+| 中断した手は、キャッシュを増やさない | `REQ-SYN-103` |
 | **自動の再推定は、固定された値に触れない** | `INV-ALN-001` |
 | 固定されていることと、人が入れた値であることは同じ | `INV-ALN-002` |
 | 確認が残っている間は書き出せない | `INV-ALN-003` |
@@ -74,7 +79,7 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 
 **すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
 project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）/
-align-review 0.52（深さ6）を基準線として扱う。
+align-review 0.52（深さ6）/ preview-synthesis 0.61（深さ8）を基準線として扱う。
 **絶対値ではなく、基準線からの後退が信号。**
 
 **ゴースト変数は kill 率を下げる。** `align-review` は「直前の手が自動の再推定だったか」を

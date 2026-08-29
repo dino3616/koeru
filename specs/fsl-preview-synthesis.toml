@@ -1,0 +1,8 @@
+# 即時試唱の可否とキャッシュ。
+#
+# **スコープは課題曲1本の試唱。** 合成そのもの（WORLD の呼び方、F0 推定、フラグ）は扱わない。
+# 扱うのは「いつ鳴らせるか、何を鳴らすか、いつキャッシュを捨てるか」。
+
+[requirements]
+file = "requirements/preview-synthesis.fsl"
+depth = 12

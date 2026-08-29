@@ -1,0 +1,225 @@
+// 即時試唱の可否とキャッシュ（要求層）
+//
+// **スコープは課題曲1本の試唱。** 合成そのもの（WORLD の呼び方、F0 推定、フラグ）は扱わない。
+// 扱うのは「いつ鳴らせるか、何を鳴らすか、いつキャッシュを捨てるか」。
+//
+// ASSUME-1: 「連続して鳴らせる長さが閾値（現行 4 秒）以上」は実時間なので FSL の対象外。
+//           **鳴らせるフレーズ数が MIN_PLAYABLE 以上か**という離散の述語に畳む。
+//           閾値そのものに根拠が無いことは meta/questions/Q-SYN-001 が持つ。
+// ASSUME-2: フレーズ数は検証用に3へ閉じる（表現上の仮定）。
+//           一部が欠けたまま鳴る（短縮版）を表すのに、3あれば足りる。
+// ASSUME-3: 「解決できる」はフォールバック込みの判定。順序そのものは TR-SYN-12 の算法で、
+//           ここでは結果だけを持つ。
+
+requirements KoeruPreviewSynthesis {
+  entity Phrase
+  number Count
+
+  const MIN_PLAYABLE = 2
+
+  state {
+    resolvable: Map<Phrase, Bool>,
+    cached:     Map<Phrase, Bool>,
+    rendering:  Option<Phrase>,
+    playing:    Bool,
+    last_step_cancelled: Bool
+  }
+
+  init {
+    forall p: Phrase { resolvable[p] = false }
+    forall p: Phrase { cached[p] = false }
+    rendering = none
+    playing = false
+    last_step_cancelled = false
+  }
+
+  // 解決できないフレーズは曲から除外する。除外した位置に無音も別音も入れない。
+  def playable() = count(p: Phrase where resolvable[p]) >= MIN_PLAYABLE
+
+  @requirement("REQ-SYN-101", "録り足すと、解決できるフレーズが増える")
+  fair action phrase_becomes_resolvable(p: Phrase) {
+    requires not resolvable[p]
+    resolvable[p] = true
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-102", "解決できるフレーズだけを合成する")
+  fair action start_render(p: Phrase) {
+    requires rendering == none
+    requires resolvable[p]
+    requires not cached[p]
+    rendering = some(p)
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-102", "合成が終わったフレーズはキャッシュに載る")
+  fair action finish_render() {
+    requires rendering is some(p)
+    rendering = none
+    cached[p] = true
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-103", "中断したフレーズの部分結果は捨て、キャッシュへ書き込まない")
+  action cancel_render() {
+    requires rendering != none
+    rendering = none
+    last_step_cancelled = true
+  }
+
+  @requirement("REQ-SYN-104", "先頭フレーズの合成が終わってから再生を始める")
+  action start_preview(p: Phrase) {
+    requires not playing
+    requires playable()
+    requires cached[p]
+    playing = true
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-103", "試唱を止めると、進行中の合成も中断する")
+  action stop_preview() {
+    requires playing
+    playing = false
+    rendering = none
+    last_step_cancelled = true
+  }
+
+  @requirement("REQ-SYN-105", "oto の5値が動いたフレーズのキャッシュだけを捨てる")
+  action oto_changed(p: Phrase) {
+    requires cached[p]
+    cached[p] = false
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-105", "録り直したフレーズのキャッシュだけを捨てる")
+  action take_rerecorded(p: Phrase) {
+    requires cached[p]
+    cached[p] = false
+    last_step_cancelled = false
+  }
+
+  @requirement("REQ-SYN-106", "合成コアが変わったら、すべてのフレーズのキャッシュを捨てる")
+  action core_upgraded() {
+    requires exists p: Phrase { cached[p] }
+    forall p: Phrase { cached[p] = false }
+    last_step_cancelled = false
+  }
+
+  @requirement("INV-SYN-101", "鳴らせる長さが足りない曲は試唱に出さない")
+  invariant NoPreviewBelowThreshold {
+    playing => playable()
+  }
+
+  @requirement("INV-SYN-102", "合成中のフレーズは、まだキャッシュに載っていない")
+  invariant RenderingIsNotCached {
+    forall p: Phrase { rendering == some(p) => not cached[p] }
+  }
+
+  @requirement("INV-SYN-104", "合成しているのは、解決できるフレーズだけ")
+  invariant RenderingImpliesResolvable {
+    forall p: Phrase { rendering == some(p) => resolvable[p] }
+  }
+
+  @requirement("INV-SYN-103", "キャッシュに載っているのは、解決できるフレーズだけ")
+  invariant CachedImpliesResolvable {
+    forall p: Phrase { cached[p] => resolvable[p] }
+  }
+
+  @requirement("REQ-SYN-103", "中断した手は、キャッシュを増やさない")
+  trans CancelNeverWritesCache {
+    last_step_cancelled => forall p: Phrase { cached[p] == old(cached[p]) }
+  }
+
+  @requirement("REQ-SYN-101", "解決できるようになったフレーズは、そのあと解決できなくならない")
+  trans ResolvableIsMonotone {
+    forall p: Phrase { old(resolvable[p]) => resolvable[p] }
+  }
+
+  @requirement("REQ-SYN-107", "すべてが揃う前でも、鳴らせるフレーズだけを繋いで試唱できる")
+  reachable ShortenedPreview {
+    playing and exists p: Phrase { not resolvable[p] }
+  }
+
+  @requirement("REQ-SYN-103", "中断できる経路が存在する")
+  reachable RenderCanBeCancelled {
+    last_step_cancelled and rendering == none
+  }
+
+  acceptance AC-SYN-101 "oto が動いたフレーズだけキャッシュを捨て、他は残す" {
+    phrase_becomes_resolvable(0)
+    phrase_becomes_resolvable(1)
+    start_render(0)
+    finish_render()
+    start_render(1)
+    finish_render()
+    oto_changed(0)
+    expect not cached[0] and cached[1]
+  }
+
+  acceptance AC-SYN-102 "合成コアが変わると、すべてのキャッシュを捨てる" {
+    phrase_becomes_resolvable(0)
+    phrase_becomes_resolvable(1)
+    start_render(0)
+    finish_render()
+    start_render(1)
+    finish_render()
+    core_upgraded()
+    expect not cached[0] and not cached[1]
+  }
+
+  acceptance AC-SYN-103 "中断したフレーズはキャッシュに載らない" {
+    phrase_becomes_resolvable(0)
+    start_render(0)
+    cancel_render()
+    expect not cached[0] and rendering == none
+  }
+
+  acceptance AC-SYN-104 "録り直したフレーズのキャッシュだけを捨て、他は残す" {
+    phrase_becomes_resolvable(0)
+    phrase_becomes_resolvable(1)
+    start_render(0)
+    finish_render()
+    start_render(1)
+    finish_render()
+    take_rerecorded(1)
+    expect cached[0] and not cached[1]
+  }
+
+  acceptance AC-SYN-105 "鳴らせる長さが揃えば、合成済みのフレーズから再生を始められる" {
+    phrase_becomes_resolvable(0)
+    phrase_becomes_resolvable(1)
+    start_render(0)
+    finish_render()
+    start_preview(0)
+    expect playing and not resolvable[2]
+  }
+
+  forbidden FB-SYN-101 "鳴らせる長さが足りないうちは試唱を始められない" {
+    phrase_becomes_resolvable(0)
+    start_render(0)
+    finish_render()
+    start_preview(0)
+    expect rejected
+  }
+
+  forbidden FB-SYN-102 "解決できないフレーズは合成しない" {
+    start_render(0)
+    expect rejected
+  }
+
+  forbidden FB-SYN-103 "合成が終わっていないフレーズから再生を始めない" {
+    phrase_becomes_resolvable(0)
+    phrase_becomes_resolvable(1)
+    start_preview(0)
+    expect rejected
+  }
+
+  terminal {
+    (forall p: Phrase { resolvable[p] and cached[p] }) and not playing and rendering == none
+  }
+}
+
+verify {
+  instances Phrase = 3
+  values Count = 0..3
+}
