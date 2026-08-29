@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-RCL-002'
 title = '上位方式から下位方式への移行経路を用意するか'
 status = 'open'

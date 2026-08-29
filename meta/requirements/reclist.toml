@@ -4,6 +4,7 @@
 # 形式的な契約（状態・遷移・不変条件）は specs/ の FSL が正本で、
 # formalized_as がある要件は FSL 側が正。
 
+schema = 'requirement-set'
 domain = 'reclist'
 domain_title = '録音リスト生成とカバレッジ管理'
 prefix = 'TR-RCL'

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-003'
 title = '配布は直接ダウンロードを主経路とし、Microsoft Store を取らない'
 constraint_label = '配布'

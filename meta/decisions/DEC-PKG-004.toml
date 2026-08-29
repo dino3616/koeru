@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PKG-004'
 title = '書き出すファイル名は ASCII 固定とし、読み込みは日本語にも対応する'
 constraint_label = 'ファイル名'

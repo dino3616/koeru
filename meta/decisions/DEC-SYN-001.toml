@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-SYN-001"
 title = "合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える"
 constraint_label = '合成'

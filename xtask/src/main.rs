@@ -4,7 +4,7 @@
 //! このツールはその外側だけを担当し、**meta が FSL と技術要件の ID へ実際に繋がっているか**を確かめる。
 //! 仕様コンパイラではない。FSL のグラフへ外部情報を接続するブリッジとリリースゲートである。
 //!
-//! - `check-meta`     meta の必須項目と、参照先 ID の実在を確かめる
+//! - `check-meta`     meta の形式と必須項目、参照先 ID の実在を確かめる
 //! - `check-budgets`  配分の合計が上限を超えていないかを確かめる
 //! - `check-profile`  未決の Question が塞いでいるリリースプロファイルを落とす
 //! - `dump-requirements`  要件の登録簿を区切り文字形式で書き出す（外部ツール向け）
@@ -21,65 +21,117 @@ use std::{
 
 const META_DIR: &str = "meta";
 const SPEC_DIR: &str = "specs";
-const REQUIREMENTS_DIR: &str = "requirements";
+const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
 
-/// meta の種類。ディレクトリ名と ID の接頭辞、必須項目を持つ。
+/// meta のファイル形式。**ファイル自身が `schema` で名乗る。**
+///
+/// 名乗らないファイルは落とす。ディレクトリの中身から形を推測すると、
+/// 打ち間違えた収集ファイルが「0件を貢献した」ことに誰も気づけない。
 #[derive(Debug, Clone, Copy)]
-struct Kind {
+struct Shape {
+    schema: &'static str,
     dir: &'static str,
-    prefix: &'static str,
-    required: &'static [&'static str],
+    /// 1件1ファイル。ID の接頭辞と必須項目。
+    entity: Option<(&'static str, &'static [&'static str])>,
+    /// 配列で複数件。配列のキーと、各項目の必須項目。
+    collection: Option<(&'static str, &'static [&'static str])>,
 }
 
-const KINDS: &[Kind] = &[
-    Kind {
+const SHAPES: &[Shape] = &[
+    Shape {
+        schema: "requirement-set",
+        dir: "requirements",
+        entity: None,
+        collection: Some(("requirement", &["id", "title", "confidence", "statement"])),
+    },
+    Shape {
+        schema: "decision",
         dir: "decisions",
-        prefix: "DEC-",
-        required: &[
-            "id",
-            "title",
-            "status",
-            "owner",
-            "options",
-            "selected",
-            "rationale",
-            "review_triggers",
-        ],
+        entity: Some((
+            "DEC-",
+            &[
+                "id",
+                "title",
+                "status",
+                "owner",
+                "options",
+                "selected",
+                "rationale",
+                "review_triggers",
+            ],
+        )),
+        collection: None,
     },
-    Kind {
+    Shape {
+        schema: "question",
         dir: "questions",
-        prefix: "Q-",
-        required: &[
-            "id",
-            "title",
-            "status",
-            "owner",
-            "why_it_matters",
-            "how_to_close",
-        ],
+        entity: Some((
+            "Q-",
+            &[
+                "id",
+                "title",
+                "status",
+                "owner",
+                "why_it_matters",
+                "how_to_close",
+            ],
+        )),
+        collection: None,
     },
-    Kind {
+    Shape {
+        schema: "evidence",
         dir: "evidence",
-        prefix: "EVID-",
-        required: &["id", "title", "kind", "source", "provenance", "confidence"],
+        entity: Some((
+            "EVID-",
+            &["id", "title", "kind", "source", "provenance", "confidence"],
+        )),
+        collection: None,
     },
-    Kind {
+    Shape {
+        schema: "component-ledger",
+        dir: "evidence",
+        entity: None,
+        collection: Some(("component", &["name", "purpose", "license", "status"])),
+    },
+    Shape {
+        schema: "budget",
         dir: "budgets",
-        prefix: "BUDGET-",
-        required: &["id", "title", "limit", "unit", "scope"],
+        entity: Some(("BUDGET-", &["id", "title", "limit", "unit", "scope"])),
+        collection: None,
     },
-    Kind {
+    Shape {
+        schema: "target-set",
+        dir: "budgets",
+        entity: None,
+        collection: Some(("target", &["item", "goal"])),
+    },
+    Shape {
+        schema: "profile",
         dir: "profiles",
-        prefix: "PROFILE-",
-        required: &["id", "title", "status"],
+        entity: Some(("PROFILE-", &["id", "title", "status"])),
+        collection: None,
     },
 ];
 
 #[derive(Debug)]
 struct Entry {
     path: PathBuf,
-    kind: &'static str,
+    shape: &'static Shape,
     table: toml::Table,
+}
+
+impl Entry {
+    /// 収集ファイルの各項目。1件1ファイルの形なら空。
+    fn items(&self) -> Vec<toml::Table> {
+        let Some((key, _)) = self.shape.collection else {
+            return Vec::new();
+        };
+        self.table
+            .get(key)
+            .and_then(toml::Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.as_table().cloned()).collect())
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -123,21 +175,22 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let entries = match load(&root) {
-        Ok(e) => e,
-        Err(e) => {
-            eprintln!("meta の読み込みに失敗: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let mut rep = Report::default();
+    let entries = load(&root, &mut rep);
 
     match args.first().map(String::as_str) {
-        Some("check-meta") => check_meta(&root, &entries),
-        Some("check-budgets") => check_budgets(&entries),
+        Some("check-meta") => check_meta(&root, &entries, rep),
+        Some("check-budgets") => check_budgets(&entries, rep),
+        Some("check-profile") => match args.get(1) {
+            Some(id) => check_profile(&entries, id, rep),
+            None => {
+                eprintln!("使い方: cargo xtask check-profile <PROFILE-ID>");
+                ExitCode::FAILURE
+            }
+        },
         Some("dump-requirements") => {
             // 移行の照合用。US(0x1f) 区切りのフィールド、RS(0x1e) 区切りのレコード。
-            let (reqs, _) = requirements(&root);
-            for (id, t) in reqs {
+            for (id, t) in requirements(&entries).0 {
                 let get = |k: &str| {
                     t.get(k)
                         .and_then(toml::Value::as_str)
@@ -152,13 +205,6 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Some("check-profile") => match args.get(1) {
-            Some(id) => check_profile(&entries, id),
-            None => {
-                eprintln!("使い方: cargo xtask check-profile <PROFILE-ID>");
-                ExitCode::FAILURE
-            }
-        },
         _ => {
             println!(
                 "使い方: cargo xtask <check-meta|check-budgets|check-profile <ID>|dump-requirements>"
@@ -180,44 +226,147 @@ fn repo_root() -> Result<PathBuf, String> {
     }
 }
 
-fn load(root: &Path) -> Result<Vec<Entry>, String> {
-    let mut out = Vec::new();
-    for kind in KINDS {
-        let dir = root.join(META_DIR).join(kind.dir);
-        if !dir.is_dir() {
-            continue;
-        }
-        let mut paths: Vec<PathBuf> = fs::read_dir(&dir)
-            .map_err(|e| format!("{}: {e}", dir.display()))?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "toml"))
-            .collect();
-        paths.sort();
-        for path in paths {
-            let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let table = text
-                .parse::<toml::Table>()
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            // `[[target]]` のような収集ファイルは id を持たない。entity として扱わない。
-            if !table.contains_key("id") {
-                continue;
+/// meta を読む。**形を名乗らないファイル、名乗った形と中身が合わないファイルは、
+/// 読み飛ばさずに落とす。** 黙って0件になる経路を作らないため。
+fn load(root: &Path, rep: &mut Report) -> Vec<Entry> {
+    let mut paths = Vec::new();
+    let mut stack = vec![root.join(META_DIR)];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.filter_map(Result::ok) {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "toml") {
+                paths.push(p);
             }
-            out.push(Entry {
-                path,
-                kind: kind.dir,
-                table,
-            });
         }
     }
-    Ok(out)
+    paths.sort();
+
+    let mut out = Vec::new();
+    for path in paths {
+        let file = path.display().to_string();
+        let Ok(text) = fs::read_to_string(&path) else {
+            rep.error(format!("{file}: 読めない"));
+            continue;
+        };
+        let table = match text.parse::<toml::Table>() {
+            Ok(t) => t,
+            Err(e) => {
+                rep.error(format!("{file}: TOML として読めない: {e}"));
+                continue;
+            }
+        };
+        let Some(schema) = table.get("schema").and_then(toml::Value::as_str) else {
+            rep.error(format!(
+                "{file}: `schema` が無い。ファイルは自分の形を名乗る必要がある"
+            ));
+            continue;
+        };
+        let Some(shape) = SHAPES.iter().find(|s| s.schema == schema) else {
+            rep.error(format!("{file}: 知らない schema `{schema}`"));
+            continue;
+        };
+        let dir = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if dir != shape.dir {
+            rep.error(format!(
+                "{file}: schema `{schema}` は meta/{}/ に置く",
+                shape.dir
+            ));
+            continue;
+        }
+        out.push(Entry { path, shape, table });
+    }
+
+    for e in &out {
+        check_shape(e, rep);
+    }
+    out
+}
+
+/// 名乗った形どおりの中身になっているか。
+fn check_shape(e: &Entry, rep: &mut Report) {
+    let file = e.path.display().to_string();
+    if let Some((prefix, required)) = e.shape.entity {
+        for key in required {
+            if !e.table.contains_key(*key) {
+                rep.error(format!("{file}: 必須項目 `{key}` が無い"));
+            }
+        }
+        match str_of(&e.table, "id") {
+            Some(id) => {
+                if !id.starts_with(prefix) {
+                    rep.error(format!(
+                        "{file}: id `{id}` は `{prefix}` で始まる必要がある"
+                    ));
+                }
+                let stem = e
+                    .path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default();
+                if stem != id {
+                    rep.error(format!("{file}: ファイル名が id `{id}` と一致しない"));
+                }
+            }
+            None => rep.error(format!("{file}: `id` が文字列でない")),
+        }
+    }
+    let Some((key, required)) = e.shape.collection else {
+        return;
+    };
+    // 宣言したキー以外に表の配列があるのは、たいてい `[[component]]` を
+    // `[[componnet]]` と書いたような打ち間違い。**一部だけ間違えると配列は空にならず、
+    // その分だけ黙って減る。**
+    for (k, v) in &e.table {
+        if k == key {
+            continue;
+        }
+        if v.as_array()
+            .is_some_and(|a| !a.is_empty() && a.iter().all(toml::Value::is_table))
+        {
+            rep.error(format!(
+                "{file}: schema `{}` の知らない `[[{k}]]` がある。`[[{key}]]` の打ち間違いではないか",
+                e.shape.schema
+            ));
+        }
+    }
+    match e
+        .table
+        .get(key)
+        .and_then(toml::Value::as_array)
+        .map(Vec::as_slice)
+    {
+        // 0件を貢献するファイルは、たいてい打ち間違いである
+        None | Some([]) => rep.error(format!(
+            "{file}: schema `{}` は `[[{key}]]` を1件以上持つ必要がある",
+            e.shape.schema
+        )),
+        Some(items) => {
+            for (i, item) in items.iter().enumerate() {
+                let Some(t) = item.as_table() else {
+                    rep.error(format!("{file}: [[{key}]] の {i} 件目が表でない"));
+                    continue;
+                };
+                for r in required {
+                    if !t.contains_key(*r) {
+                        rep.error(format!("{file}: [[{key}]] の {i} 件目に `{r}` が無い"));
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn str_of<'a>(t: &'a toml::Table, key: &str) -> Option<&'a str> {
     t.get(key).and_then(toml::Value::as_str)
 }
 
-/// 文字列配列を読む。項目が文字列でない場合は空として扱わず、呼び出し側で気づけるよう空を返す。
 fn list_of(t: &toml::Table, key: &str) -> Vec<String> {
     t.get(key)
         .and_then(toml::Value::as_array)
@@ -227,6 +376,27 @@ fn list_of(t: &toml::Table, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn with_schema<'a>(entries: &'a [Entry], schema: &'static str) -> impl Iterator<Item = &'a Entry> {
+    entries.iter().filter(move |e| e.shape.schema == schema)
+}
+
+/// 技術要件の登録簿。重複した ID は別に返す。
+fn requirements(entries: &[Entry]) -> (BTreeMap<String, toml::Table>, Vec<String>) {
+    let mut out = BTreeMap::new();
+    let mut dups = Vec::new();
+    for e in with_schema(entries, "requirement-set") {
+        for item in e.items() {
+            let Some(id) = item.get("id").and_then(toml::Value::as_str) else {
+                continue;
+            };
+            if out.insert(id.to_owned(), item.clone()).is_some() {
+                dups.push(format!("{}: id `{id}` が重複している", e.path.display()));
+            }
+        }
+    }
+    (out, dups)
 }
 
 /// FSL 仕様が所有している要求 ID を集める。
@@ -270,92 +440,6 @@ fn collect_ids(text: &str, out: &mut BTreeSet<String>) {
     }
 }
 
-/// 技術要件の登録簿。`meta/requirements/*.toml` の `[[requirement]]` が正本。
-/// 同じ ID が2度現れたら、あとから来たほうを重複として返す。
-fn requirements(root: &Path) -> (BTreeMap<String, toml::Table>, Vec<String>) {
-    let mut out = BTreeMap::new();
-    let mut dups = Vec::new();
-    let dir = root.join(META_DIR).join(REQUIREMENTS_DIR);
-    let Ok(rd) = fs::read_dir(&dir) else {
-        return (out, dups);
-    };
-    let mut paths: Vec<PathBuf> = rd
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
-        .collect();
-    paths.sort();
-    for path in paths {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(table) = text.parse::<toml::Table>() else {
-            continue;
-        };
-        let Some(items) = table.get("requirement").and_then(toml::Value::as_array) else {
-            continue;
-        };
-        for item in items {
-            let Some(entry) = item.as_table() else {
-                continue;
-            };
-            let Some(id) = entry.get("id").and_then(toml::Value::as_str) else {
-                continue;
-            };
-            if out.insert(id.to_owned(), entry.clone()).is_some() {
-                dups.push(format!("{}: id `{id}` が重複している", path.display()));
-            }
-        }
-    }
-    (out, dups)
-}
-
-/// 部品台帳。`meta/evidence/ledger-*.toml` の `[[component]]`。ライセンス監査の面。
-fn components(root: &Path) -> Vec<(PathBuf, toml::Table)> {
-    collection(root, "evidence", "component")
-}
-
-/// 領域ごとの性能目標。`meta/budgets/*.toml` の `[[target]]`。上限を持たない予算。
-fn targets(root: &Path) -> Vec<(PathBuf, toml::Table)> {
-    collection(root, "budgets", "target")
-}
-
-/// 配列で持つ登録簿を読む。1ファイルに複数の項目が入る形。
-fn collection(root: &Path, dir_name: &str, key: &str) -> Vec<(PathBuf, toml::Table)> {
-    let mut out = Vec::new();
-    let dir = root.join(META_DIR).join(dir_name);
-    let Ok(rd) = fs::read_dir(&dir) else {
-        return out;
-    };
-    let mut paths: Vec<PathBuf> = rd
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
-        .collect();
-    paths.sort();
-    for path in paths {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(table) = text.parse::<toml::Table>() else {
-            continue;
-        };
-        for item in table
-            .get(key)
-            .and_then(toml::Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-        {
-            if let Some(t) = item.as_table() {
-                out.push((path.clone(), t.clone()));
-            }
-        }
-    }
-    out
-}
-
-const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
-
 /// 文中に現れる `TR-XXX-NN` を拾う。参照先が実在するかを見るために使う。
 fn find_tr(text: &str) -> Vec<String> {
     let b: Vec<char> = text.chars().collect();
@@ -388,19 +472,18 @@ fn find_tr(text: &str) -> Vec<String> {
 }
 
 /// 技術要件の登録簿そのものを検査する。ここが「本文の無い ID を参照する」の再発を止める箇所。
-fn check_requirements(root: &Path, fsl: &BTreeSet<String>, rep: &mut Report) -> BTreeSet<String> {
-    let (reqs, dups) = requirements(root);
+fn check_requirements(
+    entries: &[Entry],
+    fsl: &BTreeSet<String>,
+    rep: &mut Report,
+) -> BTreeSet<String> {
+    let (reqs, dups) = requirements(entries);
     for d in dups {
         rep.error(d);
     }
     let ids: BTreeSet<String> = reqs.keys().cloned().collect();
     let mut dangling = BTreeSet::new();
     for (id, r) in &reqs {
-        for key in ["id", "title", "confidence", "statement"] {
-            if !r.contains_key(key) {
-                rep.error(format!("{id}: 必須項目 `{key}` が無い"));
-            }
-        }
         match r.get("confidence").and_then(toml::Value::as_str) {
             Some(c) if CONFIDENCE.contains(&c) => {}
             Some(c) => rep.error(format!(
@@ -424,7 +507,6 @@ fn check_requirements(root: &Path, fsl: &BTreeSet<String>, rep: &mut Report) -> 
                 rep.error(format!("{id}: formalized_as の `{f}` は FSL に存在しない"));
             }
         }
-        // 本文と注記から他要件を参照しているなら、その要件が実在すること
         let mut text = r
             .get("statement")
             .and_then(toml::Value::as_str)
@@ -448,85 +530,45 @@ fn check_requirements(root: &Path, fsl: &BTreeSet<String>, rep: &mut Report) -> 
     ids
 }
 
-fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
-    let mut rep = Report::default();
+fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     let fsl = fsl_ids(root);
-    let tr = check_requirements(root, &fsl, &mut rep);
-    let decisions: BTreeSet<String> = entries
-        .iter()
-        .filter(|e| e.kind == "decisions")
+    let tr = check_requirements(entries, &fsl, &mut rep);
+
+    let decisions: BTreeSet<String> = with_schema(entries, "decision")
         .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
         .collect();
-    for (path, t) in components(root) {
-        for key in ["name", "purpose", "license", "status"] {
-            if !t.contains_key(key) {
-                rep.error(format!("{}: 部品台帳に `{key}` が無い", path.display()));
+    let mut components = 0usize;
+    for e in with_schema(entries, "component-ledger") {
+        for t in e.items() {
+            components += 1;
+            // 採否は判断記録が持つ。台帳が指す先が実在すること。
+            if let Some(d) = str_of(&t, "decided_by")
+                && !decisions.contains(d)
+            {
+                rep.error(format!(
+                    "{}: decided_by の `{d}` という判断記録は存在しない",
+                    e.path.display()
+                ));
             }
         }
-        // 採否は判断記録が持つ。台帳が指す先が実在すること。
-        if let Some(d) = str_of(&t, "decided_by")
-            && !decisions.contains(d)
+    }
+    let targets: usize = with_schema(entries, "target-set")
+        .map(|e| e.items().len())
+        .sum();
+
+    // ID を持つファイルどうしの参照
+    let mut ids: BTreeMap<String, PathBuf> = BTreeMap::new();
+    for e in entries.iter().filter(|e| e.shape.entity.is_some()) {
+        if let Some(id) = str_of(&e.table, "id")
+            && let Some(prev) = ids.insert(id.to_owned(), e.path.clone())
         {
             rep.error(format!(
-                "{}: decided_by の `{d}` という判断記録は存在しない",
-                path.display()
-            ));
-        }
-    }
-    for (path, t) in targets(root) {
-        for key in ["item", "goal"] {
-            if !t.contains_key(key) {
-                rep.error(format!("{}: 性能目標に `{key}` が無い", path.display()));
-            }
-        }
-    }
-    rep.note(format!(
-        "FSL の要求 {} 件 / 技術要件 {} 件 / 部品台帳 {} 件 / 性能目標 {} 件",
-        fsl.len(),
-        tr.len(),
-        components(root).len(),
-        targets(root).len()
-    ));
-
-    let mut ids: BTreeMap<String, PathBuf> = BTreeMap::new();
-    for e in entries {
-        let Some(kind) = KINDS.iter().find(|k| k.dir == e.kind) else {
-            continue;
-        };
-        let file = e.path.display().to_string();
-
-        for key in kind.required {
-            if !e.table.contains_key(*key) {
-                rep.error(format!("{file}: 必須項目 `{key}` が無い"));
-            }
-        }
-
-        let Some(id) = str_of(&e.table, "id") else {
-            continue;
-        };
-        if !id.starts_with(kind.prefix) {
-            rep.error(format!(
-                "{file}: id `{id}` は `{}` で始まる必要がある",
-                kind.prefix
-            ));
-        }
-        let stem = e
-            .path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default();
-        if stem != id {
-            rep.error(format!("{file}: ファイル名が id `{id}` と一致しない"));
-        }
-        if let Some(prev) = ids.insert(id.to_owned(), e.path.clone()) {
-            rep.error(format!(
-                "{file}: id `{id}` が {} と重複している",
+                "{}: id `{id}` が {} と重複している",
+                e.path.display(),
                 prev.display()
             ));
         }
     }
-
-    // 参照先が実在するかを確かめる。ここが「決定と要件が結ばれていない」の再発を止める箇所。
     for e in entries {
         let file = e.path.display().to_string();
         for (key, universe, label) in [
@@ -558,7 +600,6 @@ fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
                 }
             }
         }
-        // undecided_in が指すファイルに、実際に未決の印があるか
         for rel in list_of(&e.table, "undecided_in") {
             let p = root.join(&rel);
             match fs::read_to_string(&p) {
@@ -570,24 +611,27 @@ fn check_meta(root: &Path, entries: &[Entry]) -> ExitCode {
         }
     }
 
-    let counts = KINDS
-        .iter()
-        .map(|k| {
-            format!(
-                "{} {}",
-                k.dir,
-                entries.iter().filter(|e| e.kind == k.dir).count()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" / ");
-    rep.note(counts);
+    rep.note(format!(
+        "FSL の要求 {} 件 / 技術要件 {} 件 / 部品台帳 {components} 件 / 性能目標 {targets} 件",
+        fsl.len(),
+        tr.len()
+    ));
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for e in entries {
+        *counts.entry(e.shape.schema).or_default() += 1;
+    }
+    rep.note(
+        counts
+            .iter()
+            .map(|(k, v)| format!("{k} {v}"))
+            .collect::<Vec<_>>()
+            .join(" / "),
+    );
     rep.finish("check-meta")
 }
 
-fn check_budgets(entries: &[Entry]) -> ExitCode {
-    let mut rep = Report::default();
-    for e in entries.iter().filter(|e| e.kind == "budgets") {
+fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
+    for e in with_schema(entries, "budget") {
         let file = e.path.display().to_string();
         let id = str_of(&e.table, "id").unwrap_or("?");
         let Some(limit) = e.table.get("limit").and_then(toml::Value::as_integer) else {
@@ -640,20 +684,15 @@ fn check_budgets(entries: &[Entry]) -> ExitCode {
     rep.finish("check-budgets")
 }
 
-fn check_profile(entries: &[Entry], profile_id: &str) -> ExitCode {
-    let mut rep = Report::default();
-    let Some(profile) = entries
-        .iter()
-        .filter(|e| e.kind == "profiles")
-        .find(|e| str_of(&e.table, "id") == Some(profile_id))
+fn check_profile(entries: &[Entry], profile_id: &str, mut rep: Report) -> ExitCode {
+    let Some(profile) =
+        with_schema(entries, "profile").find(|e| str_of(&e.table, "id") == Some(profile_id))
     else {
         rep.error(format!("`{profile_id}` というプロファイルが無い"));
         return rep.finish("check-profile");
     };
 
-    let blocking: Vec<&Entry> = entries
-        .iter()
-        .filter(|e| e.kind == "questions")
+    let blocking: Vec<&Entry> = with_schema(entries, "question")
         .filter(|e| str_of(&e.table, "status") == Some("open"))
         .filter(|e| {
             list_of(&e.table, "blocks_profiles")

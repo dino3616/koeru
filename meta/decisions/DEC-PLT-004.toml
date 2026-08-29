@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-004'
 title = 'Linux は Flatpak の1形態で配布する'
 status = 'accepted'

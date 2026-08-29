@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PKG-002'
 title = '`.frq` は録音時に作る'
 constraint_label = '周波数表'

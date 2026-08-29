@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-008'
 title = '録音品質のリアルタイム判定・プロトタイプ検証フェーズ・UI の多言語対応をスコープ外にする'
 constraint_label = 'スコープ外'

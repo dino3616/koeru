@@ -1,3 +1,4 @@
+schema = 'budget'
 id = "BUDGET-LATENCY-001"
 title = "8フレーズ録音直後の初回試唱までの待ち時間"
 limit = 30000

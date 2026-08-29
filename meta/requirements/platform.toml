@@ -4,6 +4,7 @@
 # 形式的な契約（状態・遷移・不変条件）は specs/ の FSL が正本で、
 # formalized_as がある要件は FSL 側が正。
 
+schema = 'requirement-set'
 domain = 'platform'
 domain_title = '実装基盤とアプリケーション形態'
 prefix = 'TR-PLT'

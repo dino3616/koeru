@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-ALN-003'
 title = '境界精度が編集の手間を減らす水準に届くかが、実測されていない'
 status = 'open'

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PKG-003'
 title = '手渡しは配布パッケージの生成までとし、配布の場や発見機能は持たない'
 constraint_label = '手渡し'

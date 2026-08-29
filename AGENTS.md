@@ -37,6 +37,8 @@
 
 読み方と規律は [meta/README.md](meta/README.md) と [specs/README.md](specs/README.md)。
 
+**meta にファイルを足すときは、先頭で `schema` を宣言する。** 名乗らないファイルは検査で落ちる。ディレクトリの中身から形を推測すると、打ち間違えたファイルが黙って0件を貢献する。
+
 ## Skills
 
 **正本は `.agents/skills/`。`.claude/skills/` は symlink。** 追加・編集は必ず `.agents/skills/` 側で行い、`.claude/skills/` には symlink を張るだけにする。実体を両方に置かない。

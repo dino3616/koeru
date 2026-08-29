@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-006'
 title = 'まず UTAU エコシステムを対象とし、ニューラル音源データセット系は初期サポート外'
 constraint_label = '対象'

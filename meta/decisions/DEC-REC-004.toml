@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-REC-004'
 constraint_label = 'クラッシュ復帰'
 constraint = '異常終了・OS 再起動・電源喪失をまたいで、コミット済みテイクを1件も失わない'

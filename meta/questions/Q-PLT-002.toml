@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-PLT-002'
 title = '予算表に存在しない工程が7つある'
 status = 'open'

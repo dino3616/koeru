@@ -1,3 +1,4 @@
+schema = 'evidence'
 id = 'EVID-BENCH-001'
 title = '録音ペースと前処理の到着率は競合しない'
 kind = 'analysis'

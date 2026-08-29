@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-PLT-001'
 title = '領域別メモリ上限の合計が、プロセス全体のピークメモリ上限を超えている'
 status = 'open'

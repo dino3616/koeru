@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-ALN-002'
 title = '通常モードで人に確認させる件数が ALN 側と EDT 側で食い違う'
 status = 'open'

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-REC-003'
 title = '録音直後のオフライン前処理を、試唱と配布に同じく適用する'
 constraint_label = '前処理'

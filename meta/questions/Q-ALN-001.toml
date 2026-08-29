@@ -1,3 +1,4 @@
+schema = 'question'
 id = "Q-ALN-001"
 title = "Julius セグメンテーションキットの .binhmm を配布物に同梱できるか"
 status = "open"

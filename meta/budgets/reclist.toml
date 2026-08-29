@@ -4,6 +4,7 @@
 # 実時間・パーセンタイル・スループットは FSL の対象外。ここが正本。
 # 実測に置き換わるまでは目標であって、達成の根拠ではない。
 
+schema = 'target-set'
 domain = 'reclist'
 
 [[target]]

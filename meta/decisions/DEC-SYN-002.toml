@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-SYN-002'
 title = '録音の途中でも自分の声で歌を聴けることを中核体験に置く'
 constraint_label = '中核体験'

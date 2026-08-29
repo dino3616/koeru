@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-RCL-001'
 title = '課題曲をどう調達し、録音リストとどう同時設計するか'
 status = 'open'

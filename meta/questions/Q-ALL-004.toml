@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-ALL-004'
 title = '採否を決めたのに、理由と撤回条件が記録されていない部品が29件ある'
 status = 'open'

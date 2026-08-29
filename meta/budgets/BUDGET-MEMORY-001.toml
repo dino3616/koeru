@@ -1,3 +1,4 @@
+schema = 'budget'
 id = "BUDGET-MEMORY-001"
 title = "プロセス全体のピークメモリ"
 limit = 1500

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-PKG-001"
 title = "完成状態と手渡し状態を直交させる"
 constraint_label = '完成'

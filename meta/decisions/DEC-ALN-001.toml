@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-ALN-001"
 title = "強制アライメントは Julius セグメンテーションキットを一次経路にする"
 status = "accepted"

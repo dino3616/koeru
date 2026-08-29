@@ -1,3 +1,4 @@
+schema = 'evidence'
 id = 'EVID-TECH-001'
 title = '確定した制約から機械的に導かれる技術的帰結'
 kind = 'derived_fact'

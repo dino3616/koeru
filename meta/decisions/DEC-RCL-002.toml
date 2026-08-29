@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-RCL-002'
 title = '方式変換は上位から下位への書き出しだけを見込み、逆は採らない'
 constraint_label = '方式変換'

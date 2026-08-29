@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-SYN-004'
 title = '全件再推定の後始末に予算が無く、録音と競合する'
 status = 'open'

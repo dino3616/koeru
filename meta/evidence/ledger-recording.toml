@@ -3,6 +3,7 @@
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
 # decided_by が無いものは、まだ判断記録になっていない採否。
 
+schema = 'component-ledger'
 domain = 'recording'
 
 [[component]]

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-PLT-001"
 title = "実装スタックを Rust + Tauri にする"
 constraint_label = '形態'

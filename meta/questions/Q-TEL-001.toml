@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-TEL-001'
 title = '利用計測の送信先 SaaS を選んでいない'
 status = 'open'

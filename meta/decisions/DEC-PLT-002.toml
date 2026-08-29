@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-002'
 title = 'ライセンスを AGPL-3.0-or-later にする'
 constraint_label = 'ライセンス'

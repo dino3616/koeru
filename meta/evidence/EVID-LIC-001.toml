@@ -1,3 +1,4 @@
+schema = 'evidence'
 id = "EVID-LIC-001"
 title = "同梱候補のライセンス確認"
 kind = "license_audit"

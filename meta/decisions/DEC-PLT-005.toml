@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-005'
 title = '処理はローカル完結とし、声をサーバへ送らない'
 constraint_label = 'データ'

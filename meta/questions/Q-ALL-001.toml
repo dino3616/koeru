@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-ALL-001'
 title = '「3時間の多音階連続音」の規模が領域ごとに3つの異なる数値で想定されている'
 status = 'open'

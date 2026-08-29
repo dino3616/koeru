@@ -1,3 +1,4 @@
+schema = 'question'
 id = "Q-SYN-001"
 title = "「自分の声だ」と認識できる最短の連続再生長はどれだけか"
 status = "open"

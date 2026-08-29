@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-TEL-001"
 title = "利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する"
 constraint_label = '利用計測'

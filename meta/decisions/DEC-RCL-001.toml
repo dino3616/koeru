@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-RCL-001'
 title = '方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる'
 constraint_label = '方式選択'

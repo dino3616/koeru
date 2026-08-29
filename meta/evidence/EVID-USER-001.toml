@@ -1,3 +1,4 @@
+schema = 'evidence'
 id = "EVID-USER-001"
 title = "UTAU 歌声ライブラリ制作環境の調査（n=600）"
 kind = "user_research"

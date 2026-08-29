@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-REC-003'
 title = 'ディスクが埋まったときの挙動を定めた要件が無い'
 status = 'open'

@@ -1,3 +1,4 @@
+schema = 'decision'
 id = "DEC-REC-001"
 title = "音声 I/O は miniaudio を FFI で使う"
 status = "accepted"

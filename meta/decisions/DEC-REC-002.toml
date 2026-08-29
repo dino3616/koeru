@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-REC-002'
 title = '録音条件は、ある程度の品質のマイクと通常の声量を前提にする'
 constraint_label = '録音条件'

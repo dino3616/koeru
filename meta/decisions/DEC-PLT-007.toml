@@ -1,3 +1,4 @@
+schema = 'decision'
 id = 'DEC-PLT-007'
 title = 'アクセシビリティを既定要件とする'
 constraint_label = 'アクセシビリティ'

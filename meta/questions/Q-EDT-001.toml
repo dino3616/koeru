@@ -1,3 +1,4 @@
+schema = 'question'
 id = 'Q-EDT-001'
 title = '多音階規模のスペクトログラム画像だけで editor の常駐上限を使い切り、エントリ間移動 50ms が構造的に成立しない'
 status = 'open'
