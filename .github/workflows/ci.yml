@@ -73,9 +73,16 @@ jobs:
       - name: document drift
         run: |
           set -euo pipefail
-          for f in docs/generated/*.md; do
-            [ "$(basename "$f")" = "README.md" ] && continue
-            fslc document check "specs/requirements/$(basename "$f" .md).fsl" "$f"
+          # 仕様の側から回す。文書が無いことを黙って見逃さないため。
+          for f in specs/requirements/*.fsl; do
+            b="$(basename "$f" .fsl)"
+            # method-downgrade は fslc document generate が関係の空リテラルを扱えない。
+            # 検証は通るが文書だけ作れない（fslc 4.0.0）。
+            if [ "$b" = "method-downgrade" ]; then
+              echo "== $b は文書生成の対象外"
+              continue
+            fi
+            fslc document check "$f" "docs/generated/$b.md"
           done
       # FSL が扱わない情報が、FSL と技術要件の ID へ実際に繋がっているか。
       - name: meta registries

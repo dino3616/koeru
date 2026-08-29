@@ -1,0 +1,135 @@
+// 課題曲のカバレッジと進捗（要求層）
+//
+// **スコープは「いま歌える曲の数」の決まり方。** 録音リストの生成規則は算法なので
+// meta が持つ。行ごとの状態とテイクの世代は project-lifecycle が持つ。
+// 扱うのは「曲が歌えるかをどう決めるか、採用テイクを切り替えても変わらないこと」。
+//
+// ASSUME-1: 曲の状態は3段階（完全 / 代替あり / 不可）。表示では完全と代替ありを
+//           「歌える」に含めてよい（TR-RCL-19）。
+// ASSUME-2: 多音階は (エイリアス, 収録音高) の組で管理する。検証用に音高を2、
+//           曲を2へ閉じる（表現上の仮定）。
+// ASSUME-3: 音域が範囲外であることは、フォールバックでも解決できないことと同じ扱いにする。
+
+requirements KoeruSongCoverage {
+  entity Song
+  entity Pitch
+  number Count
+
+  const MAX_TAKES = 2
+
+  state {
+    // その音高の必要単位が揃っているか
+    pitch_covered: Map<Pitch, Bool>,
+    // その曲がその音高を要求するか
+    song_needs_low:  Map<Song, Bool>,
+    song_needs_high: Map<Song, Bool>,
+    // フォールバックで解決できるか
+    fallback_ok:  Map<Song, Bool>,
+    takes:        Count,
+    adopted_swaps: Count
+  }
+
+  init {
+    forall p: Pitch { pitch_covered[p] = false }
+    forall s: Song { song_needs_low[s] = true }
+    forall s: Song { song_needs_high[s] = false }
+    forall s: Song { fallback_ok[s] = false }
+    takes = 0
+    adopted_swaps = 0
+  }
+
+  // 音高 0 を低域、音高 1 を高域として扱う
+  def needs_met(s: Song) =
+    (song_needs_low[s] => pitch_covered[0]) and (song_needs_high[s] => pitch_covered[1])
+
+  // 3段階（完全 / 代替あり / 不可）を述語で表す。def は述語しか返せない。
+  def is_complete(s: Song) = needs_met(s)
+  def with_fallback(s: Song) = (not needs_met(s)) and fallback_ok[s]
+  def is_impossible(s: Song) = (not needs_met(s)) and (not fallback_ok[s])
+  def singable(s: Song) = needs_met(s) or fallback_ok[s]
+  def singable_count() = count(s: Song where singable(s))
+
+  @requirement("REQ-RCL-001", "その音高の必要単位が揃うと、その音高は収録済みになる")
+  fair action pitch_becomes_covered(p: Pitch) {
+    requires not pitch_covered[p]
+    requires takes < MAX_TAKES
+    pitch_covered[p] = true
+    takes = takes + 1
+  }
+
+  @requirement("REQ-RCL-002", "音域の広い曲は、複数の収録音高を要求する")
+  action song_requires_high(s: Song) {
+    requires not song_needs_high[s]
+    song_needs_high[s] = true
+  }
+
+  @requirement("REQ-RCL-003", "一部が未収録でも、フォールバックで全ノートが鳴るなら歌える")
+  action fallback_resolves(s: Song) {
+    requires not fallback_ok[s]
+    fallback_ok[s] = true
+  }
+
+  @requirement("REQ-RCL-004", "採用テイクの切り替えは、その行が生む収録単位の集合を変えない")
+  action swap_adopted_take() {
+    requires takes > 0
+    requires adopted_swaps < MAX_TAKES
+    adopted_swaps = adopted_swaps + 1
+  }
+
+  @requirement("INV-RCL-001", "必要な音高が揃っている曲は「完全」になる")
+  invariant CompleteMeansAllPitchesCovered {
+    forall s: Song { is_complete(s) == needs_met(s) }
+  }
+
+  @requirement("INV-RCL-002", "1音高だけ録り終えても、音域の広い曲は完全にならない")
+  invariant WideSongNeedsBothPitches {
+    forall s: Song {
+      (song_needs_high[s] and not pitch_covered[1]) => (not is_complete(s))
+    }
+  }
+
+  @requirement("REQ-RCL-004", "採用テイクを切り替えても、歌える曲の数は変わらない")
+  trans SwapDoesNotChangeCoverage {
+    (adopted_swaps != old(adopted_swaps)) => singable_count() == old(singable_count())
+  }
+
+  @requirement("REQ-RCL-001", "収録済みになった音高は、そのあと未収録に戻らない")
+  trans CoverageIsMonotone {
+    forall p: Pitch { old(pitch_covered[p]) => pitch_covered[p] }
+  }
+
+  @requirement("REQ-RCL-003", "代替ありで歌える状態が生じうる")
+  reachable SingableWithFallback {
+    exists s: Song { with_fallback(s) }
+  }
+
+  @requirement("REQ-RCL-002", "低域だけ録った状態で、狭い曲は歌えて広い曲は歌えない")
+  reachable NarrowSingableWideNot {
+    exists a: Song { exists b: Song {
+      a != b and is_complete(a) and is_impossible(b)
+    } }
+  }
+
+  acceptance AC-RCL-001 "低域だけ録ると、低域しか要らない曲だけが完全になる" {
+    song_requires_high(1)
+    pitch_becomes_covered(0)
+    // def は acceptance の中では展開されないので、ここだけ書き下す
+    expect ((song_needs_low[0] => pitch_covered[0]) and (song_needs_high[0] => pitch_covered[1])) and (not ((song_needs_low[1] => pitch_covered[0]) and (song_needs_high[1] => pitch_covered[1]))) and (not fallback_ok[1])
+  }
+
+  acceptance AC-RCL-002 "採用テイクを切り替えても、歌える曲の数は変わらない" {
+    pitch_becomes_covered(0)
+    swap_adopted_take()
+    expect ((song_needs_low[0] => pitch_covered[0]) and (song_needs_high[0] => pitch_covered[1])) and ((song_needs_low[1] => pitch_covered[0]) and (song_needs_high[1] => pitch_covered[1]))
+  }
+
+  terminal {
+    forall s: Song { is_complete(s) }
+  }
+}
+
+verify {
+  instances Song = 2
+  instances Pitch = 2
+  values Count = 0..3
+}

@@ -1,0 +1,200 @@
+// 起動から最初の録音まで（要求層）
+//
+// **スコープはインストール完了から最初のフレーズが画面に出るまで。**
+// 配布ページの端末判定（TR-PLT-17 の (a)(b)）は製品の外なので扱わない。
+// 扱うのは「その前に何を挟まないか」と「マイク権限をいつ求め、拒否からどう戻るか」。
+//
+// ASSUME-1: 操作の順序だけを見る。画面の作りや文言は UI で、meta が持つ。
+// ASSUME-2: 音源名の入力は既定値のまま通過できる（TR-PLT-17）。
+//           通過したかどうかだけを持ち、中身は持たない。
+
+requirements KoeruFirstRun {
+  enum Mic  { NotRequested, Granted, Denied }
+
+  state {
+    launched:        Bool,
+    name_entered:    Bool,
+    method_chosen:   Bool,
+    mic:             Mic,
+    phrase_shown:    Bool,
+    recording:       Bool,
+    // 挟んではいけないもの
+    account_created: Bool,
+    signed_in:       Bool,
+    terms_accepted:  Bool,
+    wizard_shown:    Bool
+  }
+
+  init {
+    launched = false
+    name_entered = false
+    method_chosen = false
+    mic = NotRequested
+    phrase_shown = false
+    recording = false
+    account_created = false
+    signed_in = false
+    terms_accepted = false
+    wizard_shown = false
+  }
+
+  def before_first_phrase() = not phrase_shown
+
+  @requirement("REQ-PLT-001", "1つめの操作は起動")
+  fair action launch() {
+    requires not launched
+    launched = true
+  }
+
+  @requirement("REQ-PLT-001", "2つめの操作は音源名の入力。既定値のまま通過できる")
+  fair action enter_name() {
+    requires launched
+    requires not name_entered
+    name_entered = true
+  }
+
+  @requirement("REQ-PLT-001", "3つめの操作は方式の選択")
+  fair action choose_method() {
+    requires name_entered
+    requires not method_chosen
+    method_chosen = true
+  }
+
+  @requirement("REQ-PLT-002", "マイク権限は初回の録音画面に入る直前に1回だけ求める")
+  fair action request_mic() {
+    requires method_chosen
+    requires mic == NotRequested
+    mic = Granted
+  }
+
+  @requirement("REQ-PLT-002", "拒否されることもある")
+  action deny_mic() {
+    requires method_chosen
+    requires mic == NotRequested
+    mic = Denied
+  }
+
+  @requirement("REQ-PLT-002", "権限が付与されたら、再起動せずに録音へ戻れる")
+  fair action grant_after_denial() {
+    requires mic == Denied
+    mic = Granted
+  }
+
+  @requirement("REQ-PLT-001", "4つの操作を終えると最初のフレーズが出る")
+  fair action show_first_phrase() {
+    requires method_chosen
+    requires mic == Granted
+    requires not phrase_shown
+    phrase_shown = true
+  }
+
+  @requirement("REQ-PLT-003", "マイクが使えるときだけ録音を始める")
+  fair action start_recording() {
+    requires phrase_shown
+    requires mic == Granted
+    requires not recording
+    recording = true
+  }
+
+  // 挟んではいけないものは、最初のフレーズが出たあとにしか起きない
+  @requirement("REQ-PLT-004", "アカウント作成は、最初のフレーズより前に挟まない")
+  action create_account() {
+    requires phrase_shown
+    requires not account_created
+    account_created = true
+  }
+
+  @requirement("REQ-PLT-004", "サインインは、最初のフレーズより前に挟まない")
+  action sign_in() {
+    requires phrase_shown
+    requires not signed_in
+    signed_in = true
+  }
+
+  @requirement("REQ-PLT-004", "利用規約への同意は、最初のフレーズより前に挟まない")
+  action accept_terms() {
+    requires phrase_shown
+    requires not terms_accepted
+    terms_accepted = true
+  }
+
+  @requirement("REQ-PLT-004", "初回設定ウィザードは、最初のフレーズより前に挟まない")
+  action show_wizard() {
+    requires phrase_shown
+    requires not wizard_shown
+    wizard_shown = true
+  }
+
+  @requirement("INV-PLT-001", "最初のフレーズが出るまでに、4つ以外の関門は1つも挟まらない")
+  invariant NothingBeforeFirstPhrase {
+    before_first_phrase() =>
+      (not account_created and not signed_in and not terms_accepted and not wizard_shown)
+  }
+
+  @requirement("INV-PLT-002", "マイクが使えないまま、無音で録音が進むことはない")
+  invariant NoSilentRecording {
+    recording => mic == Granted
+  }
+
+  @requirement("INV-PLT-003", "マイク権限を求めるのは、方式を選んだあと")
+  invariant MicAskedAfterMethod {
+    (mic != NotRequested) => method_chosen
+  }
+
+  @requirement("REQ-PLT-002", "拒否されたあと、再起動せずに録音まで到達できる")
+  reachable RecoversFromDenial {
+    recording and mic == Granted
+  }
+
+  @requirement("REQ-PLT-001", "4つの操作だけで最初のフレーズに到達できる")
+  reachable ReachesFirstPhraseCleanly {
+    phrase_shown and not account_created and not signed_in
+      and not terms_accepted and not wizard_shown
+  }
+
+  acceptance AC-PLT-001 "起動・名前・方式・マイクの4つで最初のフレーズに着く" {
+    launch()
+    enter_name()
+    choose_method()
+    request_mic()
+    show_first_phrase()
+    expect phrase_shown and not wizard_shown and not terms_accepted
+  }
+
+  acceptance AC-PLT-002 "拒否されても、許可し直せば再起動なしで録音できる" {
+    launch()
+    enter_name()
+    choose_method()
+    deny_mic()
+    grant_after_denial()
+    show_first_phrase()
+    start_recording()
+    expect recording
+  }
+
+  forbidden FB-PLT-001 "起動時にマイク権限を求めない" {
+    launch()
+    request_mic()
+    expect rejected
+  }
+
+  forbidden FB-PLT-002 "最初のフレーズより前に利用規約へ同意させない" {
+    launch()
+    enter_name()
+    accept_terms()
+    expect rejected
+  }
+
+  forbidden FB-PLT-003 "マイクが拒否されたまま録音を始めない" {
+    launch()
+    enter_name()
+    choose_method()
+    deny_mic()
+    show_first_phrase()
+    expect rejected
+  }
+
+  terminal {
+    recording
+  }
+}

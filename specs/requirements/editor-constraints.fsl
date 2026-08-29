@@ -1,0 +1,218 @@
+// 原音設定エディタの制約と確認待ち（要求層）
+//
+// **スコープは編集操作と、通常/上級モードの関係。** 描画・キーバインド・一括編集の
+// 中身は算法や UI なので meta が持つ。扱うのは
+// 「どの操作が制約を破れるか、違反が残っていると何が起きないか、モードで状態が変わらないこと」。
+//
+// ASSUME-1: 制約違反の11条件（TR-EDT-43）は、違反があるか無いかの1つの述語に畳む。
+//           個々の条件は算法で、meta/requirements が持つ。
+// ASSUME-2: 「境界同士の最小距離 3ms」は実時間なので FSL の対象外。
+//           **ドラッグは違反を作れない**という離散の契約に畳む。
+// ASSUME-3: エントリ数と履歴は検証用に有限へ閉じる（表現上の仮定）。
+
+requirements KoeruEditorConstraints {
+  entity Entry
+  number Count
+
+  const MAX_HISTORY = 3
+
+  enum Mode { Normal, Advanced }
+  enum Step { Start, Drag, TypeValue, Import, Confirm, AdvancedEdit, OpenAdvanced, CloseAdvanced, Undo, Fix }
+
+  state {
+    violating:     Map<Entry, Bool>,
+    confirmed:     Map<Entry, Bool>,
+    mode:          Mode,
+    unconstrained: Bool,
+    history:       Count,
+    advanced_ever_opened: Bool,
+    last:          Step
+  }
+
+  init {
+    forall e: Entry { violating[e] = false }
+    forall e: Entry { confirmed[e] = false }
+    mode = Normal
+    unconstrained = false
+    history = 0
+    advanced_ever_opened = false
+    last = Start
+  }
+
+  def all_clean() = forall e: Entry { not violating[e] }
+  def all_confirmed() = forall e: Entry { confirmed[e] }
+
+  @requirement("REQ-EDT-001", "ドラッグは制約を破る位置で停止する。違反を作らない")
+  fair action drag_boundary(e: Entry) {
+    requires history < MAX_HISTORY
+    requires not violating[e]
+    confirmed[e] = true
+    history = history + 1
+    last = Drag
+  }
+
+  @requirement("REQ-EDT-002", "数値の直接入力は制約違反を許す。該当エントリは警告表示になる")
+  action type_value(e: Entry) {
+    requires history < MAX_HISTORY
+    violating[e] = true
+    confirmed[e] = false
+    history = history + 1
+    last = TypeValue
+  }
+
+  @requirement("REQ-EDT-002", "インポートも制約違反を許す")
+  action import_oto(e: Entry) {
+    requires history < MAX_HISTORY
+    requires not violating[e]
+    violating[e] = true
+    confirmed[e] = false
+    history = history + 1
+    last = Import
+  }
+
+  @requirement("REQ-EDT-003", "違反を直せば、確認待ちから外れる")
+  fair action fix_violation(e: Entry) {
+    requires violating[e]
+    requires history < MAX_HISTORY
+    violating[e] = false
+    confirmed[e] = true
+    history = history + 1
+    last = Fix
+  }
+
+  @requirement("REQ-EDT-004", "通常モードの確認操作も1件の操作として履歴に積む")
+  fair action confirm(e: Entry) {
+    requires mode == Normal
+    requires not violating[e]
+    requires not confirmed[e]
+    requires history < MAX_HISTORY
+    confirmed[e] = true
+    history = history + 1
+    last = Confirm
+  }
+
+  @requirement("REQ-EDT-005", "上級モードで編集したエントリは確認済みになる。ただし違反が残るなら確認待ちのまま")
+  action advanced_edit(e: Entry) {
+    requires mode == Advanced
+    requires history < MAX_HISTORY
+    // TR-EDT-08 は「自動的に確認済み」と言うが、TR-EDT-45 は「違反が残るエントリは
+    // 必ず確認待ちに出す」と言う。**無制約編集で違反を残した場合に両立しない。**
+    // ここでは TR-EDT-45 を採る（→ meta/questions/Q-EDT-002）。
+    confirmed[e] = if unconstrained then (not violating[e]) else true
+    violating[e] = if unconstrained then violating[e] else false
+    history = history + 1
+    last = AdvancedEdit
+  }
+
+  @requirement("REQ-EDT-006", "上級モードは1操作で開ける。開いてもプロジェクトの状態は変わらない")
+  action open_advanced() {
+    requires mode == Normal
+    mode = Advanced
+    advanced_ever_opened = true
+    last = OpenAdvanced
+  }
+
+  @requirement("REQ-EDT-006", "通常モードへ戻る操作も1操作")
+  action close_advanced() {
+    requires mode == Advanced
+    mode = Normal
+    unconstrained = false
+    last = CloseAdvanced
+  }
+
+  @requirement("REQ-EDT-002", "無制約編集は上級モードだけが持つ")
+  action enable_unconstrained() {
+    requires mode == Advanced
+    requires not unconstrained
+    unconstrained = true
+    last = AdvancedEdit
+  }
+
+  @requirement("REQ-EDT-004", "履歴を1件戻せる")
+  action undo() {
+    requires history > 0
+    history = history - 1
+    last = Undo
+  }
+
+  @requirement("INV-EDT-001", "制約違反が残っているエントリは、確認済みにならない")
+  invariant ViolationIsNeverConfirmed {
+    forall e: Entry { violating[e] => not confirmed[e] }
+  }
+
+  @requirement("INV-EDT-002", "無制約編集は上級モードでしか有効にならない")
+  invariant UnconstrainedOnlyInAdvanced {
+    unconstrained => mode == Advanced
+  }
+
+  @requirement("MODEL-EDT-001", "ASSUME-3: 履歴は検証用に有限へ閉じる")
+  invariant HistoryBounded {
+    history <= MAX_HISTORY
+  }
+
+  @requirement("REQ-EDT-001", "ドラッグは新しい違反を作らない")
+  trans DragNeverCreatesViolation {
+    (last == Drag) => forall e: Entry { violating[e] => old(violating[e]) }
+  }
+
+  @requirement("REQ-EDT-006", "モードの切り替えは、エントリの状態も履歴も変えない")
+  trans ModeSwitchChangesNothing {
+    ((last == OpenAdvanced) or (last == CloseAdvanced))
+      => (history == old(history)
+          and forall e: Entry {
+            violating[e] == old(violating[e]) and confirmed[e] == old(confirmed[e])
+          })
+  }
+
+  @requirement("REQ-EDT-007", "上級モードを一度も開かずに、すべてを確認済みにできる")
+  reachable CompletableWithoutAdvanced {
+    all_confirmed() and all_clean() and not advanced_ever_opened
+  }
+
+  @requirement("REQ-EDT-002", "直接入力で違反が残る状態が生じうる")
+  reachable ViolationCanRemain {
+    exists e: Entry { violating[e] }
+  }
+
+  @requirement("REQ-EDT-002", "無制約編集では、違反を残したまま上級モードで編集できる")
+  reachable UnconstrainedKeepsViolation {
+    unconstrained and exists e: Entry { violating[e] }
+  }
+
+  acceptance AC-EDT-001 "上級モードを開いても、確認状態も履歴も変わらない" {
+    type_value(0)
+    open_advanced()
+    expect violating[0] and not confirmed[0] and history == 1
+  }
+
+  acceptance AC-EDT-002 "違反を直すと確認済みになる" {
+    type_value(0)
+    fix_violation(0)
+    expect not violating[0] and confirmed[0]
+  }
+
+  forbidden FB-EDT-001 "違反の残るエントリを通常モードで確認済みにできない" {
+    type_value(0)
+    confirm(0)
+    expect rejected
+  }
+
+  forbidden FB-EDT-002 "通常モードでは無制約編集を有効にできない" {
+    enable_unconstrained()
+    expect rejected
+  }
+
+  forbidden FB-EDT-003 "通常モードでは上級モードの編集をできない" {
+    advanced_edit(0)
+    expect rejected
+  }
+
+  terminal {
+    all_confirmed() and all_clean() and mode == Normal
+  }
+}
+
+verify {
+  instances Entry = 2
+  values Count = 0..3
+}

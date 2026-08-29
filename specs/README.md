@@ -18,7 +18,12 @@ FSL に入れないものは3つある。
 | **プロジェクト1本** | `requirements/project-lifecycle.fsl` | 録音リスト項目ごとの状態、テイクの世代、完成、手渡し |
 | （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭 |
 | **収録セッション** | `requirements/recording-input.fsl` | デバイス・効果の無効化・校正・入力経路の生死・消失 |
-| **oto エントリ** | `requirements/align-review.fsl` | 確認キュー、人の編集の固定、書き出しの関門 |
+| **oto エントリ** | `requirements/align-review.fsl` | 確認キュー、人の編集の固定 |
+| **編集操作** | `requirements/editor-constraints.fsl` | 制約を破らない編集、通常/上級モードの可逆性 |
+| **書き出し** | `requirements/packaging-export.fsl` | 検証 → ZIP → 読み戻し、破壊的操作のスナップショット |
+| **方式どうしの関係** | `requirements/method-downgrade.fsl` | 有向グラフ。巡回が作れない |
+| **課題曲** | `requirements/song-coverage.fsl` | 歌える3段階、音高ごとの独立管理 |
+| **初回起動** | `requirements/first-run.fsl` | 4操作で最初のフレーズ、マイク権限と拒否からの回復 |
 | **課題曲1本の試唱** | `requirements/preview-synthesis.fsl` | 鳴らせるかの判定、短縮版、キャッシュの無効化、中断 |
 
 ```
@@ -79,12 +84,20 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 
 **すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
 project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）/
-align-review 0.52（深さ6）/ preview-synthesis 0.61（深さ8）を基準線として扱う。
+align-review 0.52（深さ6）/ preview-synthesis 0.61 / packaging-export 0.61 /
+method-downgrade 0.79 / editor-constraints 0.41 / song-coverage 0.54 / first-run 0.70
+（いずれも深さ 6〜8）を基準線として扱う。
 **絶対値ではなく、基準線からの後退が信号。**
 
 **ゴースト変数は kill 率を下げる。** `align-review` は「直前の手が自動の再推定だったか」を
 14 の操作に置いているが、そのうち13は消しても何も壊れない。良性の変異が母数を押し上げるので、
 **仕様どうしで kill 率を比べない。比べるのは同じ仕様の基準線からの後退だけ。**
+
+**`fslc` の制約が3つある（4.0.0 時点）。**
+
+- `def` は `acceptance` / `forbidden` の中で展開されない。そこだけ式を書き下す
+- `relation` を `init` で初期化しないと、空ではなく**任意の関係**から始まる。空は `Set {}`
+- `relation` を持つ仕様は `fslc document generate` が通らない。CI は明示的に除外している
 
 **Map を持つ仕様は検証が重い。** 設計層と align-review は深さ 8 以下で回すこと。
 align-review は帰納法も深さ 8 で回す（深さ 12 では終わらない）。**帰納法が通れば
