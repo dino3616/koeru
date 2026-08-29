@@ -18,11 +18,13 @@ FSL に入れないものは3つある。
 | **プロジェクト1本** | `requirements/project-lifecycle.fsl` | 録音リスト項目ごとの状態、テイクの世代、完成、手渡し |
 | （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭 |
 | **収録セッション** | `requirements/recording-input.fsl` | デバイス・効果の無効化・校正・入力経路の生死・消失 |
+| **oto エントリ** | `requirements/align-review.fsl` | 確認キュー、人の編集の固定、書き出しの関門 |
 
 ```
 fsl-project.toml          プロジェクトのチェーン（requirements → design → 継ぎ目）
 fsl-telemetry.toml        製品全体の同意
 fsl-recording-input.toml  収録の入力経路
+fsl-align-review.toml     自動原音設定の確認キュー
 refinement/project-design-refines-requirements.fsl   層の継ぎ目
 ```
 
@@ -48,6 +50,10 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 | 入力が届いていないまま収録することはない | `INV-REC-103` |
 | 手順の提示は多くとも一度しか出ない | `INV-REC-108` |
 | 回り込みを確認しないままガイドを鳴らさない | `INV-REC-105` |
+| **自動の再推定は、固定された値に触れない** | `INV-ALN-001` |
+| 固定されていることと、人が入れた値であることは同じ | `INV-ALN-002` |
+| 確認が残っている間は書き出せない | `INV-ALN-003` |
+| 個別確認をやめるのは、確認の上限を超えたときだけ | `INV-ALN-004` |
 | 送信が起きるのは、その種別の同意がある間だけ | `INV-TEL-002` |
 | 同意を求めるのは、プロジェクト作成と最初の録音を終えたあと | `INV-TEL-003` |
 
@@ -67,10 +73,13 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 ```
 
 **すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
-project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 を基準線として扱う。
+project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）を
+基準線として扱う。
 **絶対値ではなく、基準線からの後退が信号。**
 
-設計層は Map を持つため変異検査が重い。深さ 8 で回すこと。
+**Map を持つ仕様は検証が重い。** 設計層と align-review は深さ 8 以下で回すこと。
+align-review は帰納法も深さ 8 で回す（深さ 12 では終わらない）。**帰納法が通れば
+不変条件は深さの上限なしで成立するので、深さは到達性の witness にしか効かない。**
 
 ```bash
 ```

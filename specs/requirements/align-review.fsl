@@ -1,0 +1,230 @@
+// 自動原音設定の確認キューと、人の編集の扱い（要求層）
+//
+// **スコープは1プロジェクトの oto エントリ。** 5値の導出式そのものは扱わない。
+// 扱うのは「自動が出した値をいつ人に確認させ、人が直した値をどう守るか」。
+//
+// ASSUME-1: 「確認の合計所要時間の上限（通常モードは5分）」は実時間なので FSL の対象外。
+//           **上限を超えたかどうかという離散の述語**に畳む。測り方は meta/budgets が持つ。
+// ASSUME-2: 5値の固定はエントリ単位ではなく値単位（TR-ALN-30）。入れ子の Map は使えないので、
+//           スロットを平坦に持ち `slot / VALUES` で所属エントリを復元する。
+// ASSUME-3: エントリ数は検証用に2、1エントリあたりの値は2へ閉じる（表現上の仮定）。
+//           **製品では5値だが、「一部が固定されている」を表すのに5は要らない。**
+//           値の個数は契約に効かず、検証時間だけを押し上げる。
+
+requirements KoeruAlignReview {
+  number Count
+
+  const VALUES = 2
+  const ENTRIES = 2
+
+  type Entry = 0..1
+  type Slot = 0..3
+
+  enum Source     { Auto, Human }
+  enum EntryState { NotEstimated, AutoConfirmed, InQueue, Blocked }
+  enum ReviewMode { Individual, Batch, SuggestRerecord }
+
+  state {
+    pinned:      Map<Slot, Bool>,
+    source:      Map<Slot, Source>,
+    entry:       Map<Entry, EntryState>,
+    mode:        ReviewMode,
+    over_budget: Bool,
+    exported:    Bool,
+    auto_pass:   Bool
+  }
+
+  init {
+    forall s: Slot { pinned[s] = false }
+    forall s: Slot { source[s] = Auto }
+    forall e: Entry { entry[e] = NotEstimated }
+    mode = Individual
+    over_budget = false
+    exported = false
+    auto_pass = false
+  }
+
+  // スロットが属するエントリ
+  def owner(s: Slot) = s / VALUES
+
+  // 人に確認させる必要が残っているか
+  def needs_review() = exists e: Entry { entry[e] == InQueue or entry[e] == Blocked }
+
+  @requirement("REQ-ALN-001", "確信度が足りていれば、自動推定した値をそのまま確定させる")
+  fair action estimate_confident(e: Entry) {
+    requires entry[e] == NotEstimated
+    requires not exported
+    entry[e] = AutoConfirmed
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-002", "確信度が足りない項目は自動確定させず、確認キューへ回す")
+  action estimate_low_confidence(e: Entry) {
+    requires entry[e] == NotEstimated
+    requires not exported
+    entry[e] = InQueue
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-003", "テキスト逸脱と判定したテイクは oto を自動確定させず、確認キューへ回す")
+  action text_deviation(e: Entry) {
+    requires entry[e] == NotEstimated
+    requires not exported
+    entry[e] = InQueue
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-004", "書き出し前の検証で修復できない違反があれば、確認キューへ回して書き出しを止める")
+  action validation_unrepairable(e: Entry) {
+    requires entry[e] == AutoConfirmed
+    requires not exported
+    entry[e] = Blocked
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-005", "上級モードで人が編集した値は、値単位で固定する")
+  action human_edit(s: Slot) {
+    requires not exported
+    requires entry[owner(s)] != NotEstimated
+    pinned[s] = true
+    source[s] = Human
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-006", "固定を解くのは、本人が明示的に「自動に戻す」を選んだときだけ")
+  action revert_to_auto(s: Slot) {
+    requires pinned[s]
+    requires not exported
+    pinned[s] = false
+    source[s] = Auto
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-005", "外部ツールで変わった値は、次回読み込み時に固定として取り込む")
+  action import_external_edit(s: Slot) {
+    requires not pinned[s]
+    requires not exported
+    pinned[s] = true
+    source[s] = Human
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-007", "再推定は、固定されていない値だけを書き換える")
+  action re_estimate(e: Entry) {
+    requires entry[e] != NotEstimated
+    requires not exported
+    forall s: Slot {
+      source[s] = if (owner(s) == e and not pinned[s]) then Auto else source[s]
+    }
+    auto_pass = true
+  }
+
+  @requirement("REQ-ALN-008", "確認キューの項目は、人が確認すれば確定する")
+  fair action confirm(e: Entry) {
+    requires entry[e] == InQueue
+    requires not exported
+    entry[e] = AutoConfirmed
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-009", "確認キューの項目は、oto の修正ではなく録り直しを選べる")
+  fair action rerecord(e: Entry) {
+    requires entry[e] == InQueue or entry[e] == Blocked
+    requires not exported
+    entry[e] = NotEstimated
+    // 録り直したテイクの値は作り直しになるが、固定した値は残る（REQ-ALN-007）
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-010", "確認の合計が上限を超えたら、個別確認をやめてまとめて確認か録り直し提案へ切り替える")
+  action budget_exceeded_to_batch() {
+    requires not over_budget
+    requires needs_review()
+    over_budget = true
+    mode = Batch
+    auto_pass = false
+  }
+
+  @requirement("REQ-ALN-010", "上限を超えたとき、録り直し提案へ切り替えることもできる")
+  action budget_exceeded_to_rerecord() {
+    requires not over_budget
+    requires needs_review()
+    over_budget = true
+    mode = SuggestRerecord
+    auto_pass = false
+  }
+
+  @requirement("REQ-PKG-003", "確認が残っている間は書き出せない")
+  action export() {
+    requires not needs_review()
+    requires forall e: Entry { entry[e] == AutoConfirmed }
+    requires not exported
+    exported = true
+    auto_pass = false
+  }
+
+  @requirement("INV-ALN-002", "固定されていることと、人が入れた値であることは同じ")
+  invariant PinnedIffHuman {
+    forall s: Slot { pinned[s] == (source[s] == Human) }
+  }
+
+  @requirement("INV-ALN-001", "自動の再推定は、固定された値に触れない")
+  trans AutoPassNeverTouchesPinned {
+    auto_pass => forall s: Slot { old(pinned[s]) => source[s] == old(source[s]) }
+  }
+
+  @requirement("INV-ALN-003", "確認が残っているものがあるうちは、書き出されていない")
+  invariant NoExportWhileReviewPending {
+    exported => forall e: Entry { entry[e] == AutoConfirmed }
+  }
+
+  @requirement("INV-ALN-004", "個別確認をやめるのは、上限を超えたときだけ")
+  invariant ModeChangeNeedsBudget {
+    (mode != Individual) => over_budget
+  }
+
+  @requirement("REQ-ALN-007", "再推定しても、固定した値は残る")
+  reachable ReEstimateKeepsPinned {
+    exists s: Slot { pinned[s] and source[s] == Human and entry[owner(s)] == AutoConfirmed }
+  }
+
+  @requirement("REQ-ALN-009", "確認から録り直しへ回る経路が存在する")
+  reachable RerecordFromQueue {
+    exists e: Entry { entry[e] == NotEstimated } and over_budget
+  }
+
+  @requirement("REQ-ALN-004", "修復できない違反で書き出しが止まる状態が生じうる")
+  reachable ExportBlocked {
+    exists e: Entry { entry[e] == Blocked }
+  }
+
+  forbidden FB-ALN-001 "確認待ちが残ったまま書き出せない" {
+    estimate_confident(0)
+    estimate_low_confidence(1)
+    export()
+    expect rejected
+  }
+
+  forbidden FB-ALN-002 "修復できない違反が残ったまま書き出せない" {
+    estimate_confident(0)
+    estimate_confident(1)
+    validation_unrepairable(1)
+    export()
+    expect rejected
+  }
+
+  forbidden FB-ALN-003 "上限を超えていないのに個別確認をやめられない" {
+    estimate_confident(0)
+    estimate_confident(1)
+    budget_exceeded_to_batch()
+    expect rejected
+  }
+
+  terminal {
+    exported
+  }
+}
+
+verify {
+  values Count = 0..3
+}
