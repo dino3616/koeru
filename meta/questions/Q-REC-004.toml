@@ -8,7 +8,9 @@ TR-PLT-05 が抜き差し検知を要求しているが、**検知したあと�
 無断フォールバックの禁止は TR-REC-04 にあるが、進行中のテイクと以後のセッションをどう扱うかが無い。
 '''
 how_to_close = '検知後の状態遷移を決め、TR-REC 領域へ要件として追加する。FSL で形式化できる。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-PLT-05',
   'TR-REC-04',

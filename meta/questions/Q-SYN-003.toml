@@ -9,7 +9,9 @@ why_it_matters = '''
 依存が宣言されていないため、片方を直したときにもう片方が壊れることを検出できない。
 '''
 how_to_close = '定義を1箇所に寄せ、他方はそこを参照する形に書き換える。TR-SYN-12 を正とするのが自然。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-RCL-06',
   'TR-RCL-19',

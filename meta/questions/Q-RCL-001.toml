@@ -9,7 +9,9 @@ why_it_matters = '''
 何曲用意するか、権利をどう処理するか（自作 / パブリックドメイン / 許諾取得）が未決。
 '''
 how_to_close = '課題曲の調達方針を決め、録音リスト生成と同時に設計する。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M2',
+]
 affects_requirements = [
   'TR-RCL-12',
   'TR-RCL-16',

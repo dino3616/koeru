@@ -8,7 +8,9 @@ why_it_matters = '''
 プロセス全体のメモリ予算も、この規模が確定しないと積み直せない。
 '''
 how_to_close = '代表プロジェクトの規模（項目数・総音声長・総容量）を1つ決め、全領域の予算をそこから導く。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-RCL-09',
 ]

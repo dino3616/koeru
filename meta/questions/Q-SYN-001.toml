@@ -9,6 +9,8 @@ TR-SYN-18 の (3) は「連続して鳴らせる長さが閾値未満の曲は�
 中核体験（録音の途中でも自分の声で歌を聴ける）が直接この値の上に乗っている。
 """
 how_to_close = "自分の声で録った素材で、長さを変えた試唱を作って判断する。実時間の値なので FSL の対象外。"
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M2',
+]
 affects_requirements = ["TR-SYN-17", "TR-SYN-18", "TR-RCL-16"]
 affects_fsl = ["REQ-SYN-001"]

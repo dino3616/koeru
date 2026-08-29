@@ -1,0 +1,80 @@
+schema = 'profile'
+id = 'PROFILE-M6'
+title = '原音設定エディタ'
+status = 'planned'
+note = 'setParam / vLabeler と同等の編集機能。**スペクトログラムがメモリを食い潰す問題をここで解く。**'
+includes_requirements = [
+  'TR-EDT-01',
+  'TR-EDT-02',
+  'TR-EDT-03',
+  'TR-EDT-04',
+  'TR-EDT-05',
+  'TR-EDT-06',
+  'TR-EDT-07',
+  'TR-EDT-08',
+  'TR-EDT-09',
+  'TR-EDT-10',
+  'TR-EDT-11',
+  'TR-EDT-12',
+  'TR-EDT-13',
+  'TR-EDT-14',
+  'TR-EDT-15',
+  'TR-EDT-16',
+  'TR-EDT-17',
+  'TR-EDT-18',
+  'TR-EDT-19',
+  'TR-EDT-20',
+  'TR-EDT-21',
+  'TR-EDT-22',
+  'TR-EDT-23',
+  'TR-EDT-24',
+  'TR-EDT-25',
+  'TR-EDT-26',
+  'TR-EDT-27',
+  'TR-EDT-28',
+  'TR-EDT-29',
+  'TR-EDT-30',
+  'TR-EDT-31',
+  'TR-EDT-32',
+  'TR-EDT-33',
+  'TR-EDT-34',
+  'TR-EDT-35',
+  'TR-EDT-36',
+  'TR-EDT-37',
+  'TR-EDT-38',
+  'TR-EDT-39',
+  'TR-EDT-40',
+  'TR-EDT-41',
+  'TR-EDT-42',
+  'TR-EDT-43',
+  'TR-EDT-44',
+  'TR-EDT-45',
+  'TR-EDT-46',
+  'TR-EDT-47',
+]
+includes_fsl = [
+  'AC-EDT-001',
+  'AC-EDT-002',
+  'FB-EDT-001',
+  'FB-EDT-002',
+  'FB-EDT-003',
+  'INV-EDT-001',
+  'INV-EDT-002',
+  'MODEL-EDT-001',
+  'REQ-EDT-001',
+  'REQ-EDT-002',
+  'REQ-EDT-003',
+  'REQ-EDT-004',
+  'REQ-EDT-005',
+  'REQ-EDT-006',
+  'REQ-EDT-007',
+]
+excludes = [
+  '配布経路と署名',
+]
+decisions = [
+  'DEC-ALN-002',
+]
+budgets = [
+  'BUDGET-MEMORY-001',
+]

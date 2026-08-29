@@ -31,6 +31,7 @@
 | [meta/requirements/](meta/requirements/) | 満たさなければ成立しない条件。`TR-*` 261件 |
 | [meta/decisions/](meta/decisions/) | 何を選び、なぜ選び、何が起きたら覆すか。`DEC-*` |
 | [meta/questions/](meta/questions/) | まだ決まっていないこと。`Q-*` |
+| [meta/profiles/](meta/profiles/) | マイルストーン。**要件はちょうど1つに属する**。`PROFILE-M1`〜`M7` |
 | [meta/budgets/](meta/budgets/) | 上限と配分（`BUDGET-*`）、領域ごとの性能目標（`{領域}.toml`） |
 | [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、実測、部品台帳（`ledger-{領域}.toml`） |
 | [specs/](specs/) | 状態・遷移・不変条件・受入・禁止。反例探索にかけている |

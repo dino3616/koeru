@@ -9,7 +9,9 @@ why_it_matters = '''
 ショートカット中心の設計はキーボード操作と親和的なので、要件化のコストは低い。
 '''
 how_to_close = 'Tauri の WebView が OS のアクセシビリティ API へ何を渡すかを確かめ、TR-PLT 領域へ要件として追加する。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-PLT-24',
 ]

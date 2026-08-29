@@ -1,0 +1,48 @@
+schema = 'profile'
+id = 'PROFILE-M5'
+title = '方式を広げる'
+status = 'planned'
+note = '連続音・CVVC・多音階。prefix.map と subbank。下位方式への書き出し。所要時間の実測。'
+includes_requirements = [
+  'TR-RCL-04',
+  'TR-RCL-05',
+  'TR-RCL-06',
+  'TR-RCL-07',
+  'TR-RCL-09',
+  'TR-RCL-10',
+  'TR-RCL-11',
+  'TR-RCL-22',
+  'TR-RCL-24',
+  'TR-RCL-26',
+  'TR-SYN-13',
+  'TR-SYN-14',
+  'TR-SYN-15',
+  'TR-SYN-16',
+  'TR-SYN-19',
+  'TR-SYN-30',
+  'TR-REC-25',
+  'TR-REC-36',
+  'TR-PKG-22',
+  'TR-PKG-23',
+  'TR-PKG-24',
+  'TR-PKG-25',
+]
+includes_fsl = [
+  'AC-PKG-103',
+  'FB-PKG-104',
+  'FB-PKG-105',
+  'FB-PKG-106',
+  'INV-PKG-105',
+  'INV-PKG-106',
+  'REQ-PKG-108',
+  'REQ-PKG-109',
+]
+excludes = [
+  'エディタ本体',
+  '配布経路と署名',
+]
+decisions = [
+  'DEC-RCL-001',
+  'DEC-RCL-002',
+]
+budgets = []

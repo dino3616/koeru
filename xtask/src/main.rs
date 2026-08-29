@@ -550,6 +550,36 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     let fsl = fsl_ids(root);
     let tr = check_requirements(entries, &fsl, &mut rep);
 
+    // 要件はちょうど1つのマイルストーンに属する。**どこにも属さない要件は、
+    // 誰も作らないまま残る。** 二重に属すると、二度作るか、どちらもやらない。
+    let profiles: Vec<&Entry> = with_schema(entries, "profile").collect();
+    if !profiles.is_empty() {
+        let mut owner: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for e in &profiles {
+            let id = str_of(&e.table, "id").unwrap_or("?").to_owned();
+            for r in list_of(&e.table, "includes_requirements") {
+                owner.entry(r).or_default().push(id.clone());
+            }
+        }
+        for (r, ms) in &owner {
+            if ms.len() > 1 {
+                rep.error(format!(
+                    "{r} が複数のマイルストーンに属している: {}",
+                    ms.join(", ")
+                ));
+            }
+        }
+        let orphans: Vec<&String> = tr.iter().filter(|r| !owner.contains_key(*r)).collect();
+        if !orphans.is_empty() {
+            let head: Vec<String> = orphans.iter().take(5).map(|s| (*s).clone()).collect();
+            rep.error(format!(
+                "どのマイルストーンにも属さない要件が {} 件ある: {} ...",
+                orphans.len(),
+                head.join(", ")
+            ));
+        }
+    }
+
     let decisions: BTreeSet<String> = with_schema(entries, "decision")
         .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
         .collect();

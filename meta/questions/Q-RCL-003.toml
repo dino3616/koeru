@@ -10,7 +10,9 @@ OREMO ガイド BGM 制御ファイル1つに全面依存しており、**反証
 **併記する所要時間の根拠は実測に置き換える必要がある。**
 '''
 how_to_close = '自分で各方式を録って実測する。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M5',
+]
 affects_requirements = [
   'TR-RCL-09',
 ]

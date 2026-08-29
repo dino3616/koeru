@@ -1,0 +1,48 @@
+schema = 'profile'
+id = 'PROFILE-M7'
+title = '配る'
+status = 'planned'
+note = '3 OS の署名と配布、自動更新、アクセシビリティ、利用計測。'
+includes_requirements = [
+  'TR-PLT-12',
+  'TR-PLT-13',
+  'TR-PLT-14',
+  'TR-PLT-15',
+  'TR-PLT-16',
+  'TR-PLT-17',
+  'TR-PLT-18',
+  'TR-PLT-19',
+  'TR-PLT-22',
+  'TR-PLT-24',
+  'TR-PKG-53',
+  'TR-PKG-54',
+  'TR-PKG-55',
+  'TR-PKG-56',
+  'TR-PKG-57',
+]
+includes_fsl = [
+  'FB-TEL-001',
+  'FB-TEL-002',
+  'FB-TEL-003',
+  'FB-TEL-004',
+  'INV-TEL-001',
+  'INV-TEL-002',
+  'INV-TEL-003',
+  'REQ-TEL-001',
+  'REQ-TEL-002',
+  'REQ-TEL-003',
+  'REQ-TEL-004',
+  'REQ-TEL-005',
+  'REQ-TEL-006',
+  'REQ-TEL-007',
+]
+excludes = []
+decisions = [
+  'DEC-PLT-002',
+  'DEC-PLT-003',
+  'DEC-PLT-004',
+  'DEC-PLT-007',
+  'DEC-PLT-008',
+  'DEC-TEL-001',
+]
+budgets = []

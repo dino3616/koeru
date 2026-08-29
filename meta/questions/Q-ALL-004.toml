@@ -9,7 +9,9 @@ why_it_matters = '''
 台帳の status だけが残ると、あとから「本当にそれでよかったのか」を確かめる手段が無くなる。
 '''
 how_to_close = '1件ずつ、選択肢・理由・撤回条件を書いて DEC にする。単一の事実だけで落ちているもの（Windows 専用、ライセンス不明など）は、台帳の note を根拠として DEC の rationale に引く。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_components = [
   'CMP-ALN-007',
   'CMP-ALN-008',

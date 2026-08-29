@@ -10,6 +10,8 @@ why_it_matters = '''
 その場合に何を製品として出すのかは、技術判断ではなくプロダクト判断になる。
 '''
 how_to_close = '内部評価ハーネス（TR-ALN-32）を実装の前提作業として前倒しし、手ラベルの参照データで境界誤差分布を測る。参照データの作成者は複数にする。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M3',
+]
 affects_requirements = ['TR-ALN-03', 'TR-ALN-28', 'TR-ALN-32']
 affects_decisions = ['DEC-ALN-001']

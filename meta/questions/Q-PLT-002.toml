@@ -16,5 +16,7 @@ why_it_matters = '''
 - 全件再推定時の master WAV 読み直し帯域（由来: 上記）
 '''
 how_to_close = '各行を担当する領域を決め、目標値を置いてから実測に差し替える。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_budgets = ['BUDGET-MEMORY-001', 'BUDGET-LATENCY-001']

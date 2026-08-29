@@ -13,6 +13,8 @@ SQLite へのコミットが済む前にクラッシュした場合**を扱っ�
 ディスクに溜まる。多音階連続音のような長い収録では、これが積み重なる。
 '''
 how_to_close = '起動時の整合性検証（TR-REC-31）でこの WAV をどう扱うかを決める。復旧候補として提示するか、破棄するか、報告だけするか。決めたら TR-REC-28 へ要件として追加する。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = ['TR-REC-28', 'TR-REC-31']
 affects_decisions = ['DEC-REC-004']

@@ -9,7 +9,9 @@ why_it_matters = """
 重みの表示ライセンスは上流コーパスの条件を上書きできない。
 """
 how_to_close = "学習コーパスの一覧と各ライセンスを一次資料で確認する。不合格なら WORLD の Harvest に戻る。"
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M2',
+]
 affects_requirements = ["TR-SYN-06"]
 affects_decisions = ["DEC-SYN-001"]
 affects_evidence = ["EVID-LIC-001"]

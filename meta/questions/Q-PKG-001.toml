@@ -8,7 +8,9 @@ why_it_matters = '''
 **5値を誰が再導出するかを定めた要件が無い。** 担当が無いまま実装に入ると、どの領域も作らない。
 '''
 how_to_close = 'oto 再導出の担当領域を決め、要件として追加する。align 側に置くのが自然。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M5',
+]
 affects_requirements = [
   'TR-RCL-21',
   'TR-PKG-24',

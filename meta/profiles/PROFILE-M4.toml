@@ -1,0 +1,66 @@
+schema = 'profile'
+id = 'PROFILE-M4'
+title = '手渡せる形にする'
+status = 'planned'
+note = '書き出し前検証 → ZIP → 読み戻し検証。character.txt / character.yaml / 規約テンプレート。**非公開のまま完成し、渡せる状態まで。**'
+includes_requirements = [
+  'TR-PKG-01',
+  'TR-PKG-02',
+  'TR-PKG-03',
+  'TR-PKG-04',
+  'TR-PKG-06',
+  'TR-PKG-07',
+  'TR-PKG-08',
+  'TR-PKG-09',
+  'TR-PKG-10',
+  'TR-PKG-11',
+  'TR-PKG-12',
+  'TR-PKG-13',
+  'TR-PKG-14',
+  'TR-PKG-15',
+  'TR-PKG-16',
+  'TR-PKG-17',
+  'TR-PKG-18',
+  'TR-PKG-19',
+  'TR-PKG-20',
+  'TR-PKG-21',
+  'TR-PKG-26',
+  'TR-PKG-27',
+  'TR-PKG-28',
+  'TR-PKG-29',
+  'TR-PKG-30',
+  'TR-PKG-31',
+  'TR-PKG-32',
+  'TR-PKG-49',
+  'TR-PKG-50',
+  'TR-PKG-51',
+  'TR-PKG-52',
+  'TR-RCL-21',
+]
+includes_fsl = [
+  'AC-PKG-101',
+  'AC-PKG-102',
+  'FB-PKG-101',
+  'FB-PKG-102',
+  'FB-PKG-103',
+  'INV-PKG-102',
+  'INV-PKG-103',
+  'INV-PKG-104',
+  'INV-PKG-107',
+  'MODEL-PKG-001',
+  'REQ-PKG-102',
+  'REQ-PKG-103',
+  'REQ-PKG-104',
+  'REQ-PKG-105',
+  'REQ-PKG-106',
+  'REQ-PKG-107',
+]
+excludes = [
+  '下位方式への書き出し',
+  '配布経路と署名',
+]
+decisions = [
+  'DEC-PKG-003',
+  'DEC-PKG-004',
+]
+budgets = []

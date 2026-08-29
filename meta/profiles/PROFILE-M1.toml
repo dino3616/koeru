@@ -1,0 +1,13 @@
+schema = 'profile'
+id = 'PROFILE-M1'
+title = '仕様の食い違いを閉じる'
+status = 'planned'
+note = '紙の上で閉じられる未決を片づけ、要件が1件も無い4領域を書き足す。コードは書かない。'
+includes_requirements = []
+includes_fsl = []
+excludes = [
+  '録音・合成・書き出しの実装',
+  '実測が要る未決（M2 以降で閉じる）',
+]
+decisions = []
+budgets = []

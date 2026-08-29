@@ -9,7 +9,9 @@ why_it_matters = '''
 送信先の保持期間と所在地がプライバシーポリシーと整合するかが採否を決める。
 '''
 how_to_close = '候補を挙げ、保持期間・所在地・ホワイトリスト方式で運用できるかを確かめる。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M7',
+]
 affects_requirements = [
   'TR-PKG-53',
   'TR-PKG-54',

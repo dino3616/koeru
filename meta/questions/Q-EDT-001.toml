@@ -27,7 +27,9 @@ how_to_close = '''
 
 ---
 '''
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M6',
+]
 affects_requirements = [
   'TR-EDT-12',
   'TR-PLT-04',

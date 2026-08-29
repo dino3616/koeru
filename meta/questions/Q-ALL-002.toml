@@ -11,7 +11,9 @@ why_it_matters = '''
 - **`.frq` は録音時に作る**: PKG 側に書き出し時生成を前提とした記述が残っていないか確認する
 '''
 how_to_close = '該当要件の statement を書き換える。登録簿に移したので、ID から直接引ける。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-RCL-08',
   'TR-RCL-18',

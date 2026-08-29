@@ -8,7 +8,9 @@ why_it_matters = '''
 **録音データの保護が絡むため後付けが難しい。** 録音という「やり直しが高い操作」を扱う製品では中核に近い。
 '''
 how_to_close = '書き込み失敗時にマスターを壊さない契約を決め、TR-REC 領域へ要件として追加する。FSL で形式化できる。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = []
 
 # 移行前の原文。言い換えで意味が動いていないかを突き合わせるために残す。

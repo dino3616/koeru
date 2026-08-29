@@ -8,7 +8,9 @@ why_it_matters = '''
 確認件数は原音設定を自動化するという中核方針の成否に直結する。
 '''
 how_to_close = '件数ではなく「確認の合計所要時間」で切ると決めてあるので、その定義を1箇所に置き、両領域から参照させる。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = [
   'TR-ALN-24',
   'TR-ALN-25',

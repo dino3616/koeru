@@ -15,5 +15,7 @@ why_it_matters = '''
 **形式検証で見つかった。** どちらを採るかで、通常モードの利用者に違反が見えるかどうかが変わる。
 '''
 how_to_close = 'TR-EDT-08 の「自動的に確認済み」に「制約違反が残っていない場合に限る」を足すか、無制約編集で残した違反を別の扱いにするかを決める。仕様は暫定で TR-EDT-45 を優先している。'
-blocks_profiles = []
+blocks_profiles = [
+  'PROFILE-M1',
+]
 affects_requirements = ['TR-EDT-08', 'TR-EDT-44', 'TR-EDT-45']
