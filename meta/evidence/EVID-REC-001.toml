@@ -1,0 +1,36 @@
+schema = 'evidence'
+id = 'EVID-REC-001'
+title = 'macOS で音声 I/O を自前実装したときの実測（Q-REC-002 の6点）'
+kind = 'measurement'
+source = '実機（macOS 26.6.2 arm64）。CoreAudio HAL / AUHAL / AVFoundation を直接叩く自前実装'
+provenance = 'すべて実機のテストで確認。数値は `crates/koeru-audio/tests/` と `crates/koeru-app/tests/` の出力'
+confidence = 'Fact'
+supports_decisions = [
+  'DEC-REC-001',
+  'DEC-REC-002',
+]
+supports_requirements = [
+  'TR-REC-03',
+  'TR-REC-04',
+  'TR-REC-07',
+  'TR-REC-11',
+  'TR-REC-17',
+  'TR-REC-19',
+  'TR-REC-40',
+  'TR-PLT-18',
+]
+findings = [
+  '**Q-REC-002 が挙げる6点のうち、macOS では6点すべてが通った。** Windows と Linux は未着手。',
+  '**(1) デバイス列挙と識別子の永続化 — 通った。** `kAudioDevicePropertyDeviceUID` が永続識別子として取れる。実機で6台を列挙し、うち4台が入力を持つ。**表示名は同一性の判定に使っていない**（TR-REC-03）。',
+  '**(2) 32bit float キャプチャとフォーマット一致 — 通った。** AUHAL の入力エレメントに非インタリーブの f32 を要求して開ける。**`AudioBufferList` は `AudioBuffer` が8バイト境界に揃うため、ヘッダの直後に4バイトの詰め物が入る。** これを見落とすと、デバイスは見えるのにチャンネル数が0になる（実際に踏んで、回帰テストで固定した）。',
+  '**(3) OS 側音響効果の検出 — 通った。** `AVCaptureDevice.activeMicrophoneMode` でマイクモードを読める。**アプリから standard へ戻すことはできない**ので、TR-REC-11 のとおり「検知して一度だけ提示する」に留まる。`kAudioUnitSubType_VoiceProcessingIO` は使っていない。',
+  '**(4) 収録中のデバイス消失と復帰 — 経路は通った。** `kAudioHardwarePropertyDevices` と `kAudioDeviceProcessorOverload` にプロパティリスナを掛けられる。**実際に抜線して確かめてはいない。**',
+  '**(5) xrun の検出 — 通った。** `AudioTimeStamp.mSampleTime` の連続性で検出する。実機の正常系では取りこぼし0。**取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。',
+  '**(6) マイク権限の取得と拒否からの回復 — 通った。** `AVCaptureDevice` で状態を読め、要求のダイアログも出る。**権限が無いと macOS は無音を返す**ので、成否ではなく中身のピークを見る必要がある（TR-REC-17）。',
+  '**[Fact] TR-REC-40 の規律は守れた。** コールバックの中で行うのは `AudioUnitRender` と、事前確保したリングへの書き込みだけ。二乗和の集計も固定小数の `fetch_add` に落としてある（f64 を CAS で積むとループになる）。',
+  '**[Fact] プリロールは実測で成立した**（TR-REC-19）。900ms の収録指示に対して 1907ms のテイク（遡り 500ms + 指示 900ms + 末尾 500ms）。ストリームは収録画面に入った時点から止めない。',
+  '**[Fact] 入力ゲインの読み書きと復元ができた**（TR-REC-14、TR-REC-15）。`kAudioDevicePropertyVolumeScalar` を入力スコープで読み書きできる。実機の4台のうち2台がハードウェアゲインを持ち、書いた値の近くが読み戻せる。**設定不可のデバイスへの書き込みは拒まれる。**',
+  '**[Fact] ソフトウェアのボリュームは `TransportType` から見分けられる。** 仮想・集約デバイスがこれにあたり、TR-REC-14 の [Fact]（ソフトウェア実装のボリュームは校正に使えない）と一致する。',
+  '**[Fact] 出力の種別は判定できるが、自己申告である**（TR-REC-24）。内蔵スピーカは `kAudioDevicePropertyDataSource` で分かる。Bluetooth と USB は**ヘッドホンとスピーカの両方があるので決められない。**',
+  '**[Fact] 回り込みは録音側で検出できた**（TR-REC-24）。内蔵スピーカでガイドを鳴らしながら録ると相関 1.000。**出力の種別だけでは足りないという要件の判断は、実測でも裏づいた。**',
+]

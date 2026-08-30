@@ -28,6 +28,14 @@ how_to_close = '''
 (3) RAW ストリーム要求の成否と OS 側音響効果の検出、(4) 収録中のデバイス消失と復帰、
 (5) xrun の検出、(6) マイク権限の取得と拒否からの回復。
 **「できた / できなかった」ではなく、できなかった場合に何が記録されるかまで確かめる。**
+
+**macOS は6点すべて通った**（EVID-REC-001）。残るのは Windows と Linux。
+- Windows: `AUDCLNT_STREAMOPTIONS_RAW` をドライバが尊重するか
+- Linux: PipeWire のフィルタノードを避けて素のノードへ繋げるか、
+  PipeWire が無い環境で ALSA `hw:` へ直接繋げるか
+
+**(4) の「収録中のデバイス消失」は macOS でも経路を通しただけで、
+実際に抜線して確かめてはいない。**
 '''
 blocks_profiles = [
   'PROFILE-M2',
