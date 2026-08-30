@@ -6,4 +6,6 @@
 //! **UTAU 互換 resampler は自前で書く**（`DEC-SYN-005`）。`worldline` は
 //! OpenUtau のコードで取れないため。仕様は `TR-SYN-08` が引数一式を定義済み。
 
+pub mod oto;
+pub mod resampler;
 pub mod world;
