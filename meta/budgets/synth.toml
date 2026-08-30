@@ -83,7 +83,8 @@ note = '永続化しない根拠'
 id = 'TGT-SYN-014'
 item = '解析結果のメモリ LRU 上限'
 goal = '512MB（editor 前面時は 128MB へ縮退）'
-note = 'Q-PLT-001'
+decided_by = 'DEC-PLT-012'
+note = 'BUDGET-MEMORY-001 の収録中モードからの配分。縮退はモード遷移時に解放する'
 
 [[target]]
 id = 'TGT-SYN-015'

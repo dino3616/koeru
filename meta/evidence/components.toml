@@ -46,6 +46,7 @@ supports_requirements = [
   'TR-ALN-04',
   'TR-ALN-06',
   'TR-ALN-10',
+  'TR-ALN-01',
 ]
 note = '**一次経路として決定済み。** ただし `.binhmm` の同梱可否（Q-ALN-001）が前提条件で、不合格なら snfa へ戻る'
 
@@ -682,17 +683,13 @@ id = 'CMP-048'
 name = 'ONNX Runtime（ort 経由、CPU のみ）'
 purpose = '推論ランタイム / ONNX Runtime の Rust バインディング'
 license = 'Apache-2.0 / MIT（本体は MIT）'
-status = '採用候補'
+status = '不適'
+decided_by = 'DEC-SYN-004'
 domains = [
   'align',
   'platform',
 ]
-supports_requirements = [
-  'TR-PLT-19',
-  'TR-ALN-01',
-  'TR-SYN-22',
-]
-note = 'SwiftF0 の推論に必要'
+note = '**積む理由が消えた。** SwiftF0 が唯一の用途で、それを採らないと決めた（DEC-SYN-004）。アライナは自前実装が既定（TR-ALN-02）。ONNX を必要とする別の機能が入った場合にのみ再検討する'
 
 [[component]]
 id = 'CMP-049'
@@ -1309,11 +1306,12 @@ id = 'CMP-093'
 name = 'ONNX Runtime + CREPE'
 purpose = '高精度 F0 推定（Harvest の代替）'
 license = 'MIT / MIT'
-status = '要調査'
+status = '不適'
+decided_by = 'DEC-SYN-004'
 domains = [
   'synth',
 ]
-note = 'ONNX Runtime を積む理由が他にないため優先度は低い'
+note = 'ONNX Runtime を積まないと決めたため（DEC-SYN-004）、CREPE も経路が無い'
 
 [[component]]
 id = 'CMP-094'

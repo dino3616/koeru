@@ -29,7 +29,8 @@ note = '実サイズ 約1.2〜5MB'
 id = 'TGT-ALN-004'
 item = 'ピークメモリ'
 goal = '**64MB 程度**（プロセス全体予算からの配分）'
-note = '従来の 500MB は2桁過大'
+decided_by = 'DEC-PLT-012'
+note = '従来の 500MB は2桁過大で、落としたぶん 436MB が他の工程に回った'
 
 [[target]]
 id = 'TGT-ALN-005'

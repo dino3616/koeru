@@ -48,7 +48,8 @@ note = 'Q-EDT-001'
 id = 'TGT-EDT-008'
 item = '常駐メモリ（音声＋チャート画像）'
 goal = '512MB 以下（可視域＋前後数エントリのウィンドウのみ）'
-note = 'Q-PLT-001・Q-EDT-001'
+decided_by = 'DEC-PLT-012'
+note = '**枠を割るならここから削る。** WebView の実測が 400MB を超えたら、ディスクキャッシュ前提へ変更する（Q-EDT-001）'
 
 [[target]]
 id = 'TGT-EDT-009'
@@ -66,7 +67,7 @@ goal = '5000行で 60fps'
 id = 'TGT-EDT-011'
 item = 'undo 履歴'
 goal = '100操作以上、メモリ上限 200MB'
-note = 'Q-PLT-001'
+decided_by = 'DEC-PLT-012'
 
 [[target]]
 id = 'TGT-EDT-012'

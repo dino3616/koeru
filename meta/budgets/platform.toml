@@ -69,4 +69,5 @@ id = 'TGT-PLT-011'
 item = 'ピークメモリ'
 goal = '≤ 1.5GB'
 derives_from = ['BUDGET-MEMORY-001', 'SCALE-REF-001']
-note = '**内訳は BUDGET-MEMORY-001 が持つ。** 実行モード別（収録中 / 原音設定中 / 試唱中）への再定義は Q-PLT-001 が担当する。同時に常駐しない工程を足し合わせているのが破綻の原因で、行が無いのではなく分け方が違う'
+decided_by = 'DEC-PLT-012'
+note = '**内訳は BUDGET-MEMORY-001 が持つ。** 実行モード別に割り直した。山は編集中の 1,456MB で、残る余裕は 44MB。WebView の 400MB は実測ではなく枠'

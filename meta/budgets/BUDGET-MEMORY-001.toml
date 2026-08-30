@@ -7,34 +7,84 @@ scope = "SCALE-REF-001 の代表プロジェクトを開いた状態（8GB 搭�
 derives_from = ["SCALE-REF-001"]
 source_requirements = ["TR-PLT-19"]
 note = """
-未解決の設計課題（Q-PLT-001）。領域ごとの独立キャップの合計が上限を超えている。
-WebView の常駐分がまだ実測されておらず、内訳表に空欄がある。
+**実行モードで分ける。** 収録中と編集中は同時に成り立たないので、足し合わせない。
+以前は4つの領域キャップを単純に足して 1,724MB になり、上限を 15% 超えていた（Q-PLT-001）。
+`mode` を持たない行はどのモードにも乗る共通分で、上限と比べるのはモードごとの合計の最大値。
+
+**残っている未実測は WebView プロセスの常駐分。** ここが空欄のまま他を詰めても意味がないので、
+**共通分に枠として置いた**（DEC-PLT-012）。実測が枠を超えたら、editor の 512MB を
+ディスクキャッシュ前提で削る（Q-EDT-001）。
 """
 
+# ── どのモードにも乗る ──────────────────────────────
 [[allocations]]
-name = "align"
+name = "WebView プロセス（常駐）"
+kind = "step"
+value = 400
+measured = false
+note = "**未実測。** Tauri のフロントは OS の WebView を別プロセスで持つ（DEC-PLT-001 の帰結）。400MB は枠であって実測値ではない"
+
+[[allocations]]
+name = "Rust ランタイム + GUI レンダリング面"
+kind = "step"
+value = 120
+measured = false
+
+[[allocations]]
+name = "SQLite + 台帳"
+kind = "step"
+value = 32
+measured = false
+
+[[allocations]]
+name = "align（アライナのモデルと推論）"
+kind = "step"
 value = 64
 measured = false
-note = "実測 13.5ms / 重み 1.25MB から見て、従来の 500MB は2桁過大"
+note = "実測 13.5ms / 重み 1.25MB から見て、従来の 500MB は2桁過大だった"
 
+# ── 収録中（editor は前面に無い）────────────────────
 [[allocations]]
-name = "synth (解析結果の LRU)"
+name = "synth（解析結果の LRU）"
+kind = "step"
+mode = "収録中"
 value = 512
 measured = false
 
 [[allocations]]
-name = "editor (音声 + チャート画像)"
-value = 512
+name = "録音リングバッファ（1000ms 以上を常時保持）"
+kind = "step"
+mode = "収録中"
+value = 16
 measured = false
-note = "Q-EDT-001 によりディスクキャッシュ前提へ変更が必要"
 
 [[allocations]]
-name = "editor (undo 履歴)"
+name = "波形 min/max ミップマップ（収録中の可視域）"
+kind = "step"
+mode = "収録中"
+value = 32
+measured = false
+
+# ── 編集中（録音は止まっている）─────────────────────
+[[allocations]]
+name = "editor（音声 + チャート画像。可視域＋前後数エントリ）"
+kind = "step"
+mode = "編集中"
+value = 512
+measured = false
+note = "Q-EDT-001 によりディスクキャッシュ前提へ変更が必要。**枠を割るならここから削る**"
+
+[[allocations]]
+name = "editor（undo 履歴）"
+kind = "step"
+mode = "編集中"
 value = 200
 measured = false
 
 [[allocations]]
-name = "WebView プロセス"
-value = 0
+name = "synth（LRU の縮退分）"
+kind = "step"
+mode = "編集中"
+value = 128
 measured = false
-note = "未実測。ここが空欄のまま他を詰めても意味がない（DEC-PLT-001 の帰結）"
+note = "editor が前面のとき 512MB から縮退させる。モード遷移時に解放する"

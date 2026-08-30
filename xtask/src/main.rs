@@ -849,7 +849,10 @@ fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        let mut total = 0i64;
+        // **同時に常駐しない工程を足し合わせない。** `mode` を持つ行はそのモードでだけ数え、
+        // 持たない行はどのモードにも乗る。上限と比べるのはモードごとの合計の最大値。
+        let mut common = 0i64;
+        let mut per_mode: BTreeMap<String, i64> = BTreeMap::new();
         let mut unmeasured = 0usize;
         let mut steps = 0usize;
         let mut without_value = 0usize;
@@ -864,22 +867,45 @@ fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
                 continue;
             }
             steps += 1;
-            match t.get("value").and_then(toml::Value::as_integer) {
-                Some(v) => total += v,
-                None => without_value += 1,
+            let v = match t.get("value").and_then(toml::Value::as_integer) {
+                Some(v) => v,
+                None => {
+                    without_value += 1;
+                    0
+                }
+            };
+            match str_of(t, "mode") {
+                Some(m) => *per_mode.entry(m.to_owned()).or_default() += v,
+                None => common += v,
             }
             if t.get("measured").and_then(toml::Value::as_bool) != Some(true) {
                 unmeasured += 1;
             }
         }
 
+        let (peak_mode, total) = if per_mode.is_empty() {
+            ("—".to_owned(), common)
+        } else {
+            per_mode
+                .iter()
+                .map(|(m, v)| (m.clone(), common + v))
+                .max_by_key(|(_, v)| *v)
+                .unwrap_or(("—".to_owned(), common))
+        };
+
         let ratio = if limit > 0 { total * 100 / limit } else { 0 };
         rep.note(format!(
-            "{id}: 配分 {total}{unit} / 上限 {limit}{unit}（{ratio}%）工程 {steps} 件 / 実測済みでない {unmeasured} / 数値未設定 {without_value}"
+            "{id}: 山 {total}{unit}（{peak_mode}） / 上限 {limit}{unit}（{ratio}%）工程 {steps} 件 / 実測済みでない {unmeasured} / 数値未設定 {without_value}"
         ));
+        for (m, v) in &per_mode {
+            rep.note(format!(
+                "    {m}: {}{unit}（共通 {common}{unit} を含む）",
+                common + v
+            ));
+        }
         if total > limit {
             rep.error(format!(
-                "{id}: 配分の合計 {total}{unit} が上限 {limit}{unit} を超えている（{}{unit} 超過）",
+                "{id}: {peak_mode} の合計 {total}{unit} が上限 {limit}{unit} を超えている（{}{unit} 超過）",
                 total - limit
             ));
         }

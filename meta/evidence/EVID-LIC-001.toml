@@ -7,10 +7,14 @@ provenance = "CI が依存全体を機械判定する。許可リストに無い
 confidence = "Fact"
 supports_decisions = ["DEC-SYN-001", "DEC-ALN-001"]
 open_items = [
-  "SwiftF0 の学習コーパス一覧（Q-SYN-002）",
   "Julius segmentation-kit の .binhmm への MIT 適用（Q-ALN-001）",
 ]
 note = "学習済みモデルは、モデル側の表示ライセンスが学習コーパスの条件を上書きできるとは限らない。"
+
+# 監査を通した結果。
+audited = [
+  '**SwiftF0: 不合格**（DEC-SYN-004）。学習コーパス5つのうち MDB-stem-synth が CC BY-NC 4.0（非商用限定、元の MedleyDB は CC BY-NC-SA 3.0）、MIR-1K はライセンス非公開で著者への直接連絡が必要。NSynth（CC BY 4.0）と PTDB-TUG（ODbL）は問題ない。**arXiv 上の CC BY 4.0 は論文のライセンスであって、配布されている重みの条項ではない**',
+]
 
 # 技術的な比較の余地があると誤解しないための記録。
 ruled_out_by_license = [
