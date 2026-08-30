@@ -5,10 +5,12 @@
 
 pub mod commands;
 pub mod error;
+pub mod external;
 pub mod preview;
 pub mod pump;
 pub mod storage;
 pub mod studio;
+pub mod workers;
 
 pub use error::{AppError, Result};
 pub use studio::Studio;

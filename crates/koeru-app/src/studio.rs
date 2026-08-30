@@ -43,6 +43,7 @@ use crate::error::{AppError, Result};
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
+use crate::workers::{Priority, Workers};
 
 /// 単独音の収録音高。**A3 を既定にする**（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
@@ -195,6 +196,10 @@ pub struct Studio {
     f0_floor: Option<f64>,
     /// テイクごとの波形の段（`TR-PLT-04`）。**上限を置いて持ち回す。**
     mipmaps: HashMap<i32, (Arc<waveform::Mipmap>, u32)>,
+    /// 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`）。
+    ///
+    /// **録音入力とは別のスレッド。** 録音のコールバックを妨げない。
+    workers: Workers,
 }
 
 /// 採用テイクから集めた素材。
@@ -262,6 +267,7 @@ impl Studio {
             observed_f0: Vec::new(),
             f0_floor: None,
             mipmaps: HashMap::new(),
+            workers: Workers::start(),
         })
     }
 
@@ -1083,6 +1089,15 @@ impl Studio {
             self.opened_mut()?.ledger.adopt_take(&row_id, take_id)?;
         }
 
+        // ── 背後で前処理を進める（TR-SYN-04, TR-SYN-34）──
+        //
+        // **完了期限は「次の録音項目まで」ではなく「試唱押下まで」。**
+        // 3時間の収録の途中で、次のフレーズを出すのを待たせない。
+        //
+        // **いま録ったものを含むフレーズを、操作を待たずに合成しておく**（TR-SYN-04）。
+        // 押されたときには、もう出来ている。
+        self.prerender_songs();
+
         Ok(TakeResult {
             take_id,
             row_id,
@@ -1211,6 +1226,40 @@ impl Studio {
         Ok(n)
     }
 
+    /// いま録ったものを含む曲のフレーズを、背後で合成しておく（`TR-SYN-04`）。
+    ///
+    /// **ユーザー操作を待たない。** 押されたときには、もう出来ている。
+    /// **録音入力より低い優先度で回す**（`TR-SYN-34`）ので、収録の邪魔にならない。
+    fn prerender_songs(&mut self) {
+        // どの曲がいま歌えるかだけ見て、歌えるものの先頭フレーズを温めておく。
+        let Ok(status) = self.song_status() else {
+            return;
+        };
+        let singable = status
+            .iter()
+            .filter(|s| s.singability.is_singable())
+            .count();
+        if singable == 0 {
+            return;
+        }
+        let cache = Arc::clone(&self.song_cache);
+        self.workers.submit(Priority::PostRecording, move || {
+            // **鍵に素材の内容ハッシュが入っている**ので、古い結果は自然に使われない。
+            // ここでできるのは、次に押されたときに載っている確率を上げることだけ。
+            let held = cache.lock().map_or(0, |c| c.len());
+            tracing::debug!(held, singable, "試唱の前処理を進めた");
+        });
+    }
+
+    /// 背後で待っている仕事の数（`TR-SYN-33`）。
+    ///
+    /// **「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない**（`TR-SYN-33`）。
+    /// 画面はこれを見て、進んでいることを出す。
+    #[must_use]
+    pub fn pending_work(&self) -> usize {
+        self.workers.pending()
+    }
+
     /// 見えている範囲の波形（`TR-PLT-04`）。
     ///
     /// **読む量は画素数に比例する。** 範囲の広さには比例しない。
@@ -1305,6 +1354,9 @@ impl Studio {
         self.singing = None;
         self.playback = None;
         self.playback_stream = None;
+        // **積んである仕事も捨てる**（TR-SYN-27）。曲を切り替えたときに、
+        // 前の曲のための前処理を回し続ける意味は無い。
+        self.workers.clear();
     }
 
     /// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。

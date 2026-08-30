@@ -97,8 +97,11 @@ fn 設定が外を指していない() {
 /// **外部プロセスを起動しない**（`TR-SYN-01`）。
 ///
 /// `.exe`、Wine、Python インタプリタのいずれも起動しない。
-/// **本人が明示的に指した resampler だけが例外**（`TR-SYN-35`）で、
-/// それは実装されるときにこの一覧へ足す。
+///
+/// **例外は1つだけ**（`TR-SYN-35`）。本人が明示的に指した resampler を呼ぶ経路。
+/// **そこに閉じていることを、この検査が保つ。** 他へ広がったら落ちる。
+const EXTERNAL_PROCESS_ALLOWED: [&str; 1] = ["external.rs"];
+
 #[test]
 fn 合成の経路に外部プロセスの起動が無い() {
     let root = repo_root();
@@ -106,7 +109,11 @@ fn 合成の経路に外部プロセスの起動が無い() {
     for crate_name in ["koeru-core", "koeru-synth", "koeru-audio", "koeru-app"] {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
-            if text.contains("std::process::Command") || text.contains("process::Command") {
+            let allowed = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| EXTERNAL_PROCESS_ALLOWED.contains(&n));
+            if !allowed && text.contains("process::Command") {
                 found.push(path.display().to_string());
             }
         });
@@ -115,7 +122,10 @@ fn 合成の経路に外部プロセスの起動が無い() {
         found.is_empty(),
         "**外部プロセスの起動が見つかった**: {found:?}"
     );
-    println!("外部プロセスの起動は無い");
+    println!(
+        "外部プロセスの起動は {:?} だけに閉じている",
+        EXTERNAL_PROCESS_ALLOWED
+    );
 }
 
 /// **同梱物だけで、録音リストと課題曲と phonemizer が動く**（`TR-SYN-32`, `TR-PLT-20`）。
