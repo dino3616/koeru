@@ -4,6 +4,13 @@ title = '録って、聴ける'
 status = 'planned'
 note = '単独音・Windows と macOS・課題曲1曲。録音からテイク確定、カバレッジ、試唱までを通す。**あわせて、判断記録の撤回条件に触る4つの未決を並行で確かめる**（miniaudio の到達性、WebView の常駐メモリ、SwiftF0 のコーパス、試唱の最短長）。'
 includes_requirements = [
+  'TR-PLT-25',
+  'TR-PLT-26',
+  'TR-PLT-27',
+  'TR-PLT-28',
+  'TR-PLT-29',
+  'TR-PLT-33',
+  'TR-PLT-34',
   'TR-REC-01',
   'TR-REC-02',
   'TR-REC-03',

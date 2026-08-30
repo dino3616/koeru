@@ -161,7 +161,7 @@ spec KoeruProjectStorage {
   }
 
   // この層が背負う契約：ファイルの無いテイク行が DB にできない
-  @requirement("DES-REC-001", "ファイルの無いテイク行が DB にできない")
+  @requirement("INV-REC-201", "ファイルの無いテイク行が DB にできない")
   invariant NoOrphanTakeRow {
     forall i: ListItem { takes[i] <= finalized[i] }
   }
@@ -200,7 +200,7 @@ spec KoeruProjectStorage {
 
   // 孤児にもコミット済みテイクにも、必ず対応する確定済みファイルがある。
   // NoOrphanTakeRow をこの向きから支える（dismiss で finalized が負に落ちない根拠）
-  @requirement("DES-REC-001", "テイクにも孤児にも、必ず対応する確定済みファイルがある")
+  @requirement("INV-REC-202", "テイクにも孤児にも、必ず対応する確定済みファイルがある")
   invariant OrphanHasFile {
     forall i: ListItem { takes[i] + orphans[i] <= finalized[i] }
   }

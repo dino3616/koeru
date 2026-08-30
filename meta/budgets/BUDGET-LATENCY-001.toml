@@ -27,10 +27,12 @@ measured = false
 [[allocations]]
 item = '前処理（ハイパス / ノイズ低減 / 正規化、既定オフ）'
 kind = 'step'
-source = '**予算なし。新設が必要**'
-stated = '—'
-confidence = 'Unknown'
+source = 'recording（DEC-REC-003）'
+stated = '既定オフ。有効時のみ 1テイク（4秒）あたり 200ms'
+confidence = 'Assumption'
+value = 200
 measured = false
+note = '**既定オフなので初回試唱の経路には載らない。** 有効にした場合、この 200ms が小計 4.6〜4.8s に加わる。マスターは不変で、前処理済みは再生成可能なキャッシュとして別層に置く'
 
 [[allocations]]
 item = '解析＋強制アライメント＋oto 5値導出'
@@ -96,11 +98,12 @@ measured = false
 [[allocations]]
 item = '出力デバイス open ＋ バッファ投入'
 kind = 'step'
-source = '**予算なし**（新設が必要）'
+source = 'recording（miniaudio の出力ストリーム）'
 stated = '実測 0.05〜0.2s 相当'
-confidence = 'Unknown'
+confidence = 'Assumption'
 value = 200
 measured = false
+note = '**入力と同じ層が持つ。** 出力デバイスの選択・排他モードの扱いは入力側の要件（TR-REC-03 / TR-REC-04）と同じ機構に載せる'
 
 [[allocations]]
 item = '**押下後の小計**'

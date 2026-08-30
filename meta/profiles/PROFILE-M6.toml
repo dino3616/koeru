@@ -4,6 +4,10 @@ title = '原音設定エディタ'
 status = 'planned'
 note = 'setParam / vLabeler と同等の編集機能。**スペクトログラムがメモリを食い潰す問題をここで解く。**'
 includes_requirements = [
+  'TR-PLT-30',
+  'TR-PLT-31',
+  'TR-PLT-32',
+  'TR-PLT-24',
   'TR-EDT-01',
   'TR-EDT-02',
   'TR-EDT-03',

@@ -13,7 +13,6 @@ includes_requirements = [
   'TR-PLT-18',
   'TR-PLT-19',
   'TR-PLT-22',
-  'TR-PLT-24',
   'TR-PKG-53',
   'TR-PKG-54',
   'TR-PKG-55',

@@ -7,7 +7,7 @@ renderer: fslc-document-renderer
 renderer_version: 1.3.0
 normative_scope: generated-claim-blocks-only
 spec_digest: sha256:1606c38c2884202c3531da7dc6db999dfea16f6ad09b7746708f66dbc170c072
-claim_set_digest: sha256:6501dfdd269400b4b8c218c37c6b09467cc1c327cf40c36fb16e2e2440c600b2
+claim_set_digest: sha256:9cf110ac21bb11e246a9cbef6236b77c0758f6a203d6c7084e9ae782bb658b84
 ---
 
 # 要件仕様書: KoeruProjectStorage
@@ -53,13 +53,9 @@ claim_set_digest: sha256:6501dfdd269400b4b8c218c37c6b09467cc1c327cf40c36fb16e2e2
 
 ## 要件
 
-### DES-REC-001
+### INV-REC-201
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
-
-> テイクにも孤児にも、必ず対応する確定済みファイルがある
-
-（出典: `specs/design/project-storage.fsl:203`）
 
 > ファイルの無いテイク行が DB にできない
 
@@ -79,6 +75,22 @@ claim_set_digest: sha256:6501dfdd269400b4b8c218c37c6b09467cc1c327cf40c36fb16e2e2
 
 この条件を満たさない候補遷移はコミットされない。条件が自動的に修復・回復されることを意味しない。
 <!-- fsl:claim end -->
+
+**保証クラス**
+
+- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
+- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
+- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
+
+### INV-REC-202
+
+**要件原文（意図。形式意味との一致は人間が確認する）**
+
+> テイクにも孤児にも、必ず対応する確定済みファイルがある
+
+（出典: `specs/design/project-storage.fsl:203`）
+
+**形式化された意味（FSLから決定論的に生成）**
 
 <!-- fsl:claim begin id="property:invariant:OrphanHasFile#state_rule" digest="sha256:40590fa0fbd686f44be05647eab9abdaadd7393f6ba170273534630c70980b2e" -->
 #### 状態不変条件: `OrphanHasFile`
@@ -685,7 +697,7 @@ recording == none and ((forall i: ListItem { item[i] == Adopted }) and handoff =
 
 - 生成元仕様: `specs/design/project-storage.fsl`（`KoeruProjectStorage`、dialect: `spec`）
 - spec digest: `sha256:1606c38c2884202c3531da7dc6db999dfea16f6ad09b7746708f66dbc170c072`
-- claim set digest: `sha256:6501dfdd269400b4b8c218c37c6b09467cc1c327cf40c36fb16e2e2440c600b2`
+- claim set digest: `sha256:9cf110ac21bb11e246a9cbef6236b77c0758f6a203d6c7084e9ae782bb658b84`
 - 形式要素の分類: rendered 10 件 / unattributed 21 件 / unsupported 1 件
 - 自然言語への言い換えを行わなかった式: 6 箇所
 - 由来情報は不完全である（completeness: `Partial`）。一部の要素について、FSL ソース上の出所を特定できていない。
