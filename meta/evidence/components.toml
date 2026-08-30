@@ -1312,18 +1312,12 @@ id = 'CMP-095'
 name = 'worldline'
 purpose = 'resampler。AGPL-3.0 を選んだため取り込める / UTAU classic 引数互換の resampler ＋ フレーズ単位合成 API。周波数表の読み込み、時間伸縮、フラグ処理'
 license = 'MIT（推移的依存に GPL-2.0-or-later を含むため除去が前提）'
-status = '採用候補'
-decided_by = 'DEC-SYN-001'
+status = '不適'
+decided_by = 'DEC-PLT-011'
 domains = [
   'synth',
 ]
-supports_requirements = [
-  'TR-SYN-05',
-  'TR-SYN-08',
-  'TR-SYN-09',
-  'TR-SYN-07',
-]
-note = '`@spline` の除去は不要になった（AGPL-3.0 を選んだため GPL-2.0-or-later を取り込める。TR-SYN-06）'
+note = '**取れない。`stakira/OpenUtau/cpp` の中にあり、OpenUtau のコードである**（DEC-PLT-011: OpenUtau は仕様として参照するだけで、コードを取り込まない）。DEC-PLT-011 を決めた時点では見えていなかった帰結。**UTAU 互換 resampler は WORLD の上に自前で書く**（TR-SYN-08 が引数一式を定義済み）'
 
 [[component]]
 id = 'CMP-096'
@@ -1638,3 +1632,39 @@ supports_requirements = [
   'TR-REC-04',
 ]
 note = '**Apple の interop で組織がメンテしている crate 族が存在しないため、ここだけ自前で持つ。** AudioObjectGetPropertyData 系は素の C API で、宣言は約100行。**AVCaptureDevice（マイクモード検知、TR-REC-11）は Objective-C なので自前では書けず、そこだけ未決**'
+
+[[component]]
+id = 'CMP-113'
+name = 'UTAU 互換 resampler の自前実装'
+purpose = 'oto の5値で切り出し、時間伸縮とピッチ変更を行って1音を返す。WORLD の上に建てる'
+license = '自前（KOERU の一部。AGPL-3.0-or-later）'
+status = '採用'
+decided_by = 'DEC-SYN-005'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-05',
+  'TR-SYN-08',
+  'TR-SYN-09',
+]
+note = '**worldline が OpenUtau のコードで取れないため**（DEC-PLT-011）。仕様は TR-SYN-08 が定義済みの引数一式'
+
+[[component]]
+id = 'CMP-114'
+name = 'WAV 入出力の自前実装'
+purpose = 'マスター（44100 Hz / 32 bit float）と配布用（44100 Hz / 16 bit / モノラル）の読み書き'
+license = '自前（KOERU の一部。AGPL-3.0-or-later）'
+status = '採用'
+decided_by = 'DEC-SYN-005'
+domains = [
+  'recording',
+  'synth',
+  'packaging',
+]
+supports_requirements = [
+  'TR-REC-01',
+  'TR-REC-02',
+  'TR-PKG-20',
+]
+note = '`hound` も `dr_wav` も個人のリポジトリ。**KOERU が要る形式は TR-REC-01 / TR-REC-02 で固定されており、汎用の読み書きが要らない**'

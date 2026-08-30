@@ -18,6 +18,7 @@ pub mod device;
 pub mod error;
 pub mod ring;
 pub mod session;
+pub mod wav;
 
 pub use device::{DeviceId, DeviceInfo, RedactedName};
 pub use error::SessionError;

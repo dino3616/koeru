@@ -1,0 +1,54 @@
+schema = 'decision'
+id = 'DEC-SYN-005'
+constraint_label = 'resampler'
+constraint = 'UTAU classic resampler の引数一式で呼べる合成経路を持つこと'
+title = 'UTAU 互換 resampler を WORLD の上に自前で書く'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'WORLD の上に自前で書く',
+  'worldline を例外として取り込む',
+  '外部 resampler だけに頼る',
+]
+selected = 'WORLD の上に自前で書く'
+rationale = '''
+**`worldline` は `stakira/OpenUtau/cpp` の中にある。OpenUtau のコードである。**
+DEC-PLT-011 で「OpenUtau は仕様として参照するだけで、コードを取り込まない」と決めており、
+**これは取れない。決めた時点では見えていなかった帰結。**
+
+例外を作らないのは、DEC-PLT-011 の理由がそのまま効くから。C++ なので「移植ではなく同梱」に
+なるが、**Bazel ビルドで、上流追従は手動マージになる。** KOERU は Rust + Tauri で、
+Bazel を持ち込む理由が resampler 1つのために生じる。
+
+**仕様はある。** TR-SYN-08 が引数一式（サンプル、収録音高 tone、offset / consonant / cutoff、
+required_length、con_vel、volume、modulation、tempo、ピッチベンド列、周波数表）を
+構造体として定義済み。WORLD の CheapTrick / D4C / 合成を呼び、時間伸縮とフラグ処理を
+自前で持つ。**実装量は大きいが、仕様が先にある。**
+
+外部 resampler だけに頼る案は採らない。**何も選ばなくても試唱できる状態から始める**
+（TR-SYN-05）という要件に反する。外部は本人が指したときだけ使う（TR-SYN-35）。
+
+**WAV の入出力も自前で持つ。** `hound` も `dr_wav` も個人のリポジトリで、
+KOERU が要る形式は TR-REC-01 / TR-REC-02 で固定されている（44100 Hz / 32 bit float の
+マスターと、44100 Hz / 16 bit / モノラルの配布用）。**汎用の読み書きが要らない。**
+'''
+review_triggers = [
+  '自前の resampler が UTAU の既存音源と互換な音を出せないと分かったとき',
+  'worldline が OpenUtau から独立したリポジトリへ切り出されたとき',
+]
+affects_requirements = [
+  'TR-SYN-05',
+  'TR-SYN-06',
+  'TR-SYN-08',
+  'TR-SYN-09',
+  'TR-REC-01',
+  'TR-REC-02',
+]
+affects_decisions = [
+  'DEC-PLT-011',
+  'DEC-SYN-001',
+]
+affects_components = [
+  'CMP-113',
+  'CMP-114',
+]
