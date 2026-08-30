@@ -1,20 +1,61 @@
 schema = 'decision'
 id = "DEC-REC-001"
-title = "音声 I/O は miniaudio を FFI で使う"
+constraint_label = "音声 I/O"
+constraint = "OS 側の音声加工を無効化する経路へ到達できること"
+title = "音声 I/O は各 OS の API を直接叩く。抽象レイヤを挟まない"
 status = "accepted"
 owner = "dino3616"
-options = ["miniaudio (FFI)", "cpal", "各 OS の API を直接叩く"]
-selected = "miniaudio (FFI)"
-rationale = """
+options = [
+  "各 OS の API を直接叩く",
+  "miniaudio (FFI)",
+  "cpal",
+]
+selected = "各 OS の API を直接叩く"
+rationale = '''
 必要なのは OS 側の音声加工を無効化する経路へ到達できることで、特定のモードではない。
 Windows でその経路は排他モードと、共有モード + AUDCLNT_STREAMOPTIONS_RAW の2つがある。
 KOERU は後者を既定に採る（フォーマット一致を取りやすく、他アプリの音を止めない）。
-cpal はそのどちらにも到達できない。排他モードに未対応で、SetClientProperties のような
+
+**cpal はそのどちらにも到達できない。** 排他モードに未対応で、SetClientProperties のような
 バックエンド固有の制御も露出していない。
-"""
+
+**miniaudio を経由する理由が薄い。** TR-REC-39(e) が「ネイティブハンドルへ公開 API から
+到達できる」ことを要求しており、その先の TR-REC-08〜12 が要求するのは、
+`IAudioEffectsManager` / `GetAudioEffects`、`IAudioClient2::SetClientProperties`、
+`AVCaptureDevice.activeMicrophoneMode`、PipeWire のノード選択と `node.latency` 指定。
+**どれも抽象レイヤが出すものではない。** miniaudio が省いてくれるのはデバイス列挙と
+コールバックの配管だけで、**肝心なところは結局3回書く。**
+
+**加えて、抽象レイヤを挟むと依存が1つ増える。** miniaudio はアーカイブされておらず活発だが、
+個人のリポジトリ（owner が User）である。単一ヘッダの Public Domain / MIT-0 なので
+放棄されても vendoring できるが、**もともと省ける配管しか省いてくれないなら、
+その1つを持つ理由がない。**
+
+束ねる相手は組織がメンテしているものに限る。
+Windows は **windows-rs**（Microsoft、Apache-2.0 / MIT）、
+macOS は **coreaudio-rs**（RustAudio org、Apache-2.0）、
+Linux は **pipewire-rs**（freedesktop.org 公式、MIT）。
+
+**[Risk] macOS の `AVCaptureDevice`（マイクモード検知、TR-REC-11）には objc2 が要り、
+これは個人のリポジトリである。** ここだけ方針の外にある。
+'''
 review_triggers = [
-  "技術スパイクで、miniaudio の抽象化だけでは RAW ストリーム要求へ到達できないと判明したとき",
+  "3 OS ぶんの配管を自前で持つコストが、見積もりを大きく超えたとき",
   "cpal が排他モードとバックエンド固有制御の両方に対応したとき",
+  "objc2 に代わる、組織がメンテしている Objective-C 束縛が現れたとき（または AVCaptureDevice を使わずに済む経路が見つかったとき）",
 ]
-affects_requirements = ["TR-REC-05", "TR-REC-09", "TR-REC-24", "TR-PLT-05"]
-affects_questions = ["Q-REC-002"]
+affects_requirements = [
+  "TR-REC-05",
+  "TR-REC-08",
+  "TR-REC-09",
+  "TR-REC-11",
+  "TR-REC-12",
+  "TR-REC-39",
+  "TR-PLT-05",
+]
+affects_components = [
+  "CMP-108",
+  "CMP-109",
+  "CMP-110",
+  "CMP-111",
+]

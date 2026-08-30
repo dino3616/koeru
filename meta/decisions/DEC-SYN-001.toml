@@ -1,19 +1,20 @@
 schema = 'decision'
 id = "DEC-SYN-001"
-title = "合成は WORLD ベースとし、部品の差し替えは監査を通ったものに限る"
+title = "合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える"
 constraint_label = '合成'
 constraint = 'WORLD ベース。ニューラルボコーダへの置き換えは採らない。F0 推定のみ SwiftF0 に差し替え（コーパス監査が前提）'
 status = "accepted"
 owner = "dino3616"
 options = ["WORLD 一式", "WORLD + SwiftF0 (F0 のみ)", "ニューラルボコーダ"]
-selected = "WORLD（F0 推定も WORLD のまま）"
+selected = "WORLD + SwiftF0 (F0 のみ)"
 rationale = """
 ニューラルボコーダは採らない。ユーザーの声でモデルを学習・適応させることになり、
 「あなたの声そのもの」が「生成された声」に変わるため、ビジョンの Own your voice と衝突する。
-F0 推定だけは SwiftF0 へ差し替える予定だったが、**学習コーパスの監査で不合格になった**（DEC-SYN-004）。
-WORLD の DIO+StoneMask と Harvest の二段構えに戻す。CheapTrick・D4C・合成は WORLD のまま。
+F0 推定だけは、録音条件（イヤホンマイク・家庭のノイズ）でノイズ耐性が効く SwiftF0 に差し替える。
+CheapTrick・D4C・合成は WORLD のまま。
 
-**この決定は監査を前提条件として書いてあり、その条件が実際に働いた。** 予定どおり戻す。
+**採用の可否は DEC-SYN-004 が持つ。** 重みは MIT で明示されているが学習コーパスに
+非商用限定が含まれるという構図で、そこは判断で通した。異議が示されたら Harvest へ戻る。
 """
 review_triggers = [
   "SwiftF0 の学習コーパス監査が不合格になったとき（Harvest に戻す）",

@@ -13,7 +13,7 @@ note = "学習済みモデルは、モデル側の表示ライセンスが学習
 
 # 監査を通した結果。
 audited = [
-  '**SwiftF0: 不合格**（DEC-SYN-004）。学習コーパス5つのうち MDB-stem-synth が CC BY-NC 4.0（非商用限定、元の MedleyDB は CC BY-NC-SA 3.0）、MIR-1K はライセンス非公開で著者への直接連絡が必要。NSynth（CC BY 4.0）と PTDB-TUG（ODbL）は問題ない。**arXiv 上の CC BY 4.0 は論文のライセンスであって、配布されている重みの条項ではない**',
+  '**SwiftF0: 判断で通した**（DEC-SYN-004）。**重みは MIT で明示されている** — `lars76/swift-f0` の LICENSE に例外規定が無く、`model.onnx` がリポジトリ内にあり `MANIFEST.in` が明示的に同梱している。**[Risk]** 学習コーパス5つのうち MDB-stem-synth が CC BY-NC 4.0（元の MedleyDB は CC BY-NC-SA 3.0）、MIR-1K はライセンス非公開。NSynth（CC BY 4.0）と PTDB-TUG（ODbL）は問題ない。**学習コーパスの条件が派生した重みへ及ぶかは法的に定まっていない。著者の表示を額面どおり受け取る判断であって、確実性の主張ではない**',
 ]
 
 # 技術的な比較の余地があると誤解しないための記録。

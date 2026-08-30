@@ -1,20 +1,53 @@
 schema = 'question'
-id = "Q-REC-002"
-title = "miniaudio の抽象化だけで OS 側の音声加工を無効化できるか"
-status = "open"
-owner = "dino3616"
-why_it_matters = """
-DEC-REC-001 は miniaudio を選んでいるが、抽象化のまま到達できるのか、
-バックエンド固有 API へ降りる必要があるのかを実測していない。
-TR-REC-05 / 09 / 24 の前提がここで崩れうる。
-"""
-how_to_close = """
-3 OS で技術スパイクを通す。確認するのはデバイス列挙、44.1kHz キャプチャ、
-RAW ストリーム要求の成否と OS 側音響効果の検出、収録中のデバイス消失、xrun の検出、
-マイク権限の取得と拒否からの回復の6点。
-"""
+id = 'Q-REC-002'
+title = 'OS 側の音声加工を実際に無効化できるか。要求が受け入れられるかは OS 次第'
+status = 'open'
+owner = 'dino3616'
+why_it_matters = '''
+**「抽象レイヤが制御を出してくれるか」という疑いは消えた。** 各 OS の API を直接叩くことにした
+ため（DEC-REC-001）、`IAudioClient2::SetClientProperties` も `IAudioEffectsManager` も
+`AVCaptureDevice.activeMicrophoneMode` も、束縛の定義上そこにある。
+
+**残るのは OS の挙動そのもの。** 要求を出せることと、要求が通ることは別。
+
+- Windows: `AUDCLNT_STREAMOPTIONS_RAW` を要求してもドライバが尊重するとは限らない。
+  TR-REC-09 は「成否を記録する」と定めており、**失敗しうることを前提に書いてある**
+- macOS: `kAudioUnitSubType_HALOutput` で開けば音声処理ユニットを迂回できるはずだが、
+  マイクモード（voiceIsolation / wideSpectrum）がシステム側で選ばれている場合、
+  **アプリから standard へ戻すことはできない**（TR-REC-11）
+- Linux: PipeWire のフィルタノードを避けて素のノードへ繋げるか。
+  PipeWire が無い環境で ALSA `hw:` へ直接繋げるか
+
+**加えて、自前実装そのものが未検証。** 3 OS ぶんのリアルタイムコールバックと
+リングバッファの配管を、TR-REC-40 の規律（コールバック内でメモリ確保もロックも I/O もしない）を
+守って書けるかは、書いてみないと分からない。
+'''
+how_to_close = '''
+3 OS で技術スパイクを通す。確認するのは6点。
+(1) デバイス列挙と識別子の永続化、(2) 44.1kHz / 32bit float キャプチャとフォーマット一致、
+(3) RAW ストリーム要求の成否と OS 側音響効果の検出、(4) 収録中のデバイス消失と復帰、
+(5) xrun の検出、(6) マイク権限の取得と拒否からの回復。
+**「できた / できなかった」ではなく、できなかった場合に何が記録されるかまで確かめる。**
+'''
 blocks_profiles = [
   'PROFILE-M2',
 ]
-affects_requirements = ["TR-REC-05", "TR-REC-09", "TR-REC-24"]
-affects_decisions = ["DEC-REC-001"]
+affects_requirements = [
+  'TR-REC-05',
+  'TR-REC-08',
+  'TR-REC-09',
+  'TR-REC-11',
+  'TR-REC-12',
+  'TR-REC-24',
+  'TR-REC-40',
+  'TR-PLT-18',
+]
+affects_decisions = [
+  'DEC-REC-001',
+]
+affects_components = [
+  'CMP-108',
+  'CMP-109',
+  'CMP-110',
+  'CMP-111',
+]

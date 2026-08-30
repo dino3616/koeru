@@ -683,13 +683,17 @@ id = 'CMP-048'
 name = 'ONNX Runtime（ort 経由、CPU のみ）'
 purpose = '推論ランタイム / ONNX Runtime の Rust バインディング'
 license = 'Apache-2.0 / MIT（本体は MIT）'
-status = '不適'
+status = '採用'
 decided_by = 'DEC-SYN-004'
 domains = [
-  'align',
   'platform',
+  'synth',
 ]
-note = '**積む理由が消えた。** SwiftF0 が唯一の用途で、それを採らないと決めた（DEC-SYN-004）。アライナは自前実装が既定（TR-ALN-02）。ONNX を必要とする別の機能が入った場合にのみ再検討する'
+supports_requirements = [
+  'TR-PLT-19',
+  'TR-SYN-22',
+]
+note = 'SwiftF0 の推論に必要（DEC-SYN-004）。**アライナは自前実装が既定なので、ONNX を積む理由は SwiftF0 だけ**（TR-ALN-02）'
 
 [[component]]
 id = 'CMP-049'
@@ -1144,41 +1148,12 @@ id = 'CMP-083'
 name = 'miniaudio（FFI）'
 purpose = '音声 I/O。WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱う / 音声入出力。WASAPI / CoreAudio / ALSA / PulseAudio を単一ヘッダで抽象化 / 音声 I/O 抽象（WASAPI / CoreAudio / ALSA / PulseAudio / JACK） / 録音・再生の音声入出力'
 license = 'Public Domain または MIT No Attribution の選択制'
-status = '採用'
+status = '不適'
 decided_by = 'DEC-REC-001'
 domains = [
   'platform',
   'recording',
   'synth',
-]
-supports_requirements = [
-  'TR-PLT-05',
-  'TR-REC-03',
-  'TR-REC-04',
-  'TR-REC-05',
-  'TR-REC-08',
-  'TR-REC-09',
-  'TR-REC-11',
-  'TR-REC-12',
-  'TR-REC-17',
-  'TR-REC-39',
-  'TR-REC-40',
-  'TR-SYN-28',
-  'TR-SYN-35',
-  'TR-PLT-18',
-  'TR-REC-06',
-  'TR-REC-07',
-  'TR-REC-14',
-  'TR-REC-15',
-  'TR-REC-16',
-  'TR-REC-19',
-  'TR-REC-22',
-  'TR-REC-23',
-  'TR-REC-24',
-  'TR-REC-26',
-  'TR-SYN-03',
-  'TR-SYN-29',
-  'TR-EDT-19',
 ]
 
 [[component]]
@@ -1306,12 +1281,11 @@ id = 'CMP-093'
 name = 'ONNX Runtime + CREPE'
 purpose = '高精度 F0 推定（Harvest の代替）'
 license = 'MIT / MIT'
-status = '不適'
-decided_by = 'DEC-SYN-004'
+status = '要調査'
 domains = [
   'synth',
 ]
-note = 'ONNX Runtime を積まないと決めたため（DEC-SYN-004）、CREPE も経路が無い'
+note = 'ONNX Runtime は SwiftF0 のために積むので、CREPE の追加コストはモデル分だけになった。ただし SwiftF0 のほうがベンチマークで上（90.2% 対 85.3%）なので優先度は低い'
 
 [[component]]
 id = 'CMP-094'
@@ -1525,3 +1499,149 @@ supports_requirements = [
   'TR-PKG-48',
 ]
 note = 'macOS のファイルシステムが NFD を返すため、読み戻した名前ではなく内部モデルを正とする（TR-PKG-11）'
+
+[[component]]
+id = 'CMP-107'
+name = 'SwiftF0'
+purpose = 'F0 推定。周波数表の生成と試唱のピッチ解析'
+license = 'MIT（コードと `model.onnx` を含むリポジトリ全体。LICENSE に例外規定なし）'
+status = '採用'
+decided_by = 'DEC-SYN-004'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-21',
+  'TR-SYN-22',
+]
+note = '**[Risk] 学習コーパスに非商用限定が含まれる。** MDB-stem-synth は CC BY-NC 4.0、MIR-1K はライセンス非公開。**著者の MIT 表示を額面どおり受け取る判断**（DEC-SYN-004）。異議が示されたら Harvest へ戻す。95,842 パラメータ、model.onnx は 398KB'
+
+[[component]]
+id = 'CMP-108'
+name = 'windows-rs'
+purpose = 'Windows API の Rust 束縛。WASAPI（IAudioClient2 / IAudioEffectsManager / IMMNotificationClient）へ直接到達する'
+license = 'Apache-2.0 / MIT'
+status = '採用'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+  'platform',
+]
+supports_requirements = [
+  'TR-EDT-19',
+  'TR-PLT-05',
+  'TR-PLT-18',
+  'TR-REC-03',
+  'TR-REC-04',
+  'TR-REC-05',
+  'TR-REC-06',
+  'TR-REC-07',
+  'TR-REC-08',
+  'TR-REC-09',
+  'TR-REC-14',
+  'TR-REC-15',
+  'TR-REC-16',
+  'TR-REC-17',
+  'TR-REC-19',
+  'TR-REC-22',
+  'TR-REC-23',
+  'TR-REC-24',
+  'TR-REC-26',
+  'TR-REC-39',
+  'TR-REC-40',
+  'TR-SYN-03',
+  'TR-SYN-28',
+  'TR-SYN-29',
+  'TR-SYN-35',
+]
+note = '**Microsoft の公式リポジトリ。** Windows API 全体を生成した束縛なので、必要な COM インタフェースは定義上すべて出ている'
+
+[[component]]
+id = 'CMP-109'
+name = 'coreaudio-rs / coreaudio-sys'
+purpose = 'macOS CoreAudio の Rust 束縛。AUHAL 入力と AudioObjectID へ直接到達する'
+license = 'Apache-2.0 / MIT'
+status = '採用'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+  'platform',
+]
+supports_requirements = [
+  'TR-EDT-19',
+  'TR-PLT-05',
+  'TR-REC-03',
+  'TR-REC-04',
+  'TR-REC-05',
+  'TR-REC-06',
+  'TR-REC-07',
+  'TR-REC-11',
+  'TR-REC-14',
+  'TR-REC-15',
+  'TR-REC-16',
+  'TR-REC-17',
+  'TR-REC-19',
+  'TR-REC-22',
+  'TR-REC-23',
+  'TR-REC-24',
+  'TR-REC-26',
+  'TR-REC-39',
+  'TR-REC-40',
+  'TR-SYN-03',
+  'TR-SYN-28',
+  'TR-SYN-29',
+  'TR-SYN-35',
+]
+note = 'RustAudio org。kAudioUnitSubType_VoiceProcessingIO を使わず HALOutput で開く（TR-REC-11）'
+
+[[component]]
+id = 'CMP-110'
+name = 'pipewire-rs'
+purpose = 'Linux の音声 I/O。PipeWire ノードへ直接接続し node.rate / node.latency を明示指定する'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+  'platform',
+]
+supports_requirements = [
+  'TR-EDT-19',
+  'TR-PLT-05',
+  'TR-REC-03',
+  'TR-REC-05',
+  'TR-REC-06',
+  'TR-REC-07',
+  'TR-REC-12',
+  'TR-REC-14',
+  'TR-REC-15',
+  'TR-REC-16',
+  'TR-REC-17',
+  'TR-REC-19',
+  'TR-REC-22',
+  'TR-REC-23',
+  'TR-REC-24',
+  'TR-REC-26',
+  'TR-REC-39',
+  'TR-REC-40',
+  'TR-SYN-03',
+  'TR-SYN-28',
+  'TR-SYN-29',
+  'TR-SYN-35',
+]
+note = '**freedesktop.org の公式リポジトリ**（gitlab.freedesktop.org/pipewire/pipewire-rs）。PipeWire が無い環境では ALSA の hw: へ直接接続する経路が別に要る'
+
+[[component]]
+id = 'CMP-111'
+name = 'objc2 / objc2-av-foundation'
+purpose = 'macOS の AVCaptureDevice マイクモード検知（activeMicrophoneMode / preferredMicrophoneMode）'
+license = 'MIT / Apache-2.0'
+status = '条件付き'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-11',
+]
+note = '**[Risk] 個人のリポジトリ（madsmtm）。** 組織がメンテするものに限るという方針の唯一の例外。AVCaptureDevice を使わずにマイクモードを知る経路が見つかれば外せる'

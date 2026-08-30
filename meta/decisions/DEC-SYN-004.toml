@@ -1,48 +1,44 @@
 schema = 'decision'
 id = 'DEC-SYN-004'
 constraint_label = 'F0 推定'
-constraint = '同梱するモデルは、学習コーパスまで含めて AGPL-3.0-or-later の配布に取り込めること'
-title = 'SwiftF0 を採らず、F0 推定を WORLD のまま（DIO+StoneMask と Harvest の二段構え）にする'
+constraint = '同梱するモデルは、再配布できるライセンスで明示されていること'
+title = 'SwiftF0 を採用する。重みは MIT で明示されており、著者の表示を額面どおり受け取る'
 status = 'accepted'
 owner = 'dino3616'
 options = [
+  'SwiftF0 を採用する（重みの MIT 表示を受け取る）',
   'WORLD のまま（DIO+StoneMask → Harvest）',
-  'SwiftF0 を同梱する',
-  'SwiftF0 を初回ダウンロードにする',
+  '通るコーパスだけで学習し直す',
 ]
-selected = 'WORLD のまま（DIO+StoneMask → Harvest）'
+selected = 'SwiftF0 を採用する（重みの MIT 表示を受け取る）'
 rationale = '''
-**DEC-SYN-001 が「学習コーパスのライセンス監査を前提条件とし、不合格なら Harvest に戻る」と
-書いてあった。監査した結果、不合格。** 予定どおり戻す。
+**重みは MIT で明示されている。** `lars76/swift-f0` の LICENSE は MIT で例外規定が無く、
+`model.onnx`（398KB）がリポジトリ内にあり、`MANIFEST.in` が `recursive-include swift_f0 *.onnx` で
+明示的に同梱している。**著者は重みを MIT として配っている。**
 
-SwiftF0 の学習コーパスは NSynth / PTDB-TUG / MIR-1K / MDB-STEM-Synth / SpeechSynth の5つ。
-このうち2つが通らない。
+**性能差は実在する。** 12手法のベンチマーク（lars76/pitch-benchmark）で SwiftF0 は平均 90.2% と最良。
+最良の古典手法 Praat が 84.7%。**歌声（MIR1K / Vocadito）では差が 2〜4 ポイントだが、
+雑音下（PTDBNoisy）では 74.0% 対 65.3% で約 9 ポイント開く。**
+KOERU の想定録音条件（イヤホンマイク・家庭のノイズ）は後者に近い。
 
-- **MDB-stem-synth は CC BY-NC 4.0（非商用限定）。** 元の MedleyDB も CC BY-NC-SA 3.0
-- **MIR-1K はライセンスが公開されておらず、利用には著者への直接連絡が要る。**
-  「調査中」ではなく「全権利留保」として扱う（EVID-LIC-001 の方針）
+**[Risk] 学習コーパスに非商用限定が含まれる。** MDB-stem-synth は CC BY-NC 4.0（元の MedleyDB は
+CC BY-NC-SA 3.0）、MIR-1K はライセンス非公開で利用には著者への直接連絡が要る。
+NSynth（CC BY 4.0）と PTDB-TUG（ODbL）は問題ない。
 
-NSynth（CC BY 4.0）と PTDB-TUG（ODbL）は問題ない。SpeechSynth は SwiftF0 自身の合成データ。
+**「学習コーパスの条件が派生した重みへ及ぶか」は法的に定まっていない。** AGENTS.md の
+破ってはいけないもの #4 は「上書きできるとは限らない」と注意を促すもので、禁止ではない。
+**この件では著者の表示を受け取る。** 判断であって、確実性の主張ではない。
 
-**重み側に CC BY 4.0 の表示がある、という前提も正確ではなかった。** arXiv 上の CC BY 4.0 は
-**論文の**ライセンスで、配布されている重みの条項は示されていない。
-仮に重みが CC BY 4.0 だとしても、**モデル側の表示ライセンスが学習コーパスの条件を
-上書きできるとは限らない**（AGENTS.md の破ってはいけないもの #4）。
+学習し直す案は採らない。95,842 パラメータと小さいが、**学習コードが公開されておらず、
+論文からの再実装になる。** 個人開発で払う量ではない。
 
-初回ダウンロードにする案は採らない。オフライン完結（TR-PLT-20）に反し、
-配布物に入れないだけで利用者が非商用限定のモデルを使う状態は変わらない。
-
-**この選択で ONNX Runtime を積む理由が消える。** TR-ALN-02 が「ONNX Runtime を同梱した推論は、
-将来 ONNX を必要とする別の機能が入った場合にのみ再検討する」と定めており、アライナは
-自前実装が既定（Julius / DEC-ALN-001）。**SwiftF0 が唯一の理由だった。配布サイズが縮む。**
-
-**失うもの: ノイズ耐性。** SwiftF0 を選んだ理由は、イヤホンマイクと家庭のノイズという
-録音条件で効くと見たからだった。Harvest でその条件にどこまで耐えるかは実測していない。
+**この決定で ONNX Runtime を積む。** SwiftF0 の推論に要る（TR-PLT-19 の配布サイズに効く）。
 '''
 review_triggers = [
-  'SwiftF0 の重みが、学習コーパスまで含めて明示的に再配布可能なライセンスで出し直されたとき',
-  'Harvest が KOERU の想定録音条件（イヤホンマイク・家庭のノイズ）で実用水準に届かないと実測で分かったとき',
-  'ONNX を必要とする別の機能が入り、推論ランタイムを積む理由が別にできたとき',
+  '**上流の著者、または学習コーパスの権利者から異議が示されたとき。** そのときは Harvest へ戻す',
+  '学習コーパスの条件が派生モデルへ及ぶという法的見解が定まったとき',
+  'SwiftF0 が KOERU の想定録音条件で Harvest を上回らないと実測で分かったとき',
+  'ONNX Runtime の同梱サイズが配布サイズの制約を割ったとき',
 ]
 affects_requirements = [
   'TR-SYN-06',
@@ -53,14 +49,13 @@ affects_requirements = [
 ]
 affects_decisions = [
   'DEC-SYN-001',
-  'DEC-ALN-001',
 ]
 affects_evidence = [
   'EVID-LIC-001',
 ]
 affects_components = [
   'CMP-048',
-  'CMP-093',
+  'CMP-107',
 ]
 affects_budgets = [
   'BUDGET-LATENCY-001',

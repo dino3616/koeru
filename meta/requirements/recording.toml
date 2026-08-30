@@ -578,14 +578,14 @@ notes = [
 
 [[requirement]]
 id = 'TR-REC-39'
-title = '音声 I/O 抽象は、ネイティブハンドルへ到達できるものだけを候補にする'
+title = '音声 I/O は各 OS の API を直接叩き、束ねる相手は組織メンテのものに限る'
 confidence = 'Fact'
 depends_on = [
   'TR-REC-08',
   'TR-REC-09',
   'TR-REC-11',
 ]
-statement = '音声 I/O の抽象レイヤは次のすべてを満たすものを選ぶ。(a) Windows / macOS / Linux を単一 API で扱える。(b) 単一ネイティブアプリに同梱して再配布でき、コピーレフトが製品本体へ伝播しない。(c) キャプチャのフォーマット（レート・チャンネル数・サンプル型）を明示指定でき、OS 側のサンプルレート変換を回避する手段がある。(d) デバイスの着脱・既定デバイス変更・ルート変更を通知として受け取れる。(e) 生成されたネイティブハンドル（Windows の IAudioClient*、macOS の AudioObjectID）へ公開 API から到達できる。(e) を満たさない抽象は、TR-REC-08 から TR-REC-11 の OS 加工の検知・無効化を実装できないため不適とする。'
+statement = '音声 I/O は各 OS の API を直接叩き、抽象レイヤを挟まない（DEC-REC-001）。束ねる相手は**組織がメンテしているもの**に限る。Windows は windows-rs（Microsoft）、macOS は coreaudio-rs（RustAudio org）、Linux は pipewire-rs（freedesktop.org 公式）。**抽象レイヤを採らない理由は、TR-REC-08〜12 が要求する制御をどの抽象も出さないから。** `IAudioEffectsManager` / `GetAudioEffects`、`IAudioClient2::SetClientProperties`、`AVCaptureDevice.activeMicrophoneMode`、PipeWire のノード選択はいずれもバックエンド固有で、**抽象が省いてくれるのはデバイス列挙とコールバックの配管だけ。肝心なところは3回書くことになる。** 自前で持つのは (a) キャプチャのフォーマット明示指定とレート変換の回避、(b) デバイスの着脱・既定変更・ルート変更の通知、(c) ロックフリーのリングバッファ、(d) xrun の検出、の4つ。**[Risk] macOS の AVCaptureDevice には objc2 が要り、これは個人のリポジトリ**'
 notes = [
   'ネイティブハンドルに直接触る実装は、抽象レイヤのバージョン更新で壊れやすい',
   '(e) を優先すると言語・GUI フレームワークの選択が制約される',
