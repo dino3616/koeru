@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use koeru_audio::backend::macos as mac;
 use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
+use koeru_core::calibration::{self, Calibration, Outcome};
 use koeru_core::db::{FinalizedTake, Ledger, SessionSnapshot, koeru_oto};
 use koeru_core::frq;
 use koeru_core::inventory::UnitSet;
@@ -85,6 +86,27 @@ pub struct TakeResult {
     pub preroll_ms: f64,
 }
 
+/// 残量の見積もり（`TR-REC-41`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceEstimate {
+    /// まだ録っていない行の数。
+    pub remaining_rows: u64,
+    /// 残り全部に要るバイト数。
+    pub required_bytes: u64,
+    /// 保存先の空き。**引けなければ `None`。**
+    pub available_bytes: Option<u64>,
+    /// **その残量で録りきれる件数**（`TR-REC-41`）。
+    pub rows_that_fit: u64,
+}
+
+impl SpaceEstimate {
+    /// 残り全部を録りきれるか。
+    #[must_use]
+    pub const fn is_sufficient(&self) -> bool {
+        self.rows_that_fit >= self.remaining_rows
+    }
+}
+
 /// プロジェクトの現在地。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
@@ -113,6 +135,10 @@ pub struct Studio {
     recording: Option<String>,
     /// 収録開始時点の取りこぼし数。**このテイクの中で増えたぶんだけを見る**（`TR-REC-07`）。
     xrun_baseline: usize,
+    /// 選んでいるデバイス。
+    device: Option<DeviceId>,
+    /// アプリが触る前のゲイン。**終了時にここへ戻す**（`TR-REC-15`）。
+    gain_before: Option<(DeviceId, f32)>,
     playback: Option<mac::Playback>,
 }
 
@@ -129,6 +155,8 @@ impl Studio {
             session: Session::new(3),
             recording: None,
             xrun_baseline: 0,
+            device: None,
+            gain_before: None,
             playback: None,
         })
     }
@@ -269,6 +297,15 @@ impl Studio {
         }
         self.session.calibrate_gain()?;
 
+        // **アプリが触る前のゲインを覚えておく**（TR-REC-15）。
+        // 終了時にここへ戻す。戻せないと、利用者のマイクの設定を勝手に変えたままになる。
+        if self.gain_before.as_ref().is_none_or(|(d, _)| d != device)
+            && let Some(g) = mac::read_gain(device)
+        {
+            self.gain_before = Some((device.clone(), g));
+        }
+        self.device = Some(device.clone());
+
         // **収録画面に入った時点から止めない**（REQ-REC-102、TR-REC-19）。
         // ここから排出が回り、プリロールが溜まりはじめる。
         cap.arm();
@@ -278,7 +315,7 @@ impl Studio {
         Ok(mode)
     }
 
-    /// 残り全部を録り切れるかを見積もる（`REQ-REC-110`）。
+    /// 残り全部を録り切れるかを見積もる（`REQ-REC-110`, `TR-REC-41`）。
     ///
     /// **入る分だけ録らせる。** 3時間の収録の途中で埋まると、その日の作業を失う。
     /// 判定は状態機械が一度だけ行い、選ばせない。
@@ -287,7 +324,7 @@ impl Studio {
     /// 収録できなくなるほうが困る（`TR-REC-24` は残量不足を止めるもので、
     /// 残量が読めないことを止めるものではない）。
     #[tracing::instrument(skip(self), err)]
-    pub fn estimate_space(&mut self) -> Result<u64> {
+    pub fn estimate_space(&mut self) -> Result<SpaceEstimate> {
         let rate = self
             .capture
             .as_ref()
@@ -298,12 +335,41 @@ impl Studio {
         let remaining = self.opened_mut()?.ledger.remaining_rows()?;
 
         let required = storage::required_bytes(remaining, rate);
-        let available = storage::available_bytes(&root).unwrap_or(u64::MAX);
-        self.session.estimate_space(required, available)?;
-        Ok(required)
+        let available = storage::available_bytes(&root);
+        self.session
+            .estimate_space(required, available.unwrap_or(u64::MAX))?;
+
+        // **足りないときは「その残量で何件録れるか」を出す**（TR-REC-41）。
+        // 「足りません」だけでは、何を削れば足りるのか分からない。
+        let fits = available.map_or(remaining, |a| storage::rows_that_fit(a, rate));
+        Ok(SpaceEstimate {
+            remaining_rows: remaining,
+            required_bytes: required,
+            available_bytes: available,
+            rows_that_fit: fits.min(remaining),
+        })
     }
 
-    /// 入力が届いているかを確かめる（`TR-REC-17`）。
+    /// 次のテイクを始めてよいだけの残量があるか（`TR-REC-41`）。
+    ///
+    /// **進行中のテイクは最後まで録りきる。** 止めるのは次を始めるところだけ。
+    #[tracing::instrument(skip(self), err)]
+    pub fn has_room_for_one_more(&mut self) -> Result<bool> {
+        let rate = self
+            .capture
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .format()
+            .sample_rate_hz;
+        let root = self.opened()?.dir.root().to_path_buf();
+        // 引けない環境では止めない。
+        let Some(available) = storage::available_bytes(&root) else {
+            return Ok(true);
+        };
+        Ok(available >= storage::required_bytes(1, rate))
+    }
+
+    /// 入力が届いているかを確かめる（`TR-REC-17`）。    /// 入力が届いているかを確かめる（`TR-REC-17`）。
     ///
     /// **権限が無いと macOS は無音を返す。** 成否ではなく中身を見る。
     ///
@@ -335,6 +401,130 @@ impl Studio {
         self.pump.as_ref().map_or(0, Pump::preroll_ms)
     }
 
+    /// 保存してある校正と、いまのゲインを突き合わせる（`TR-REC-15`）。
+    ///
+    /// **勝手に戻さない。** 差があることを返すだけで、戻すかどうかは本人が決める。
+    #[tracing::instrument(skip(self), err)]
+    pub fn gain_drift(&mut self) -> Result<Option<(f32, f32)>> {
+        let Some(device) = self.device.clone() else {
+            return Ok(None);
+        };
+        let saved = self
+            .opened_mut()?
+            .ledger
+            .calibration_of(device.as_str())?
+            .and_then(|c| c.gain);
+        let (Some(saved), Some(now)) = (saved, mac::read_gain(&device)) else {
+            return Ok(None);
+        };
+        // 1% 未満の差は動いていないものとして扱う。**OS 側の丸めで毎回出す意味は無い。**
+        if (saved - now).abs() < 0.01 {
+            Ok(None)
+        } else {
+            Ok(Some((saved, now)))
+        }
+    }
+
+    /// 保存してあるゲインへ戻す（`TR-REC-15`）。**本人が選んだときだけ呼ぶ。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn restore_saved_gain(&mut self) -> Result<()> {
+        let Some(device) = self.device.clone() else {
+            return Err(no_stream_err());
+        };
+        let saved = self
+            .opened_mut()?
+            .ledger
+            .calibration_of(device.as_str())?
+            .and_then(|c| c.gain);
+        if let Some(g) = saved {
+            mac::write_gain(&device, g)?;
+        }
+        Ok(())
+    }
+
+    /// 入力レベルを校正する（`TR-REC-14`）。
+    ///
+    /// **そのプロジェクトで最も高い音高の全力発声**を数秒録って、
+    /// ピークが -12〜-6 dBFS に入っていれば校正完了。範囲外なら OS の入力ゲインを動かす。
+    ///
+    /// **関門にしない。** 収束しなくても収録に進める。3時間の収録の前に、
+    /// レベル合わせで止められる方がよほど困る。
+    ///
+    /// **収録中は呼ばない**（`TR-REC-15`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn calibrate(&mut self, seconds: f64) -> Result<Calibration> {
+        if self.recording.is_some() {
+            return Err(AppError::new(
+                "app.already_recording",
+                "収録中はゲインを変えない",
+            ));
+        }
+        let device = self.device.clone().ok_or_else(no_stream_err)?;
+        let control = mac::gain_control(&device);
+
+        let mut attempt = 1;
+        let (peak_dbfs, settled) = loop {
+            let peak = self.measure_peak(seconds)?;
+            let db = if peak > 0.0 {
+                20.0 * f64::from(peak).log10()
+            } else {
+                f64::NEG_INFINITY
+            };
+
+            // **ソフトウェアのボリュームは校正に使えない**（TR-REC-14）。
+            // 値は読めても動かさない。動かしても A/D の手前は変わらない。
+            let gain = control
+                .is_usable()
+                .then(|| mac::read_gain(&device))
+                .flatten();
+
+            match calibration::step(db, gain, attempt) {
+                Outcome::Settled => break (db, true),
+                Outcome::Adjust { next_gain } => {
+                    tracing::info!(attempt, next_gain, "ゲインを動かして測り直す");
+                    mac::write_gain(&device, next_gain)?;
+                    attempt += 1;
+                }
+                Outcome::GaveUp { reason } => {
+                    // **ここでも収録には進める。** 関門にしない（TR-REC-14）。
+                    // `NoControl` のときは自動調整せず、OS 設定での案内を
+                    // 画面側が1回だけ出す（結果の `control` から判断できる）。
+                    tracing::info!(reason = reason.as_str(), "校正を切り上げる");
+                    break (db, false);
+                }
+            }
+        };
+
+        let result = Calibration {
+            gain: control
+                .is_usable()
+                .then(|| mac::read_gain(&device))
+                .flatten(),
+            control: control.as_str().to_owned(),
+            peak_dbfs,
+            settled,
+            device_id: device.as_str().to_owned(),
+        };
+        let at = now_rfc3339();
+        self.opened_mut()?.ledger.put_calibration(&result, &at)?;
+        // **校正の直後は状態機械の上でも校正済みにする。**
+        Ok(result)
+    }
+
+    /// 指定した秒数のあいだのピークを測る。
+    fn measure_peak(&mut self, seconds: f64) -> Result<f32> {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "秒数は 3.0..=5.0 の想定。clamp してから丸める"
+        )]
+        let ms = (seconds.clamp(0.5, 30.0) * 1000.0) as u64;
+        let pump = self.pump.as_ref().ok_or_else(no_stream_err)?;
+        let _ = pump.take_peak();
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        Ok(self.pump.as_ref().ok_or_else(no_stream_err)?.take_peak())
+    }
+
     /// いま録るべき行の収録を始める。
     ///
     /// **押した瞬間より前へ遡って書きはじめる**（`TR-REC-19`）。
@@ -361,6 +551,15 @@ impl Studio {
         // **世代を名前に入れる。** 録り直しても既存の WAV を上書きしない（TR-PKG-39）。
         let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;
         let path = audio_dir.join(format!("{row_id}_{generation}.wav"));
+
+        // **残りが1テイクぶんを割ったら、次を始めさせない**（TR-REC-41）。
+        // 進行中のテイクは最後まで録りきるので、止めるのはここだけ。
+        if !self.has_room_for_one_more()? {
+            return Err(AppError::new(
+                "recording.not_enough_space",
+                "保存先の残量が1テイクぶんを割った",
+            ));
+        }
 
         // **遡れる分が足りないことは止める理由にしない。** 記録して進む。
         // 収録画面に入った直後は、まだプリロールが溜まりきっていない。
@@ -658,6 +857,27 @@ impl Studio {
 
 fn no_stream() -> AppError {
     AppError::new("app.no_stream", "入力ストリームを開いていない")
+}
+
+/// `ok_or_else` に渡すための同じもの。
+fn no_stream_err() -> AppError {
+    no_stream()
+}
+
+impl Drop for Studio {
+    /// **アプリが変更した OS 側のゲインを、終了時に元へ戻す**（`TR-REC-15`）。
+    ///
+    /// 戻さないと、利用者のマイクの設定を勝手に変えたままになる。
+    /// KOERU を閉じたあとに別のアプリで小さすぎる／大きすぎる音になる。
+    fn drop(&mut self) {
+        // 排出スレッドを先に止める。ゲインを触るのはそのあと。
+        self.pump = None;
+        if let Some((device, before)) = self.gain_before.take()
+            && let Err(e) = mac::write_gain(&device, before)
+        {
+            tracing::warn!(kind = e.kind(), "終了時にゲインを戻せなかった");
+        }
+    }
 }
 
 /// 現在時刻を RFC 3339 で。

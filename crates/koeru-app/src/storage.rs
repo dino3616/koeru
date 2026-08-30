@@ -31,6 +31,19 @@ pub const fn required_bytes(rows: u64, sample_rate_hz: u32) -> u64 {
         / 2
 }
 
+/// この残量で何行ぶん録れるか（`TR-REC-41`）。
+///
+/// **「足りません」だけでは、何を削れば足りるのか分からない。**
+/// その残量で録りきれる件数を出して、判断できる形にする。
+#[must_use]
+pub const fn rows_that_fit(available_bytes: u64, sample_rate_hz: u32) -> u64 {
+    let per_row = required_bytes(1, sample_rate_hz);
+    if per_row == 0 {
+        return 0;
+    }
+    available_bytes / per_row
+}
+
 /// 保存先の空き容量（バイト）。
 ///
 /// **取れなければ 0 を返さない。** 0 にすると「足りない」と判定され、
@@ -107,6 +120,14 @@ mod tests {
         // 1行 = 12秒 × 48kHz × 4バイト = 約 2.3MB。
         let bare = 12 * 48_000 * 4;
         assert!(required_bytes(1, 48_000) > bare, "余裕が載ること");
+    }
+
+    #[test]
+    fn 残量から録れる件数を出す() {
+        let per_row = required_bytes(1, 48_000);
+        assert_eq!(rows_that_fit(per_row * 10, 48_000), 10);
+        assert_eq!(rows_that_fit(per_row - 1, 48_000), 0, "1行も入らない");
+        assert_eq!(rows_that_fit(0, 48_000), 0);
     }
 
     #[test]

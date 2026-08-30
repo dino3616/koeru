@@ -19,14 +19,15 @@
 //! **復旧候補として提示する。本人が採るか捨てるまで消さない。**
 
 use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
+use crate::calibration::Calibration;
 use crate::frq::Frq;
 use crate::inventory::Unit;
 use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, oto_values, releases, row_units, rows, sessions, take_analysis, take_metrics,
-    takes,
+    adopted_takes, calibrations, oto_values, releases, row_units, rows, sessions, take_analysis,
+    take_metrics, takes,
 };
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
@@ -765,6 +766,61 @@ impl Ledger {
             .into_iter()
             .map(|(row_id, take_id, runs)| (row_id, take_id, u32::try_from(runs).unwrap_or(0)))
             .collect())
+    }
+
+    /// 校正の結果を保存する（`TR-REC-15`）。
+    ///
+    /// **デバイスごとに1つ。** 同じプロジェクトを別のマイクで続けることがあり、
+    /// そのときに前のマイクの値を当てはめても意味が無い。
+    #[tracing::instrument(skip(self, c), err)]
+    pub fn put_calibration(&mut self, c: &Calibration, measured_at: &str) -> Result<()> {
+        let values = (
+            calibrations::gain.eq(c.gain),
+            calibrations::control.eq(&c.control),
+            calibrations::peak_dbfs.eq(if c.peak_dbfs.is_finite() {
+                c.peak_dbfs
+            } else {
+                SILENT_PEAK_DBFS
+            }),
+            calibrations::settled.eq(i32::from(c.settled)),
+            calibrations::measured_at.eq(measured_at),
+        );
+        diesel::insert_into(calibrations::table)
+            .values((calibrations::device_id.eq(&c.device_id), values))
+            .on_conflict(calibrations::device_id)
+            .do_update()
+            .set(values)
+            .execute(&mut self.conn)
+            .map_err(db("put_calibration"))?;
+        Ok(())
+    }
+
+    /// そのデバイスの校正結果を引く。**まだ校正していなければ `None`。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn calibration_of(&mut self, device_id: &str) -> Result<Option<Calibration>> {
+        let row = calibrations::table
+            .filter(calibrations::device_id.eq(device_id))
+            .select((
+                calibrations::gain,
+                calibrations::control,
+                calibrations::peak_dbfs,
+                calibrations::settled,
+            ))
+            .first::<(Option<f32>, String, f64, i32)>(&mut self.conn)
+            .optional()
+            .map_err(db("calibration_of"))?;
+
+        Ok(row.map(|(gain, control, peak_dbfs, settled)| Calibration {
+            gain,
+            control,
+            peak_dbfs: if peak_dbfs <= SILENT_PEAK_DBFS {
+                f64::NEG_INFINITY
+            } else {
+                peak_dbfs
+            },
+            settled: settled != 0,
+            device_id: device_id.to_owned(),
+        }))
     }
 
     /// テイクを1件引く。**無ければ `None`。**

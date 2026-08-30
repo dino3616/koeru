@@ -1,6 +1,7 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CalibrationCard } from "~/components/calibration-card";
 import { LevelMeter } from "~/components/level-meter";
 import { Button } from "~/components/ui/button";
 import { Card, CardTitle } from "~/components/ui/card";
@@ -13,7 +14,14 @@ import {
 } from "~/components/ui/select";
 import { Waveform } from "~/components/waveform";
 import { cn } from "~/lib/cn";
-import { api, type DeviceView, errorMessage, type ProgressView, type TakeView } from "~/lib/ipc";
+import {
+  api,
+  type DeviceView,
+  errorMessage,
+  type ProgressView,
+  type SpaceView,
+  type TakeView,
+} from "~/lib/ipc";
 
 /** 試唱の音高（MIDI）。C4 = 60。 */
 const PREVIEW_PITCHES = [
@@ -45,6 +53,7 @@ export const RecordScreen = () => {
   const [take, setTake] = useState<TakeView | null>(null);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [space, setSpace] = useState<SpaceView | null>(null);
   const [status, setStatus] = useState("");
   const startedAt = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -81,7 +90,9 @@ export const RecordScreen = () => {
       .then((peak) => {
         setLevel(peak);
         setStatus(peak > 0.000_001 ? "入力が届いています" : "入力が届いていません");
+        return api.estimateSpace();
       })
+      .then(setSpace)
       .catch(fail);
   };
 
@@ -188,6 +199,20 @@ export const RecordScreen = () => {
 
           {ready && <LevelMeter peak={level} />}
 
+          {/*
+            **残量が足りないときは「その残量で何件録れるか」を出す**（TR-REC-41）。
+            「足りません」だけでは、何を削れば足りるのか分からない。
+          */}
+          {space !== null && !space.sufficient && (
+            <p
+              role="alert"
+              className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text"
+            >
+              保存先の残量では、残り {space.remaining_rows} 件のうち {space.rows_that_fit}{" "}
+              件までしか録れません。
+            </p>
+          )}
+
           {micMode !== null && micMode !== "Standard" && (
             <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-text-dim">
               OS 側の音声処理が入っています（{micMode}）。
@@ -196,6 +221,8 @@ export const RecordScreen = () => {
           )}
         </div>
       </Card>
+
+      <CalibrationCard ready={ready} onStatus={setStatus} />
 
       <Card>
         <CardTitle>いま録るところ</CardTitle>

@@ -128,6 +128,18 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// 入力レベルの校正（`TR-REC-14`, `TR-REC-15`）。**デバイスごとに1つ。**
+    calibrations (device_id) {
+        device_id -> Text,
+        gain -> Nullable<Float>,
+        control -> Text,
+        peak_dbfs -> Double,
+        settled -> Integer,
+        measured_at -> Text,
+    }
+}
+
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
@@ -147,4 +159,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     take_analysis,
     take_metrics,
     releases,
+    calibrations,
 );

@@ -53,6 +53,10 @@ pub fn run() {
             commands::finish_take,
             commands::preview,
             commands::preroll_ms,
+            commands::estimate_space,
+            commands::calibrate,
+            commands::gain_drift,
+            commands::restore_saved_gain,
             commands::stop_preview,
         ])
         .run(tauri::generate_context!())

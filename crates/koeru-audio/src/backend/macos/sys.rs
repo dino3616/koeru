@@ -21,6 +21,10 @@ pub(super) type CFStringRef = *const c_void;
 pub(super) type CFStringEncoding = u32;
 
 pub(super) const kAudioHardwareNoError: OSStatus = 0;
+/// `'unop'`。この操作をこのデバイスは持たない。
+pub(super) const kAudioHardwareUnsupportedOperationError: OSStatus = 0x756E_6F70_u32 as OSStatus;
+/// `'!dev'`。そんなデバイスは無い。
+pub(super) const kAudioHardwareBadDeviceError: OSStatus = 0x2164_6576_u32 as OSStatus;
 pub(super) const kAudioObjectSystemObject: AudioObjectID = 1;
 pub(super) const kCFStringEncodingUTF8: CFStringEncoding = 0x0800_0100;
 
@@ -38,6 +42,16 @@ pub(super) const kAudioDevicePropertyNominalSampleRate: u32 = fourcc(b"nsrt");
 pub(super) const kAudioDevicePropertyStreamConfiguration: u32 = fourcc(b"slay");
 /// TR-REC-04 の消失検知に使う。
 pub(super) const kAudioDevicePropertyDeviceIsAlive: u32 = fourcc(b"livn");
+
+/// 入力ゲイン（0.0〜1.0）。**TR-REC-14 の校正に使う。**
+pub(super) const kAudioDevicePropertyVolumeScalar: u32 = fourcc(b"volm");
+/// デバイスが仮想（集約・多重出力・ソフトウェア）かどうかの手がかり。
+///
+/// **ソフトウェア実装のボリュームは校正に使えない**（TR-REC-14）。
+/// デジタル側で掛けても、A/D の手前のレベルは変わらない。
+pub(super) const kAudioDevicePropertyTransportType: u32 = fourcc(b"tran");
+pub(super) const kAudioDeviceTransportTypeVirtual: u32 = fourcc(b"virt");
+pub(super) const kAudioDeviceTransportTypeAggregate: u32 = fourcc(b"grup");
 
 pub(super) const kAudioObjectPropertyScopeGlobal: u32 = fourcc(b"glob");
 pub(super) const kAudioObjectPropertyScopeInput: u32 = fourcc(b"inpt");
@@ -103,6 +117,26 @@ unsafe extern "C" {
         inQualifierData: *const c_void,
         ioDataSize: *mut u32,
         outData: *mut c_void,
+    ) -> OSStatus;
+
+    pub(super) fn AudioObjectSetPropertyData(
+        inObjectID: AudioObjectID,
+        inAddress: *const AudioObjectPropertyAddress,
+        inQualifierDataSize: u32,
+        inQualifierData: *const c_void,
+        inDataSize: u32,
+        inData: *const c_void,
+    ) -> OSStatus;
+
+    pub(super) fn AudioObjectHasProperty(
+        inObjectID: AudioObjectID,
+        inAddress: *const AudioObjectPropertyAddress,
+    ) -> u8;
+
+    pub(super) fn AudioObjectIsPropertySettable(
+        inObjectID: AudioObjectID,
+        inAddress: *const AudioObjectPropertyAddress,
+        outIsSettable: *mut u8,
     ) -> OSStatus;
 }
 

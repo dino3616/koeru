@@ -61,6 +61,29 @@ export type TakeView = {
   has_required_margins: boolean;
 };
 
+/** 残量の見積もり（TR-REC-41）。 */
+export type SpaceView = {
+  remaining_rows: number;
+  /** その残量で録りきれる件数。「足りません」だけでは判断できない。 */
+  rows_that_fit: number;
+  sufficient: boolean;
+  required_bytes: number;
+  available_bytes: number | null;
+};
+
+/** 校正の結果（TR-REC-14）。 */
+export type CalibrationView = {
+  gain: number | null;
+  /**
+   * hardware / software / unavailable。
+   * hardware 以外では自動調整しない。OS 設定での調整を1回だけ案内する。
+   */
+  control: "hardware" | "software" | "unavailable";
+  peak_dbfs: number | null;
+  /** 目標範囲（-12〜-6 dBFS）に入ったか。入らなくても収録には進める。 */
+  settled: boolean;
+};
+
 export const api = {
   listDevices: () => invoke<DeviceView[]>("list_devices"),
   listProjects: () => invoke<ProjectView[]>("list_projects"),
@@ -75,4 +98,8 @@ export const api = {
     invoke<number>("preview", { takeId, midi, lengthMs }),
   stopPreview: () => invoke<void>("stop_preview"),
   prerollMs: () => invoke<number>("preroll_ms"),
+  estimateSpace: () => invoke<SpaceView>("estimate_space"),
+  calibrate: (seconds: number) => invoke<CalibrationView>("calibrate", { seconds }),
+  gainDrift: () => invoke<[number, number] | null>("gain_drift"),
+  restoreSavedGain: () => invoke<void>("restore_saved_gain"),
 };

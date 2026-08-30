@@ -3,6 +3,7 @@
 //! 型を足すときは `rust-conventions` skill に従うこと。
 
 pub mod analysis;
+pub mod calibration;
 pub mod db;
 pub mod frq;
 pub mod handoff;

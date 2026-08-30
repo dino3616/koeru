@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::{AppError, Result};
-use crate::studio::{Progress, Studio, TakeResult};
+use crate::studio::{Progress, SpaceEstimate, Studio, TakeResult};
 
 /// アプリが持つ状態。**1本の `Mutex` で囲む。**
 ///
@@ -210,6 +210,83 @@ pub fn progress(state: State<'_, AppState>) -> Result<ProgressView> {
 pub fn arm_device(state: State<'_, AppState>, device_id: String) -> Result<String> {
     let mode = lock(&state)?.arm_device(&koeru_audio::DeviceId::new(device_id))?;
     Ok(format!("{mode:?}"))
+}
+
+/// 画面へ返す残量の見積もり（`TR-REC-41`）。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SpaceView {
+    /// まだ録っていない行の数。
+    pub remaining_rows: u64,
+    /// **その残量で録りきれる件数。**「足りません」だけでは判断できない。
+    pub rows_that_fit: u64,
+    /// 残り全部を録りきれるか。
+    pub sufficient: bool,
+    /// 残り全部に要るバイト数。
+    pub required_bytes: u64,
+    /// 保存先の空き。**引けなければ `null`。**
+    pub available_bytes: Option<u64>,
+}
+
+impl From<SpaceEstimate> for SpaceView {
+    fn from(e: SpaceEstimate) -> Self {
+        Self {
+            remaining_rows: e.remaining_rows,
+            rows_that_fit: e.rows_that_fit,
+            sufficient: e.is_sufficient(),
+            required_bytes: e.required_bytes,
+            available_bytes: e.available_bytes,
+        }
+    }
+}
+
+/// 画面へ返す校正の結果（`TR-REC-14`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CalibrationView {
+    /// 決めたゲイン（0.0〜1.0）。触れなければ `null`。
+    pub gain: Option<f32>,
+    /// `hardware` / `software` / `unavailable`。
+    ///
+    /// **`hardware` 以外では自動調整しない**（`TR-REC-14`）。
+    /// 画面は OS 設定での調整を1回だけ案内する。
+    pub control: String,
+    /// 最後に測ったピーク（dBFS）。無音は `null`。
+    pub peak_dbfs: Option<f64>,
+    /// 目標範囲（-12〜-6 dBFS）に入ったか。**入らなくても収録には進める。**
+    pub settled: bool,
+}
+
+/// 残量を見積もる（`TR-REC-41`）。
+#[tauri::command]
+pub fn estimate_space(state: State<'_, AppState>) -> Result<SpaceView> {
+    Ok(lock(&state)?.estimate_space()?.into())
+}
+
+/// 入力レベルを校正する（`TR-REC-14`）。
+///
+/// **関門にしない。** 収束しなくても収録に進める。
+#[tauri::command]
+pub fn calibrate(state: State<'_, AppState>, seconds: f64) -> Result<CalibrationView> {
+    let c = lock(&state)?.calibrate(seconds)?;
+    Ok(CalibrationView {
+        gain: c.gain,
+        control: c.control,
+        peak_dbfs: c.peak_dbfs.is_finite().then_some(c.peak_dbfs),
+        settled: c.settled,
+    })
+}
+
+/// 保存してある校正と、いまのゲインの差（`TR-REC-15`）。
+///
+/// **勝手に戻さない。** 差があることを返すだけ。
+#[tauri::command]
+pub fn gain_drift(state: State<'_, AppState>) -> Result<Option<(f32, f32)>> {
+    lock(&state)?.gain_drift()
+}
+
+/// 保存してあるゲインへ戻す（`TR-REC-15`）。**本人が選んだときだけ呼ぶ。**
+#[tauri::command]
+pub fn restore_saved_gain(state: State<'_, AppState>) -> Result<()> {
+    lock(&state)?.restore_saved_gain()
 }
 
 /// 入力が届いているかを確かめる（`TR-REC-17`）。
