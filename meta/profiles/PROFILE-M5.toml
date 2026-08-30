@@ -4,6 +4,7 @@ title = '方式を広げる'
 status = 'planned'
 note = '連続音・CVVC・多音階。prefix.map と subbank。下位方式への書き出し。所要時間の実測。'
 includes_requirements = [
+  'TR-SYN-36',
   'TR-RCL-04',
   'TR-RCL-05',
   'TR-RCL-06',
@@ -31,7 +32,6 @@ includes_fsl = [
   'AC-PKG-103',
   'FB-PKG-104',
   'FB-PKG-105',
-  'FB-PKG-106',
   'INV-PKG-105',
   'INV-PKG-106',
   'REQ-PKG-108',

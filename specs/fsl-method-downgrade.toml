@@ -1,8 +1,0 @@
-# 収録方式の上下関係。
-#
-# **全順序ではない。** 一列の順位を付けると、成り立たない関係を成り立つことにしてしまう。
-# 有向グラフとして持ち、巡回が無いことを検証する。
-
-[requirements]
-file = "requirements/method-downgrade.fsl"
-depth = 10

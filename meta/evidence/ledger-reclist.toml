@@ -26,8 +26,9 @@ id = 'CMP-RCL-003'
 name = 'OpenUtau'
 purpose = 'エイリアス文法（VCV / CVVC / presamp / prefix.map）とフォールバック探索順の参照実装'
 license = 'MIT'
-status = '採用候補'
-note = '著作権表示を保持して移植'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '**仕様参照のみ。移植はしない**（DEC-PLT-011）'
 
 [[component]]
 id = 'CMP-RCL-004'

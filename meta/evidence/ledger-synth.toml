@@ -58,16 +58,18 @@ id = 'CMP-SYN-007'
 name = 'OpenUtau 日本語 phonemizer'
 purpose = '単独音 / VCV / CVVC のエイリアス列生成'
 license = 'MIT'
-status = '採用候補'
-note = '著作権表示を保持して移植'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '**日本語 phonemizer は仕様を参照して自前実装する**（TR-SYN-11）。移植はしない'
 
 [[component]]
 id = 'CMP-SYN-008'
 name = 'OpenUtau.Core Classic 層'
 purpose = '音源ディレクトリ読み込み、prefix.map → subbank 展開、presamp のエイリアス優先順位、FREQ0003 の読み書き'
 license = 'MIT'
-status = '採用候補'
-note = '同上'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '同上。Classic 層の振る舞いを仕様として参照する'
 
 [[component]]
 id = 'CMP-SYN-009'

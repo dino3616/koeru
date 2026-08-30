@@ -12,7 +12,9 @@ id = 'CMP-EDT-001'
 name = 'OpenUtau'
 purpose = 'oto.ini / prefix.map / character.txt の書式仕様、CheckOto の11条件の検証規則、原音設定ビューの実装'
 license = 'MIT'
-status = '採用候補'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '**仕様と振る舞いの参照のみ**（DEC-PLT-011）'
 
 [[component]]
 id = 'CMP-EDT-002'

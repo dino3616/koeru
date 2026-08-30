@@ -120,6 +120,8 @@ name = 'OpenUtau (VoicebankErrorChecker)'
 purpose = '配布物の検証仕様の一次資料（同梱対象ではない）'
 license = 'MIT'
 status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '検査項目という機能的事実の参照のみ。元から参照のみ'
 
 [[component]]
 id = 'CMP-REC-016'

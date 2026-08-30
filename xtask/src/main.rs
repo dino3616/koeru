@@ -684,6 +684,17 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     }
     for e in entries {
         let file = e.path.display().to_string();
+        // 同じ ID が同じ一覧に2度出るのは、たいてい編集の取りこぼし。
+        // **害は薄いが、書き換えを間違えた合図としては確かなので落とす。**
+        for (key, _) in &e.table {
+            let items = list_of(&e.table, key);
+            let mut seen = BTreeSet::new();
+            for r in &items {
+                if !seen.insert(r.clone()) {
+                    rep.error(format!("{file}: {key} に `{r}` が2度出ている"));
+                }
+            }
+        }
         for (key, universe, label) in [
             ("affects_requirements", &tr, "技術要件"),
             ("supports_requirements", &tr, "技術要件"),

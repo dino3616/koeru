@@ -42,8 +42,9 @@ id = 'CMP-PLT-005'
 name = 'OpenUtau / OpenUtau.Core'
 purpose = 'UTAU 形式 I/O、phonemizer、Classic 層の仕様と実装'
 license = 'MIT'
-status = '採用候補'
-note = 'vendoring または仕様参照'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '**仕様参照のみ。vendoring はしない**（DEC-PLT-011）。C# なので Rust へは移植ではなく書き直しになる'
 
 [[component]]
 id = 'CMP-PLT-006'

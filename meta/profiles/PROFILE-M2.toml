@@ -54,7 +54,8 @@ includes_requirements = [
   'TR-SYN-02',
   'TR-SYN-03',
   'TR-SYN-04',
-  'TR-SYN-05',
+  'TR-SYN-05',  'TR-SYN-35',
+
   'TR-SYN-06',
   'TR-SYN-07',
   'TR-SYN-08',

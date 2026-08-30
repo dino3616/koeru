@@ -4,7 +4,7 @@
 
 FSL に入れないものは3つある。
 
-- **要件そのもの・判断・未決の論点・調査 Evidence・実測予算** → `meta/`（262件の要件は `meta/requirements/`）
+- **要件そのもの・判断・未決の論点・調査 Evidence・実測予算** → `meta/`（要件は `meta/requirements/`）
 - **実時間（ms、パーセンタイル）、確率、連続量、自由文の意味** → FSL の対象外。`meta/targets/` と実機ベンチが持つ
 - **ビジョン、ペルソナ、ジャーニーマップ、調査の説明** → `docs/`
 
@@ -21,7 +21,7 @@ FSL に入れないものは3つある。
 | **oto エントリ** | `requirements/align-review.fsl` | 確認キュー、人の編集の固定 |
 | **編集操作** | `requirements/editor-constraints.fsl` | 制約を破らない編集、通常/上級モードの可逆性 |
 | **書き出し** | `requirements/packaging-export.fsl` | 検証 → ZIP → 読み戻し、破壊的操作のスナップショット |
-| **方式どうしの関係** | `requirements/method-downgrade.fsl` | 有向グラフ。巡回が作れない |
+| **方式ごとの書き出し可否** | `requirements/method-coverage.fsl` | エイリアス被覆から導出する。上下関係を宣言しない |
 | **課題曲** | `requirements/song-coverage.fsl` | 歌える3段階、音高ごとの独立管理 |
 | **初回起動** | `requirements/first-run.fsl` | 4操作で最初のフレーズ、マイク権限と拒否からの回復 |
 | **課題曲1本の試唱** | `requirements/preview-synthesis.fsl` | 鳴らせるかの判定、短縮版、キャッシュの無効化、中断 |
@@ -40,7 +40,7 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 
 `business` 層はまだ無い。ビジョンの3原則を形式化できるかは未検証で、先に requirements と design の継ぎ目が有効かを確かめる段階にある。
 
-**`meta/requirements/` の262件を一度に FSL へ移さないこと。** 大半は状態機械ではなく、形式化できない文章まで入れると FSL が新しい巨大文書になる。FSL へ上げるのは、**操作の順序や組み合わせで到達してはいけない状態がある**ものに限る。上げたら、その要件の `formalized_as` に FSL の ID を書く。
+**`meta/requirements/` の要件を一度に FSL へ移さないこと。** 大半は状態機械ではなく、形式化できない文章まで入れると FSL が新しい巨大文書になる。FSL へ上げるのは、**操作の順序や組み合わせで到達してはいけない状態がある**ものに限る。上げたら、その要件の `formalized_as` に FSL の ID を書く。
 
 ## 検証されている契約
 
@@ -88,7 +88,7 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 **すべて `proved`。** 不変条件は深さの上限なしで成立している。変異検査の kill 率は
 project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）/
 align-review 0.52（深さ6）/ preview-synthesis 0.61 / packaging-export 0.61 /
-method-downgrade 0.79 / editor-constraints 0.41 / song-coverage 0.54 / first-run 0.70
+method-coverage 0.72 / editor-constraints 0.41 / song-coverage 0.54 / first-run 0.70
 （いずれも深さ 6〜8）を基準線として扱う。
 **絶対値ではなく、基準線からの後退が信号。**
 

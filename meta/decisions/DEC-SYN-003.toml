@@ -1,0 +1,49 @@
+schema = 'decision'
+id = 'DEC-SYN-003'
+constraint_label = '外部エンジン'
+constraint = '本人が使うつもりのエンジンで試唱できること'
+title = '既定は同梱コア。本人がローカルに持つ resampler を指して使えるようにする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '同梱を既定にし、外部は本人が指したものだけ',
+  '同梱のみ。外部は一切呼ばない',
+  '独自のプラグイン ABI を定義する',
+]
+selected = '同梱を既定にし、外部は本人が指したものだけ'
+rationale = '''
+従来は外部 .exe resampler の呼び出しを一律に禁じていた（TR-SYN-05）。
+理由は3つあったが、**うち2つは「KOERU が配る場合」の話で、本人が持っているものを指す経路には及ばない。**
+
+- ライセンス不明（DEC-ALL-002）→ 配らなければ関係ない
+- オフライン完結（TR-PLT-20）→ ローカルのファイルを指すだけなら保たれる
+- **.exe は Windows 専用 → これだけは本当に効く**
+
+**残った1つは受け入れる。** macOS / Linux では選べる候補が実質的に無く、同じプロジェクトが
+OS によって別の音になる。KOERU が Wine を用意して埋めることはしない。
+これは UTAU の既存の性質であって、KOERU が新しく作る問題ではない。
+
+呼び出し規約は既に手元にある。**TR-SYN-08 が UTAU classic resampler の引数一式を
+構造体として定義済み**で、同梱コアと外部エンジンが同じ引数で呼ばれる。
+独自 ABI を定義する案を採らなかったのは、**既存の UTAU resampler 資産がそのまま使えなくなるから。**
+
+phonemizer も差し替え点を持つ（TR-SYN-36）が、OpenUtau のものは C# プラグインなので
+そのままは読めない。機構は未決（Q-SYN-004）。
+'''
+review_triggers = [
+  '外部エンジンを指した状態での不具合報告が、切り分け不能なほど増えたとき',
+  '3 OS で同じ音になる現実的な機構が見つかったとき',
+]
+affects_requirements = [
+  'TR-SYN-05',
+  'TR-SYN-08',
+  'TR-SYN-11',
+  'TR-SYN-35',
+  'TR-SYN-36',
+]
+affects_questions = [
+  'Q-SYN-004',
+]
+affects_decisions = [
+  'DEC-PLT-011',
+]

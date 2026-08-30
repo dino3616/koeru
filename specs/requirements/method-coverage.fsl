@@ -1,0 +1,133 @@
+// 収録方式ごとの書き出し可否（要求層）
+//
+// **スコープは「どの方式のパッケージを出せるか」だけ。** 書き出しの関門は packaging-export が持つ。
+//
+// 以前はこれを「方式の上下関係の有向グラフ」として宣言していた。やめた理由が2つある。
+//
+// ASSUME-1: **可否はエイリアス被覆から導出できる**（TR-PKG-23）。宣言したグラフを別に持つと、
+//           同じ命題が2箇所にできる。方式が要求するエイリアス表を、収録済みの素材が
+//           すべて含むかどうか。それだけが判定基準。
+// ASSUME-2: **多音階は方式ではない。** TR-RCL-01 はプリセットを (a) 収録方式 CV/VCV/CVVC と
+//           (c) 収録音高の本数に分けている。音階数は独立した軸で、方式の一員ではない。
+//           グラフに混ぜていたのは畳みすぎだった。
+// ASSUME-3: 逆方向（単独音の素材から連続音）は、**禁止を宣言しなくても出てこない。**
+//           連続音が要求する VCV エイリアスを単独音の素材は決して持たないので、
+//           被覆が原理的に 100% にならない。これをこの仕様で示す。
+// ASSUME-4: 方式数とエイリアス数は検証用に小さい有限値へ閉じる（表現上の仮定）。
+
+requirements KoeruMethodCoverage {
+  entity Method
+  entity Alias
+
+  state {
+    // 方式が要求するエイリアス表。プリセットが決める固定のデータ（TR-RCL-01）
+    required: relation Method -> Alias,
+    // 収録済みの素材が持つエイリアス。録るたびに増え、減らない
+    provided: relation Method -> Alias,
+    declared: Bool,
+    exported: Map<Method, Bool>
+  }
+
+  init {
+    required = Set {}
+    provided = Set {}
+    declared = false
+    forall m: Method { exported[m] = false }
+  }
+
+  // 「方式 m が要求するエイリアスを、収録済みの素材がすべて持っている」
+  def covered(m: Method) =
+    forall a: Alias { required.contains(m, a) => provided.contains(0, a) }
+
+  @requirement("REQ-PKG-108", "方式が要求するエイリアス表はプリセットが決める。収録の前に確定する")
+  action declare_required(m: Method, a: Alias) {
+    requires not declared
+    required = required.add(m, a)
+  }
+
+  @requirement("REQ-PKG-108", "表が確定したら収録に入る。以後は要求側が動かない")
+  action finish_declaring() {
+    requires not declared
+    declared = true
+  }
+
+  @requirement("REQ-REC-002", "録るとエイリアスが増える。収録した方式が要求するものだけが手に入る")
+  fair action record(a: Alias) {
+    requires declared
+    requires required.contains(0, a)
+    requires not provided.contains(0, a)
+    provided = provided.add(0, a)
+  }
+
+  @requirement("REQ-PKG-109", "書き出せるのは、要求エイリアスが全て揃っている方式だけ")
+  action export(m: Method) {
+    requires declared
+    requires covered(m)
+    requires not exported[m]
+    exported[m] = true
+  }
+
+  @requirement("INV-PKG-105", "被覆していない方式のパッケージは存在しない")
+  invariant ExportedIsCovered {
+    forall m: Method { exported[m] => covered(m) }
+  }
+
+  // 書き出しは表の確定より後にしか起きない。要求表が動くと被覆の意味が変わるため、
+  // これを言わないと「宣言前に書き出し済み」という到達しない状態から帰納法が始まる
+  @requirement("INV-PKG-105", "書き出しは、要求エイリアス表が確定したあとにしか起きない")
+  invariant ExportedOnlyAfterDeclaring {
+    forall m: Method { exported[m] => declared }
+  }
+
+  @requirement("INV-PKG-106", "収録した方式が要求しないエイリアスは、決して手に入らない")
+  invariant ProvidedIsSubsetOfRecorded {
+    forall a: Alias { provided.contains(0, a) => required.contains(0, a) }
+  }
+
+  @requirement("INV-PKG-105", "収録した方式そのものは、全部録れば必ず書き出せる")
+  reachable RecordedMethodBecomesExportable {
+    declared and covered(0)
+  }
+
+  @requirement("REQ-PKG-109", "下位方式は、上位の素材だけで書き出せる")
+  reachable DowngradeWithoutExtraRecording {
+    exists m: Method { m != 0 and exported[m] }
+  }
+
+  acceptance AC-PKG-103 "上位で録った素材から下位のパッケージを出せる" {
+    declare_required(0, 0)
+    declare_required(0, 1)
+    declare_required(1, 0)
+    finish_declaring()
+    record(0)
+    record(1)
+    export(1)
+    expect exported[1]
+  }
+
+  forbidden FB-PKG-104 "要求エイリアスが揃わない方式は書き出せない" {
+    declare_required(0, 0)
+    declare_required(1, 0)
+    declare_required(1, 1)
+    finish_declaring()
+    record(0)
+    export(1)
+    expect rejected
+  }
+
+  forbidden FB-PKG-105 "収録した方式が要求しないエイリアスは録れない" {
+    declare_required(0, 0)
+    finish_declaring()
+    record(1)
+    expect rejected
+  }
+
+  terminal {
+    declared and forall m: Method { exported[m] or not covered(m) }
+  }
+}
+
+verify {
+  instances Method = 2
+  instances Alias = 2
+}

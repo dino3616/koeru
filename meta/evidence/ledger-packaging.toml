@@ -34,7 +34,9 @@ id = 'CMP-PKG-004'
 name = 'OpenUtau (OpenUtau.Core/Classic)'
 purpose = 'UTAU パッケージ仕様の参照実装'
 license = 'MIT'
-status = '採用候補'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+note = '音源形式の読み書きの**仕様参照のみ**。互換は OpenUtau で読み込めることを CI で検証して担保する'
 
 [[component]]
 id = 'CMP-PKG-005'
