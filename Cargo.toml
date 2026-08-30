@@ -50,3 +50,10 @@ block2 = "0.6"
 # WORLD（同梱の C++）をビルドする。**cc は rust-lang org**。
 cc = "1"
 
+# プロジェクトの永続化。**SQLite を bundled で同梱**し、OS の libsqlite3 に依存しない
+# （TR-PLT-20 のオフライン完結、TR-PLT-07 の外部インストール禁止）。
+# diesel-rs は Organization、Apache-2.0。
+diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel_migrations = { version = "2.3", default-features = false, features = ["sqlite"] }
+libsqlite3-sys = { version = "0.38", features = ["bundled"] }
+

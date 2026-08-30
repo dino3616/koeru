@@ -557,23 +557,12 @@ id = 'CMP-040'
 name = 'rusqlite'
 purpose = 'プロジェクト永続化'
 license = 'MIT'
-status = '採用候補'
+status = '不適'
+decided_by = 'DEC-REC-004'
 domains = [
   'packaging',
 ]
-supports_requirements = [
-  'TR-REC-27',
-  'TR-REC-28',
-  'TR-REC-31',
-  'TR-PKG-41',
-  'TR-REC-29',
-  'TR-REC-30',
-  'TR-RCL-18',
-  'TR-RCL-23',
-  'TR-PKG-42',
-  'TR-PKG-44',
-]
-
+note = 'diesel を採った（CMP-116）'
 [[component]]
 id = 'CMP-041'
 name = 'tracing + tracing-opentelemetry'
@@ -1683,3 +1672,41 @@ supports_requirements = [
   'TR-SYN-06',
 ]
 note = '**rust-lang org**。ビルド時のみの依存で、配布物には入らない'
+
+[[component]]
+id = 'CMP-116'
+name = 'diesel / diesel_migrations'
+purpose = 'プロジェクト DB（SQLite）のスキーマ管理とクエリ'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-REC-004'
+domains = [
+  'recording',
+  'reclist',
+  'packaging',
+]
+supports_requirements = [
+  'TR-REC-27',
+  'TR-REC-28',
+  'TR-REC-31',
+  'TR-RCL-18',
+  'TR-PKG-41',
+]
+note = '**diesel-rs は Organization**、Apache-2.0。マイグレーションは実行ファイルへ埋め込み、外部ファイルに依存しない（TR-PLT-20）'
+
+[[component]]
+id = 'CMP-117'
+name = 'libsqlite3-sys（bundled）'
+purpose = 'SQLite 本体。**同梱してビルドし、OS の libsqlite3 に依存しない**'
+license = 'MIT（SQLite 本体は Public Domain）'
+status = '採用'
+decided_by = 'DEC-REC-004'
+domains = [
+  'recording',
+  'packaging',
+]
+supports_requirements = [
+  'TR-PLT-07',
+  'TR-PLT-20',
+]
+note = '**bundled 機能で SQLite を同梱する。** OS 側の版に依存すると、TR-PLT-20 のオフライン完結と TR-PLT-07 の外部インストール禁止が保てない'
