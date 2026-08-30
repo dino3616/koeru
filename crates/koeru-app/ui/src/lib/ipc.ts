@@ -108,6 +108,15 @@ export type LeakView = {
   leaking: boolean;
 };
 
+/** 試唱の結果（TR-SYN-18）。 */
+export type SungSongView = {
+  title: string;
+  phrases: number;
+  /** 鳴らせないので落としたフレーズの数。落とした位置には何も挿さない。 */
+  dropped_phrases: number;
+  duration_ms: number;
+};
+
 export const api = {
   listDevices: () => invoke<DeviceView[]>("list_devices"),
   listProjects: () => invoke<ProjectView[]>("list_projects"),
@@ -131,6 +140,7 @@ export const api = {
   checkGuideLeak: (midi: number) => invoke<LeakView>("check_guide_leak", { midi }),
   playPitch: (midi: number) => invoke<void>("play_pitch", { midi }),
   songStatus: () => invoke<SongView[]>("song_status"),
+  singSong: (index: number) => invoke<SungSongView>("sing_song", { index }),
   importUst: (bytes: number[], title: string) => invoke<string>("import_ust", { bytes, title }),
   setSongInBank: (id: string, inBank: boolean) => invoke<void>("set_song_in_bank", { id, inBank }),
 };

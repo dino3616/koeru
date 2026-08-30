@@ -10,8 +10,8 @@
 //! **レンダーコールバックの中で確保も解放もロックもしない。**
 //! やるのは、あらかじめ置いてある f32 のスライスから書き出す複製だけ。
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 use super::sys;
 
@@ -54,15 +54,21 @@ fn check(op: &'static str, status: sys::OSStatus) -> Result<()> {
 }
 
 /// コールバックと呼び出し側で共有する状態。
-///
-/// **`samples` は再生中に差し替えない。** 差し替えたければ止めてから作り直す。
 #[derive(Debug)]
 struct Shared {
-    samples: Vec<f32>,
+    /// 流すもの。
+    ///
+    /// **継ぎ足せる**（`TR-SYN-03`）。先頭フレーズができた時点で鳴らしはじめ、
+    /// 残りは並行して作る。`RwLock` の書き側は継ぎ足しのときだけ。
+    samples: RwLock<Vec<f32>>,
     /// 次に読む位置。**コールバックだけが進める。**
     cursor: AtomicUsize,
+    /// もう継ぎ足さない。
+    sealed: AtomicBool,
     /// 末尾まで流し終えたか。
     done: AtomicBool,
+    /// 継ぎ足しが間に合わず、無音を出した回数。**枯渇の記録**（`TR-SYN-03`）。
+    starved: AtomicUsize,
 }
 
 /// 鳴っている最中の再生。**落とすと止まる。**
@@ -85,6 +91,46 @@ impl Playback {
         self.shared.done.load(Ordering::Acquire)
     }
 
+    /// 別のスレッドから継ぎ足すための口（`TR-SYN-03`）。
+    ///
+    /// **`Playback` そのものはスレッド間で共有しない。**
+    /// `AudioUnit` のハンドルを持っているので、共有すると停止と破棄が絡む。
+    /// 継ぎ足しに要るのは中の状態だけなので、そこだけ切り出す。
+    #[must_use]
+    pub fn feed(&self) -> Feed {
+        Feed {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
+    /// 続きを継ぎ足す（`TR-SYN-03`）。
+    ///
+    /// **鳴らしながら足せる。** 先頭フレーズができた時点で鳴らしはじめ、
+    /// 残りは並行して作る。
+    pub fn push(&self, more: &[f32]) {
+        self.feed().push(more);
+    }
+
+    /// もう継ぎ足さないと宣言する。**これを呼ばないと末尾で終われない。**
+    pub fn seal(&self) {
+        self.feed().seal();
+    }
+
+    /// まだ鳴らしていない長さ（サンプル）。
+    ///
+    /// **これが先行の余裕**（`TR-SYN-03` の「2秒以上先行」）。
+    #[must_use]
+    pub fn buffered(&self) -> usize {
+        let have = self.shared.samples.read().map_or(0, |g| g.len());
+        have.saturating_sub(self.shared.cursor.load(Ordering::Acquire))
+    }
+
+    /// 継ぎ足しが間に合わず、無音を出した回数。
+    #[must_use]
+    pub fn starved(&self) -> usize {
+        self.shared.starved.load(Ordering::Relaxed)
+    }
+
     /// いま何フレーム目まで流したか。**進捗表示に使う。**
     #[must_use]
     pub fn position(&self) -> usize {
@@ -97,6 +143,41 @@ impl Playback {
         check("AudioOutputUnitStop", unsafe {
             sys::AudioOutputUnitStop(self.unit)
         })
+    }
+}
+
+/// 継ぎ足す口（`TR-SYN-03`）。
+///
+/// **合成スレッドが持つのはこれだけ。** `AudioUnit` には触らない。
+#[derive(Debug, Clone)]
+pub struct Feed {
+    shared: Arc<Shared>,
+}
+
+// SAFETY: `Shared` の中身は `RwLock` とアトミックだけで、内部で同期している。
+// `AudioUnit` のハンドルはここに含まれない。
+unsafe impl Send for Feed {}
+// SAFETY: 同上。
+unsafe impl Sync for Feed {}
+
+impl Feed {
+    /// 続きを継ぎ足す。
+    pub fn push(&self, more: &[f32]) {
+        if let Ok(mut g) = self.shared.samples.write() {
+            g.extend_from_slice(more);
+        }
+    }
+
+    /// もう継ぎ足さないと宣言する。
+    pub fn seal(&self) {
+        self.shared.sealed.store(true, Ordering::Release);
+    }
+
+    /// まだ鳴らしていない長さ（サンプル）。
+    #[must_use]
+    pub fn buffered(&self) -> usize {
+        let have = self.shared.samples.read().map_or(0, |g| g.len());
+        have.saturating_sub(self.shared.cursor.load(Ordering::Acquire))
     }
 }
 
@@ -118,6 +199,23 @@ impl Drop for Playback {
 /// **返った `Playback` を落とすと止まる。** 最後まで鳴らしたいなら持ち続ける。
 #[tracing::instrument(skip(samples), fields(frames = samples.len(), rate_hz), err)]
 pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
+    start(samples, rate_hz, true)
+}
+
+/// 継ぎ足せる再生を始める（`TR-SYN-03`）。
+///
+/// **先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。**
+/// 足し終わったら [`Playback::seal`] を呼ぶ。
+///
+/// # Errors
+///
+/// 出力ユニットを開けないとき。
+#[tracing::instrument(skip(head), fields(frames = head.len(), rate_hz), err)]
+pub fn play_streaming(head: Vec<f32>, rate_hz: u32) -> Result<Playback> {
+    start(head, rate_hz, false)
+}
+
+fn start(samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
     let desc = sys::AudioComponentDescription {
         componentType: sys::kAudioUnitType_Output,
         componentSubType: sys::kAudioUnitSubType_DefaultOutput,
@@ -139,7 +237,7 @@ pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
     })?;
 
     // ここから先で失敗したら unit を捨てる。
-    let built = build(unit, samples, rate_hz);
+    let built = build(unit, samples, rate_hz, sealed);
     match built {
         Ok(p) => Ok(p),
         Err(e) => {
@@ -150,7 +248,7 @@ pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
     }
 }
 
-fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
+fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
     // **モノラル・非インタリーブの f32。** 変換は WORLD 側で済んでいる。
     let format = sys::AudioStreamBasicDescription {
         mSampleRate: f64::from(rate_hz),
@@ -178,9 +276,11 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32) -> Result<Playba
     })?;
 
     let shared = Arc::new(Shared {
-        samples,
+        samples: RwLock::new(samples),
         cursor: AtomicUsize::new(0),
+        sealed: AtomicBool::new(sealed),
         done: AtomicBool::new(false),
+        starved: AtomicUsize::new(0),
     });
     // **コールバックへ渡す参照を、`Drop` まで生かす。**
     let raw = Arc::into_raw(Arc::clone(&shared));
@@ -266,16 +366,30 @@ unsafe extern "C" fn render(
     };
 
     let start = shared.cursor.load(Ordering::Relaxed);
-    let avail = shared.samples.len().saturating_sub(start);
+
+    // **コールバックの中でロックを待たない**（TR-REC-40 と同じ規律）。
+    // 取れなければ無音を出して次の周に回す。継ぎ足し側は一瞬しか握らない。
+    let Ok(buf) = shared.samples.try_read() else {
+        out.fill(0.0);
+        shared.starved.fetch_add(1, Ordering::Relaxed);
+        return 0;
+    };
+
+    let avail = buf.len().saturating_sub(start);
     let n = avail.min(out.len());
 
-    out[..n].copy_from_slice(&shared.samples[start..start + n]);
+    out[..n].copy_from_slice(&buf[start..start + n]);
     // **残りは無音で埋める。** 埋めないと直前のバッファの中身が鳴る。
     out[n..].fill(0.0);
 
     shared.cursor.store(start + n, Ordering::Release);
     if n < out.len() {
-        shared.done.store(true, Ordering::Release);
+        if shared.sealed.load(Ordering::Acquire) {
+            shared.done.store(true, Ordering::Release);
+        } else {
+            // **まだ続きが来る予定なのに足りなかった。** 枯渇として数える。
+            shared.starved.fetch_add(1, Ordering::Relaxed);
+        }
     }
     0
 }

@@ -13,7 +13,9 @@
 //! **3 と 4 を録音停止の直後に済ませるのが要点。** 後回しにすると、
 //! 試唱のたびに WAV を読み直すことになる（`TR-PKG-42`）。
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use koeru_audio::backend::macos as mac;
 use koeru_audio::{DeviceId, Session, wav};
@@ -36,6 +38,7 @@ use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
 use uuid::Uuid;
 
 use crate::error::{AppError, Result};
+use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
 
@@ -178,6 +181,56 @@ pub struct Studio {
     /// 真のときだけ、本人が「合成する」を選べる。
     may_mix: bool,
     playback: Option<mac::Playback>,
+    /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
+    ///
+    /// **プロジェクトを開いている間だけ持つ。** 素材が変われば鍵が変わるので、
+    /// 明示的に捨てなくても古い結果は使われない（`TR-SYN-26`）。
+    song_cache: Arc<Mutex<PhraseCache>>,
+    /// 進行中の曲の合成。**落とすと止まる**（`TR-SYN-27`）。
+    singing: Option<Running>,
+    /// 継ぎ足しながら鳴らしている再生（`TR-SYN-03`）。
+    playback_stream: Option<mac::Playback>,
+}
+
+/// 採用テイクから集めた素材。
+struct Materials {
+    /// エイリアスごとの WAV の場所。
+    paths: HashMap<String, PathBuf>,
+    /// エイリアスごとの周波数表（`TR-SYN-25`）。**永続化するのはこれだけ。**
+    tables: HashMap<String, Vec<f64>>,
+    /// エイリアスごとの oto。
+    otos: HashMap<String, koeru_synth::oto::Oto>,
+}
+
+/// 歌わせた結果（`TR-SYN-18`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SungSong {
+    /// 曲名。
+    pub title: String,
+    /// 鳴らすフレーズの数。
+    pub phrases: usize,
+    /// **鳴らせないので落としたフレーズの数**（`TR-SYN-18` (2)）。
+    ///
+    /// 落とした位置には何も挿さない。
+    pub dropped_phrases: usize,
+    /// 鳴らす長さ（ミリ秒）。
+    pub duration_ms: f64,
+}
+
+/// 継ぎ足し先。
+///
+/// **合成スレッドが持つのは `Feed` だけ。** `AudioUnit` には触らない。
+struct StreamSink {
+    feed: mac::Feed,
+}
+
+impl Sink for StreamSink {
+    fn push(&self, samples: &[f32]) {
+        self.feed.push(samples);
+    }
+    fn seal(&self) {
+        self.feed.seal();
+    }
 }
 
 impl Studio {
@@ -198,6 +251,9 @@ impl Studio {
             leak: None,
             may_mix: false,
             playback: None,
+            song_cache: Arc::new(Mutex::new(PhraseCache::new())),
+            singing: None,
+            playback_stream: None,
         })
     }
 
@@ -1130,9 +1186,184 @@ impl Studio {
         Ok(n)
     }
 
-    /// 鳴らしている音を止める。
+    /// 鳴らしている音を止める（`TR-SYN-27`）。
+    ///
+    /// **進行中の合成も止める。** 200ms 以内に抜ける。
     pub fn stop_preview(&mut self) {
+        self.singing = None;
         self.playback = None;
+        self.playback_stream = None;
+    }
+
+    /// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
+    ///
+    /// **先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る**（`TR-SYN-03`）。
+    ///
+    /// **鳴らせない音符があるフレーズは、フレーズごと落とす**（`TR-SYN-18` (2)）。
+    /// 落とした位置に無音・別音・代替音を挿入しない。
+    /// 残りが短すぎれば、そもそも鳴らさない（`TR-SYN-18` (3)）。
+    ///
+    /// 返るのは（フレーズ数, 落としたフレーズ数, 鳴らす長さ ms）。
+    #[tracing::instrument(skip(self), fields(index), err)]
+    pub fn sing_song(&mut self, index: usize) -> Result<SungSong> {
+        // **先に止める。** 重ねると何を聴いているか分からなくなる。
+        self.stop_preview();
+
+        let rate = 44_100_u32;
+        let root = self.opened()?.dir.root().to_path_buf();
+        let song = self
+            .opened_mut()?
+            .ledger
+            .songs_in_bank()?
+            .into_iter()
+            .nth(index)
+            .map(|(_, s)| s)
+            .ok_or_else(|| AppError::new("app.unknown_song", "その曲がバンクに無い"))?;
+
+        // ── 素材を集める ──
+        //
+        // **採用テイクだけを使う。** 無効にしたテイク（取りこぼし）は入らない。
+        let Materials {
+            paths,
+            tables,
+            otos,
+        } = self.adopted_materials(&root)?;
+        let available: std::collections::BTreeSet<String> = paths.keys().cloned().collect();
+
+        // ── フレーズに割る ──
+        let moras = song
+            .moras(UnitSet::Core)
+            .ok_or_else(|| AppError::new("app.unreadable_lyrics", "この曲の歌詞を読めない"))?;
+        let resolved = koeru_core::alias::resolve_phrase(
+            koeru_core::alias::Method::Single,
+            &moras,
+            &available,
+            UnitSet::Core,
+        );
+
+        let mut phrases: Vec<(koeru_synth::phrase::Phrase, bool)> = Vec::new();
+        let mut current: Vec<koeru_synth::phrase::NoteSpec> = Vec::new();
+        let mut playable = true;
+
+        for (i, r) in resolved.iter().enumerate() {
+            let midi = song.notes.get(i).map_or(DEFAULT_TONE_MIDI, |n| n.midi);
+            let ticks = song.notes.get(i).map_or(480, |n| n.ticks);
+            // UST の 480 ティック = 4分音符。120 BPM で 500ms。
+            let duration_ms = f64::from(ticks) / 480.0 * 500.0;
+
+            match r {
+                Ok(res) => {
+                    let Some(oto) = otos.get(&res.alias) else {
+                        playable = false;
+                        continue;
+                    };
+                    current.push(koeru_synth::phrase::NoteSpec {
+                        alias: res.alias.clone(),
+                        sample_path: paths.get(&res.alias).cloned().unwrap_or_default(),
+                        sample_hash: hash_of(paths.get(&res.alias)),
+                        oto: *oto,
+                        midi,
+                        duration_ms,
+                    });
+                }
+                Err(_) => {
+                    // **鳴らせない音符が出たら、そこでフレーズを切る**（TR-SYN-18）。
+                    if !current.is_empty() {
+                        phrases.push((
+                            koeru_synth::phrase::Phrase::new(std::mem::take(&mut current)),
+                            playable,
+                        ));
+                    }
+                    playable = true;
+                }
+            }
+        }
+        if !current.is_empty() {
+            phrases.push((koeru_synth::phrase::Phrase::new(current), playable));
+        }
+
+        let total_phrases = phrases.len();
+        let kept = koeru_synth::phrase::shortened(&phrases, preview::MIN_PLAYABLE_MS).ok_or_else(
+            || {
+                AppError::new(
+                    "synth.too_short",
+                    "続けて鳴らせる長さが足りないので、この曲はまだ出せない",
+                )
+            },
+        )?;
+        let dropped = total_phrases - kept.len();
+        let duration_ms: f64 = kept.iter().map(|p| p.duration_ms()).sum();
+        let owned: Vec<koeru_synth::phrase::Phrase> = kept.into_iter().cloned().collect();
+        let phrase_count = owned.len();
+
+        // ── 鳴らす ──
+        let samples: Arc<dyn koeru_synth::phrase::Samples + Send + Sync> =
+            Arc::new(WavSamples { paths, tables });
+
+        let stream = mac::play_streaming(Vec::new(), rate)?;
+        let sink = StreamSink {
+            feed: stream.feed(),
+        };
+        let (head, running) = preview::start(
+            owned,
+            samples,
+            Arc::clone(&self.song_cache),
+            Box::new(sink),
+            rate,
+        )
+        .map_err(|e| AppError::new(e.kind(), e))?;
+
+        stream.push(&head);
+        self.playback_stream = Some(stream);
+        self.singing = Some(running);
+
+        Ok(SungSong {
+            title: song.title,
+            phrases: phrase_count,
+            dropped_phrases: dropped,
+            duration_ms,
+        })
+    }
+
+    /// 採用テイクの素材・周波数表・oto を集める。
+    fn adopted_materials(&mut self, root: &std::path::Path) -> Result<Materials> {
+        let mut paths = HashMap::new();
+        let mut tables = HashMap::new();
+        let mut otos = HashMap::new();
+
+        let rows: Vec<String> = self
+            .opened_mut()?
+            .ledger
+            .covered_units()?
+            .into_iter()
+            .collect();
+        for unit in rows {
+            let Some(take) = self.opened_mut()?.ledger.take_for_unit(&unit)? else {
+                continue;
+            };
+            let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id)? else {
+                continue;
+            };
+            paths.insert(unit.clone(), root.join(&take.rel_path));
+            if let Some(a) = self.opened_mut()?.ledger.analysis_of(take.id)? {
+                tables.insert(unit.clone(), a.frq.f0);
+            }
+            otos.insert(
+                unit,
+                koeru_synth::oto::Oto {
+                    offset_ms: oto.offset_ms,
+                    consonant_ms: oto.consonant_ms,
+                    cutoff_ms: oto.cutoff_ms,
+                    preutterance_ms: oto.preutterance_ms,
+                    overlap_ms: oto.overlap_ms,
+                },
+            );
+        }
+        Ok(Materials {
+            paths,
+            tables,
+            otos,
+        })
     }
 
     /// **テスト用。** 音声デバイス無しで、行を収録済みとして印を付ける。
@@ -1224,6 +1455,26 @@ impl Drop for Studio {
             tracing::warn!(kind = e.kind(), "終了時にゲインを戻せなかった");
         }
     }
+}
+
+/// 素材の内容ハッシュ（`TR-SYN-02`）。
+///
+/// **録り直したら変わる。** 変われば鍵が変わり、古い合成結果は使われない。
+/// 中身を読み直さずに済むよう、**更新時刻と大きさから作る。**
+fn hash_of(path: Option<&PathBuf>) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let Some(p) = path else { return 0 };
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    p.hash(&mut h);
+    if let Ok(m) = std::fs::metadata(p) {
+        m.len().hash(&mut h);
+        if let Ok(t) = m.modified()
+            && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
+        {
+            d.as_nanos().hash(&mut h);
+        }
+    }
+    h.finish()
 }
 
 /// 現在時刻を RFC 3339 で。

@@ -309,6 +309,35 @@ impl From<Preflight> for PreflightView {
     }
 }
 
+/// 画面へ返す試唱の結果（`TR-SYN-18`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SungSongView {
+    /// 曲名。
+    pub title: String,
+    /// 鳴らすフレーズの数。
+    pub phrases: usize,
+    /// **鳴らせないので落としたフレーズの数。**
+    ///
+    /// 落とした位置には無音も別音も代替音も挿さない（`TR-SYN-18` (2)）。
+    pub dropped_phrases: usize,
+    /// 鳴らす長さ（ミリ秒）。
+    pub duration_ms: f64,
+}
+
+/// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
+///
+/// **先頭フレーズができた時点で鳴りはじめる。** 曲全体の合成を待たない。
+#[tauri::command]
+pub fn sing_song(state: State<'_, AppState>, index: usize) -> Result<SungSongView> {
+    let s = lock(&state)?.sing_song(index)?;
+    Ok(SungSongView {
+        title: s.title,
+        phrases: s.phrases,
+        dropped_phrases: s.dropped_phrases,
+        duration_ms: s.duration_ms,
+    })
+}
+
 /// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
 #[tauri::command]
 pub fn preflight(state: State<'_, AppState>) -> Result<PreflightView> {

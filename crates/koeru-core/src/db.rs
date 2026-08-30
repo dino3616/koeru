@@ -923,6 +923,43 @@ impl Ledger {
         Ok(())
     }
 
+    /// その収録単位を鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
+    ///
+    /// **採用テイクだけ。** 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
+    /// 同じ単位を複数の行が持つときは、**先に来る行のものを使う**（決定的にする）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn take_for_unit(&mut self, kana: &str) -> Result<Option<Take>> {
+        let row = row_units::table
+            .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
+            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(row_units::kana.eq(kana))
+            .filter(takes::invalid.eq(0))
+            .order(rows::ordinal.asc())
+            .select((
+                takes::id,
+                takes::row_id,
+                takes::rel_path,
+                takes::frames,
+                takes::invalid,
+                takes::generation,
+            ))
+            .first::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .optional()
+            .map_err(db("take_for_unit"))?;
+
+        Ok(
+            row.map(|(id, row_id, rel_path, frames, invalid, generation)| Take {
+                id,
+                row_id,
+                rel_path,
+                frames,
+                invalid: invalid != 0,
+                generation,
+            }),
+        )
+    }
+
     /// テイクを1件引く。**無ければ `None`。**
     #[tracing::instrument(skip(self), fields(take_id), err)]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {

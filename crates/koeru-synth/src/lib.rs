@@ -7,6 +7,7 @@
 //! OpenUtau のコードで取れないため。仕様は `TR-SYN-08` が引数一式を定義済み。
 
 pub mod oto;
+pub mod phrase;
 pub mod resampler;
 pub mod segment;
 pub mod world;

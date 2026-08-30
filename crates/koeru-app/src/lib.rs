@@ -5,6 +5,7 @@
 
 pub mod commands;
 pub mod error;
+pub mod preview;
 pub mod pump;
 pub mod storage;
 pub mod studio;
@@ -64,6 +65,7 @@ pub fn run() {
             commands::song_status,
             commands::import_ust,
             commands::set_song_in_bank,
+            commands::sing_song,
             commands::preflight,
             commands::use_mixed_channels,
             commands::stop_preview,
