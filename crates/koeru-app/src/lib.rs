@@ -5,6 +5,7 @@
 
 pub mod commands;
 pub mod error;
+pub mod pump;
 pub mod storage;
 pub mod studio;
 
@@ -51,6 +52,7 @@ pub fn run() {
             commands::start_take,
             commands::finish_take,
             commands::preview,
+            commands::preroll_ms,
             commands::stop_preview,
         ])
         .run(tauri::generate_context!())

@@ -79,6 +79,21 @@ fn 録って聴けるところまで一本で通す() {
     studio.arm_device(&device).expect("開き直せる");
     studio.probe_input(200).expect("生死を判定できる");
 
+    // **プリロールが溜まるまで待つ**（TR-REC-19）。
+    // 収録画面に入った直後は、まだ遡れる分が無い。
+    std::thread::sleep(std::time::Duration::from_millis(
+        koeru_app_lib::pump::PREROLL_MS + 200,
+    ));
+    let held = studio.preroll_ms();
+    println!(
+        "プリロール: {held}ms（要 {}ms）",
+        koeru_app_lib::pump::PREROLL_MS
+    );
+    assert!(
+        held >= koeru_app_lib::pump::PREROLL_MS,
+        "収録画面にいる間ストリームが止まっていないこと"
+    );
+
     // ── 1行録る ──
     let row = studio.start_take().expect("収録を始められる");
     println!("収録中: {row}");
@@ -86,14 +101,64 @@ fn 録って聴けるところまで一本で通す() {
     let take = studio.finish_take().expect("確定できる");
 
     println!(
-        "確定: take={} row={} 長さ={:.0}ms ピーク={:.4} 取りこぼし={}",
-        take.take_id, take.row_id, take.duration_ms, take.peak, take.discontinuities
+        "確定: take={} row={} 長さ={:.0}ms ピーク={:.4} 取りこぼし={} 無効化={}",
+        take.take_id,
+        take.row_id,
+        take.duration_ms,
+        take.peak,
+        take.discontinuities,
+        take.invalidated
+    );
+    println!(
+        "  プリロール {:.0}ms / ピーク {:.1}dBFS / RMS {:.5} / フルスケール {} 回 / DC {:+.5}",
+        take.preroll_ms,
+        take.metrics.peak_dbfs,
+        take.metrics.rms,
+        take.metrics.full_scale_runs,
+        take.metrics.dc_offset
+    );
+    println!(
+        "  無音マージン 前 {:.0}ms / 後 {:.0}ms（要 {:.0}ms 以上）→ {}",
+        take.metrics.leading_margin_ms,
+        take.metrics.trailing_margin_ms,
+        koeru_core::analysis::REQUIRED_MARGIN_MS,
+        if take.metrics.has_required_margins() {
+            "足りている"
+        } else {
+            "足りていない"
+        }
     );
     assert_eq!(take.row_id, row);
-    assert!(take.duration_ms > 500.0, "録った長さが残ること");
     assert_eq!(
         take.thumbnail.len(),
         koeru_core::analysis::THUMBNAIL_BUCKETS
+    );
+
+    // **押した瞬間より前から録れていること**（TR-REC-19）。
+    let want_preroll = koeru_app_lib::pump::PREROLL_MS as f64;
+    assert!(
+        (take.preroll_ms - want_preroll).abs() < 30.0,
+        "遡った長さが {want_preroll}ms 付近であること: {:.0}ms",
+        take.preroll_ms
+    );
+
+    // 全体は「遡り + 指示の間 + 末尾の延長」。**指示の長さより必ず長い。**
+    let want_total = want_preroll + RECORD_MS as f64 + koeru_app_lib::pump::TAIL_MS as f64;
+    assert!(
+        take.duration_ms > RECORD_MS as f64,
+        "指示の長さより長いこと（前後に足されている）"
+    );
+    assert!(
+        (take.duration_ms - want_total).abs() < 150.0,
+        "遡り + 指示 + 末尾 の合計付近であること（想定 {want_total:.0}ms、実測 {:.0}ms）",
+        take.duration_ms
+    );
+
+    // **取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。
+    assert_eq!(
+        take.invalidated,
+        take.discontinuities > 0,
+        "無効化は取りこぼしと1対1であること"
     );
 
     // ── ファイルが実際にあること（DEC-REC-004 の順序）──

@@ -81,6 +81,129 @@ pub fn thumbnail(samples: &[f32], buckets: usize) -> Vec<u8> {
     out
 }
 
+/// テイクごとに測る値（`TR-REC-16`）。
+///
+/// **測るだけで、判定も指摘もしない。** 「小さすぎます」「歪んでいます」を出さない。
+/// 自動で無効化もしない（自動無効化は `TR-REC-07` の取りこぼしと
+/// `TR-REC-04` のデバイス消失の2つだけ）。
+///
+/// **フルスケール到達だけは、書き出しの直前に一度だけ集計して提示する**（`TR-REC-16`）。
+/// 収録中の判定ではないのでスコープを侵さず、壊れた成果物が完成に到達する経路を塞げる。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TakeMetrics {
+    /// サンプルピーク（dBFS）。無音なら [`f64::NEG_INFINITY`]。
+    pub peak_dbfs: f64,
+    /// 区間 RMS。
+    pub rms: f64,
+    /// フルスケールに達したサンプルが3つ以上続いた回数。
+    pub full_scale_runs: u32,
+    /// DC オフセットの平均。
+    pub dc_offset: f64,
+    /// 推定ノイズフロア（先頭マージン区間の RMS）。
+    pub noise_floor_rms: f64,
+    /// 発声の前に確保できた無音（ミリ秒）。
+    pub leading_margin_ms: f64,
+    /// 発声の後に確保できた無音（ミリ秒）。
+    pub trailing_margin_ms: f64,
+}
+
+/// 無音マージンの下限（ミリ秒、`TR-REC-38`）。
+///
+/// **足りなくてもトリミングしない。** 足りなかったという事実を記録するだけ。
+pub const REQUIRED_MARGIN_MS: f64 = 300.0;
+
+/// 16 bit の 1LSB。これ以上をフルスケール到達とみなす（`TR-REC-16`）。
+const FULL_SCALE: f32 = 1.0 - 1.0 / 32_768.0;
+
+/// フルスケール到達とみなす連続長。
+const FULL_SCALE_RUN: usize = 3;
+
+impl TakeMetrics {
+    /// 波形と、検出した発声区間から測る。
+    ///
+    /// `voice_start_ms` / `voice_end_ms` は検出できなければ `None`。
+    /// **検出できなくても測れるものは測る。**
+    #[must_use]
+    pub fn measure(
+        samples: &[f32],
+        rate_hz: u32,
+        voice_start_ms: Option<f64>,
+        voice_end_ms: Option<f64>,
+    ) -> Self {
+        let len_ms = samples.len() as f64 * 1000.0 / f64::from(rate_hz);
+        let peak = peak(samples);
+        let peak_dbfs = if peak > 0.0 {
+            20.0 * f64::from(peak).log10()
+        } else {
+            f64::NEG_INFINITY
+        };
+
+        let sum_sq: f64 = samples.iter().map(|s| f64::from(*s) * f64::from(*s)).sum();
+        let rms = if samples.is_empty() {
+            0.0
+        } else {
+            (sum_sq / samples.len() as f64).sqrt()
+        };
+
+        let dc_offset = if samples.is_empty() {
+            0.0
+        } else {
+            samples.iter().map(|s| f64::from(*s)).sum::<f64>() / samples.len() as f64
+        };
+
+        // **3サンプル以上続いたときだけ数える**（TR-REC-16）。
+        // 単発のフルスケールは歪みの証拠にならない。
+        let mut full_scale_runs = 0_u32;
+        let mut run = 0_usize;
+        for s in samples {
+            if s.abs() >= FULL_SCALE {
+                run += 1;
+                if run == FULL_SCALE_RUN {
+                    full_scale_runs += 1;
+                }
+            } else {
+                run = 0;
+            }
+        }
+
+        let leading_margin_ms = voice_start_ms.unwrap_or(0.0).max(0.0);
+        let trailing_margin_ms = voice_end_ms.map_or(0.0, |e| (len_ms - e).max(0.0));
+
+        // ノイズフロアは先頭マージンの RMS。**マージンが無ければ測らない。**
+        let head = ((leading_margin_ms / 1000.0) * f64::from(rate_hz)) as usize;
+        let head = head.min(samples.len());
+        let noise_floor_rms = if head == 0 {
+            0.0
+        } else {
+            let s: f64 = samples[..head]
+                .iter()
+                .map(|v| f64::from(*v) * f64::from(*v))
+                .sum();
+            (s / head as f64).sqrt()
+        };
+
+        Self {
+            peak_dbfs,
+            rms,
+            full_scale_runs,
+            dc_offset,
+            noise_floor_rms,
+            leading_margin_ms,
+            trailing_margin_ms,
+        }
+    }
+
+    /// `TR-REC-38` の無音マージンを満たしているか。
+    ///
+    /// **満たしていなくてもテイクは有効。** 事実を記録するだけで、
+    /// トリミングも無効化もしない。
+    #[must_use]
+    pub fn has_required_margins(&self) -> bool {
+        self.leading_margin_ms >= REQUIRED_MARGIN_MS
+            && self.trailing_margin_ms >= REQUIRED_MARGIN_MS
+    }
+}
+
 /// `f64` の並びを little-endian のバイト列にする。
 #[must_use]
 pub fn f64s_to_bytes(xs: &[f64]) -> Vec<u8> {
@@ -161,5 +284,84 @@ mod tests {
         assert_eq!(a.frq.f0.len(), 44100_usize.div_ceil(256));
         assert_eq!(a.frq.amp.len(), a.frq.f0.len());
         assert_eq!(a.hop_size(), 256);
+    }
+    fn tone(n: usize, amp: f32) -> Vec<f32> {
+        (0..n).map(|i| (i as f32 * 0.05).sin() * amp).collect()
+    }
+
+    #[test]
+    fn ピークをdbfsで返す() {
+        let m = TakeMetrics::measure(&[0.5, -0.5, 0.1], 44_100, None, None);
+        // 0.5 → -6.02 dBFS
+        assert!((m.peak_dbfs + 6.02).abs() < 0.05, "{}", m.peak_dbfs);
+    }
+
+    #[test]
+    fn 無音のピークは負の無限大() {
+        let m = TakeMetrics::measure(&[0.0; 100], 44_100, None, None);
+        assert!(m.peak_dbfs.is_infinite() && m.peak_dbfs < 0.0);
+        assert!(m.rms.abs() < 1e-12);
+    }
+
+    /// **単発のフルスケールは数えない。** 3サンプル以上続いたときだけ（TR-REC-16）。
+    #[test]
+    fn フルスケールは連続したときだけ数える() {
+        let one = TakeMetrics::measure(&[0.0, 1.0, 0.0, -1.0, 0.0], 44_100, None, None);
+        assert_eq!(one.full_scale_runs, 0, "単発は数えない");
+
+        let run = TakeMetrics::measure(&[0.0, 1.0, 1.0, 1.0, 0.0], 44_100, None, None);
+        assert_eq!(run.full_scale_runs, 1);
+
+        let two = TakeMetrics::measure(&[1.0, 1.0, 1.0, 0.0, -1.0, -1.0, -1.0], 44_100, None, None);
+        assert_eq!(two.full_scale_runs, 2, "符号は問わない");
+    }
+
+    #[test]
+    fn dcオフセットを測る() {
+        let m = TakeMetrics::measure(&[0.2; 1000], 44_100, None, None);
+        assert!((m.dc_offset - 0.2).abs() < 1e-6);
+
+        let centred = TakeMetrics::measure(&tone(4000, 0.5), 44_100, None, None);
+        assert!(centred.dc_offset.abs() < 0.05, "中心にある波は 0 付近");
+    }
+
+    /// **無音マージンは測るだけで、削らない**（TR-REC-38）。
+    #[test]
+    fn 無音マージンを前後で測る() {
+        // 1秒。発声が 0.4s〜0.6s。
+        let m = TakeMetrics::measure(&vec![0.1_f32; 44_100], 44_100, Some(400.0), Some(600.0));
+        assert!((m.leading_margin_ms - 400.0).abs() < 1.0);
+        assert!((m.trailing_margin_ms - 400.0).abs() < 1.0);
+        assert!(m.has_required_margins(), "300ms を超えている");
+    }
+
+    #[test]
+    fn マージンが足りないことを記録する() {
+        let m = TakeMetrics::measure(&vec![0.1_f32; 44_100], 44_100, Some(100.0), Some(900.0));
+        assert!(!m.has_required_margins());
+        assert!((m.leading_margin_ms - 100.0).abs() < 1.0);
+    }
+
+    /// ノイズフロアは**先頭マージン区間**の RMS。
+    #[test]
+    fn ノイズフロアは先頭マージンから測る() {
+        // 先頭 0.5s が静か、その後が大きい。
+        let mut x = vec![0.001_f32; 22_050];
+        x.extend(std::iter::repeat_n(0.5_f32, 22_050));
+        let m = TakeMetrics::measure(&x, 44_100, Some(500.0), Some(1000.0));
+        assert!(
+            m.noise_floor_rms < 0.01,
+            "静かな側だけを見る: {}",
+            m.noise_floor_rms
+        );
+        assert!(m.rms > 0.1, "全体の RMS は大きい");
+    }
+
+    #[test]
+    fn 発声を検出できなくても測れるものは測る() {
+        let m = TakeMetrics::measure(&tone(4000, 0.5), 44_100, None, None);
+        assert!(m.peak_dbfs.is_finite());
+        assert!((m.leading_margin_ms - 0.0).abs() < 1e-9);
+        assert!(!m.has_required_margins());
     }
 }

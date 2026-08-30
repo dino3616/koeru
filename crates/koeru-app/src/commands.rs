@@ -111,8 +111,21 @@ pub struct TakeView {
     pub has_oto: bool,
     /// 境界の確信度。
     pub confidence: Option<f64>,
-    /// 取りこぼしの回数。**0 でなければ録り直しを促す**（`TR-REC-07`）。
+    /// 取りこぼしの回数（`TR-REC-07`）。
     pub discontinuities: usize,
+    /// **取りこぼしたので自動的に無効にした。** 同じフレーズがもう一度出てくる。
+    pub invalidated: bool,
+    /// 押した瞬間より前から何ミリ秒ぶん遡れたか（`TR-REC-19`）。
+    pub preroll_ms: f64,
+    /// サンプルピーク（dBFS）。無音は `null`。
+    pub peak_dbfs: Option<f64>,
+    /// 発声の前に確保できた無音（ミリ秒、`TR-REC-38`）。
+    pub leading_margin_ms: f64,
+    /// 発声の後に確保できた無音（ミリ秒、`TR-REC-38`）。
+    pub trailing_margin_ms: f64,
+    /// 前後 300ms の無音マージンを確保できたか（`TR-REC-38`）。
+    /// **足りなくてもテイクは有効。** 事実を伝えるだけ。
+    pub has_required_margins: bool,
 }
 
 impl From<TakeResult> for TakeView {
@@ -126,6 +139,16 @@ impl From<TakeResult> for TakeView {
             has_oto: t.oto.is_some(),
             confidence: t.confidence,
             discontinuities: t.discontinuities,
+            invalidated: t.invalidated,
+            preroll_ms: t.preroll_ms,
+            peak_dbfs: t
+                .metrics
+                .peak_dbfs
+                .is_finite()
+                .then_some(t.metrics.peak_dbfs),
+            leading_margin_ms: t.metrics.leading_margin_ms,
+            trailing_margin_ms: t.metrics.trailing_margin_ms,
+            has_required_margins: t.metrics.has_required_margins(),
         }
     }
 }
@@ -218,6 +241,12 @@ pub fn preview(
     length_ms: f64,
 ) -> Result<usize> {
     lock(&state)?.preview(take_id, midi, length_ms)
+}
+
+/// プリロールがどれだけ溜まっているか（ミリ秒、`TR-REC-19`）。
+#[tauri::command]
+pub fn preroll_ms(state: State<'_, AppState>) -> Result<u64> {
+    Ok(lock(&state)?.preroll_ms())
 }
 
 /// 鳴らしている音を止める。

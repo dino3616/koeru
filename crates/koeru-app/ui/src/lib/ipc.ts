@@ -49,6 +49,16 @@ export type TakeView = {
   has_oto: boolean;
   confidence: number | null;
   discontinuities: number;
+  /** 取りこぼしたので自動的に無効にした（TR-REC-07）。同じフレーズがもう一度出てくる。 */
+  invalidated: boolean;
+  /** 押した瞬間より前から何ミリ秒ぶん遡れたか（TR-REC-19）。 */
+  preroll_ms: number;
+  /** サンプルピーク（dBFS）。無音は null。 */
+  peak_dbfs: number | null;
+  leading_margin_ms: number;
+  trailing_margin_ms: number;
+  /** 前後 300ms の無音マージンを確保できたか（TR-REC-38）。 */
+  has_required_margins: boolean;
 };
 
 export const api = {
@@ -64,4 +74,5 @@ export const api = {
   preview: (takeId: number, midi: number, lengthMs: number) =>
     invoke<number>("preview", { takeId, midi, lengthMs }),
   stopPreview: () => invoke<void>("stop_preview"),
+  prerollMs: () => invoke<number>("preroll_ms"),
 };

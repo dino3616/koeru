@@ -18,20 +18,26 @@
 //! （`Q-REC-005` → `DEC-REC-004`）。[`Ledger::find_orphans`] が見つけて
 //! **復旧候補として提示する。本人が採るか捨てるまで消さない。**
 
-use crate::analysis::{TakeAnalysis, bytes_to_f64s, f64s_to_bytes};
+use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
 use crate::frq::Frq;
 use crate::inventory::Unit;
 use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, oto_values, releases, row_units, rows, sessions, take_analysis, takes,
+    adopted_takes, oto_values, releases, row_units, rows, sessions, take_analysis, take_metrics,
+    takes,
 };
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::collections::BTreeSet;
 use std::path::Path;
+
+/// 無音のピークを表す値（dBFS）。
+///
+/// **SQLite に `-inf` は入らない。** 往復させるための番人。
+const SILENT_PEAK_DBFS: f64 = -1000.0;
 
 /// マイグレーションを実行ファイルへ埋め込む。**外部ファイルに依存しない**（`TR-PLT-20`）。
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -660,6 +666,105 @@ impl Ledger {
             .get_result(&mut self.conn)
             .map_err(db("remaining_rows"))?;
         Ok(u64::try_from(n).unwrap_or(0))
+    }
+
+    /// テイクの計測値を保存する（`TR-REC-16`, `TR-REC-07`, `TR-REC-19`, `TR-REC-38`）。
+    ///
+    /// **測った値で自動的に無効化しない。** 自動無効化は取りこぼし（`TR-REC-07`）と
+    /// デバイス消失（`TR-REC-04`）の2つだけで、それは呼び出し側が
+    /// [`Ledger::invalidate_take`] を明示的に呼ぶ。
+    #[tracing::instrument(skip(self, m), fields(take_id), err)]
+    pub fn put_metrics(
+        &mut self,
+        take_id: i32,
+        m: &TakeMetrics,
+        discontinuities: usize,
+        preroll_frames: usize,
+    ) -> Result<()> {
+        // **SQLite に -inf は入らない。** 無音のピークを -1000 dBFS で表す。
+        let peak = if m.peak_dbfs.is_finite() {
+            m.peak_dbfs
+        } else {
+            SILENT_PEAK_DBFS
+        };
+        let values = (
+            take_metrics::peak_dbfs.eq(peak),
+            take_metrics::rms.eq(m.rms),
+            take_metrics::full_scale_runs.eq(i32::try_from(m.full_scale_runs).unwrap_or(i32::MAX)),
+            take_metrics::dc_offset.eq(m.dc_offset),
+            take_metrics::noise_floor_rms.eq(m.noise_floor_rms),
+            take_metrics::leading_margin_ms.eq(m.leading_margin_ms),
+            take_metrics::trailing_margin_ms.eq(m.trailing_margin_ms),
+            take_metrics::discontinuities.eq(i32::try_from(discontinuities).unwrap_or(i32::MAX)),
+            take_metrics::preroll_frames.eq(i32::try_from(preroll_frames).unwrap_or(i32::MAX)),
+        );
+        diesel::insert_into(take_metrics::table)
+            .values((take_metrics::take_id.eq(take_id), values))
+            .on_conflict(take_metrics::take_id)
+            .do_update()
+            .set(values)
+            .execute(&mut self.conn)
+            .map_err(db("put_metrics"))?;
+        Ok(())
+    }
+
+    /// テイクの計測値を引く。
+    #[tracing::instrument(skip(self), fields(take_id), err)]
+    pub fn metrics_of(&mut self, take_id: i32) -> Result<Option<TakeMetrics>> {
+        let row = take_metrics::table
+            .filter(take_metrics::take_id.eq(take_id))
+            .select((
+                take_metrics::peak_dbfs,
+                take_metrics::rms,
+                take_metrics::full_scale_runs,
+                take_metrics::dc_offset,
+                take_metrics::noise_floor_rms,
+                take_metrics::leading_margin_ms,
+                take_metrics::trailing_margin_ms,
+            ))
+            .first::<(f64, f64, i32, f64, f64, f64, f64)>(&mut self.conn)
+            .optional()
+            .map_err(db("metrics_of"))?;
+
+        Ok(row.map(
+            |(peak_dbfs, rms, runs, dc_offset, noise_floor_rms, lead, trail)| TakeMetrics {
+                peak_dbfs: if peak_dbfs <= SILENT_PEAK_DBFS {
+                    f64::NEG_INFINITY
+                } else {
+                    peak_dbfs
+                },
+                rms,
+                full_scale_runs: u32::try_from(runs).unwrap_or(0),
+                dc_offset,
+                noise_floor_rms,
+                leading_margin_ms: lead,
+                trailing_margin_ms: trail,
+            },
+        ))
+    }
+
+    /// 採用テイクのうち、フルスケールに達しているものを挙げる（`TR-REC-16`）。
+    ///
+    /// **書き出しの直前に一度だけ呼ぶ。** 収録中には呼ばない
+    /// ——リアルタイムの判定はスコープ外で、ここは「壊れた成果物が完成に
+    /// 到達する経路を塞ぐ」ためだけの関門。
+    #[tracing::instrument(skip(self), err)]
+    pub fn clipped_adopted_takes(&mut self) -> Result<Vec<(String, i32, u32)>> {
+        let rows = adopted_takes::table
+            .inner_join(take_metrics::table.on(take_metrics::take_id.eq(adopted_takes::take_id)))
+            .filter(take_metrics::full_scale_runs.gt(0))
+            .order(adopted_takes::row_id.asc())
+            .select((
+                adopted_takes::row_id,
+                adopted_takes::take_id,
+                take_metrics::full_scale_runs,
+            ))
+            .load::<(String, i32, i32)>(&mut self.conn)
+            .map_err(db("clipped_adopted_takes"))?;
+        Ok(rows
+            .into_iter()
+            .map(|(row_id, take_id, runs)| (row_id, take_id, u32::try_from(runs).unwrap_or(0)))
+            .collect())
     }
 
     /// テイクを1件引く。**無ければ `None`。**

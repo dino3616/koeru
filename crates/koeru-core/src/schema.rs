@@ -112,6 +112,22 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// テイクごとの計測値（`TR-REC-16`）と取りこぼし（`TR-REC-07`）。
+    take_metrics (take_id) {
+        take_id -> Integer,
+        peak_dbfs -> Double,
+        rms -> Double,
+        full_scale_runs -> Integer,
+        dc_offset -> Double,
+        noise_floor_rms -> Double,
+        leading_margin_ms -> Double,
+        trailing_margin_ms -> Double,
+        discontinuities -> Integer,
+        preroll_frames -> Integer,
+    }
+}
+
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
@@ -119,6 +135,7 @@ diesel::joinable!(adopted_takes -> rows (row_id));
 diesel::joinable!(adopted_takes -> takes (take_id));
 diesel::joinable!(oto_values -> takes (take_id));
 diesel::joinable!(take_analysis -> takes (take_id));
+diesel::joinable!(take_metrics -> takes (take_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     sessions,
@@ -128,5 +145,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     adopted_takes,
     oto_values,
     take_analysis,
+    take_metrics,
     releases,
 );

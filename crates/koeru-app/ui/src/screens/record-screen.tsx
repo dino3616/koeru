@@ -106,9 +106,11 @@ export const RecordScreen = () => {
       .then((t) => {
         setTake(t);
         setStatus(
-          t.has_oto
-            ? "録れました。音高を選ぶと歌います"
-            : "録れましたが、発声を見つけられませんでした",
+          t.invalidated
+            ? "取りこぼしがあったので、もう一度録ります"
+            : t.has_oto
+              ? "録れました。音高を選ぶと歌います"
+              : "録れましたが、発声を見つけられませんでした",
         );
         return api.progress();
       })
@@ -235,11 +237,41 @@ export const RecordScreen = () => {
           <div className="mt-3 flex flex-col gap-4">
             <Waveform peaks={take.thumbnail} peak={take.peak} durationMs={take.duration_ms} />
 
-            {take.discontinuities > 0 && (
+            {/*
+              **取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。
+              勧めるのではなく、もう一度同じフレーズが出てくる。
+            */}
+            {take.invalidated && (
               <p role="alert" className="text-sm text-danger-text">
-                取りこぼしが {take.discontinuities} 回ありました。録り直しをおすすめします。
+                取りこぼしが {take.discontinuities} 回ありました。
+                このテイクは使わず、同じフレーズをもう一度録ります。
               </p>
             )}
+
+            {/*
+              **測った値を出すだけ。評価も警告もしない**（TR-REC-16）。
+              「小さすぎます」「歪んでいます」は出さない。
+            */}
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs text-text-dim tabular-nums sm:grid-cols-4">
+              <div>
+                <dt className="inline">ピーク </dt>
+                <dd className="inline">
+                  {take.peak_dbfs === null ? "—" : `${take.peak_dbfs.toFixed(1)} dBFS`}
+                </dd>
+              </div>
+              <div>
+                <dt className="inline">長さ </dt>
+                <dd className="inline">{(take.duration_ms / 1000).toFixed(2)} 秒</dd>
+              </div>
+              <div>
+                <dt className="inline">前の余白 </dt>
+                <dd className="inline">{Math.round(take.leading_margin_ms)} ms</dd>
+              </div>
+              <div>
+                <dt className="inline">後の余白 </dt>
+                <dd className="inline">{Math.round(take.trailing_margin_ms)} ms</dd>
+              </div>
+            </dl>
 
             {take.has_oto ? (
               <div className="flex flex-wrap items-center gap-2">

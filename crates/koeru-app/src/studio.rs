@@ -14,13 +14,10 @@
 //! 試唱のたびに WAV を読み直すことになる（`TR-PKG-42`）。
 
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
 
 use koeru_audio::backend::macos as mac;
-use koeru_audio::{DeviceId, Session, ring, wav};
-use koeru_core::analysis::TakeAnalysis;
+use koeru_audio::{DeviceId, Session, wav};
+use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::db::{FinalizedTake, Ledger, SessionSnapshot, koeru_oto};
 use koeru_core::frq;
 use koeru_core::inventory::UnitSet;
@@ -33,6 +30,7 @@ use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
 use uuid::Uuid;
 
 use crate::error::{AppError, Result};
+use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
 
 /// 素材の F0 を探す下限（Hz）。**歌声の音域を広く取る。**
@@ -59,31 +57,6 @@ struct Open {
     session_id: i32,
 }
 
-/// 録音中のテイク。
-///
-/// **`PartialTake` はスレッドが所有する。** 排出はコールバックと別スレッドで回し、
-/// 止めるときに join して受け取る。
-struct Recording {
-    row_id: String,
-    stop: Arc<AtomicBool>,
-    pump: JoinHandle<std::result::Result<Drained, wav::WavError>>,
-}
-
-impl std::fmt::Debug for Recording {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Recording")
-            .field("row_id", &self.row_id)
-            .finish_non_exhaustive()
-    }
-}
-
-/// 排出スレッドが返すもの。
-struct Drained {
-    consumer: ring::Consumer,
-    path: PathBuf,
-    samples: Vec<f32>,
-}
-
 /// 1つのテイクの結果。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TakeResult {
@@ -101,8 +74,15 @@ pub struct TakeResult {
     pub oto: Option<Oto>,
     /// 境界の確信度。
     pub confidence: Option<f64>,
-    /// 取りこぼしの回数。**0 でなければ録り直しを促す**（`TR-REC-07`）。
+    /// 取りこぼしの回数（`TR-REC-07`）。
     pub discontinuities: usize,
+    /// **取りこぼしたので自動的に無効にした**（`TR-REC-07`）。
+    /// 同じフレーズがもう一度出てくる。
+    pub invalidated: bool,
+    /// 計測値（`TR-REC-16`）。**測るだけで、判定も指摘もしない。**
+    pub metrics: TakeMetrics,
+    /// 押した瞬間より前から何ミリ秒ぶん遡れたか（`TR-REC-19`）。
+    pub preroll_ms: f64,
 }
 
 /// プロジェクトの現在地。
@@ -126,9 +106,13 @@ pub struct Studio {
     library: Library,
     open: Option<Open>,
     capture: Option<mac::Capture>,
-    consumer: Option<ring::Consumer>,
+    /// 排出スレッド。**収録画面にいる間ずっと回っている**（`TR-REC-19`）。
+    pump: Option<Pump>,
     session: Session,
-    recording: Option<Recording>,
+    /// 録音中の行。
+    recording: Option<String>,
+    /// 収録開始時点の取りこぼし数。**このテイクの中で増えたぶんだけを見る**（`TR-REC-07`）。
+    xrun_baseline: usize,
     playback: Option<mac::Playback>,
 }
 
@@ -140,10 +124,11 @@ impl Studio {
             library: Library::open(library_root)?,
             open: None,
             capture: None,
-            consumer: None,
+            pump: None,
             // 3件までの提示上限は `recording-input.fsl` と揃える。
             session: Session::new(3),
             recording: None,
+            xrun_baseline: 0,
             playback: None,
         })
     }
@@ -241,8 +226,9 @@ impl Studio {
         }
 
         // **前のストリームを先に落とす。** 2つの AUHAL を同時に回さない。
+        // 排出スレッドが先。Consumer を握ったまま Capture を捨てない。
+        self.pump = None;
         self.capture = None;
-        self.consumer = None;
 
         // **状態機械を作り直す。** `recording-input.fsl` の `select_device` は
         // 未選択からしか進めない（`proved`）。マイクの選び直しは、その機械から見れば
@@ -283,8 +269,11 @@ impl Studio {
         }
         self.session.calibrate_gain()?;
 
+        // **収録画面に入った時点から止めない**（REQ-REC-102、TR-REC-19）。
+        // ここから排出が回り、プリロールが溜まりはじめる。
+        cap.arm();
+        self.pump = Some(Pump::start(consumer, format.sample_rate_hz));
         self.capture = Some(cap);
-        self.consumer = Some(consumer);
         self.estimate_space()?;
         Ok(mode)
     }
@@ -317,26 +306,18 @@ impl Studio {
     /// 入力が届いているかを確かめる（`TR-REC-17`）。
     ///
     /// **権限が無いと macOS は無音を返す。** 成否ではなく中身を見る。
+    ///
+    /// ストリームは開いたまま測る。**止めて測ると、そのぶんプリロールが途切れる**
+    /// （`TR-REC-19`）。
     #[tracing::instrument(skip(self), err)]
     pub fn probe_input(&mut self, ms: u64) -> Result<f32> {
-        let cap = self.capture.as_ref().ok_or_else(no_stream)?;
-        let consumer = self.consumer.as_ref().ok_or_else(no_stream)?;
-
-        cap.arm();
-        std::thread::sleep(std::time::Duration::from_millis(ms));
-        cap.disarm();
-
-        let mut buf = vec![0.0_f32; 16_384];
-        let mut peak = 0.0_f32;
-        loop {
-            let n = consumer.pop(&mut buf);
-            if n == 0 {
-                break;
-            }
-            for v in &buf[..n] {
-                peak = peak.max(v.abs());
-            }
+        {
+            // 直前の残りを捨ててから測る。**「今」の入力だけを見る。**
+            let pump = self.pump.as_ref().ok_or_else(no_stream)?;
+            let _ = pump.take_peak();
         }
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        let peak = self.pump.as_ref().ok_or_else(no_stream)?.take_peak();
 
         if peak > 1e-6 {
             self.session.input_is_alive()?;
@@ -346,10 +327,18 @@ impl Studio {
         Ok(peak)
     }
 
+    /// プリロールがどれだけ溜まっているか（ミリ秒、`TR-REC-19`）。
+    ///
+    /// **`PREROLL_MS` に足りていなければ、遡れるのはその長さまで。**
+    #[must_use]
+    pub fn preroll_ms(&self) -> u64 {
+        self.pump.as_ref().map_or(0, Pump::preroll_ms)
+    }
+
     /// いま録るべき行の収録を始める。
     ///
-    /// **`.wav.part` を開いて、排出スレッドを回す。** リングはコールバックが
-    /// 埋めるので、ディスクへ落とす側を別に持たないと溢れる。
+    /// **押した瞬間より前へ遡って書きはじめる**（`TR-REC-19`）。
+    /// 人は「録音」を押してから息を吸わない。指示の時点から書くと語頭が欠ける。
     #[tracing::instrument(skip(self), err)]
     pub fn start_take(&mut self) -> Result<String> {
         if self.recording.is_some() {
@@ -373,23 +362,32 @@ impl Studio {
         let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;
         let path = audio_dir.join(format!("{row_id}_{generation}.wav"));
 
-        let part = wav::PartialTake::create(&path, rate)?;
-        let consumer = self.consumer.take().ok_or_else(no_stream)?;
-        let stop = Arc::new(AtomicBool::new(false));
+        // **遡れる分が足りないことは止める理由にしない。** 記録して進む。
+        // 収録画面に入った直後は、まだプリロールが溜まりきっていない。
+        let held = self.preroll_ms();
+        if held < PREROLL_MS {
+            tracing::warn!(
+                held_ms = held,
+                want_ms = PREROLL_MS,
+                "プリロールが溜まりきっていない"
+            );
+        }
 
         self.session.start_take()?;
-        self.capture.as_ref().ok_or_else(no_stream)?.arm();
+        // **ここで取りこぼしの基準を取る。** このテイクの中で増えたぶんだけを見る
+        //（TR-REC-07 は「1テイクの中で1フレームでも欠落したら」と定めている）。
+        self.xrun_baseline = self
+            .capture
+            .as_ref()
+            .map_or(0, mac::Capture::discontinuities);
 
-        let pump = std::thread::spawn({
-            let stop = Arc::clone(&stop);
-            move || pump(consumer, part, path, &stop)
-        });
+        self.pump
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .start_take(path, rate)
+            .map_err(|e| AppError::new(e.kind(), e))?;
 
-        self.recording = Some(Recording {
-            row_id: row_id.clone(),
-            stop,
-            pump,
-        });
+        self.recording = Some(row_id.clone());
         Ok(row_id)
     }
 
@@ -400,49 +398,61 @@ impl Studio {
     ///
     /// 確定のあと、その場で解析と `.frq` と oto の導出まで済ませる
     /// （`TR-PKG-05`, `TR-PKG-42`）。
+    ///
+    /// **取りこぼしがあったテイクは、ここで自動的に無効にする**（`TR-REC-07`）。
+    /// 同じフレーズがもう一度出てくる。
     #[tracing::instrument(skip(self), err)]
     pub fn finish_take(&mut self) -> Result<TakeResult> {
-        let rec = self
+        let row_id = self
             .recording
             .take()
             .ok_or_else(|| AppError::new("app.not_recording", "収録していない"))?;
 
-        let cap = self.capture.as_ref().ok_or_else(no_stream)?;
-        cap.disarm();
-        let discontinuities = cap.discontinuities();
-        let rate = cap.format().sample_rate_hz;
+        let rate = self
+            .capture
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .format()
+            .sample_rate_hz;
 
-        rec.stop.store(true, Ordering::Release);
-        let drained = rec
+        // **指示のあとも `TAIL_MS` ぶん書く**（TR-REC-19）。ここで待つ。
+        let finished = self
             .pump
-            .join()
-            .map_err(|_| AppError::new("app.pump_panicked", "排出スレッドが落ちた"))??;
-        self.consumer = Some(drained.consumer);
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .finish_take()
+            .map_err(|e| AppError::new(e.kind(), e))?;
+
+        // 取りこぼしは、このテイクの中で増えたぶんだけを見る。
+        let discontinuities = self
+            .capture
+            .as_ref()
+            .map_or(0, mac::Capture::discontinuities)
+            .saturating_sub(self.xrun_baseline);
+
         self.session.finish_take()?;
 
         // ── ここまでで**ファイルは確定している**。DB はこの先 ──
         let root = self.opened()?.dir.root().to_path_buf();
-        let rel = drained
+        let rel = finished
             .path
             .strip_prefix(&root)
-            .unwrap_or(&drained.path)
+            .unwrap_or(&finished.path)
             .to_string_lossy()
             .into_owned();
-        let frames = u64::try_from(drained.samples.len()).unwrap_or(0);
+        let frames = finished.samples.len();
         let session_id = self.opened()?.session_id;
 
         let take_id = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
-            row_id: rec.row_id.clone(),
+            row_id: row_id.clone(),
             session_id,
             rel_path: rel,
             frames: i64::try_from(frames).unwrap_or(i64::MAX),
             recorded_at: now_rfc3339(),
         })?;
-        // **録れたものは既定で採用する。** 選ばせるのは録り直したときだけ。
-        self.opened_mut()?.ledger.adopt_take(&rec.row_id, take_id)?;
 
         // ── 解析。**録音停止時に確定させて、以後 WAV を読み直さない** ──
-        let f64s: Vec<f64> = drained.samples.iter().map(|s| f64::from(*s)).collect();
+        let f64s: Vec<f64> = finished.samples.iter().map(|s| f64::from(*s)).collect();
         // **試唱のために走らせる解析を、そのまま .frq へ回す**（TR-PKG-05）。
         // 書き出しのために推定し直さない。
         const F0_PERIOD_MS: f64 = 5.0;
@@ -455,14 +465,31 @@ impl Studio {
             F0_PERIOD_MS,
         );
         let analysis =
-            TakeAnalysis::compute(&drained.samples, rate, &source_f0, F0_PERIOD_MS / 1000.0);
+            TakeAnalysis::compute(&finished.samples, rate, &source_f0, F0_PERIOD_MS / 1000.0);
         self.opened_mut()?.ledger.put_analysis(take_id, &analysis)?;
-        analysis.frq.write(&frq::frq_path(&drained.path)?)?;
+        analysis.frq.write(&frq::frq_path(&finished.path)?)?;
 
         // ── 境界と oto ──
         let duration_ms = frames as f64 * 1000.0 / f64::from(rate);
         let cfg = SegmentConfig::default();
-        let (oto, conf) = match detect_single(&f64s, rate, &cfg) {
+        let boundaries = detect_single(&f64s, rate, &cfg);
+
+        // ── 計測（TR-REC-16）と無音マージン（TR-REC-38）──
+        // **測るだけ。判定も指摘もしない。**
+        let metrics = TakeMetrics::measure(
+            &finished.samples,
+            rate,
+            boundaries.as_ref().map(|b| b.voice_start_ms),
+            boundaries.as_ref().map(|b| b.vowel_end_ms),
+        );
+        self.opened_mut()?.ledger.put_metrics(
+            take_id,
+            &metrics,
+            discontinuities,
+            finished.preroll_frames,
+        )?;
+
+        let (oto, conf) = match boundaries {
             None => (None, None),
             Some(b) => {
                 let c = confidence(&f64s, rate, &b, &cfg).score();
@@ -473,7 +500,7 @@ impl Studio {
                     duration_ms,
                     &OtoPreset::default(),
                     // **単独音の1テイクでは無声破裂音かどうかを行から引く。**
-                    self.is_unvoiced_plosive(&rec.row_id)?,
+                    self.is_unvoiced_plosive(&row_id)?,
                 );
                 self.opened_mut()?.ledger.put_oto(
                     take_id,
@@ -491,15 +518,31 @@ impl Studio {
             }
         };
 
+        // ── 採否 ──
+        //
+        // **取りこぼしたテイクは自動的に無効にする**（TR-REC-07）。
+        // 欠落した素材は oto の導出も合成も救えないので、採用の候補に入れない。
+        // ファイルは残す（TR-REC-21 の「削除も上書きもしない」）。
+        if discontinuities > 0 {
+            tracing::warn!(discontinuities, "取りこぼしたテイクを無効にする");
+            self.opened_mut()?.ledger.invalidate_take(take_id)?;
+        } else {
+            // **録れたものは既定で採用する。** 選ばせるのは録り直したときだけ。
+            self.opened_mut()?.ledger.adopt_take(&row_id, take_id)?;
+        }
+
         Ok(TakeResult {
             take_id,
-            row_id: rec.row_id,
+            row_id,
             duration_ms,
             peak: analysis.peak,
             thumbnail: analysis.thumbnail,
             oto,
             confidence: conf,
             discontinuities,
+            invalidated: discontinuities > 0,
+            metrics,
+            preroll_ms: finished.preroll_frames as f64 * 1000.0 / f64::from(rate),
         })
     }
 
@@ -615,44 +658,6 @@ impl Studio {
 
 fn no_stream() -> AppError {
     AppError::new("app.no_stream", "入力ストリームを開いていない")
-}
-
-/// リングから排出して `.wav.part` へ落とし続ける。
-///
-/// **止まれと言われてから、残りを全部吸い出す。** 途中で切ると末尾が欠ける。
-fn pump(
-    consumer: ring::Consumer,
-    mut part: wav::PartialTake,
-    path: PathBuf,
-    stop: &AtomicBool,
-) -> std::result::Result<Drained, wav::WavError> {
-    let mut buf = vec![0.0_f32; 8192];
-    let mut all = Vec::new();
-
-    loop {
-        let n = consumer.pop(&mut buf);
-        if n > 0 {
-            part.write(&buf[..n])?;
-            all.extend_from_slice(&buf[..n]);
-        } else if stop.load(Ordering::Acquire) {
-            // **もう一度だけ空にしてから抜ける。**
-            let n = consumer.pop(&mut buf);
-            if n == 0 {
-                break;
-            }
-            part.write(&buf[..n])?;
-            all.extend_from_slice(&buf[..n]);
-        } else {
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
-    }
-
-    let path = part.finalize().unwrap_or(path);
-    Ok(Drained {
-        consumer,
-        path,
-        samples: all,
-    })
 }
 
 /// 現在時刻を RFC 3339 で。
