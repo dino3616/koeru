@@ -309,6 +309,46 @@ impl From<Preflight> for PreflightView {
     }
 }
 
+/// 背後で待っている仕事の数（`TR-SYN-33`, `TR-SYN-34`）。
+///
+/// **「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない。**
+/// 画面はこれを見て、進んでいることを出す。
+#[tauri::command]
+pub fn pending_work(state: State<'_, AppState>) -> Result<usize> {
+    Ok(lock(&state)?.pending_work())
+}
+
+/// 試唱の待ち時間の実測（`TR-SYN-33`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct LatencyView {
+    /// `First` / `Warm` / `Incremental` / `Replay`。
+    pub case: String,
+    /// 測った回数。
+    pub count: usize,
+    /// 中央値（ミリ秒）。
+    pub median_ms: Option<u128>,
+    /// その場面の目標（ミリ秒）。
+    pub budget_ms: u128,
+    /// 収まっているか。**回数が少ないうちは `null`。**
+    pub meets: Option<bool>,
+}
+
+/// 試唱の待ち時間を返す（`TR-SYN-33`）。
+#[tauri::command]
+pub fn latency_report(state: State<'_, AppState>) -> Result<Vec<LatencyView>> {
+    Ok(lock(&state)?
+        .latency_report()
+        .into_iter()
+        .map(|r| LatencyView {
+            case: format!("{:?}", r.case),
+            count: r.count,
+            median_ms: r.median_ms,
+            budget_ms: r.budget_ms,
+            meets: r.meets,
+        })
+        .collect())
+}
+
 /// 見えている範囲の波形（`TR-PLT-04`）。
 ///
 /// **上下の組を画素数ぶん返す。** 読む量は画素数に比例し、範囲の広さには比例しない。

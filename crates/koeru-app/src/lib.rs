@@ -6,6 +6,7 @@
 pub mod commands;
 pub mod error;
 pub mod external;
+pub mod latency;
 pub mod preview;
 pub mod pump;
 pub mod storage;
@@ -68,6 +69,8 @@ pub fn run() {
             commands::import_ust,
             commands::set_song_in_bank,
             commands::sing_song,
+            commands::pending_work,
+            commands::latency_report,
             commands::waveform_window,
             commands::spectrogram_window,
             commands::preflight,

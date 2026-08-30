@@ -22,13 +22,32 @@ export const SongList = ({ revision }: SongListProps) => {
   const [songs, setSongs] = useState<SongView[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sung, setSung] = useState<SungSongView | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [pending, setPending] = useState(0);
+
+  /*
+   * **「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない**（TR-SYN-33）。
+   * 初回は前処理を含むので、中央値の目標が6秒ある。
+   * 何も出ないまま6秒待たされると、壊れたと思われる。
+   */
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      api
+        .pendingWork()
+        .then(setPending)
+        .catch(() => setPending(0));
+    }, 400);
+    return () => window.clearInterval(t);
+  }, []);
 
   const sing = (index: number) => {
     setError(null);
+    setPreparing(true);
     api
       .singSong(index)
       .then(setSung)
-      .catch((e: unknown) => setError(errorMessage(e)));
+      .catch((e: unknown) => setError(errorMessage(e)))
+      .finally(() => setPreparing(false));
   };
 
   useEffect(() => {
@@ -52,6 +71,16 @@ export const SongList = ({ revision }: SongListProps) => {
   return (
     <Card>
       <CardTitle>歌える曲</CardTitle>
+
+      {/*
+        **無言の待ち時間にしない**（TR-SYN-33）。
+        録り終えたあとの前処理が残っていることを出す。
+      */}
+      {pending > 0 && (
+        <p aria-live="polite" className="mt-2 text-sm text-text-dim">
+          録った音を整えています（残り {pending} 件）。いま歌わせても鳴りますが、少し待ちます。
+        </p>
+      )}
 
       {songs.length === 0 ? (
         <p className="mt-3 text-sm text-text-dim">
@@ -92,7 +121,9 @@ export const SongList = ({ revision }: SongListProps) => {
                 落とした位置に無音・別音・代替音を挿さない。
               */}
               <div className="flex w-full items-center gap-3">
-                <Button onClick={() => sing(i)}>歌わせる</Button>
+                <Button onClick={() => sing(i)} disabled={preparing}>
+                  {preparing ? "用意しています" : "歌わせる"}
+                </Button>
                 <Button variant="ghost" onClick={() => api.stopPreview().catch(() => undefined)}>
                   止める
                 </Button>

@@ -141,6 +141,7 @@ export const api = {
   playPitch: (midi: number) => invoke<void>("play_pitch", { midi }),
   songStatus: () => invoke<SongView[]>("song_status"),
   singSong: (index: number) => invoke<SungSongView>("sing_song", { index }),
+  pendingWork: () => invoke<number>("pending_work"),
   waveformWindow: (takeId: number, fromMs: number, toMs: number, pixels: number) =>
     invoke<[number, number][]>("waveform_window", { takeId, fromMs, toMs, pixels }),
   spectrogramWindow: (

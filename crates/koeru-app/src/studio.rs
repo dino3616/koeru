@@ -40,6 +40,7 @@ use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
 use uuid::Uuid;
 
 use crate::error::{AppError, Result};
+use crate::latency::{self, Case, Observed};
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
@@ -47,6 +48,11 @@ use crate::workers::{Priority, Workers};
 
 /// 単独音の収録音高。**A3 を既定にする**（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
+
+/// これだけ測るまで、レイテンシの目標に収まっているかを言わない（`TR-SYN-33`）。
+///
+/// **3回では中央値も p95 も意味が無い。**
+const LATENCY_MIN_SAMPLES: usize = 10;
 
 /// 段を持ち回すテイクの数（`TR-PLT-04`）。
 ///
@@ -200,6 +206,12 @@ pub struct Studio {
     ///
     /// **録音入力とは別のスレッド。** 録音のコールバックを妨げない。
     workers: Workers,
+    /// 試唱レイテンシの実測（`TR-SYN-33`）。
+    ///
+    /// **押してから鳴るまでを場面ごとに溜める。** 目標と比べられるようにする。
+    observed: HashMap<Case, Observed>,
+    /// この回に試唱を押したことがあるか。**初回かどうかの判定**（`TR-SYN-33`）。
+    ever_previewed: bool,
 }
 
 /// 採用テイクから集めた素材。
@@ -210,6 +222,21 @@ struct Materials {
     tables: HashMap<String, Vec<f64>>,
     /// エイリアスごとの oto。
     otos: HashMap<String, koeru_synth::oto::Oto>,
+}
+
+/// 試唱の待ち時間の実測（`TR-SYN-33`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LatencyRow {
+    /// どの場面か。
+    pub case: Case,
+    /// 測った回数。
+    pub count: usize,
+    /// 中央値（ミリ秒）。
+    pub median_ms: Option<u128>,
+    /// その場面の目標（ミリ秒）。
+    pub budget_ms: u128,
+    /// 収まっているか。**回数が少ないうちは `None`。**
+    pub meets: Option<bool>,
 }
 
 /// 歌わせた結果（`TR-SYN-18`）。
@@ -268,6 +295,8 @@ impl Studio {
             f0_floor: None,
             mipmaps: HashMap::new(),
             workers: Workers::start(),
+            observed: HashMap::new(),
+            ever_previewed: false,
         })
     }
 
@@ -1370,6 +1399,7 @@ impl Studio {
     /// 返るのは（フレーズ数, 落としたフレーズ数, 鳴らす長さ ms）。
     #[tracing::instrument(skip(self), fields(index), err)]
     pub fn sing_song(&mut self, index: usize) -> Result<SungSong> {
+        let started = std::time::Instant::now();
         // **先に止める。** 重ねると何を聴いているか分からなくなる。
         self.stop_preview();
 
@@ -1481,12 +1511,51 @@ impl Studio {
         self.playback_stream = Some(stream);
         self.singing = Some(running);
 
+        // ── 押してから鳴るまでを測る（TR-SYN-33）──
+        //
+        // **場面ごとに分けて溜める。** 同じ目標でひとくくりにすると、
+        // 初回の重さと2回目以降の軽さのどちらかが説明できなくなる。
+        let case = if self.ever_previewed {
+            Case::Warm
+        } else {
+            Case::First
+        };
+        self.ever_previewed = true;
+        let elapsed = started.elapsed();
+        self.observed.entry(case).or_default().record(elapsed);
+        tracing::info!(
+            case = ?case,
+            elapsed_ms = elapsed.as_millis(),
+            budget_ms = latency::budget(case).median.as_millis(),
+            "試唱の待ち時間"
+        );
+
         Ok(SungSong {
             title: song.title,
             phrases: phrase_count,
             dropped_phrases: dropped,
             duration_ms,
         })
+    }
+
+    /// 試唱の待ち時間の実測（`TR-SYN-33`）。
+    ///
+    /// **回数が少ないうちは判定しない。**
+    #[must_use]
+    pub fn latency_report(&self) -> Vec<LatencyRow> {
+        let mut out: Vec<LatencyRow> = self
+            .observed
+            .iter()
+            .map(|(case, o)| LatencyRow {
+                case: *case,
+                count: o.count(),
+                median_ms: o.median().map(|d| d.as_millis()),
+                budget_ms: latency::budget(*case).median.as_millis(),
+                meets: o.meets(*case, LATENCY_MIN_SAMPLES),
+            })
+            .collect();
+        out.sort_by_key(|r| format!("{:?}", r.case));
+        out
     }
 
     /// 採用テイクの素材・周波数表・oto を集める。
