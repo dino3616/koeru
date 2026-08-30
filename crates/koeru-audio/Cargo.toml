@@ -1,0 +1,16 @@
+[package]
+name = "koeru-audio"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の音声入出力。各 OS の API を直接叩き、抽象レイヤを挟まない"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true

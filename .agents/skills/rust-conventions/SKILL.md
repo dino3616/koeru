@@ -86,9 +86,9 @@ fn finalize_take(pcm: &[f32], take_index: usize, method: Method) -> Result<TakeI
 | `clippy::expect_used` | allow | ブートストラップ層で使うため |
 | `clippy::print_stdout` / `print_stderr` / `dbg_macro` | deny | 出力は `tracing` に統一する |
 | `clippy::todo` / `unimplemented` | warn | 実装中に手を止めない |
-| `rust::unsafe_op_in_unsafe_fn` | deny | FFI（miniaudio、WORLD）で `unsafe` は避けられないので、範囲を明示させる |
+| `rust::unsafe_op_in_unsafe_fn` | deny | FFI（各 OS の音声 API、WORLD）で `unsafe` は避けられないので、範囲を明示させる |
 
-`unsafe_code` そのものは禁止しない。miniaudio と WORLD への FFI が必須のため。代わりに `unsafe` ブロックには `// SAFETY:` コメントを必ず書く（`clippy::missing_safety_doc` が `clippy::all` に含まれる）。
+`unsafe_code` そのものは禁止しない。各 OS の音声 API（windows-rs / coreaudio-rs / pipewire-rs）と WORLD への FFI が必須のため。代わりに `unsafe` ブロックには `// SAFETY:` コメントを必ず書く（`clippy::missing_safety_doc` が `clippy::all` に含まれる）。
 
 ### 例外の入れ方
 
@@ -108,7 +108,9 @@ let frames = raw_frames as usize;
 
 **KOERU は AGPL-3.0-or-later。** 許可リストは `deny.toml` にあり、`cargo deny check` が機械判定する。**非商用限定（CC BY-NC 系）、再配布禁止、独自条項のものは通らない。**
 
-**学習済みモデルやデータセットはより慎重に見る。** モデル側の表示ライセンスが、学習に使われたコーパスの条件を上書きできるとは限らない。**「モデルに CC BY と書いてあるから大丈夫」は根拠にならない。** この判断を誤って一度候補を落としている。
+**学習済みモデルやデータセットはより慎重に見る。** モデル側の表示ライセンスが、学習に使われたコーパスの条件を上書きできるとは限らない。**「モデルに CC BY と書いてあるから大丈夫」は根拠にならない。** この判断で一度候補を落としている（MFA 日本語音響モデル）。
+
+**ただし禁止ではない。** 重みが明示的に許諾的なライセンスで配られており、コーパスの条件が及ぶかが法的に定まっていない場合は、**判断で通してよい。通すなら、コーパスの状態と「判断で通した」ことを判断記録に残す**（例: `DEC-SYN-004`）。黙って通さない。
 
 ## 検証
 
