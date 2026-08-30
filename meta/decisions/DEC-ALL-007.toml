@@ -1,0 +1,30 @@
+schema = 'decision'
+id = 'DEC-ALL-007'
+constraint_label = '配布形態との両立'
+constraint = '署名済みバイナリ配布と Flatpak の両方で同じ部品構成が使えること'
+title = '署名配布と両立しない動的リンク前提の部品は、実行時 dlopen 経由でのみ到達する'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '実行時 dlopen 経由でのみ到達する',
+  '静的リンクする',
+  'Linux だけ別構成にする',
+]
+selected = '実行時 dlopen 経由でのみ到達する'
+rationale = '''
+alsa-lib は LGPL-2.1。**LGPL は動的リンクなら取り込めるが、署名済みの単一バイナリ配布と
+Store 配布では、その動的リンクの前提自体が崩れる。**
+
+miniaudio が実行時に dlopen で ALSA へ到達する経路を使う。**KOERU 側は alsa-lib を
+直接リンクしない。** 台帳の status「不適」は、直接の依存として採らないという意味。
+
+Linux は Flatpak 1形態と決めており（DEC-PLT-007）、ランタイム側が ALSA / PipeWire を
+持つため、この経路で足りる。
+'''
+review_triggers = [
+  'Flatpak 以外の Linux 配布形態を採ることにしたとき',
+  'miniaudio の dlopen 経路が使えない環境が出たとき',
+]
+affects_components = [
+  'CMP-REC-011',
+]

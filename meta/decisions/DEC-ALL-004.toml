@@ -1,0 +1,32 @@
+schema = 'decision'
+id = 'DEC-ALL-004'
+constraint_label = '商用購入が前提の基盤'
+constraint = '配布のために商用ライセンス購入が必要になる基盤は採らない'
+title = '商用ライセンス購入が前提の GUI・音声フレームワークは採らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '採らない',
+  '商用ライセンスを購入する',
+  'コピーレフト側の条項で配布する',
+]
+selected = '採らない'
+rationale = '''
+Qt 6 と JUCE 9 は、コピーレフト版と商用版のデュアル。**KOERU は AGPL-3.0-or-later で
+配るのでコピーレフト側の条項自体は満たせるが、混在ができない。**
+Qt の Community Edition は GPL / LGPL で、商用と混ぜられない（qt.io/licensing 実物確認）。
+
+**個人開発として、配布のために年額の商用ライセンスを前提にしない。**
+それが必要になった時点で、開発が止まったときに配布も止まる。
+「渡した先で続けられる」という原則と両立しない。
+
+DEC-PLT-001 で実装スタックは Rust + Tauri と決まっており、GUI 基盤の代替は既にある。
+'''
+review_triggers = [
+  'Tauri で足りない描画要件が出て、代替が Qt / JUCE しかないと分かったとき',
+]
+affects_components = [
+  'CMP-PLT-009',
+  'CMP-PLT-010',
+  'CMP-REC-013',
+]

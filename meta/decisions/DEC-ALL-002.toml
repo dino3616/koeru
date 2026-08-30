@@ -1,0 +1,35 @@
+schema = 'decision'
+id = 'DEC-ALL-002'
+constraint_label = 'ライセンス不明・非商用'
+constraint = 'ライセンスが一次情報で確認できないもの、非商用限定のものは配布物に載せない'
+title = 'ライセンス不明または非商用限定の部品は採らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '採らない',
+  '確認できるまで保留として扱う',
+  '非商用限定は用途を分けて使う',
+]
+selected = '採らない'
+rationale = '''
+AGPL-3.0-or-later で配る以上、**商用利用を制限する条項が1つでも混じると配布できない。**
+MMS_FA は CC-BY-NC 4.0 で明確に非商用。
+
+ライセンス不明のもの（hikari one crystal ja、reclist-gen-cvvc / new_cvvc_generator、
+moresampler、UTAU 同梱 resampler.exe）は、**不明であること自体が採らない理由。**
+「たぶん大丈夫」で載せると、後から外すコストが配布済みの利用者に及ぶ。
+
+moresampler と resampler.exe は Windows 専用でもあるため、
+ライセンスが解決しても DEC-ALL-006 で外れる。
+'''
+review_triggers = [
+  '上流が一次情報でライセンスを明示したとき',
+  '非商用条項が外れたとき',
+]
+affects_components = [
+  'CMP-ALN-010',
+  'CMP-RCL-011',
+  'CMP-RCL-012',
+  'CMP-SYN-016',
+  'CMP-SYN-017',
+]

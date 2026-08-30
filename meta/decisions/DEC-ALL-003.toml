@@ -1,0 +1,39 @@
+schema = 'decision'
+id = 'DEC-ALL-003'
+constraint_label = 'コピーレフトと代替'
+constraint = 'AGPL-3.0-or-later に取り込めるライセンスでも、同等の許容的な代替があるならそちらを採る'
+title = 'コピーレフトの部品は、同等の代替があるなら代替を採る'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '許容的な代替があるならそちらを採る',
+  'AGPL 互換ならそのまま採る',
+  'コピーレフトは一律に採らない',
+]
+selected = '許容的な代替があるならそちらを採る'
+rationale = '''
+**`deny.toml` は GPL-2.0-or-later / GPL-3.0-or-later / LGPL / MPL-2.0 を許可している。**
+AGPL-3.0-or-later なので取り込めるからで、**ここで外れるのはライセンス非互換が理由ではない。**
+
+理由は2つ。(1) 取り込むと下流の再利用先が狭まる。KOERU は「渡した先で続けられる」ことを
+原則に置いているので、部品の選択でその幅を削らない。(2) いずれも同等の代替がある。
+FFTW → KissFFT / RustFFT、libsoxr → libsamplerate、uchardet と UTF.Unknown → 自前実装、
+ttk592/spline → 自前実装。**代替が無いなら取り込む。無いことを確かめてから外す。**
+
+uchardet（MPL-1.1）と UTF.Unknown（MPL-1.1 を含むトライライセンス）は
+そもそも許可リストに無い。MPL は 2.0 のみ許可している。
+BFA は GPL-3.0 とだけ示されており、`-or-later` かどうかが読み取れない。
+**GPL-3.0-only なら AGPL-3.0 と結合できないため、確認できるまで外す。**
+'''
+review_triggers = [
+  '代替の実装コストが見積もりを大きく超えたとき',
+  'BFA のライセンスが or-later と確認できたとき',
+]
+affects_components = [
+  'CMP-ALN-011',
+  'CMP-EDT-012',
+  'CMP-EDT-013',
+  'CMP-PLT-018',
+  'CMP-REC-012',
+  'CMP-SYN-015',
+]

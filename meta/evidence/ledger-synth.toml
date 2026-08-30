@@ -1,7 +1,8 @@
 # 即時試唱と合成エンジン の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'synth'
@@ -119,6 +120,7 @@ name = 'ttk592/spline'
 purpose = 'worldline の `effects.cpp` が使う三次スプライン補間'
 license = '**GPL-2.0-or-later**（デュアルライセンスの提示なし）'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 note = '自前実装で置換。→ DEC-PLT-002'
 
 [[component]]
@@ -127,6 +129,7 @@ name = 'moresampler'
 purpose = 'UTAU 向け高品質 resampler'
 license = '**Unknown**'
 status = '不適'
+decided_by = 'DEC-ALL-002'
 note = 'Windows 専用、かつライセンス不明'
 
 [[component]]
@@ -135,6 +138,7 @@ name = 'UTAU 同梱 resampler.exe'
 purpose = 'UTAU 標準の resampler'
 license = '**Unknown**'
 status = '不適'
+decided_by = 'DEC-ALL-002'
 note = 'Windows 専用'
 
 [[component]]

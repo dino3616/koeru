@@ -23,6 +23,3 @@ affects_requirements = [
   'TR-EDT-01',
   'TR-ALN-24',
 ]
-affects_questions = [
-  'Q-ALN-002',
-]

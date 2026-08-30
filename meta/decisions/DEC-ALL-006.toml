@@ -1,0 +1,33 @@
+schema = 'decision'
+id = 'DEC-ALL-006'
+constraint_label = 'ローカル完結と単一実装'
+constraint = '処理はローカル完結、実装は単一のネイティブアプリ1本'
+title = 'ローカル完結・単一実装の方針に反する部品は採らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '採らない',
+  '一部の工程だけ例外にする',
+  '方針のほうを緩める',
+]
+selected = '採らない'
+rationale = '''
+**声をサーバへ送らないことは製品の前提**（DEC-PLT-005）。MAUS / WebMAUS は
+Web サービスなので、精度がどれだけ高くても採れない。
+
+PyInstaller は Python 依存を残したまま配る手段で、TR-PLT-07（単一のネイティブアプリ）と
+TR-ALN-01 に反する。**「動く」ことと「配れる」ことは別。**
+
+SwiftUI + WinUI 3 の OS 別実装は、各 SDK の利用条項が第三者への再配布ライセンスではない
+という問題に加えて、**同じ製品を2本作ることになる。** 個人開発では両方が同じ速度で
+進まず、片方が必ず遅れる。
+'''
+review_triggers = [
+  'ローカル完結の前提が変わったとき',
+  'Tauri で到達できない OS 固有要件が出たとき',
+]
+affects_components = [
+  'CMP-ALN-016',
+  'CMP-ALN-017',
+  'CMP-PLT-012',
+]

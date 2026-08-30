@@ -20,3 +20,9 @@ review_triggers = [
 ]
 affects_requirements = ["TR-PLT-03", "TR-PLT-12", "TR-PLT-15", "TR-PLT-21"]
 affects_budgets = ["BUDGET-MEMORY-001"]
+
+# .NET 前提の部品はここで外れる。SharpZipLib は MIT で許諾に問題は無いが、
+# **スタックが Rust になった時点で採る理由が消えた。** 置き換えは `zip`（CMP-PKG-010）。
+affects_components = [
+  'CMP-PKG-008',
+]

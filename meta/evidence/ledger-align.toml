@@ -1,7 +1,8 @@
 # 自動原音設定 の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'align'
@@ -63,6 +64,7 @@ name = 'SOFA'
 purpose = '歌声専用アライメント。境界確率ヘッドと確信度出力の参照設計'
 license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
 status = '不適'
+decided_by = 'DEC-ALL-001'
 note = '配布モデルの再配布許諾が確認できない'
 
 [[component]]
@@ -71,6 +73,7 @@ name = 'HubertFA'
 purpose = '歌声向け強制アライメント'
 license = 'コード Apache-2.0 / 配布モデルは明示なし（**Unknown**）'
 status = '不適'
+decided_by = 'DEC-ALL-001'
 note = '同上。release ノートが第三者の歌唱データ提供者を列挙している'
 
 [[component]]
@@ -79,6 +82,7 @@ name = 'narabas'
 purpose = '日本語音素の強制アライメント（wav2vec2 ベース）'
 license = 'MIT（学習済みモデルもリポジトリ同梱）'
 status = '不適'
+decided_by = 'DEC-ALL-001'
 note = 'サイズ帯が 200MB 超、かつ学習データが ReazonSpeech'
 
 [[component]]
@@ -87,6 +91,7 @@ name = 'torchaudio forced_align + MMS_FA'
 purpose = 'CTC 強制アライメント API と多言語モデル'
 license = 'コード BSD-2-Clause / **MMS_FA モデルは CC-BY-NC 4.0（非商用）**'
 status = '不適'
+decided_by = 'DEC-ALL-002'
 
 [[component]]
 id = 'CMP-ALN-011'
@@ -94,6 +99,7 @@ name = 'BFA'
 purpose = '音素レベルのタイムスタンプ抽出、確信度付き'
 license = 'GPL-3.0'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 
 [[component]]
 id = 'CMP-ALN-012'
@@ -101,6 +107,7 @@ name = 'Charsiu / MAPS'
 purpose = 'フレーム分類型アライナ / サブフレーム境界推定手法の参照'
 license = 'MIT（学習済みモデルの条件は別途）'
 status = '不適'
+decided_by = 'DEC-ALL-001'
 
 [[component]]
 id = 'CMP-ALN-013'
@@ -116,6 +123,7 @@ name = 'setParam の自動推定'
 purpose = '既存の自動推定の規約と入力仕様の参照'
 license = '作者が snack に倣って GPL と明記'
 status = '不適'
+decided_by = 'DEC-ALL-005'
 note = 'GPL の Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める'
 
 [[component]]
@@ -131,6 +139,7 @@ name = 'MAUS / WebMAUS'
 purpose = '日本語アライメントの比較対象'
 license = '**Unknown**（Web サービス）'
 status = '不適'
+decided_by = 'DEC-ALL-006'
 note = 'ローカル完結に反する'
 
 [[component]]
@@ -139,6 +148,7 @@ name = 'PyInstaller'
 purpose = 'Python 依存を残す場合の配布手段'
 license = 'GPL-2.0 with exception（生成物には制約なし）'
 status = '不適'
+decided_by = 'DEC-ALL-006'
 note = 'TR-PLT-07 / TR-ALN-01 に反する'
 
 [[component]]

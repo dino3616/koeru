@@ -1,7 +1,8 @@
 # パッケージング・互換性・データ永続化 の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'packaging'
@@ -56,6 +57,7 @@ name = 'tracing ＋ tracing-subscriber'
 purpose = '構造化ログとトレースの基盤'
 license = 'MIT'
 status = '採用'
+decided_by = 'DEC-PLT-009'
 
 [[component]]
 id = 'CMP-PKG-008'
@@ -63,6 +65,7 @@ name = 'SharpZipLib'
 purpose = 'CP932 エントリ名の ZIP 生成の代替'
 license = 'MIT'
 status = '不適'
+decided_by = 'DEC-PLT-001'
 
 [[component]]
 id = 'CMP-PKG-009'
@@ -98,6 +101,7 @@ name = 'tracing + tracing-opentelemetry'
 purpose = '計装'
 license = 'MIT / Apache-2.0'
 status = '採用候補'
+decided_by = 'DEC-PLT-009'
 
 [[component]]
 id = 'CMP-PKG-014'

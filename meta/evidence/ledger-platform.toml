@@ -1,7 +1,8 @@
 # 実装基盤とアプリケーション形態 の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'platform'
@@ -72,6 +73,7 @@ name = 'Qt 6'
 purpose = 'GUI（対抗案）'
 license = 'Community Edition は GPL / LGPL、別に商用。混在不可（qt.io/licensing 実物確認）'
 status = '不適'
+decided_by = 'DEC-ALL-004'
 note = 'クローズドソース配布には有償ライセンス購入が前提'
 
 [[component]]
@@ -80,6 +82,7 @@ name = 'JUCE 9'
 purpose = '音声 I/O を含むアプリフレームワーク'
 license = 'AGPLv3 と商用のデュアル'
 status = '不適'
+decided_by = 'DEC-ALL-004'
 note = '同上'
 
 [[component]]
@@ -96,6 +99,7 @@ name = 'SwiftUI + WinUI 3 の OS 別実装'
 purpose = 'GUI（対抗案）'
 license = '各 SDK 利用条項（第三者への再配布ライセンスではない）'
 status = '不適'
+decided_by = 'DEC-ALL-006'
 
 [[component]]
 id = 'CMP-PLT-013'
@@ -138,6 +142,7 @@ name = 'UTF.Unknown'
 purpose = '既存音源フォルダの文字コード推定'
 license = 'MPL-1.1 / GPL-2.0+ / LGPL-2.1+ のトライライセンス（README 実物確認。GitHub API は license: null）'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 note = '自前実装で置換。下記参照'
 
 [[component]]
@@ -155,6 +160,7 @@ name = 'SOFA'
 purpose = '歌声専用アライメント。境界信頼度の参照設計'
 license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
 status = '不適'
+decided_by = 'DEC-ALL-001'
 note = '配布モデルの再配布許諾が確認できない'
 
 [[component]]

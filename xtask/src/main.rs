@@ -644,6 +644,18 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
                     e.path.display()
                 ));
             }
+            // **決め切った採否には、理由と撤回条件が要る。** それを持つのは判断記録だけ。
+            // 「採用候補」「条件付き」「要調査」はまだ決めていないので対象外。
+            if matches!(str_of(&t, "status"), Some("採用" | "不適"))
+                && str_of(&t, "decided_by").is_none()
+            {
+                let id = str_of(&t, "id").unwrap_or("?");
+                rep.error(format!(
+                    "{}: `{id}` は採否を決めているのに decided_by が無い。\
+                     理由と撤回条件を持つ判断記録へ繋ぐこと",
+                    e.path.display()
+                ));
+            }
         }
     }
     let targets: usize = with_schema(entries, "target-set")

@@ -1,7 +1,8 @@
 # 録音リスト生成とカバレッジ管理 の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'reclist'
@@ -85,6 +86,7 @@ name = 'hikari one crystal ja'
 purpose = '多音階連続音音源の規模とエイリアス構成の実測データ'
 license = '**Unknown**'
 status = '不適'
+decided_by = 'DEC-ALL-002'
 
 [[component]]
 id = 'CMP-RCL-012'
@@ -92,6 +94,7 @@ name = 'reclist-gen-cvvc / new_cvvc_generator'
 purpose = 'CVVC 録音リスト生成器'
 license = '**Unknown**'
 status = '不適'
+decided_by = 'DEC-ALL-002'
 
 [[component]]
 id = 'CMP-RCL-013'

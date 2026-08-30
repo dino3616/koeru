@@ -1,7 +1,8 @@
 # 原音設定エディタ の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'editor'
@@ -70,6 +71,7 @@ name = 'setParam'
 purpose = '機能の基準線（自動推定、ゼロクロス吸着、F1〜F5、確認再生、合成試聴、テーブル範囲編集）'
 license = 'GPL（作者が snack に倣って GPL と明記）'
 status = '不適'
+decided_by = 'DEC-ALL-005'
 note = 'Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める'
 
 [[component]]
@@ -78,6 +80,7 @@ name = 'KiraOtoToolbox'
 purpose = '一括編集の必須集合を決めるための仕様源（5カテゴリ19ツール）'
 license = 'GPL-3.0'
 status = '不適'
+decided_by = 'DEC-ALL-005'
 note = '機能リストという事実の抽出のみ。実装は独立に行う'
 
 [[component]]
@@ -86,6 +89,7 @@ name = 'snack'
 purpose = 'setParam の音声処理基盤'
 license = 'GPL'
 status = '不適'
+decided_by = 'DEC-ALL-005'
 
 [[component]]
 id = 'CMP-EDT-012'
@@ -93,6 +97,7 @@ name = 'FFTW'
 purpose = 'FFT'
 license = 'GPL または商用'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 
 [[component]]
 id = 'CMP-EDT-013'
@@ -100,6 +105,7 @@ name = 'uchardet'
 purpose = '文字コード判定（ネイティブ）'
 license = 'MPL-1.1'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 note = '自前実装で置換'
 
 [[component]]

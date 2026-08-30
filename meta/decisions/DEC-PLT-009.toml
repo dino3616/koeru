@@ -1,0 +1,34 @@
+schema = 'decision'
+id = 'DEC-PLT-009'
+constraint_label = '出力の経路'
+constraint = '音源名・ファイルパス・歌詞・プロジェクト名を、出力経路に載せない'
+title = '出力は tracing に一本化し、println! / eprintln! / dbg! を使わない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'tracing に一本化する',
+  'log クレートを使う',
+  '標準出力への直接出力を許す',
+]
+selected = 'tracing に一本化する'
+rationale = '''
+**出力経路が複数あると、送信フィールドのホワイトリストが素通しになる。**
+KOERU は「非公開のまま完成できる」ことを担保しているので、音源名・ファイルパス・歌詞・
+プロジェクト名がトレースに載ると前提が崩れる。ホワイトリストを1箇所に置くには、
+**通る経路が1本でなければならない。**
+
+`println!` / `eprintln!` / `dbg!` はその1本を迂回する。lint で deny している
+（`[workspace.lints]` の `print_stdout` / `print_stderr`）。
+
+`log` ではなく `tracing` を採るのは、構造化フィールドとスパンを持つため。
+フィールド名で通す・通さないを決められることが、ホワイトリスト方式の前提になる。
+利用計測（DEC-TEL-001）の送信経路も同じ層に載せる。
+'''
+review_triggers = [
+  'tracing-subscriber のフィルタでホワイトリストを表現しきれないと分かったとき',
+]
+affects_components = [
+  'CMP-PKG-007',
+  'CMP-PKG-013',
+]
+affects_decisions = ['DEC-TEL-001']

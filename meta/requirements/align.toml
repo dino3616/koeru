@@ -362,7 +362,7 @@ notes = [
 [[requirement]]
 id = 'TR-ALN-25'
 title = '確信度の校正と確認キューの運用'
-confidence = 'Assumption'
+confidence = 'Fact'
 depends_on = [
   'TR-ALN-24',
 ]

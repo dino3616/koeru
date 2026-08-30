@@ -1,7 +1,8 @@
 # 録音サブシステム の部品台帳
 #
 # ライセンス監査の面。**採否そのものは判断記録（decided_by）が持つ。**
-# decided_by が無いものは、まだ判断記録になっていない採否。
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」はまだ決めていないので不要。
 
 schema = 'component-ledger'
 domain = 'recording'
@@ -86,6 +87,7 @@ name = 'alsa-lib'
 purpose = 'ALSA デバイスへの直接アクセス'
 license = 'LGPL-2.1'
 status = '不適'
+decided_by = 'DEC-ALL-007'
 note = 'Store / 署名配布と両立しない。miniaudio の実行時 dlopen 経由でのみ ALSA に到達する'
 
 [[component]]
@@ -94,6 +96,7 @@ name = 'libsoxr'
 purpose = 'リサンプル'
 license = 'LGPL-2.1 以降'
 status = '不適'
+decided_by = 'DEC-ALL-003'
 note = 'libsamplerate で置換'
 
 [[component]]
@@ -102,6 +105,7 @@ name = 'JUCE 9'
 purpose = '音声 I/O を含むフレームワーク'
 license = 'AGPLv3 と商用のデュアル'
 status = '不適'
+decided_by = 'DEC-ALL-004'
 
 [[component]]
 id = 'CMP-REC-014'
