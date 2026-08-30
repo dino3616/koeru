@@ -8,6 +8,9 @@
 //! （出力は tracing に統一する規律は、アプリのコードに掛かるもの）。
 
 #![allow(clippy::print_stdout)]
+// **macOS 専用。** 他 OS のバックエンドはまだ無い（DEC-REC-001 で後回しと決めた）。
+// これを付け忘れて Windows / Linux の CI を落とした。
+#![cfg(target_os = "macos")]
 
 use koeru_audio::{Session, backend::macos as mac, wav};
 
