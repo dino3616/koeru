@@ -8,4 +8,5 @@
 
 pub mod oto;
 pub mod resampler;
+pub mod segment;
 pub mod world;

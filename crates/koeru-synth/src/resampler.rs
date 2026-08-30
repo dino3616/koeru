@@ -74,6 +74,13 @@ impl RenderError {
 
 type Result<T> = std::result::Result<T, RenderError>;
 
+/// 素材の F0 を探す下限（Hz）。**歌声の音域を広く取る。**
+///
+/// 目標音高から範囲を作ってはいけない。素材は別の音高で録られている。
+const SOURCE_F0_FLOOR_HZ: f64 = 55.0;
+/// 素材の F0 を探す上限（Hz）。
+const SOURCE_F0_CEIL_HZ: f64 = 1100.0;
+
 /// MIDI ノート番号を Hz にする。A4（69）= 440 Hz。
 #[must_use]
 pub fn midi_to_hz(note: i32) -> f64 {
@@ -107,14 +114,17 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     // ── 2. 分析 ─────────────────────────────────────────
     let frame_ms = world::DEFAULT_FRAME_PERIOD_MS;
     let base_hz = midi_to_hz(req.tone);
-    // 探索範囲は収録音高の上下1オクターブ。**話者音域が分かっているので絞れる。**
+    // **探索範囲は目標音高から作らない。** 素材は別の音高で録られている
+    // ——それを別の音高で鳴らすのが resampler の役目なので、目標から範囲を引くと
+    // 素材の基本周波数が範囲外に落ちる。**実際に踏んだ。**
+    // 歌声の音域を広く取る。**周波数表があれば、そもそも推定しない**（TR-SYN-08）。
     let (src_f0, time_axis) = if req.frequency_table.is_empty() {
         world::estimate_f0(
             region,
             fs,
             world::F0Method::DioStoneMask,
-            (base_hz / 2.0).max(40.0),
-            base_hz * 2.0,
+            SOURCE_F0_FLOOR_HZ,
+            SOURCE_F0_CEIL_HZ,
             frame_ms,
         )
     } else {
