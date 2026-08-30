@@ -7,8 +7,10 @@
 # **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
 # 「採用候補」「条件付き」「要調査」「要選定」はまだ決めていないので不要。
 #
-# `supports_requirements` は「この部品が支える要件」。**埋まっていない部品がある。**
-# `cargo xtask check-coverage` が、支える部品が1つも無い要件を報告する。
+# `supports_requirements` は「この部品が支える要件」。
+# 要件の側は、外部部品が要らないなら `needs_component = false` を宣言する。
+# **すべての要件がどちらか一方に属する。** `cargo xtask check-coverage` が両方を検査する
+# （支える部品が1つも無い要件、および両方を宣言している矛盾）。
 
 schema = 'component-ledger'
 
@@ -57,6 +59,9 @@ decided_by = 'DEC-ALN-001'
 domains = [
   'align',
 ]
+supports_requirements = [
+  'TR-ALN-05',
+]
 note = '帰属表示付きで流用可'
 
 [[component]]
@@ -68,6 +73,9 @@ status = '不適'
 decided_by = 'DEC-ALN-001'
 domains = [
   'align',
+]
+supports_requirements = [
+  'TR-ALN-05',
 ]
 note = '評価の対照としてのみ使う。→ Q-ALN-001'
 
@@ -285,6 +293,11 @@ domains = [
   'editor',
   'reclist',
 ]
+supports_requirements = [
+  'TR-PLT-11',
+  'TR-EDT-18',
+  'TR-EDT-27',
+]
 
 [[component]]
 id = 'CMP-022'
@@ -406,6 +419,8 @@ domains = [
 ]
 supports_requirements = [
   'TR-PKG-03',
+  'TR-PKG-29',
+  'TR-PKG-32',
 ]
 note = '`serde_yaml` は保守終了のため後継を選ぶ'
 
@@ -506,6 +521,9 @@ supports_requirements = [
   'TR-PKG-26',
   'TR-PKG-27',
   'TR-PKG-52',
+  'TR-PKG-24',
+  'TR-PKG-25',
+  'TR-PKG-47',
 ]
 note = '既存音源の取り込みを範囲に含める場合。rar / 7z は crate のライセンスを個別に確認する'
 
@@ -523,6 +541,14 @@ supports_requirements = [
   'TR-PKG-13',
   'TR-PKG-17',
   'TR-EDT-38',
+  'TR-REC-33',
+  'TR-RCL-08',
+  'TR-RCL-24',
+  'TR-PKG-02',
+  'TR-PKG-09',
+  'TR-PKG-12',
+  'TR-PKG-16',
+  'TR-PKG-48',
 ]
 
 [[component]]
@@ -539,6 +565,12 @@ supports_requirements = [
   'TR-REC-28',
   'TR-REC-31',
   'TR-PKG-41',
+  'TR-REC-29',
+  'TR-REC-30',
+  'TR-RCL-18',
+  'TR-RCL-23',
+  'TR-PKG-42',
+  'TR-PKG-44',
 ]
 
 [[component]]
@@ -608,6 +640,15 @@ domains = [
   'reclist',
   'recording',
   'synth',
+]
+supports_requirements = [
+  'TR-PLT-10',
+  'TR-RCL-12',
+  'TR-RCL-20',
+  'TR-SYN-11',
+  'TR-SYN-12',
+  'TR-PKG-31',
+  'TR-RCL-02',
 ]
 note = '**仕様参照のみ。vendoring はしない**（DEC-PLT-011）。C# なので Rust へは移植ではなく書き直しになる / **仕様と振る舞いの参照のみ**（DEC-PLT-011） / **仕様参照のみ。移植はしない**（DEC-PLT-011） / 音源形式の読み書きの**仕様参照のみ**。互換は OpenUtau で読み込めることを CI で検証して担保する / 検査項目という機能的事実の参照のみ。元から参照のみ / **日本語 phonemizer は仕様を参照して自前実装する**（TR-SYN-11）。移植はしない / 同上。Classic 層の振る舞いを仕様として参照する'
 
@@ -787,6 +828,9 @@ decided_by = 'DEC-ALN-001'
 domains = [
   'platform',
 ]
+supports_requirements = [
+  'TR-ALN-05',
+]
 note = 'Python / Conda / Kaldi ランタイムを要する'
 
 [[component]]
@@ -803,6 +847,7 @@ supports_requirements = [
   'TR-PLT-06',
   'TR-PLT-07',
   'TR-PLT-21',
+  'TR-PLT-02',
 ]
 
 [[component]]
@@ -820,6 +865,10 @@ supports_requirements = [
   'TR-PLT-09',
   'TR-PLT-21',
   'TR-PLT-29',
+  'TR-PLT-18',
+  'TR-PLT-24',
+  'TR-PLT-26',
+  'TR-EDT-23',
 ]
 
 [[component]]
@@ -836,6 +885,9 @@ supports_requirements = [
   'TR-PLT-03',
   'TR-PLT-12',
   'TR-PLT-19',
+  'TR-PLT-26',
+  'TR-PLT-29',
+  'TR-EDT-23',
 ]
 
 [[component]]
@@ -851,6 +903,7 @@ supports_requirements = [
   'TR-RCL-13',
   'TR-RCL-14',
   'TR-SYN-10',
+  'TR-RCL-07',
 ]
 
 [[component]]
@@ -926,6 +979,9 @@ status = '参照のみ'
 domains = [
   'reclist',
   'recording',
+]
+supports_requirements = [
+  'TR-PLT-11',
 ]
 
 [[component]]
@@ -1112,6 +1168,20 @@ supports_requirements = [
   'TR-REC-40',
   'TR-SYN-28',
   'TR-SYN-35',
+  'TR-PLT-18',
+  'TR-REC-06',
+  'TR-REC-07',
+  'TR-REC-14',
+  'TR-REC-15',
+  'TR-REC-16',
+  'TR-REC-19',
+  'TR-REC-22',
+  'TR-REC-23',
+  'TR-REC-24',
+  'TR-REC-26',
+  'TR-SYN-03',
+  'TR-SYN-29',
+  'TR-EDT-19',
 ]
 
 [[component]]
@@ -1153,6 +1223,7 @@ domains = [
 ]
 supports_requirements = [
   'TR-SYN-06',
+  'TR-SYN-07',
 ]
 note = 'NOTICE 保持'
 
@@ -1260,6 +1331,8 @@ supports_requirements = [
   'TR-SYN-21',
   'TR-SYN-22',
   'TR-SYN-31',
+  'TR-SYN-23',
+  'TR-PKG-05',
 ]
 
 [[component]]
@@ -1276,6 +1349,7 @@ supports_requirements = [
   'TR-SYN-05',
   'TR-SYN-08',
   'TR-SYN-09',
+  'TR-SYN-07',
 ]
 note = '`@spline` の除去は不要になった（AGPL-3.0 を選んだため GPL-2.0-or-later を取り込める。TR-SYN-06）'
 
@@ -1357,3 +1431,99 @@ supports_requirements = [
   'TR-PLT-16',
 ]
 note = 'Tauri 公式。**署名鍵の運用と、Flatpak では使わない前提の確認が要る**'
+
+[[component]]
+id = 'CMP-101'
+name = 'Flatpak / flatpak-builder'
+purpose = 'Linux の配布形態。WebKitGTK のディストリビューション依存を runtime に吸収する'
+license = 'LGPL-2.1-or-later（ランタイムは含めて配布しない）'
+status = '条件付き'
+decided_by = 'DEC-PLT-007'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-15',
+]
+note = '**Flatpak を使わない Linux 利用者には配布経路が無い**（TR-PLT-15 の [Risk]）。deb / AppImage を併載しない判断の帰結'
+
+[[component]]
+id = 'CMP-102'
+name = 'cargo-deny'
+purpose = '依存ライセンスの許諾リスト検証。禁止した条項の再混入をビルドで落とす'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PLT-002'
+domains = [
+  'platform',
+  'synth',
+]
+supports_requirements = [
+  'TR-PLT-22',
+  'TR-SYN-07',
+]
+note = '**既にリポジトリで使っている**（`deny.toml`、CI）。台帳に載っていなかった'
+
+[[component]]
+id = 'CMP-103'
+name = 'cargo-about'
+purpose = '第三者ライセンスの一覧と本文の生成。アプリ内から参照できる形に出す'
+license = 'MIT / Apache-2.0'
+status = '採用候補'
+domains = [
+  'platform',
+  'align',
+]
+supports_requirements = [
+  'TR-PLT-22',
+  'TR-ALN-31',
+]
+note = '**crate は覆えるが、モデル重みと辞書は覆えない。** TR-ALN-31 の台帳は components.toml が持ち、表記へ流し込む経路だけをこれが担う'
+
+[[component]]
+id = 'CMP-104'
+name = 'axe-core'
+purpose = 'アクセシビリティの自動検査。名前・役割・値、コントラスト、フォーカス順序を CI で見る'
+license = 'MPL-2.0'
+status = '採用候補'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-25',
+  'TR-PLT-27',
+  'TR-PLT-28',
+  'TR-PLT-31',
+]
+note = '**自動で測れるのは一部だけ。** キーボード完結・ドラッグの代替・状態通知の妥当性は手動確認に残る（TR-PLT-25）'
+
+[[component]]
+id = 'CMP-105'
+name = 'notify'
+purpose = 'ファイルシステムの監視。KOERU の外で oto.ini が変更されたことの検知'
+license = 'CC0-1.0 / MIT-0 / Artistic-2.0'
+status = '採用候補'
+domains = [
+  'editor',
+]
+supports_requirements = [
+  'TR-EDT-40',
+]
+note = '**自身の書き込みで通知しない仕組みが要る**（TR-EDT-40）。監視の除外はライブラリ側では解けないので、書き込み中の抑止はアプリで持つ'
+
+[[component]]
+id = 'CMP-106'
+name = 'unicode-normalization'
+purpose = 'NFC 正規化。外部から文字列が入る全境界で適用する'
+license = 'MIT / Apache-2.0'
+status = '採用候補'
+domains = [
+  'packaging',
+  'recording',
+]
+supports_requirements = [
+  'TR-PKG-11',
+  'TR-REC-32',
+  'TR-PKG-48',
+]
+note = 'macOS のファイルシステムが NFD を返すため、読み戻した名前ではなく内部モデルを正とする（TR-PKG-11）'

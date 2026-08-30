@@ -26,6 +26,7 @@ domain_risks = [
 id = 'TR-RCL-01'
 title = '方式プリセットを「方式 × モーラ長 × 音階数 × 音素インベントリ」の単一データとして定義する'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = 'プリセットを方式名ではなくプリセット ID で管理し、各プリセットが (a) 収録方式（CV / VCV / CVVC）、(b) 1行あたり最大モーラ数、(c) 収録音高の本数と音高、(d) 音素インベントリのバージョン、(e) 語頭 CV を含めるか、(f) 表示用の所要時間と到達点 を必須フィールドとして持つ。**録音リスト・所要時間表示・カバレッジ台帳・書き出し可能方式の判定はすべてこの1個のプリセットデータから導出し、同じ値を二重に持たない**'
 notes = [
@@ -89,6 +90,7 @@ notes = [
 id = 'TR-RCL-06'
 title = '多音階の収録音高を 5〜9 半音間隔で 3 本を既定とし、prefix.map を floor 割り当てで生成する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-01',
   'TR-RCL-22',
@@ -130,6 +132,7 @@ notes = [
 id = 'TR-RCL-09'
 title = '所要時間を「行数 × 行オーバーヘッド + 総モーラ数 × 単位発声時間 × (1 + 録り直し率) × 音高数」で算出する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-RCL-01',
   'TR-RCL-03',
@@ -146,6 +149,7 @@ notes = [
 id = 'TR-RCL-10'
 title = '所要時間パラメータをユーザーの実測から更新し、残り時間の表示に反映する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-RCL-09',
   'TR-RCL-23',
@@ -159,6 +163,7 @@ notes = [
 id = 'TR-RCL-11'
 title = '方式選択画面には各プリセットにつき単一の所要時間と到達点を出し、時間だけで並べない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-09',
   'TR-RCL-19',
@@ -206,6 +211,7 @@ notes = [
 id = 'TR-RCL-15'
 title = '課題曲ごとに、方式別の必要収録単位集合を算出する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-13',
   'TR-RCL-06',
@@ -219,6 +225,7 @@ notes = [
 id = 'TR-RCL-16'
 title = '曲先行のミニ音源は、フルリストの部分集合として選ぶ'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-15',
   'TR-RCL-03',
@@ -234,6 +241,7 @@ notes = [
 id = 'TR-RCL-17'
 title = '「あと何フレーズ録れば次の曲が歌えるか」を、収録済み単位からの増分被覆として算出する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-15',
   'TR-RCL-16',
@@ -265,6 +273,7 @@ notes = [
 id = 'TR-RCL-19'
 title = '進捗はカバレッジと歌える曲を常時両方見せる'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-15',
   'TR-RCL-20',
@@ -295,6 +304,7 @@ notes = [
 id = 'TR-RCL-21'
 title = '上位方式から下位方式への書き出し可能性を、生成リストの構成として保証し、可能性を台帳から判定する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-04',
   'TR-RCL-18',
@@ -314,6 +324,7 @@ notes = [
 id = 'TR-RCL-22'
 title = '課題曲の音域と収録音高の整合を判定し、必要シフト量が範囲外なら曲またはプリセットの側で提示する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-RCL-06',
   'TR-RCL-12',
@@ -355,6 +366,7 @@ notes = [
 id = 'TR-RCL-25'
 title = '同一行の複数テイクを保持し、採用テイクの切り替えでカバレッジが変わらないことを保証する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-18',
 ]
@@ -371,6 +383,7 @@ notes = [
 id = 'TR-RCL-26'
 title = '多音階のカバレッジを音高ごとに独立管理し、進捗表示では音高を跨いだ最小値で扱う'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-RCL-06',
   'TR-RCL-18',
@@ -392,6 +405,7 @@ notes = [
 id = 'TR-RCL-27'
 title = '録音リスト生成を決定的にし、同じプリセットとインベントリからは常に同一のリストを得る'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-RCL-01',
   'TR-RCL-18',

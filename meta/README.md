@@ -44,6 +44,7 @@
 - `schema` を書き忘れる / 知らない `schema` を書く / 置き場所と形が合わない
 - **件数を散文に書く。** 数は `cargo xtask check-meta` が数える。書くと片方だけが古くなる
 - **同じ部品を複数行に載せる。** 台帳は1部品1行。どの領域で使うかは `domains` が持つ
+- **要件がどちらにも属さない。** 支える部品を `supports_requirements` で指すか、要件側で `needs_component = false` を宣言する。両方は矛盾
 - 部品の採否を「採用」「不適」に決めたのに `decided_by` を書かない（理由と撤回条件が残らない）
 - `id` が無い（1件1ファイルでも、収集ファイルの1件でも）
 - `id` の接頭辞が形と合わない / `id` が重複する
@@ -85,7 +86,7 @@
 ```bash
 cargo xtask check-meta       # 必須項目と、参照先 ID の実在
 cargo xtask check-budgets    # 配分の合計が上限を超えていないか
-cargo xtask check-coverage   # 支える部品が1つも無い要件がどれだけあるか
+cargo xtask check-coverage   # 全要件が「支える部品がある」か「外部部品が要らない」のどちらかか
 cargo xtask check-profile ID # 未決の論点がリリースを塞いでいないか
 ```
 

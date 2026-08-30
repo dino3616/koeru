@@ -102,6 +102,7 @@ notes = [
 id = 'TR-ALN-07'
 title = '実行時に g2p を持たない'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '実行時に日本語 g2p（形態素解析・読み推定）を持ち込まない。録音リストは、各収録項目に対して「表示テキスト」「エイリアス列」「音素列」「モーラ境界」を明示的に持つデータとしてアプリに同梱し、アライナへ渡す音素列はこのデータから直接構成する。仮名から音素への写像は辞書ファイル（例: `ka → k a`）としてリソースに置き、コードに埋め込まない。'
 notes = [
@@ -113,6 +114,7 @@ notes = [
 id = 'TR-ALN-08'
 title = '収録グリッドをプロジェクトに記録し事前分布として使う'
 confidence = 'Assumption'
+needs_component = false
 depends_on = []
 statement = '収録時に「ガイド音の各拍の絶対時刻」「プロンプト表示時刻」「収録テンポ」「1ファイル内の想定モーラ数と想定発声開始位置」を記録する。**グリッドは Viterbi の遷移コストに加算するソフトな事前分布として与え、探索空間そのものは制限しない**（グリッド無視の解が音響的に十分に優勢なら選ばれるようにする）。二段アライメントの一段目でのみグリッドを強く効かせ、二段目は一段目の解の周辺で制限を外して再探索する。グリッド解と非制限解のスコア差が閾値を超えたテイクは**グリッド逸脱として確信度を下げ、非制限解を採用する**'
 notes = [
@@ -125,6 +127,7 @@ notes = [
 id = 'TR-ALN-09'
 title = 'テキスト逸脱時の挙動を定義する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-03',
   'TR-ALN-24',
@@ -156,6 +159,7 @@ notes = [
 id = 'TR-ALN-11'
 title = '単独音は専用経路で処理する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-03',
   'TR-ALN-08',
@@ -170,6 +174,7 @@ notes = [
 id = 'TR-ALN-12'
 title = '話者内一貫性による外れ値補正'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-10',
   'TR-ALN-24',
@@ -185,6 +190,7 @@ notes = [
 id = 'TR-ALN-13'
 title = '5値の導出源を機械導出と規約に分離する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-14',
   'TR-ALN-15',
@@ -202,6 +208,7 @@ notes = [
 id = 'TR-ALN-14'
 title = 'オフセット（左ブランク）の導出'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-07',
 ]
@@ -215,6 +222,7 @@ notes = [
 id = 'TR-ALN-15'
 title = '先行発声の導出'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-06',
   'TR-ALN-24',
@@ -229,6 +237,7 @@ notes = [
 id = 'TR-ALN-16'
 title = 'オーバーラップの導出規約'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-14',
   'TR-ALN-15',
@@ -245,6 +254,7 @@ notes = [
 id = 'TR-ALN-17'
 title = '子音部（固定範囲）の導出規約'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-15',
   'TR-ALN-18',
@@ -260,6 +270,7 @@ notes = [
 id = 'TR-ALN-18'
 title = '右ブランクの導出規約'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-17',
   'TR-ALN-21',
@@ -274,6 +285,7 @@ notes = [
 id = 'TR-ALN-19'
 title = 'CVVC の VC 切り出しを独立した規約セットとして持つ'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-15',
   'TR-ALN-17',
@@ -319,6 +331,7 @@ notes = [
 id = 'TR-ALN-22'
 title = '多音階の oto を音階単位で独立に扱う'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-12',
 ]
@@ -332,6 +345,7 @@ notes = [
 id = 'TR-ALN-23'
 title = '規約プリセットの外部化'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-13',
   'TR-ALN-16',
@@ -363,6 +377,7 @@ notes = [
 id = 'TR-ALN-25'
 title = '確信度の校正と確認キューの運用'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-24',
 ]
@@ -384,6 +399,7 @@ notes = [
 id = 'TR-ALN-26'
 title = '確認 UI へ渡す情報'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-24',
   'TR-ALN-25',
@@ -398,6 +414,7 @@ notes = [
 id = 'TR-ALN-27'
 title = '確認から録り直しへの経路'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-24',
   'TR-ALN-26',
@@ -415,6 +432,7 @@ notes = [
 id = 'TR-ALN-28'
 title = '方式別の到達水準を宣言し、実装で分岐させる'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-11',
   'TR-ALN-19',
@@ -430,6 +448,7 @@ notes = [
 id = 'TR-ALN-29'
 title = '推定の決定性と再現性'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-10',
   'TR-ALN-23',
@@ -443,6 +462,7 @@ notes = [
 id = 'TR-ALN-30'
 title = '人間の編集を自動推定より上位に置く'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-ALN-23',
   'TR-ALN-29',
@@ -480,6 +500,7 @@ notes = [
 id = 'TR-ALN-32'
 title = '内部評価ハーネスを実装と同時に持つ'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-ALN-25',
   'TR-ALN-28',

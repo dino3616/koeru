@@ -90,7 +90,7 @@ fslc chain specs/fsl-project.toml                   # 各層の検証と、層�
 fslc document check specs/requirements/project-lifecycle.fsl docs/generated/project-lifecycle.md
 cargo xtask check-meta                                 # meta の参照先が実在するか
 cargo xtask check-budgets                              # 配分の合計が上限を超えていないか
-cargo xtask check-coverage                             # 支える部品が1つも無い要件はどれか
+cargo xtask check-coverage                             # 全要件に技術が当たっているか
 cargo xtask check-profile <ID>                         # 未決の論点がリリースを塞いでいないか
 ```
 

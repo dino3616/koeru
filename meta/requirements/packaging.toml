@@ -33,6 +33,7 @@ domain_risks = [
 id = 'TR-PKG-01'
 title = '音源ルートの必須成果物'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '音源ルート直下に character.txt を必ず生成する（最低限 name= を書く）。WAV を含む各フォルダに oto.ini を1つ生成する。readme.txt を音源ルート直下に生成する'
 notes = [
@@ -62,6 +63,7 @@ statement = 'character.yaml を必ず同時生成する。書き出すキーを 
 id = 'TR-PKG-04'
 title = '多音階は prefix.map と subbanks を同内容で両方生成する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-03',
 ]
@@ -80,6 +82,7 @@ statement = '周波数表は `.frq` のみを生成する。ファイル名は W
 id = 'TR-PKG-06'
 title = '.frc / .llsm / .pmk / .vs4ufrq / desc.mrq を生成しない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-05',
 ]
@@ -92,6 +95,7 @@ notes = [
 id = 'TR-PKG-07'
 title = 'アイコンと立ち絵を役割で分ける'
 confidence = 'Assumption'
+needs_component = false
 depends_on = []
 statement = 'character.txt の image= が指す音源アイコンは 100×100 の BMP を生成する。立ち絵は character.yaml の portrait / portrait_opacity / portrait_height でのみ指定し、character.txt には書かない。'
 notes = [
@@ -102,6 +106,7 @@ notes = [
 id = 'TR-PKG-08'
 title = 'oto.ini の WAV 参照はフォルダ内の相対名のみ'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-01',
 ]
@@ -121,6 +126,7 @@ notes = [
 id = 'TR-PKG-10'
 title = '$read を生成しない'
 confidence = 'Assumption'
+needs_component = false
 depends_on = []
 statement = '$read ファイルを生成・同梱しない。'
 
@@ -200,6 +206,7 @@ notes = [
 id = 'TR-PKG-18'
 title = 'エイリアスの生成規則'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-11',
 ]
@@ -209,6 +216,7 @@ statement = '生成するエイリアスに、先頭・末尾の半角スペー�
 id = 'TR-PKG-19'
 title = 'エイリアスを音源全体で一意にする'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-04',
 ]
@@ -236,6 +244,7 @@ notes = [
 id = 'TR-PKG-21'
 title = 'oto.ini に #Charset: 行を書かない'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PKG-12',
 ]
@@ -248,6 +257,7 @@ notes = [
 id = 'TR-PKG-22'
 title = '方式の書き出し可否をエイリアス被覆から導出し、上下関係を別に宣言しない'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 formalized_as = [
   'REQ-PKG-108',
@@ -263,6 +273,7 @@ statement = '**方式の上下関係を独立したデータとして持たな�
 id = 'TR-PKG-23'
 title = '下位方式書き出しの可否をエイリアス被覆で判定する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PKG-22',
 ]
@@ -326,6 +337,7 @@ notes = [
 id = 'TR-PKG-28'
 title = 'readme.txt に必ず含める節'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-01',
 ]
@@ -345,6 +357,7 @@ statement = '多音階音源では、推奨音域を character.yaml の subbanks
 id = 'TR-PKG-30'
 title = '利用規約を設問から定型文で生成する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-28',
 ]
@@ -370,6 +383,7 @@ statement = 'キャラクター設定（一人称、年齢、身長、性格な�
 id = 'TR-PKG-33'
 title = '完成状態と手渡し状態を直交させる'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-34',
 ]
@@ -383,6 +397,7 @@ statement = 'プロジェクトの状態を2つの独立した軸で持つ。`co
 id = 'TR-PKG-34'
 title = '完成の定義'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 formalized_as = [
   'INV-PKG-001',
@@ -394,6 +409,7 @@ statement = '完成 = 選択した方式の必須エイリアス表を100%被覆
 id = 'TR-PKG-35'
 title = '進捗表示に配布を含めない'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PKG-33',
 ]
@@ -403,6 +419,7 @@ statement = '進捗ゲージ・チェックリスト・完了表示のいずれ�
 id = 'TR-PKG-36'
 title = 'ZIP を1度も作らなくても完成として扱う'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-33',
   'TR-PKG-34',
@@ -413,6 +430,7 @@ statement = 'ZIP を1度も生成していないプロジェクトを、完成�
 id = 'TR-PKG-37'
 title = 'プロジェクトのディレクトリ名を不変の UUID にする'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-16',
 ]
@@ -431,6 +449,7 @@ statement = 'プロジェクトの実体をディレクトリとし、manifest�
 id = 'TR-PKG-39'
 title = 'WAV を不変資産として扱う'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-38',
 ]
@@ -440,6 +459,7 @@ statement = '録音した WAV は録音停止時点でディスクへ確定書�
 id = 'TR-PKG-40'
 title = 'oto.ini を作業ファイルにしない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-38',
 ]
@@ -468,6 +488,7 @@ statement = 'アプリの終了・クラッシュ後の再開で、選択した�
 id = 'TR-PKG-43'
 title = '破壊的操作の直前に自動スナップショットを取る'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-39',
 ]
@@ -491,6 +512,7 @@ statement = 'バージョン管理は ZIP の書き出し単位で行う。書�
 id = 'TR-PKG-45'
 title = 'ユーザーにフォルダ操作を要求しない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-37',
   'TR-PKG-42',
@@ -504,6 +526,7 @@ notes = [
 id = 'TR-PKG-46'
 title = '同名で意味の違う成果物を作れなくする'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PKG-44',
 ]
@@ -535,6 +558,7 @@ notes = [
 id = 'TR-PKG-49'
 title = '書き出し前検証で止める Error の一覧'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-19',
   'TR-PKG-20',
@@ -549,6 +573,7 @@ statement = '書き出し前に全件検査し、1件でも該当すれば書き
 id = 'TR-PKG-50'
 title = 'Info 相当の警告を生成側で発生させない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-03',
   'TR-PKG-18',
@@ -560,6 +585,7 @@ statement = 'character.yaml 不在、非モノラル、エイリアスの前後�
 id = 'TR-PKG-51'
 title = '検証結果から編集画面へ直接遷移できる'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PKG-49',
 ]
@@ -592,6 +618,7 @@ statement = '利用計測をどの方式で実装する場合でも、音声デ�
 id = 'TR-PKG-54'
 title = '利用計測は既定オフのオプトインとする'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PKG-53',
 ]

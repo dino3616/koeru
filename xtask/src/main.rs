@@ -700,7 +700,6 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
             ("affects_requirements", &tr, "技術要件"),
             ("supports_requirements", &tr, "技術要件"),
             ("source_requirements", &tr, "技術要件"),
-            ("supports_requirements", &tr, "技術要件"),
             ("derives_from_requirements", &tr, "技術要件"),
             ("affects_fsl", &fsl, "FSL の要求"),
             ("includes_fsl", &fsl, "FSL の要求"),
@@ -774,7 +773,8 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
     for e in with_schema(entries, "component-ledger") {
         for t in e.items() {
             // 採らないと決めた部品は支えない。
-            if matches!(str_of(&t, "status"), Some("不適" | "参照のみ" | "候補外")) {
+            // **`参照のみ` は数える。** 「自前で書くが、仕様の出どころはここ」も答えのうち。
+            if matches!(str_of(&t, "status"), Some("不適" | "候補外")) {
                 continue;
             }
             components += 1;
@@ -816,6 +816,19 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
     ));
     for id in &uncovered {
         rep.error(format!("{id} を支える部品が1つも無い"));
+    }
+    // **両方を宣言しているのは、どちらかが間違っている。**
+    // 部品に支えられているなら「外部部品が要らない」は成り立たない。
+    for (id, t) in &reqs {
+        let free = t
+            .get("needs_component")
+            .and_then(toml::Value::as_bool)
+            .is_some_and(|b| !b);
+        if free && supported.contains(id) {
+            rep.error(format!(
+                "{id} は needs_component = false なのに、支える部品が宣言されている"
+            ));
+        }
     }
     rep.finish("check-coverage")
 }

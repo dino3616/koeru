@@ -154,6 +154,7 @@ notes = [
 id = 'TR-REC-10'
 title = '加工を無効化できない場合の扱いを、指摘ではなく一度きりの提示に限定する'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-REC-08',
   'TR-REC-09',
@@ -201,6 +202,7 @@ notes = [
 id = 'TR-REC-13'
 title = '入力チェーンの全条件をテイクから遡って復元できるようにする'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-REC-08',
   'TR-REC-09',
@@ -283,6 +285,7 @@ notes = [
 id = 'TR-REC-18'
 title = '次に読むフレーズだけを大きく出し、カバレッジは別の場所で常に読める'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-31',
 ]
@@ -312,6 +315,7 @@ notes = [
 id = 'TR-REC-20'
 title = '連続収録と自動送りの条件を明示する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-19',
   'TR-REC-23',
@@ -325,6 +329,7 @@ notes = [
 id = 'TR-REC-21'
 title = '録り直しは上書きせず、世代として積む'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-REC-28',
 ]
@@ -386,6 +391,7 @@ notes = [
 id = 'TR-REC-25'
 title = '多音階収録では対象音高を音として提示し、音高表現を prefix.map と揃える'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-36',
 ]
@@ -507,6 +513,7 @@ notes = [
 id = 'TR-REC-34'
 title = '同一 oto セット内のファイル名を大文字小文字を無視して一意にする'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-33',
 ]
@@ -519,6 +526,7 @@ notes = [
 id = 'TR-REC-35'
 title = 'ファイル名とエイリアスから、前後空白・連続空白・全角空白を排除する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-33',
 ]
@@ -531,6 +539,7 @@ notes = [
 id = 'TR-REC-36'
 title = '多音階は音高ごとのサブディレクトリで収録し、構成を収録時点で確定する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-25',
   'TR-REC-33',
@@ -544,6 +553,7 @@ notes = [
 id = 'TR-REC-37'
 title = '16 bit 化ではディザのみを適用し、音色を変える処理を既定で行わない'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-REC-01',
   'TR-REC-02',
@@ -557,6 +567,7 @@ notes = [
 id = 'TR-REC-38'
 title = 'テイクの前後に無音マージンを必ず確保する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-19',
 ]
@@ -597,6 +608,7 @@ notes = [
 id = 'TR-REC-41'
 title = '収録開始前にディスク残量を見積もり、録りきれる件数を提示する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-REC-27',
   'TR-REC-28',

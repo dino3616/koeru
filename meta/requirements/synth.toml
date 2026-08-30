@@ -27,6 +27,7 @@ domain_risks = [
 id = 'TR-SYN-01'
 title = '試唱パイプラインの工程定義とローカル完結'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '試唱は「課題曲（音符列＋歌詞）→ 音素列生成 → エイリアス解決 → サンプル選択 → タイミング算出 → resample → クロスフェード連結 → 再生」の7工程で構成し、全工程を KOERU プロセス内で実行する。外部プロセス（.exe、Wine、Python インタプリタ）の起動とネットワーク通信を一切行わない'
 notes = [
@@ -59,6 +60,7 @@ statement = '押下から最初の音が鳴るまでの時間を、曲全体の�
 id = 'TR-SYN-04'
 title = '録音中のプリレンダリング'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-02',
   'TR-SYN-34',
@@ -147,6 +149,7 @@ statement = "**エイリアス解決のフォールバック順序の単一の�
 id = 'TR-SYN-13'
 title = 'prefix.map と subbank'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '音源ディレクトリ直下の prefix.map（タブ区切り3列: 音名 / prefix / suffix）を読み、prefix と suffix の組ごとに音域レンジを持つ subbank へ展開する。対象音域は MIDI 24〜108 とする。エイリアス検索は素のエイリアスではなく「prefix + エイリアス + suffix」で行う。prefix.map が無い音源は全音域を覆う単一 subbank として扱う。'
 
@@ -154,6 +157,7 @@ statement = '音源ディレクトリ直下の prefix.map（タブ区切り3列:
 id = 'TR-SYN-14'
 title = '収録音高の自動決定'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-SYN-13',
   'TR-SYN-21',
@@ -164,6 +168,7 @@ statement = '各サンプルの収録音高は (1) 割り当てられた subbank
 id = 'TR-SYN-15'
 title = 'ピッチシフト量の制御と自動移調'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-14',
 ]
@@ -177,6 +182,7 @@ notes = [
 id = 'TR-SYN-16'
 title = '多音階音源での subbank 切り替え'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-13',
 ]
@@ -186,6 +192,7 @@ statement = '多音階音源では、音符ごとに subbank の音域レンジ�
 id = 'TR-SYN-17'
 title = '課題曲ごとの必要エイリアス集合とカバレッジ'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-12',
 ]
@@ -200,6 +207,7 @@ statement = '課題曲ごとに、TR-SYN-10〜13 の解決処理を「録音済�
 id = 'TR-SYN-18'
 title = '欠損時の挙動'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-17',
 ]
@@ -219,6 +227,7 @@ notes = [
 id = 'TR-SYN-19'
 title = '録る順は曲バンク優先と被覆効率の2つを持ち、切り替えは可逆にする'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-17',
   'TR-SYN-18',
@@ -232,6 +241,7 @@ notes = [
 id = 'TR-SYN-20'
 title = '不足の提示と評価軸の排除'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-SYN-17',
 ]
@@ -271,6 +281,7 @@ statement = '配布パッケージには全サンプルぶんの `_wav.frq` を�
 id = 'TR-SYN-24'
 title = '周波数表の用途の分離'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-SYN-21',
 ]
@@ -290,6 +301,7 @@ statement = '永続化するのは周波数表（F0 と amp）だけとする。
 id = 'TR-SYN-26'
 title = 'キャッシュの無効化範囲'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-02',
 ]
@@ -306,6 +318,7 @@ statement = 'サンプルの内容（録り直し）、oto の5値、prefix.map 
 id = 'TR-SYN-27'
 title = '合成のキャンセル'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-04',
 ]
@@ -337,6 +350,7 @@ statement = '試唱の出力は、録音時の入力レベルによらず一定�
 id = 'TR-SYN-30'
 title = '課題曲データの形式と権利'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-19',
 ]
@@ -353,6 +367,7 @@ statement = '合成へ渡す WAV は 44100 Hz / 16 bit / モノラルである�
 id = 'TR-SYN-32'
 title = 'オフライン動作の検証'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-SYN-01',
 ]
@@ -362,6 +377,7 @@ statement = '試唱の全経路が、ネットワークインタフェースを�
 id = 'TR-SYN-33'
 title = '試唱レイテンシの目標'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-03',
   'TR-SYN-04',
@@ -376,6 +392,7 @@ notes = [
 id = 'TR-SYN-34'
 title = '録音直後のバックグラウンド前処理'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-21',
   'TR-SYN-04',
@@ -406,6 +423,7 @@ notes = [
 id = 'TR-SYN-36'
 title = 'phonemizer を差し替えられる形に保つ'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-SYN-10',
   'TR-SYN-11',

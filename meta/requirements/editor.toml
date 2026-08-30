@@ -26,6 +26,7 @@ domain_risks = [
 id = 'TR-EDT-01'
 title = '5値を絶対サンプル位置で保持する単一データモデル'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '1エントリは、参照 wav・エイリアス文字列・5つの境界（左ブランク / オーバーラップ / 先行発声 / 子音部 / 右ブランク）を、いずれも wav 先頭からの絶対サンプル位置として保持する。**ただし右ブランクだけは wav の総長という外部状態に依存するため、モデルは絶対サンプル位置に加えて、エントリごとに (a) インポート時の表記（正 / 負）と (b) インポート時に読んだ wav のフレーム数 を保持する。** 書き出し時に対象 wav のフレーム数が (b) と一致しない場合は黙って再変換せず、影響エントリ数を出して「元の絶対位置を保つ / 末尾基準を保つ」を選ばせる。wav のトリミング・正規化・モノラル化は KOERU 内部の明示的な操作としてのみ許し、実行時にその wav を参照する全エントリを再アンカーして件数を報告する'
 notes = [
@@ -36,6 +37,7 @@ notes = [
 id = 'TR-EDT-02'
 title = '境界単位の信頼度・由来・確認状態'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-01',
 ]
@@ -48,6 +50,7 @@ notes = [
 id = 'TR-EDT-03'
 title = '通常/上級はモデルではなくビューの切替'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-01',
   'TR-EDT-02',
@@ -58,6 +61,7 @@ statement = '通常モードと上級モードは同一プロジェクトデー�
 id = 'TR-EDT-04'
 title = '全変更を単一のコマンド層に通す'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-03',
 ]
@@ -70,6 +74,7 @@ statement = '5値の変更、エイリアス変更、一括編集、通常モー
 id = 'TR-EDT-05'
 title = '用語の露出はビュー層のみで制御する'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-03',
 ]
@@ -79,6 +84,7 @@ statement = '通常モードは「先行発声」「オーバーラップ」「�
 id = 'TR-EDT-06'
 title = '通常モードの提示単位と画面構成'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-02',
   'TR-EDT-05',
@@ -92,6 +98,7 @@ notes = [
 id = 'TR-EDT-07'
 title = '確認待ちの選別は閾値ではなく件数上限で決める'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-02',
   'TR-EDT-06',
@@ -106,6 +113,7 @@ notes = [
 id = 'TR-EDT-08'
 title = '上級モードは通常モードの上位互換であること'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-03',
   'TR-EDT-06',
@@ -168,6 +176,7 @@ statement = 'ハンドルのドラッグ中、ポインタ位置とハンドル�
 id = 'TR-EDT-14'
 title = '隣接エントリへの移動の応答時間'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-12',
   'TR-EDT-15',
@@ -190,6 +199,7 @@ notes = [
 id = 'TR-EDT-16'
 title = 'メモリ上限とチャンク分割'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-15',
 ]
@@ -199,6 +209,7 @@ statement = '音源の総再生時間に関わらず、常駐する音声デー�
 id = 'TR-EDT-17'
 title = '事前計算のスループット'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-15',
 ]
@@ -241,6 +252,7 @@ notes = [
 id = 'TR-EDT-21'
 title = '位置保持ドラッグの2モード'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-01',
 ]
@@ -250,6 +262,7 @@ statement = '左ブランクまたは先行発声を動かしたとき、他の�
 id = 'TR-EDT-22'
 title = 'キーバインドの完全なカスタマイズ'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = 'エディタの全操作（最低60種以上: ファイル操作、undo/redo、ツール切替、エントリ / wav / 音階の移動、5値の設定、各種再生、ズーム、一括編集の起動枠、確認状態の切替）について、キー・マウスクリック・マウススクロールの割り当てをそれぞれ変更できる。衝突を検出して警告し既定に戻せる。設定をファイルに書き出し・読み込みできる'
 
@@ -269,6 +282,7 @@ notes = [
 id = 'TR-EDT-24'
 title = '連続した音への移動と絞り込みの連動'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-02',
 ]
@@ -278,6 +292,7 @@ statement = 'エントリ単位の前後移動、wav ファイル単位の前後
 id = 'TR-EDT-25'
 title = 'undo/redo の粒度と保持量'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-04',
 ]
@@ -287,6 +302,7 @@ statement = 'undo の単位は「1つのユーザ操作」とする。すなわ�
 id = 'TR-EDT-26'
 title = '数値テーブルによる直接編集'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-22',
   'TR-EDT-25',
@@ -309,6 +325,7 @@ notes = [
 id = 'TR-EDT-28'
 title = '一括編集の適用範囲とプレビュー'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-27',
   'TR-EDT-24',
@@ -319,6 +336,7 @@ statement = 'すべての一括編集は (a) プロジェクト全体、(b) 現�
 id = 'TR-EDT-29'
 title = '一括編集の性能'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-28',
 ]
@@ -340,6 +358,7 @@ notes = [
 id = 'TR-EDT-31'
 title = 'エイリアスの検証'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-38',
 ]
@@ -349,6 +368,7 @@ statement = 'エイリアスに対して次を検出して警告する。前後�
 id = 'TR-EDT-32'
 title = '音階を跨いだ横断編集'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-24',
   'TR-EDT-28',
@@ -362,6 +382,7 @@ notes = [
 id = 'TR-EDT-33'
 title = 'prefix.map の生成と編集'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-38',
 ]
@@ -374,6 +395,7 @@ notes = [
 id = 'TR-EDT-34'
 title = '接頭辞・接尾辞とエイリアスの整合検査'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-33',
   'TR-EDT-27',
@@ -384,6 +406,7 @@ statement = 'prefix.map の接頭辞・接尾辞を変更したとき、対応�
 id = 'TR-EDT-35'
 title = '音階をまたいだ値の複製'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-32',
   'TR-EDT-02',
@@ -410,6 +433,7 @@ notes = [
 id = 'TR-EDT-37'
 title = '往復で失われるものを意図的に非対称にする'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-36',
   'TR-EDT-02',
@@ -431,6 +455,7 @@ statement = '書き出しは既定 Shift-JIS（CP932）とする。CP932 で表�
 id = 'TR-EDT-39'
 title = 'インポートの非破壊性'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-36',
   'TR-EDT-41',
@@ -450,6 +475,7 @@ statement = 'KOERU が書き出した oto.ini を含むフォルダをサブフ�
 id = 'TR-EDT-41'
 title = '数値の精度と書き出しの再現性'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-01',
 ]
@@ -462,6 +488,7 @@ notes = [
 id = 'TR-EDT-42'
 title = '外部ツールへの受け渡しはフォルダを開くまで'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-40',
 ]
@@ -471,6 +498,7 @@ statement = '現在の音階の oto.ini があるフォルダを OS のファイ
 id = 'TR-EDT-43'
 title = '制約違反の常時検出'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 formalized_as = [
   'INV-EDT-001',
@@ -481,6 +509,7 @@ statement = '次の11条件を編集中に常時検出し、該当エントリ�
 id = 'TR-EDT-44'
 title = '編集操作は制約を破らない'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-43',
   'TR-EDT-39',
@@ -497,6 +526,7 @@ statement = 'ドラッグおよびキーによる境界設定は、TR-EDT-43 の
 id = 'TR-EDT-45'
 title = '通常モードの確認待ちに制約違反を必ず含める'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-EDT-07',
   'TR-EDT-43',
@@ -513,6 +543,7 @@ statement = '制約違反が残っているエントリは、確認待ちの上�
 id = 'TR-EDT-46'
 title = '再自動推定に対する手動編集の保護'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-02',
   'TR-EDT-04',
@@ -526,6 +557,7 @@ statement = '自動推定を再実行したとき、由来が「手動編集」�
 id = 'TR-EDT-47'
 title = '上級モードへの入口と可逆性'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-EDT-03',
   'TR-EDT-08',

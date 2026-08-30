@@ -22,6 +22,7 @@ domain_risks = [
 id = 'TR-PLT-01'
 title = '対応 OS の範囲と最小バージョン'
 confidence = 'Assumption'
+needs_component = false
 depends_on = []
 statement = 'Windows x64 を第一級の対応環境とし全機能が動作する。macOS（Apple Silicon）を第二の対応環境とし同一機能セットを提供する。Linux x64 は録音・原音設定・書き出しの中核機能のみを対象とし、配布形態と保証水準を分けて明示する。UTAU 本体の同梱・起動は行わない'
 notes = [
@@ -219,6 +220,7 @@ notes = [
 id = 'TR-PLT-17'
 title = '発見から着手までの段差の最小化'
 confidence = 'Assumption'
+needs_component = false
 depends_on = [
   'TR-PLT-12',
   'TR-PLT-18',
@@ -274,6 +276,7 @@ notes = [
 id = 'TR-PLT-20'
 title = 'オフライン完結性'
 confidence = 'Fact'
+needs_component = false
 depends_on = []
 statement = '録音・自動原音設定・即時試唱・原音設定編集・配布パッケージ生成のすべてがネットワーク接続なしで完結する。ネットワークを使うのは更新チェックとユーザーが明示的に開いた外部リンクのみ。起動時・プロジェクト作成時・録音開始時に到達性確認を置かない。声の波形・プロジェクト・音源名・規約本文が外へ送出されないことを、通信の発生箇所の棚卸しで示せる'
 notes = [
@@ -306,6 +309,7 @@ statement = '同梱するすべての第三者コード・モデル・データ�
 id = 'TR-PLT-23'
 title = 'プロジェクトデータの配置と可搬性'
 confidence = 'Fact'
+needs_component = false
 depends_on = [
   'TR-PLT-08',
 ]
@@ -364,6 +368,7 @@ statement = 'すべての UI 部品が、名前・役割・値・状態を OS �
 id = 'TR-PLT-30'
 title = 'ドラッグでしかできない操作を作らない'
 confidence = 'Fact'
+needs_component = false
 depends_on = ['TR-PLT-25', 'TR-PLT-26']
 statement = 'ドラッグで行える操作は、すべて単一ポインタの操作またはキーボードでも行える（WCAG 2.5.7、WCAG 2.2 で追加）。**原音設定の境界設定、波形のズームとスクロール、再生範囲の指定が直接の対象。** TR-EDT-44 がドラッグとキーの両方を持つので、**キー経路がドラッグと同じ範囲に到達できることを検査で担保する。** 数値の直接入力も同等の経路として数える'
 
@@ -378,6 +383,7 @@ statement = 'ポインタで操作する対象の大きさを 24×24 CSS ピク�
 id = 'TR-PLT-32'
 title = '波形とスペクトログラムに、見なくても判断できる代替を持たせる'
 confidence = 'Fact'
+needs_component = false
 depends_on = ['TR-PLT-25', 'TR-PLT-29']
 statement = '波形とスペクトログラムは装飾ではなく判断材料なので、非テキストコンテンツとして代替を持つ（WCAG 1.1.1）。代替は3つを併置する。(1) **区間再生**——選択中の境界の前後を鳴らして耳で確かめられること。(2) **数値**——oto の5値と、境界位置をミリ秒で読み上げられる形で提示すること。(3) **要約**——そのエントリが確認待ちである理由（確信度が低い、制約違反が残っている）を文字で示すこと。**KOERU は音を扱う製品なので、(1) が最も本質的な代替になる**'
 
@@ -385,6 +391,7 @@ statement = '波形とスペクトログラムは装飾ではなく判断材料�
 id = 'TR-PLT-33'
 title = '時間制限を調整でき、動きと点滅で妨げない'
 confidence = 'Fact'
+needs_component = false
 depends_on = ['TR-PLT-25']
 statement = '収録のカウントダウン、ガイド BGM の進行、自動で次へ送る挙動など、時間で切れるものは延長・停止・無効化のいずれかができる（WCAG 2.2.1）。**録音そのものの長さは本人の発声が決めるので時間制限ではない。** 自動再生する動きは停止できる（2.2.2）。1秒あたり3回を超える点滅を出さない（2.3.1）。OS の「動きを減らす」設定（`prefers-reduced-motion`）を尊重し、波形のスクロールアニメーションと画面遷移を抑える'
 
@@ -392,5 +399,6 @@ statement = '収録のカウントダウン、ガイド BGM の進行、自動�
 id = 'TR-PLT-34'
 title = '文字の拡大と行間の変更で、内容が失われない'
 confidence = 'Fact'
+needs_component = false
 depends_on = ['TR-PLT-25']
 statement = '文字を 200% まで拡大しても、内容と機能が失われない（WCAG 1.4.4）。行間・段落間・文字間・単語間を指定の値まで変えても、内容が切れたり重なったりしない（1.4.12）。ホバーまたはフォーカスで出る追加内容は、消さずに読め、Esc で閉じられ、ポインタを乗せても消えない（1.4.13）。**波形と数値テーブルが並ぶ画面は、拡大時に数値テーブル側を優先して残す**'
