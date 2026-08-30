@@ -1,0 +1,1359 @@
+# KOERU が使う / 参照する / 採らなかった部品の単一台帳。
+#
+# **1部品 = 1行。** 以前は領域ごとにファイルを分けていたため、同じ部品が別 ID で複数行に載り、
+# miniaudio が「採用」と「採用候補」を同時に持つような食い違いが起きていた。
+# **どの領域で使うかは `domains` が持つ。**
+#
+# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用候補」「条件付き」「要調査」「要選定」はまだ決めていないので不要。
+#
+# `supports_requirements` は「この部品が支える要件」。**埋まっていない部品がある。**
+# `cargo xtask check-coverage` が、支える部品が1つも無い要件を報告する。
+
+schema = 'component-ledger'
+
+
+[[component]]
+id = 'CMP-001'
+name = 'snfa（推論経路の自前移植）'
+purpose = '日本語音素の強制アライメント。同梱可能な最小構成の一次候補'
+license = 'コード ISC / 日本語重み `jp.npz` は Public Domain 宣言（stft.py・util.py は librosa 由来の ISC、viterbi.py は torchaudio 由来の BSD-2-Clause）'
+status = '採用候補'
+decided_by = 'DEC-ALN-001'
+domains = [
+  'align',
+]
+supports_requirements = [
+  'TR-ALN-03',
+  'TR-ALN-10',
+]
+note = '[Risk] 重みの Public Domain 宣言に法的文書が伴わず SPDX も付かない。→ Q-ALN-003'
+
+[[component]]
+id = 'CMP-002'
+name = 'Julius segmentation-kit + libjulius'
+purpose = '日本語音素セグメンテーション。ライセンスが明確な代替経路'
+license = 'segmentation-kit: MIT（音響モデルを含むリポジトリ全体）/ Julius 本体: BSD-3-Clause'
+status = '条件付き'
+decided_by = 'DEC-ALN-001'
+domains = [
+  'align',
+]
+supports_requirements = [
+  'TR-ALN-02',
+  'TR-ALN-04',
+  'TR-ALN-06',
+  'TR-ALN-10',
+]
+note = '**一次経路として決定済み。** ただし `.binhmm` の同梱可否（Q-ALN-001）が前提条件で、不合格なら snfa へ戻る'
+
+[[component]]
+id = 'CMP-003'
+name = 'MFA 日本語辞書 v3.0.0'
+purpose = '読み付与の参照'
+license = 'CC BY 4.0'
+status = '条件付き'
+decided_by = 'DEC-ALN-001'
+domains = [
+  'align',
+]
+note = '帰属表示付きで流用可'
+
+[[component]]
+id = 'CMP-004'
+name = 'MFA 日本語音響モデル v3.0.0'
+purpose = '境界精度の基準線'
+license = 'CC BY 4.0 表示（**上流コーパスに再配布禁止・非商用限定が含まれる**）'
+status = '不適'
+decided_by = 'DEC-ALN-001'
+domains = [
+  'align',
+]
+note = '評価の対照としてのみ使う。→ Q-ALN-001'
+
+[[component]]
+id = 'CMP-005'
+name = 'oto_estimation_checker'
+purpose = '自動推定の失敗検出ヒューリスティクスの参照'
+license = 'THE SUSHI-WARE LICENSE'
+status = '採用候補'
+domains = [
+  'align',
+]
+supports_requirements = [
+  'TR-ALN-20',
+  'TR-ALN-24',
+]
+note = '表示を残せば自由に利用可'
+
+[[component]]
+id = 'CMP-006'
+name = 'utaupy'
+purpose = 'oto.ini / lab の読み書きと相互変換の参照実装'
+license = 'THE SUSHI-WARE LICENSE'
+status = '採用候補'
+domains = [
+  'align',
+]
+supports_requirements = [
+  'TR-ALN-21',
+  'TR-EDT-36',
+]
+
+[[component]]
+id = 'CMP-007'
+name = 'SOFA'
+purpose = '歌声専用アライメント。境界確率ヘッドと確信度出力の参照設計 / 歌声専用アライメント。境界信頼度の参照設計'
+license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
+status = '不適'
+decided_by = 'DEC-ALL-001'
+domains = [
+  'align',
+  'platform',
+]
+note = '配布モデルの再配布許諾が確認できない'
+
+[[component]]
+id = 'CMP-008'
+name = 'HubertFA'
+purpose = '歌声向け強制アライメント'
+license = 'コード Apache-2.0 / 配布モデルは明示なし（**Unknown**）'
+status = '不適'
+decided_by = 'DEC-ALL-001'
+domains = [
+  'align',
+]
+note = '同上。release ノートが第三者の歌唱データ提供者を列挙している'
+
+[[component]]
+id = 'CMP-009'
+name = 'narabas'
+purpose = '日本語音素の強制アライメント（wav2vec2 ベース）'
+license = 'MIT（学習済みモデルもリポジトリ同梱）'
+status = '不適'
+decided_by = 'DEC-ALL-001'
+domains = [
+  'align',
+]
+note = 'サイズ帯が 200MB 超、かつ学習データが ReazonSpeech'
+
+[[component]]
+id = 'CMP-010'
+name = 'torchaudio forced_align + MMS_FA'
+purpose = 'CTC 強制アライメント API と多言語モデル'
+license = 'コード BSD-2-Clause / **MMS_FA モデルは CC-BY-NC 4.0（非商用）**'
+status = '不適'
+decided_by = 'DEC-ALL-002'
+domains = [
+  'align',
+]
+
+[[component]]
+id = 'CMP-011'
+name = 'BFA'
+purpose = '音素レベルのタイムスタンプ抽出、確信度付き'
+license = 'GPL-3.0'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'align',
+]
+
+[[component]]
+id = 'CMP-012'
+name = 'Charsiu / MAPS'
+purpose = 'フレーム分類型アライナ / サブフレーム境界推定手法の参照'
+license = 'MIT（学習済みモデルの条件は別途）'
+status = '不適'
+decided_by = 'DEC-ALL-001'
+domains = [
+  'align',
+]
+
+[[component]]
+id = 'CMP-013'
+name = 'oto.ini まとめて改造ましーん'
+purpose = 'oto の一括操作と比率規約の参照'
+license = '**Unknown**'
+status = '要調査'
+domains = [
+  'align',
+]
+
+[[component]]
+id = 'CMP-014'
+name = 'MAUS / WebMAUS'
+purpose = '日本語アライメントの比較対象'
+license = '**Unknown**（Web サービス）'
+status = '不適'
+decided_by = 'DEC-ALL-006'
+domains = [
+  'align',
+]
+note = 'ローカル完結に反する'
+
+[[component]]
+id = 'CMP-015'
+name = 'PyInstaller'
+purpose = 'Python 依存を残す場合の配布手段'
+license = 'GPL-2.0 with exception（生成物には制約なし）'
+status = '不適'
+decided_by = 'DEC-ALL-006'
+domains = [
+  'align',
+]
+note = 'TR-PLT-07 / TR-ALN-01 に反する'
+
+[[component]]
+id = 'CMP-016'
+name = 'KissFFT'
+purpose = 'ネイティブ実装での FFT'
+license = 'BSD-3-Clause'
+status = '採用候補'
+domains = [
+  'editor',
+  'synth',
+]
+supports_requirements = [
+  'TR-EDT-10',
+  'TR-SYN-21',
+]
+
+[[component]]
+id = 'CMP-017'
+name = 'dr_wav (dr_libs)'
+purpose = 'wav の読み書き / wav の読み書き（ネイティブ側）'
+license = 'Unlicense または MIT-0 の選択'
+status = '採用候補'
+domains = [
+  'editor',
+  'synth',
+]
+supports_requirements = [
+  'TR-REC-01',
+  'TR-REC-02',
+]
+
+[[component]]
+id = 'CMP-018'
+name = 'chardetng'
+purpose = 'oto.ini・character.txt の文字コード判定'
+license = 'Apache-2.0 / MIT デュアル'
+status = '採用候補'
+domains = [
+  'editor',
+]
+supports_requirements = [
+  'TR-EDT-38',
+]
+note = 'ただし3分岐の自前実装で足りる場合は不要'
+
+[[component]]
+id = 'CMP-019'
+name = 'ゼロクロス吸着'
+purpose = '5値の境界を立ち上がりゼロクロスへ吸着'
+license = '自前'
+status = '採用候補'
+domains = [
+  'editor',
+]
+supports_requirements = [
+  'TR-EDT-20',
+]
+
+[[component]]
+id = 'CMP-020'
+name = 'quickjs-ng'
+purpose = '将来の一括編集スクリプト開放'
+license = 'MIT'
+status = '条件付き'
+domains = [
+  'editor',
+]
+supports_requirements = [
+  'TR-EDT-30',
+]
+note = '初期スコープ外'
+
+[[component]]
+id = 'CMP-021'
+name = 'vLabeler'
+purpose = '機能の基準線（同軸表示、5値ハンドル、lockedDrag、キーマップ、modules、macro） / reclist / oto / 多音階の扱いの参照'
+license = 'Apache-2.0'
+status = '参照のみ'
+domains = [
+  'editor',
+  'reclist',
+]
+
+[[component]]
+id = 'CMP-022'
+name = 'setParam'
+purpose = '機能の基準線（自動推定、ゼロクロス吸着、F1〜F5、確認再生、合成試聴、テーブル範囲編集） / 既存の自動推定の規約と入力仕様の参照'
+license = 'GPL（作者が snack に倣って GPL と明記）'
+status = '不適'
+decided_by = 'DEC-ALL-005'
+domains = [
+  'align',
+  'editor',
+]
+note = 'Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める / GPL の Tcl ソースを読まず、UI 文字列と公開キーバインド一覧という機能的事実からのみ互換基準を定める'
+
+[[component]]
+id = 'CMP-023'
+name = 'KiraOtoToolbox'
+purpose = '一括編集の必須集合を決めるための仕様源（5カテゴリ19ツール）'
+license = 'GPL-3.0'
+status = '不適'
+decided_by = 'DEC-ALL-005'
+domains = [
+  'editor',
+]
+note = '機能リストという事実の抽出のみ。実装は独立に行う'
+
+[[component]]
+id = 'CMP-024'
+name = 'snack'
+purpose = 'setParam の音声処理基盤'
+license = 'GPL'
+status = '不適'
+decided_by = 'DEC-ALL-005'
+domains = [
+  'editor',
+]
+
+[[component]]
+id = 'CMP-025'
+name = 'FFTW'
+purpose = 'FFT'
+license = 'GPL または商用'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'editor',
+]
+
+[[component]]
+id = 'CMP-026'
+name = 'uchardet'
+purpose = '文字コード判定（ネイティブ）'
+license = 'MPL-1.1'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'editor',
+]
+note = '自前実装で置換'
+
+[[component]]
+id = 'CMP-027'
+name = 'libsndfile'
+purpose = 'wav 以外の音声フォーマットの I/O'
+license = '**Unknown**'
+status = '要調査'
+domains = [
+  'editor',
+]
+
+[[component]]
+id = 'CMP-028'
+name = 'Apache Tika (text module) / GraalVM JavaScript'
+purpose = '文字コード判定 / スクリプト（JVM）'
+license = '**Unknown**'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'editor',
+]
+note = '**JVM 前提。** 文字コード判定は encoding_rs / chardetng で足りる'
+
+[[component]]
+id = 'CMP-029'
+name = 'jDSP'
+purpose = 'JVM での FFT・窓関数'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'editor',
+]
+note = '**JVM 前提。** note の条件（GUI 基盤が JVM 側になる場合）はもう起こらない。FFT は rustfft / realfft'
+
+[[component]]
+id = 'CMP-030'
+name = 'rustfft / realfft'
+purpose = 'STFT・スペクトログラム / Rust 実装での FFT / STFT。メルフィルタバンクは自前'
+license = 'MIT / Apache-2.0 デュアル'
+status = '条件付き'
+domains = [
+  'editor',
+  'synth',
+]
+supports_requirements = [
+  'TR-EDT-10',
+  'TR-EDT-12',
+  'TR-SYN-21',
+]
+
+[[component]]
+id = 'CMP-031'
+name = 'serde ＋ YAML 実装'
+purpose = 'character.yaml の生成と読み取り'
+license = 'MIT / Apache-2.0'
+status = '要選定'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-03',
+]
+note = '`serde_yaml` は保守終了のため後継を選ぶ'
+
+[[component]]
+id = 'CMP-032'
+name = 'hound'
+purpose = 'WAV の読み書きとフォーマット検証（44100 / 16bit / 1ch） / WAV の読み書きとフォーマット検証'
+license = 'Apache-2.0'
+status = '採用候補'
+domains = [
+  'packaging',
+  'synth',
+]
+supports_requirements = [
+  'TR-REC-01',
+  'TR-PKG-20',
+]
+
+[[component]]
+id = 'CMP-033'
+name = 'SQLite'
+purpose = 'プロジェクトの構造化データの永続化 / テイク・セッション・カバレッジのメタデータ永続化（WAL モード）'
+license = 'Public Domain'
+status = '採用候補'
+domains = [
+  'packaging',
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-27',
+  'TR-REC-28',
+  'TR-REC-31',
+  'TR-PKG-38',
+  'TR-PKG-41',
+]
+
+[[component]]
+id = 'CMP-034'
+name = 'GAKUYA'
+purpose = '同領域に実在する Web / プラグインツール。要件の答え合わせ'
+license = 'MIT'
+status = '参照のみ'
+domains = [
+  'packaging',
+]
+
+[[component]]
+id = 'CMP-035'
+name = 'tracing ＋ tracing-subscriber'
+purpose = '構造化ログとトレースの基盤'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-009'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-53',
+  'TR-PKG-55',
+]
+
+[[component]]
+id = 'CMP-036'
+name = 'SharpZipLib'
+purpose = 'CP932 エントリ名の ZIP 生成の代替'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'packaging',
+]
+
+[[component]]
+id = 'CMP-037'
+name = 'ignore'
+purpose = 'ZIP 生成時の除外規則を .gitignore 形式で書く'
+license = 'Unlicense / MIT'
+status = '採用候補'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-26',
+]
+
+[[component]]
+id = 'CMP-038'
+name = 'zip'
+purpose = '配布 ZIP の生成と読み戻し検証 / 既存音源アーカイブの展開とエントリ名の符号化強制。**エントリ名は UTF-8 と CP932 が混在するため、`zip` の生バイト列を取り出して `encoding_rs` で復号する**'
+license = '個別に確認'
+status = '条件付き'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-14',
+  'TR-PKG-15',
+  'TR-PKG-26',
+  'TR-PKG-27',
+  'TR-PKG-52',
+]
+note = '既存音源の取り込みを範囲に含める場合。rar / 7z は crate のライセンスを個別に確認する'
+
+[[component]]
+id = 'CMP-039'
+name = 'encoding_rs'
+purpose = 'CP932 の読み書き'
+license = 'MIT / Apache-2.0'
+status = '採用候補'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PLT-08',
+  'TR-PKG-13',
+  'TR-PKG-17',
+  'TR-EDT-38',
+]
+
+[[component]]
+id = 'CMP-040'
+name = 'rusqlite'
+purpose = 'プロジェクト永続化'
+license = 'MIT'
+status = '採用候補'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-REC-27',
+  'TR-REC-28',
+  'TR-REC-31',
+  'TR-PKG-41',
+]
+
+[[component]]
+id = 'CMP-041'
+name = 'tracing + tracing-opentelemetry'
+purpose = '計装'
+license = 'MIT / Apache-2.0'
+status = '採用候補'
+decided_by = 'DEC-PLT-009'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-56',
+]
+
+[[component]]
+id = 'CMP-042'
+name = 'sentry'
+purpose = 'クラッシュレポート'
+license = 'MIT'
+status = '採用候補'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-56',
+  'TR-PKG-57',
+]
+
+[[component]]
+id = 'CMP-043'
+name = 'SkiaSharp'
+purpose = '波形・スペクトログラム描画'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'platform',
+]
+note = '**C# バインディング。** Rust + Tauri では使えない。描画面の候補は別途'
+
+[[component]]
+id = 'CMP-044'
+name = 'PortAudio'
+purpose = '音声入出力（miniaudio の代替） / 音声 I/O（代替）'
+license = 'MIT 相当（LICENSE.txt 実物確認）'
+status = '不適'
+decided_by = 'DEC-REC-001'
+domains = [
+  'platform',
+  'recording',
+]
+note = 'miniaudio が採用されたため代替は採らない。排他モード / RAW ストリームへ到達できるが、FFI 境界を2つ持つ理由がない'
+
+[[component]]
+id = 'CMP-045'
+name = 'OpenUtau'
+purpose = 'UTAU 形式 I/O、phonemizer、Classic 層の仕様と実装 / oto.ini / prefix.map / character.txt の書式仕様、CheckOto の11条件の検証規則、原音設定ビューの実装 / エイリアス文法（VCV / CVVC / presamp / prefix.map）とフォールバック探索順の参照実装 / UTAU パッケージ仕様の参照実装 / 配布物の検証仕様の一次資料（同梱対象ではない） / 単独音 / VCV / CVVC のエイリアス列生成 / 音源ディレクトリ読み込み、prefix.map → subbank 展開、presamp のエイリアス優先順位、FREQ0003 の読み書き'
+license = 'MIT'
+status = '参照のみ'
+decided_by = 'DEC-PLT-011'
+domains = [
+  'editor',
+  'packaging',
+  'platform',
+  'reclist',
+  'recording',
+  'synth',
+]
+note = '**仕様参照のみ。vendoring はしない**（DEC-PLT-011）。C# なので Rust へは移植ではなく書き直しになる / **仕様と振る舞いの参照のみ**（DEC-PLT-011） / **仕様参照のみ。移植はしない**（DEC-PLT-011） / 音源形式の読み書きの**仕様参照のみ**。互換は OpenUtau で読み込めることを CI で検証して担保する / 検査項目という機能的事実の参照のみ。元から参照のみ / **日本語 phonemizer は仕様を参照して自前実装する**（TR-SYN-11）。移植はしない / 同上。Classic 層の振る舞いを仕様として参照する'
+
+[[component]]
+id = 'CMP-046'
+name = 'NetSparkleUpdater'
+purpose = '直接ダウンロード経路の自動更新（appcast 方式）'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'platform',
+]
+note = '**.NET 専用。** 自動更新の候補は別途'
+
+[[component]]
+id = 'CMP-047'
+name = 'Velopack'
+purpose = '自動更新とインストーラ生成（NetSparkle の代替）'
+license = 'MIT'
+status = '採用候補'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-16',
+]
+
+[[component]]
+id = 'CMP-048'
+name = 'ONNX Runtime（ort 経由、CPU のみ）'
+purpose = '推論ランタイム / ONNX Runtime の Rust バインディング'
+license = 'Apache-2.0 / MIT（本体は MIT）'
+status = '採用候補'
+domains = [
+  'align',
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-19',
+  'TR-ALN-01',
+  'TR-SYN-22',
+]
+note = 'SwiftF0 の推論に必要'
+
+[[component]]
+id = 'CMP-049'
+name = 'Qt 6'
+purpose = 'GUI（対抗案）'
+license = 'Community Edition は GPL / LGPL、別に商用。混在不可（qt.io/licensing 実物確認）'
+status = '不適'
+decided_by = 'DEC-ALL-004'
+domains = [
+  'platform',
+]
+note = 'クローズドソース配布には有償ライセンス購入が前提'
+
+[[component]]
+id = 'CMP-050'
+name = 'JUCE 9'
+purpose = '音声 I/O を含むアプリフレームワーク / 音声 I/O を含むフレームワーク'
+license = 'AGPLv3 と商用のデュアル'
+status = '不適'
+decided_by = 'DEC-ALL-004'
+domains = [
+  'platform',
+  'recording',
+]
+note = '同上'
+
+[[component]]
+id = 'CMP-051'
+name = 'Slint'
+purpose = 'GUI（対抗案）'
+license = '**Unknown**（GitHub API は NOASSERTION。royalty-free 条項の本文が未確認）'
+status = '候補外'
+domains = [
+  'platform',
+]
+note = '条項本文を入手して確認できるまで'
+
+[[component]]
+id = 'CMP-052'
+name = 'SwiftUI + WinUI 3 の OS 別実装'
+purpose = 'GUI（対抗案）'
+license = '各 SDK 利用条項（第三者への再配布ライセンスではない）'
+status = '不適'
+decided_by = 'DEC-ALL-006'
+domains = [
+  'platform',
+]
+
+[[component]]
+id = 'CMP-053'
+name = 'Azure Artifact Signing'
+purpose = 'Windows 直接経路のコード署名。CI 署名可能'
+license = '**Unknown**（日本の法人・個人が契約できるかを確定できていない）'
+status = '要調査'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-13',
+]
+
+[[component]]
+id = 'CMP-054'
+name = 'OV コード署名証明書'
+purpose = 'Azure Artifact Signing が使えない場合の署名'
+license = '**Unknown**（発行条件と価格を一次情報で未確認）'
+status = '要調査'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-13',
+]
+
+[[component]]
+id = 'CMP-055'
+name = 'Apple Developer Program / Developer ID'
+purpose = 'macOS の配布'
+license = '**Unknown**（契約条項・年額を一次情報で未確認）'
+status = '採用候補'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-14',
+]
+
+[[component]]
+id = 'CMP-056'
+name = 'SignPath Foundation'
+purpose = 'OSS 向けの無償コード署名'
+license = '**Unknown**（適格要件と条項を未確認）'
+status = '要調査'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-13',
+]
+
+[[component]]
+id = 'CMP-057'
+name = 'Sparkle 2.x'
+purpose = 'macOS の自動更新'
+license = '**Unknown**（GitHub API は NOASSERTION。同梱第三者コードの条項を未確認）'
+status = '要調査'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-16',
+]
+
+[[component]]
+id = 'CMP-058'
+name = 'UTF.Unknown'
+purpose = '既存音源フォルダの文字コード推定'
+license = 'MPL-1.1 / GPL-2.0+ / LGPL-2.1+ のトライライセンス（README 実物確認。GitHub API は license: null）'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'platform',
+]
+note = '自前実装で置換。下記参照'
+
+[[component]]
+id = 'CMP-059'
+name = 'MFA 3.x'
+purpose = '強制アライメント'
+license = 'コード MIT / 日本語音響モデル・辞書は CC BY 4.0 表示'
+status = '不適'
+decided_by = 'DEC-ALN-001'
+domains = [
+  'platform',
+]
+note = 'Python / Conda / Kaldi ランタイムを要する'
+
+[[component]]
+id = 'CMP-060'
+name = 'Rust 1.95 / edition 2024'
+purpose = '実行基盤。FFI でネイティブライブラリを直接呼べる'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-06',
+  'TR-PLT-07',
+  'TR-PLT-21',
+]
+
+[[component]]
+id = 'CMP-061'
+name = 'Tauri'
+purpose = 'GUI。フロントは WebView、描画は Canvas / WebGL'
+license = 'Apache-2.0 / MIT'
+status = '採用'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-03',
+  'TR-PLT-09',
+  'TR-PLT-21',
+  'TR-PLT-29',
+]
+
+[[component]]
+id = 'CMP-062'
+name = 'WebView2（固定バージョン同梱）'
+purpose = 'Windows の WebView。環境依存を排除する代わりに約180MB 増える'
+license = 'Microsoft ソフトウェア ライセンス条項（再頒布可）'
+status = '採用'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-03',
+  'TR-PLT-12',
+  'TR-PLT-19',
+]
+
+[[component]]
+id = 'CMP-063'
+name = 'jpreprocess'
+purpose = '漢字混じり歌詞から仮名読み・音素列への変換（g2p）。OpenJTalk の Rust 再実装'
+license = 'BSD-3-Clause'
+status = '採用候補'
+domains = [
+  'reclist',
+]
+supports_requirements = [
+  'TR-RCL-13',
+  'TR-RCL-14',
+  'TR-SYN-10',
+]
+
+[[component]]
+id = 'CMP-064'
+name = 'jpreprocess-naist-jdic'
+purpose = 'jpreprocess 用の日本語辞書'
+license = 'BSD-3-Clause'
+status = '採用候補'
+domains = [
+  'reclist',
+]
+supports_requirements = [
+  'TR-RCL-14',
+]
+
+[[component]]
+id = 'CMP-065'
+name = 'pathfinding'
+purpose = '有向グラフのパス分解・オイラー路系の探索補助'
+license = 'Apache-2.0 OR MIT'
+status = '条件付き'
+domains = [
+  'reclist',
+]
+supports_requirements = [
+  'TR-RCL-04',
+]
+
+[[component]]
+id = 'CMP-066'
+name = 'good_lp（+ HiGHS）'
+purpose = '最小被覆・辺被覆パス分解を厳密に解く場合の MIP ソルバ'
+license = 'MIT'
+status = '条件付き'
+domains = [
+  'reclist',
+]
+supports_requirements = [
+  'TR-RCL-03',
+  'TR-RCL-05',
+]
+
+[[component]]
+id = 'CMP-067'
+name = 'lindera / vibrato'
+purpose = '形態素解析（読み付与の代替）'
+license = 'MIT / MIT OR Apache-2.0'
+status = '条件付き'
+domains = [
+  'reclist',
+]
+supports_requirements = [
+  'TR-RCL-14',
+]
+
+[[component]]
+id = 'CMP-068'
+name = 'adlez27/vcv-generator'
+purpose = '連続音録音リストと oto の生成器（先行実装の参照）'
+license = 'MIT'
+status = '条件付き'
+domains = [
+  'reclist',
+]
+note = '参照のみ'
+
+[[component]]
+id = 'CMP-069'
+name = 'RecStar'
+purpose = '録音リストとガイド音声設定のパーサ仕様の参照 / 録音セッション構造の仕様参照元（同梱対象ではない）'
+license = 'Apache-2.0'
+status = '参照のみ'
+domains = [
+  'reclist',
+  'recording',
+]
+
+[[component]]
+id = 'CMP-070'
+name = 'OREMO（付属リストとガイド BGM 制御ファイル形式）'
+purpose = '録音周期と標準リスト規模の実測データ'
+license = 'GPL-2.0'
+status = '条件付き'
+domains = [
+  'reclist',
+]
+note = 'ファイル形式と実測値の参照のみ。ファイルを同梱・再配布しない'
+
+[[component]]
+id = 'CMP-071'
+name = 'hikari one crystal ja'
+purpose = '多音階連続音音源の規模とエイリアス構成の実測データ'
+license = '**Unknown**'
+status = '不適'
+decided_by = 'DEC-ALL-002'
+domains = [
+  'reclist',
+]
+
+[[component]]
+id = 'CMP-072'
+name = 'reclist-gen-cvvc / new_cvvc_generator'
+purpose = 'CVVC 録音リスト生成器'
+license = '**Unknown**'
+status = '不適'
+decided_by = 'DEC-ALL-002'
+domains = [
+  'reclist',
+]
+
+[[component]]
+id = 'CMP-073'
+name = 'XieYunP/reclisrgen-'
+purpose = 'UTAU 録音リスト生成器'
+license = 'Apache-2.0'
+status = '要調査'
+domains = [
+  'reclist',
+]
+
+[[component]]
+id = 'CMP-074'
+name = 'WASAPI / IAudioClient3 + IAudioEffectsManager'
+purpose = 'Windows の低レベル入力、RAW 要求、効果の列挙と無効化'
+license = 'OS 付属 API'
+status = '採用候補'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-08',
+  'TR-REC-09',
+]
+
+[[component]]
+id = 'CMP-075'
+name = 'CoreAudio HAL / AUHAL'
+purpose = 'macOS の低レベル入力、デバイス通知、入力ゲイン制御'
+license = 'OS 付属 API'
+status = '採用候補'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-11',
+]
+
+[[component]]
+id = 'CMP-076'
+name = 'AVCaptureDevice マイクモード API'
+purpose = 'macOS の Voice Isolation / Wide Spectrum の検知と設定 UI の提示'
+license = 'OS 付属 API'
+status = '条件付き'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-11',
+]
+note = '下記 [Unknown]'
+
+[[component]]
+id = 'CMP-077'
+name = 'PipeWire'
+purpose = 'Linux の音声グラフへの接続（ノードレート・レイテンシの明示指定）'
+license = 'MIT'
+status = '採用候補'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-12',
+]
+
+[[component]]
+id = 'CMP-078'
+name = 'libsamplerate'
+purpose = '非 44100 のキャプチャから 44100 Hz へのリサンプル'
+license = 'BSD-2-Clause'
+status = '採用候補'
+domains = [
+  'recording',
+]
+supports_requirements = [
+  'TR-REC-02',
+]
+
+[[component]]
+id = 'CMP-079'
+name = 'cpal'
+purpose = '音声 I/O（対抗案）'
+license = 'Apache-2.0'
+status = '不適'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+]
+note = '上記と同じ理由 / 。排他モードにも RAW ストリーム要求にも到達できず、OS 側の音声加工を無効化する経路が無い'
+
+[[component]]
+id = 'CMP-080'
+name = 'RtAudio'
+purpose = '音声 I/O（C++）'
+license = 'MIT 類似（改変版の扱いに関する条項あり。原文の逐語確認が未了）'
+status = '不適'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+]
+note = '同上。改変版の扱いに関する条項の逐語確認も未了だった'
+
+[[component]]
+id = 'CMP-081'
+name = 'alsa-lib'
+purpose = 'ALSA デバイスへの直接アクセス'
+license = 'LGPL-2.1'
+status = '不適'
+decided_by = 'DEC-ALL-007'
+domains = [
+  'recording',
+]
+note = 'Store / 署名配布と両立しない。miniaudio の実行時 dlopen 経由でのみ ALSA に到達する'
+
+[[component]]
+id = 'CMP-082'
+name = 'libsoxr'
+purpose = 'リサンプル'
+license = 'LGPL-2.1 以降'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'recording',
+]
+note = 'libsamplerate で置換'
+
+[[component]]
+id = 'CMP-083'
+name = 'miniaudio（FFI）'
+purpose = '音声 I/O。WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱う / 音声入出力。WASAPI / CoreAudio / ALSA / PulseAudio を単一ヘッダで抽象化 / 音声 I/O 抽象（WASAPI / CoreAudio / ALSA / PulseAudio / JACK） / 録音・再生の音声入出力'
+license = 'Public Domain または MIT No Attribution の選択制'
+status = '採用'
+decided_by = 'DEC-REC-001'
+domains = [
+  'platform',
+  'recording',
+  'synth',
+]
+supports_requirements = [
+  'TR-PLT-05',
+  'TR-REC-03',
+  'TR-REC-04',
+  'TR-REC-05',
+  'TR-REC-08',
+  'TR-REC-09',
+  'TR-REC-11',
+  'TR-REC-12',
+  'TR-REC-17',
+  'TR-REC-39',
+  'TR-REC-40',
+  'TR-SYN-28',
+  'TR-SYN-35',
+]
+
+[[component]]
+id = 'CMP-084'
+name = 'libpyin + libgvps'
+purpose = '周波数表が無いサンプルの F0 推定（pYIN）'
+license = 'BSD-3-Clause'
+status = '条件付き'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-22',
+]
+
+[[component]]
+id = 'CMP-085'
+name = 'xxHash（ライブラリ部）'
+purpose = 'フレーズ中間表現のハッシュ（キャッシュキー）'
+license = 'BSD-2-Clause'
+status = '採用候補'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-02',
+  'TR-SYN-25',
+  'TR-EDT-15',
+]
+
+[[component]]
+id = 'CMP-086'
+name = 'abseil-cpp'
+purpose = 'worldline の引数パースとログ'
+license = 'Apache-2.0'
+status = '条件付き'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-06',
+]
+note = 'NOTICE 保持'
+
+[[component]]
+id = 'CMP-087'
+name = 'libnpy'
+purpose = 'worldline のデバッグ用ベクタダンプ'
+license = 'MIT'
+status = '条件付き'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-ALN-02',
+]
+note = '配布物から外せる'
+
+[[component]]
+id = 'CMP-088'
+name = 'WanaKana-net / csharp-kana'
+purpose = 'かな・ローマ字の相互変換と正規化'
+license = 'MIT / Apache-2.0'
+status = '不適'
+decided_by = 'DEC-PLT-001'
+domains = [
+  'synth',
+]
+note = '**C# / .NET 前提。** かな・ローマ字変換は自前実装で足りる'
+
+[[component]]
+id = 'CMP-089'
+name = 'straycat'
+purpose = 'WORLD ベースの UTAU resampler'
+license = 'MIT'
+status = '条件付き'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-08',
+]
+note = 'Python 実装のため同梱経路にはならない'
+
+[[component]]
+id = 'CMP-090'
+name = 'ttk592/spline'
+purpose = 'worldline の `effects.cpp` が使う三次スプライン補間'
+license = '**GPL-2.0-or-later**（デュアルライセンスの提示なし）'
+status = '不適'
+decided_by = 'DEC-ALL-003'
+domains = [
+  'synth',
+]
+note = '自前実装で置換。→ DEC-PLT-002'
+
+[[component]]
+id = 'CMP-091'
+name = 'moresampler'
+purpose = 'UTAU 向け高品質 resampler / 既存到達水準の参照'
+license = '**Unknown**（公式サイト非公開で readme.txt の規約を実物確認できていない）'
+status = '不適'
+decided_by = 'DEC-ALL-002'
+domains = [
+  'align',
+  'synth',
+]
+note = 'Windows 専用、かつライセンス不明 / 公開文書の機能仕様・ユーザー証言・入出力形式のみ参照可。逆コンパイルと出力の系統的観察によるアルゴリズム再現を禁止'
+
+[[component]]
+id = 'CMP-092'
+name = 'UTAU 同梱 resampler.exe'
+purpose = 'UTAU 標準の resampler'
+license = '**Unknown**'
+status = '不適'
+decided_by = 'DEC-ALL-002'
+domains = [
+  'synth',
+]
+note = 'Windows 専用'
+
+[[component]]
+id = 'CMP-093'
+name = 'ONNX Runtime + CREPE'
+purpose = '高精度 F0 推定（Harvest の代替）'
+license = 'MIT / MIT'
+status = '要調査'
+domains = [
+  'synth',
+]
+note = 'ONNX Runtime を積む理由が他にないため優先度は低い'
+
+[[component]]
+id = 'CMP-094'
+name = 'WORLD（C++ を自前 FFI で束縛）'
+purpose = '分析・合成 / 合成コアの基礎 / 合成コアの基礎。F0 推定（DIO / Harvest）、スペクトル包絡（CheapTrick）、非周期性指標（D4C）、合成'
+license = '修正 BSD 3条項（LICENSE.txt 実物確認）'
+status = '採用'
+decided_by = 'DEC-SYN-001'
+domains = [
+  'platform',
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-06',
+  'TR-SYN-21',
+  'TR-SYN-22',
+  'TR-SYN-31',
+]
+
+[[component]]
+id = 'CMP-095'
+name = 'worldline'
+purpose = 'resampler。AGPL-3.0 を選んだため取り込める / UTAU classic 引数互換の resampler ＋ フレーズ単位合成 API。周波数表の読み込み、時間伸縮、フラグ処理'
+license = 'MIT（推移的依存に GPL-2.0-or-later を含むため除去が前提）'
+status = '採用候補'
+decided_by = 'DEC-SYN-001'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-05',
+  'TR-SYN-08',
+  'TR-SYN-09',
+]
+note = '`@spline` の除去は不要になった（AGPL-3.0 を選んだため GPL-2.0-or-later を取り込める。TR-SYN-06）'
+
+[[component]]
+id = 'CMP-096'
+name = 'Rust-WORLD'
+purpose = 'WORLD の Rust 束縛（対抗案）'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-SYN-001'
+domains = [
+  'synth',
+]
+note = '約6年更新がない'
+
+[[component]]
+id = 'CMP-097'
+name = 'WebView の Canvas 2D / WebGL'
+purpose = '波形・スペクトログラムの描画面。Rust 側で計算したビットマップを転送して描く'
+license = 'OS 付属（WebView2 / WKWebView / WebKitGTK）'
+status = '採用候補'
+domains = [
+  'platform',
+  'editor',
+]
+supports_requirements = [
+  'TR-PLT-04',
+  'TR-EDT-09',
+  'TR-EDT-11',
+  'TR-EDT-12',
+  'TR-EDT-13',
+]
+note = '**Tauri なので描画面は既に手元にある。** TR-PLT-04 の「アプリが所有する単一の描画面」に素直に当たる。ソース矩形の変換だけで再描画する要求（TR-EDT-12）も drawImage で満たせる。→ Q-PLT-004'
+
+[[component]]
+id = 'CMP-098'
+name = 'tiny-skia'
+purpose = 'Rust 側でのラスタライズ。WebView へ渡すビットマップの生成'
+license = 'BSD-3-Clause'
+status = '採用候補'
+domains = [
+  'platform',
+  'editor',
+]
+supports_requirements = [
+  'TR-PLT-04',
+  'TR-EDT-09',
+  'TR-EDT-12',
+]
+note = 'Skia のラスタライザ部分の Rust 移植。GPU を要さない。→ Q-PLT-004'
+
+[[component]]
+id = 'CMP-099'
+name = 'wgpu'
+purpose = 'GPU 描画。テクスチャとしてのスペクトログラム保持と再サンプル'
+license = 'Apache-2.0 / MIT'
+status = '要調査'
+domains = [
+  'platform',
+  'editor',
+]
+supports_requirements = [
+  'TR-PLT-04',
+  'TR-EDT-09',
+  'TR-EDT-12',
+]
+note = '**WebView と別のサーフェスを持つことになるため、Tauri との統合コストが未確認。** → Q-PLT-004'
+
+[[component]]
+id = 'CMP-100'
+name = 'tauri-plugin-updater'
+purpose = '自動更新（NetSparkleUpdater の代替）'
+license = 'Apache-2.0 / MIT'
+status = '要調査'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-16',
+]
+note = 'Tauri 公式。**署名鍵の運用と、Flatpak では使わない前提の確認が要る**'

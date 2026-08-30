@@ -28,7 +28,7 @@ review_triggers = [
   'tracing-subscriber のフィルタでホワイトリストを表現しきれないと分かったとき',
 ]
 affects_components = [
-  'CMP-PKG-007',
-  'CMP-PKG-013',
+  'CMP-035',
+  'CMP-041',
 ]
 affects_decisions = ['DEC-TEL-001']

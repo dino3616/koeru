@@ -26,5 +26,5 @@ review_triggers = [
   'miniaudio の dlopen 経路が使えない環境が出たとき',
 ]
 affects_components = [
-  'CMP-REC-011',
+  'CMP-081',
 ]

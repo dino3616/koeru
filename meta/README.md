@@ -8,7 +8,7 @@
 | 何を選び、なぜ選び、何が起きたら覆すか | `decisions/DEC-*.toml` | `DEC-{領域}-{番号}` |
 | まだ決まっていないこと | `questions/Q-*.toml` | `Q-{領域}-{番号}` |
 | 判断の根拠。調査資料、実測 | `evidence/EVID-*.toml` | `EVID-{種別}-{番号}` |
-| 部品台帳。ライセンス監査の面 | `evidence/ledger-{領域}.toml` | `CMP-{領域}-{番号}` |
+| 部品台帳。1部品1行 | `evidence/components.toml` | `CMP-{番号}` |
 | 上限と配分。合計を検査する | `budgets/BUDGET-*.toml` | `BUDGET-{種別}-{番号}` |
 | 領域ごとの性能目標。上限は無い | `budgets/{領域}.toml` | `TGT-{領域}-{番号}` |
 | **代表プロジェクトの規模。予算はここから導く** | `budgets/SCALE-*.toml` | `SCALE-{種別}-{番号}` |
@@ -43,6 +43,7 @@
 
 - `schema` を書き忘れる / 知らない `schema` を書く / 置き場所と形が合わない
 - **件数を散文に書く。** 数は `cargo xtask check-meta` が数える。書くと片方だけが古くなる
+- **同じ部品を複数行に載せる。** 台帳は1部品1行。どの領域で使うかは `domains` が持つ
 - 部品の採否を「採用」「不適」に決めたのに `decided_by` を書かない（理由と撤回条件が残らない）
 - `id` が無い（1件1ファイルでも、収集ファイルの1件でも）
 - `id` の接頭辞が形と合わない / `id` が重複する
@@ -84,6 +85,7 @@
 ```bash
 cargo xtask check-meta       # 必須項目と、参照先 ID の実在
 cargo xtask check-budgets    # 配分の合計が上限を超えていないか
+cargo xtask check-coverage   # 支える部品が1つも無い要件がどれだけあるか
 cargo xtask check-profile ID # 未決の論点がリリースを塞いでいないか
 ```
 

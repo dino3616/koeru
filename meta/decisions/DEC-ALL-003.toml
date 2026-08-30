@@ -30,10 +30,10 @@ review_triggers = [
   'BFA のライセンスが or-later と確認できたとき',
 ]
 affects_components = [
-  'CMP-ALN-011',
-  'CMP-EDT-012',
-  'CMP-EDT-013',
-  'CMP-PLT-018',
-  'CMP-REC-012',
-  'CMP-SYN-015',
+  'CMP-011',
+  'CMP-025',
+  'CMP-026',
+  'CMP-058',
+  'CMP-082',
+  'CMP-090',
 ]

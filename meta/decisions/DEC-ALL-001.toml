@@ -30,9 +30,8 @@ review_triggers = [
   '自前学習の経路が現実的になったとき',
 ]
 affects_components = [
-  'CMP-ALN-007',
-  'CMP-ALN-008',
-  'CMP-ALN-009',
-  'CMP-ALN-012',
-  'CMP-PLT-020',
+  'CMP-007',
+  'CMP-008',
+  'CMP-009',
+  'CMP-012',
 ]

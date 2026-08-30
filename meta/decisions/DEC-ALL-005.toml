@@ -29,8 +29,7 @@ review_triggers = [
   '互換基準が公開文書だけでは定まらないと分かったとき',
 ]
 affects_components = [
-  'CMP-ALN-014',
-  'CMP-EDT-009',
-  'CMP-EDT-010',
-  'CMP-EDT-011',
+  'CMP-022',
+  'CMP-023',
+  'CMP-024',
 ]

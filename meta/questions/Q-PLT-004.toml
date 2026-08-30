@@ -1,0 +1,36 @@
+schema = 'question'
+id = 'Q-PLT-004'
+title = '波形とスペクトログラムをどこに描くか'
+status = 'open'
+owner = 'dino3616'
+why_it_matters = '''
+**旧スタックの残骸を外した結果、この枠が空になった。** SkiaSharp を候補に置いていたが
+C# バインディングで、Rust + Tauri（DEC-PLT-001）では使えない。
+
+TR-PLT-04 は「GUI フレームワークの標準コントロールを組み合わせずに、アプリが所有する
+単一の描画面へ直接描く」と要求している。**原音設定エディタの中核 9 件（TR-EDT-09〜17）が
+この選択に載る。** ズーム段の切り替え時だけ STFT を再計算し、それ以外はソース矩形の変換で
+再描画する（TR-EDT-12）という要求も、描画面の性質で実現方法が変わる。
+
+**メモリ予算とも絡む。** Q-EDT-001 が「多音階規模のスペクトログラム画像だけで editor の
+常駐上限を使い切る」と指摘しており、ビットマップをどこに持つかがそのまま予算に効く。
+'''
+how_to_close = '3候補（WebView の Canvas 2D / WebGL、tiny-skia、wgpu）から1つ選ぶ。判定条件は (1) TR-EDT-12 のソース矩形変換だけの再描画ができるか、(2) TR-EDT-13 のドラッグ中フレーム予算に入るか、(3) Q-EDT-001 のメモリ配分に収まるか、の3点。実測で決める。'
+blocks_profiles = [
+  'PROFILE-M6',
+]
+affects_requirements = [
+  'TR-PLT-04',
+  'TR-EDT-09',
+  'TR-EDT-11',
+  'TR-EDT-12',
+  'TR-EDT-13',
+  'TR-EDT-15',
+  'TR-EDT-16',
+]
+affects_questions = [
+  'Q-EDT-001',
+]
+affects_decisions = [
+  'DEC-PLT-001',
+]

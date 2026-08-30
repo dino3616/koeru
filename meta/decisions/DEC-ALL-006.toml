@@ -27,7 +27,7 @@ review_triggers = [
   'Tauri で到達できない OS 固有要件が出たとき',
 ]
 affects_components = [
-  'CMP-ALN-016',
-  'CMP-ALN-017',
-  'CMP-PLT-012',
+  'CMP-014',
+  'CMP-015',
+  'CMP-052',
 ]

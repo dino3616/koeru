@@ -209,6 +209,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("check-meta") => check_meta(&root, &entries, rep),
         Some("check-budgets") => check_budgets(&entries, rep),
+        Some("check-coverage") => check_coverage(&entries, rep),
         Some("check-profile") => match args.get(1) {
             Some(id) => check_profile(&entries, id, rep),
             None => {
@@ -235,7 +236,7 @@ fn main() -> ExitCode {
         }
         _ => {
             println!(
-                "使い方: cargo xtask <check-meta|check-budgets|check-profile <ID>|dump-requirements>"
+                "使い方: cargo xtask <check-meta|check-budgets|check-coverage|check-profile <ID>|dump-requirements>"
             );
             ExitCode::FAILURE
         }
@@ -699,6 +700,7 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
             ("affects_requirements", &tr, "技術要件"),
             ("supports_requirements", &tr, "技術要件"),
             ("source_requirements", &tr, "技術要件"),
+            ("supports_requirements", &tr, "技術要件"),
             ("derives_from_requirements", &tr, "技術要件"),
             ("affects_fsl", &fsl, "FSL の要求"),
             ("includes_fsl", &fsl, "FSL の要求"),
@@ -758,6 +760,64 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
             .join(" / "),
     );
     rep.finish("check-meta")
+}
+
+/// **どの部品にも支えられていない要件を数える。**
+///
+/// 通常の CI では走らせない。実装前は埋まっていないのが正常で、
+/// 埋まらないまま実装に入るのが異常だという線引きにしている。
+fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
+    let (reqs, _) = requirements(entries);
+    let mut supported: BTreeSet<String> = BTreeSet::new();
+    let mut with_link = 0usize;
+    let mut components = 0usize;
+    for e in with_schema(entries, "component-ledger") {
+        for t in e.items() {
+            // 採らないと決めた部品は支えない。
+            if matches!(str_of(&t, "status"), Some("不適" | "参照のみ" | "候補外")) {
+                continue;
+            }
+            components += 1;
+            let s = list_of(&t, "supports_requirements");
+            if !s.is_empty() {
+                with_link += 1;
+            }
+            supported.extend(s);
+        }
+    }
+    // **外部部品が要らない要件がある。** 導出規約や表示の決まりは、書けば済む。
+    // `needs_component = false` を宣言したものは数えない。
+    let mut self_contained = 0usize;
+    let mut uncovered: Vec<&str> = reqs
+        .iter()
+        .filter(|(_, t)| {
+            let needs = t
+                .get("needs_component")
+                .and_then(toml::Value::as_bool)
+                .unwrap_or(true);
+            if !needs {
+                self_contained += 1;
+            }
+            needs
+        })
+        .map(|(id, _)| id.as_str())
+        .filter(|id| !supported.contains(*id))
+        .collect();
+    uncovered.sort_unstable();
+    rep.note(format!(
+        "採る見込みの部品 {components} 件 / うち要件を指しているもの {with_link} 件"
+    ));
+    rep.note(format!(
+        "要件 {} 件 / 外部部品が要らないと宣言 {} 件 / 支える部品がある {} 件 / **無い {} 件**",
+        reqs.len(),
+        self_contained,
+        supported.len(),
+        uncovered.len()
+    ));
+    for id in &uncovered {
+        rep.error(format!("{id} を支える部品が1つも無い"));
+    }
+    rep.finish("check-coverage")
 }
 
 fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {

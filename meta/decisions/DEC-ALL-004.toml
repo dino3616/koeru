@@ -26,7 +26,6 @@ review_triggers = [
   'Tauri で足りない描画要件が出て、代替が Qt / JUCE しかないと分かったとき',
 ]
 affects_components = [
-  'CMP-PLT-009',
-  'CMP-PLT-010',
-  'CMP-REC-013',
+  'CMP-049',
+  'CMP-050',
 ]

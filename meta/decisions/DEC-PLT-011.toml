@@ -38,11 +38,5 @@ affects_requirements = [
   'TR-RCL-20',
 ]
 affects_components = [
-  'CMP-PLT-005',
-  'CMP-PKG-004',
-  'CMP-EDT-001',
-  'CMP-REC-015',
-  'CMP-SYN-007',
-  'CMP-SYN-008',
-  'CMP-RCL-003',
+  'CMP-045',
 ]

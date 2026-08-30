@@ -33,7 +33,7 @@
 | [meta/questions/](meta/questions/) | まだ決まっていないこと。`Q-*` |
 | [meta/profiles/](meta/profiles/) | マイルストーン。**要件はちょうど1つに属する**。`PROFILE-M1`〜`M7` |
 | [meta/budgets/](meta/budgets/) | 上限と配分（`BUDGET-*`）、領域ごとの性能目標（`{領域}.toml`） |
-| [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、実測、部品台帳（`ledger-{領域}.toml`） |
+| [meta/evidence/](meta/evidence/) | 判断の根拠。調査資料、実測、部品台帳（`components.toml`） |
 | [specs/](specs/) | 状態・遷移・不変条件・受入・禁止。反例探索にかけている |
 
 読み方と規律は [meta/README.md](meta/README.md) と [specs/README.md](specs/README.md)。
@@ -90,6 +90,7 @@ fslc chain specs/fsl-project.toml                   # 各層の検証と、層�
 fslc document check specs/requirements/project-lifecycle.fsl docs/generated/project-lifecycle.md
 cargo xtask check-meta                                 # meta の参照先が実在するか
 cargo xtask check-budgets                              # 配分の合計が上限を超えていないか
+cargo xtask check-coverage                             # 支える部品が1つも無い要件はどれか
 cargo xtask check-profile <ID>                         # 未決の論点がリリースを塞いでいないか
 ```
 

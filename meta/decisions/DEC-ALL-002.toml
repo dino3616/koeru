@@ -27,9 +27,9 @@ review_triggers = [
   '非商用条項が外れたとき',
 ]
 affects_components = [
-  'CMP-ALN-010',
-  'CMP-RCL-011',
-  'CMP-RCL-012',
-  'CMP-SYN-016',
-  'CMP-SYN-017',
+  'CMP-010',
+  'CMP-071',
+  'CMP-072',
+  'CMP-091',
+  'CMP-092',
 ]
