@@ -1,0 +1,50 @@
+schema = 'decision'
+id = 'DEC-SYN-006'
+constraint_label = 'WORLD の取り込み方'
+constraint = 'git clone と cargo build だけでビルドが通ること'
+title = 'WORLD の C++ をリポジトリへ同梱し、cc でビルドする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'リポジトリへ同梱する',
+  'git submodule にする',
+  'ビルド済みバイナリを配る',
+]
+selected = 'リポジトリへ同梱する'
+rationale = '''
+**`git clone` + `cargo build` だけで通る形にする。** submodule だと寄稿者と CI に
+`git submodule update --init` が1つ増える。CONTRIBUTING を短く保ちたい。
+
+**WORLD は参照実装で、更新が稀。** 最終更新は半年前で、アルゴリズムの原典なので
+仕様が動かない。**上流追従を頻繁に行う種類の依存ではない。**
+
+**336KB と小さい。** 11 個の `.cpp` と 13 個のヘッダだけ。
+実際に使うのは Dio / StoneMask / Harvest / CheapTrick / D4C / Synthesis の6つで、
+`codec.cpp` と `synthesisrealtime.cpp` はビルド対象から外している。
+
+ライセンスは BSD-3-Clause。**各ファイルの著作権表示をそのまま残し、`LICENSE.txt` も置いた。**
+AGPL-3.0-or-later のリポジトリに BSD-3-Clause のコードが入る形で、条項上の衝突は無い。
+
+ビルドは `cc`（**rust-lang org**、Apache-2.0）で行う。
+同梱コードの警告は消してある（こちらの責任ではない）が、**自前のコードの警告は消さない。**
+
+ビルド済みバイナリを配る案は採らない。**3 OS × 2 アーキテクチャぶんを別に管理することになり、
+オフライン完結（TR-PLT-20）の検算もできなくなる。**
+'''
+review_triggers = [
+  'WORLD の上流が活発に更新されるようになったとき',
+  '同梱するファイル数が増えて、リポジトリの見通しを損なうようになったとき',
+]
+affects_requirements = [
+  'TR-SYN-06',
+  'TR-SYN-07',
+  'TR-PLT-07',
+  'TR-PLT-19',
+]
+affects_decisions = [
+  'DEC-SYN-001',
+  'DEC-SYN-005',
+]
+affects_components = [
+  'CMP-115',
+]

@@ -1668,3 +1668,18 @@ supports_requirements = [
   'TR-PKG-20',
 ]
 note = '`hound` も `dr_wav` も個人のリポジトリ。**KOERU が要る形式は TR-REC-01 / TR-REC-02 で固定されており、汎用の読み書きが要らない**'
+
+[[component]]
+id = 'CMP-115'
+name = 'cc'
+purpose = '同梱した WORLD の C++ をビルドする'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-SYN-006'
+domains = [
+  'synth',
+]
+supports_requirements = [
+  'TR-SYN-06',
+]
+note = '**rust-lang org**。ビルド時のみの依存で、配布物には入らない'

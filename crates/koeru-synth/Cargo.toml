@@ -1,0 +1,19 @@
+[package]
+name = "koeru-synth"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の合成。WORLD を自前 FFI で束ね、UTAU 互換 resampler を上に建てる"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+cc.workspace = true
