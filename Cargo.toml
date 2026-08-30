@@ -70,3 +70,9 @@ sha2 = "0.10"
 # bzip2 / lzma / zstd / AES は引かない（配布 ZIP は UTAU が読める必要がある）。
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
+# CP932（TR-PLT-08, TR-PKG-48）。**Firefox の符号化層そのもの**で Gecko に vendored されている。
+# リポジトリは個人アカウント（hsivonen）だが、実質の保守主体は Mozilla（DEC-PLT-013）。
+encoding_rs = "0.8"
+# NFC 正規化（TR-PKG-48）。macOS が NFD で返すファイル名を揃える。**unicode-rs は Organization。**
+unicode-normalization = "0.1"
+

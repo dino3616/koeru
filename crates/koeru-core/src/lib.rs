@@ -11,3 +11,4 @@ pub mod project;
 pub mod reclist;
 pub mod release;
 pub mod schema;
+pub mod text;

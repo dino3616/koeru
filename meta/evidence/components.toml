@@ -532,8 +532,9 @@ note = '既存音源の取り込みを範囲に含める場合。rar / 7z は cr
 id = 'CMP-039'
 name = 'encoding_rs'
 purpose = 'CP932 の読み書き'
-license = 'MIT / Apache-2.0'
-status = '採用候補'
+license = '(Apache-2.0 OR MIT) AND BSD-3-Clause'
+status = '採用'
+decided_by = 'DEC-PLT-013'
 domains = [
   'packaging',
 ]
@@ -1774,3 +1775,33 @@ supports_requirements = [
   'TR-PKG-47',
 ]
 note = '**zip-rs は Organization**、活発。**deflate だけに絞る**（bzip2 / lzma / zstd / AES は引かない）。配布 ZIP は UTAU 側が読める必要があるので、圧縮方式を広げる利点がない'
+
+[[component]]
+id = 'CMP-122'
+name = 'unicode-normalization'
+purpose = 'NFC 正規化。macOS が NFD で返すファイル名を揃える'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PLT-013'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-48',
+]
+note = '**unicode-rs は Organization。** 揃えないと、同じ「が」が別の文字列として二重に台帳へ載る'
+
+[[component]]
+id = 'CMP-123'
+name = 'vgpu（vercel-labs）'
+purpose = '波形・スペクトログラム描画の代替候補'
+license = 'MIT'
+status = '不適'
+decided_by = 'DEC-PLT-014'
+domains = [
+  'platform',
+]
+note = '''**WebGPU 専用。Tauri の WebView では OS ごとに揃わない。**
+Linux の WebKitGTK は対応状況が確認できず、TR-PLT-01 が Linux を対象に含めている以上、
+ここに敷くと Linux で波形が出ない。用途もシェーダ・3D・GPU テンソル寄りで、
+TR-PLT-04 が要る min/max 包絡と STFT テクスチャとは重ならない'''
