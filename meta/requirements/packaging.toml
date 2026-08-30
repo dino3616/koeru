@@ -162,7 +162,7 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-13',
 ]
-statement = 'ZIP 生成時は ZipArchive(stream, mode, leaveOpen, entryNameEncoding) を使い、entryNameEncoding を必ず明示する。classic 互換・両対応プロファイルでは CP932 を、OpenUtau 互換プロファイルでは UTF-8 を渡す。entryNameEncoding に null を渡さない。'
+statement = 'ZIP エントリ名は、内部モデル（UTF-8 / NFC）の文字列を目的の符号化へ変換した**バイト列として明示的に渡す**。`zip` crate はエントリ名をバイト列として扱うので、符号化を暗黙の既定に任せない。classic 互換・両対応プロファイルでは CP932、OpenUtau 互換プロファイルでは UTF-8 とする。CP932 へ変換できない文字が含まれる場合は暗黙置換せず、書き出し前検証で止める（TR-PKG-17）。'
 
 [[requirement]]
 id = 'TR-PKG-15'
@@ -172,7 +172,7 @@ depends_on = [
   'TR-PKG-11',
   'TR-PKG-14',
 ]
-statement = 'ZIP エントリ名と oto.ini の <wav> 欄は、内部モデル（NFC）の文字列から組み立てる。Directory.GetFiles / DirectoryInfo の戻り値をそのままエントリ名や oto.ini の参照に使わない。書き出し後、生成した ZIP を読み戻してエントリ名が内部モデルとバイト単位で一致することを検査する。'
+statement = 'ZIP エントリ名と oto.ini の `<wav>` 欄は、内部モデル（NFC）の文字列から組み立てる。**ディレクトリ列挙の戻り値をそのままエントリ名や oto.ini の参照に使わない。** ファイルシステムが返す名前は正規化形が環境で変わるため、内部モデルを正とする。書き出し後、生成した ZIP を読み戻してエントリ名が内部モデルとバイト単位で一致することを検査する。'
 
 [[requirement]]
 id = 'TR-PKG-16'
@@ -181,7 +181,7 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-12',
 ]
-statement = "生成する WAV 名・フォルダ名・ZIP エントリ名は、次を全て満たす文字だけで構成する。(1) CP932 で往復変換できる、(2) Windows の予約文字 < > : \" / \\ | ? * と NUL および制御文字（1–31）を含まない、(3) 末尾がスペースまたはピリオドでない、(4) CON / PRN / AUX / NUL / COM1–COM9 / LPT1–LPT9 とその上付き数字変種を基底名としない、(5) oto.ini のパーサを壊す = と , を含まない。"
+statement = "生成する WAV 名・フォルダ名・ZIP エントリ名は、次を全て満たす文字だけで構成する。(1) **ASCII 英数字・ハイフン・アンダースコアである**（DEC-PKG-004）、(2) Windows の予約文字 < > : \" / \\ | ? * と NUL および制御文字（1–31）を含まない、(3) 末尾がスペースまたはピリオドでない、(4) CON / PRN / AUX / NUL / COM1–COM9 / LPT1–LPT9 とその上付き数字変種を基底名としない、(5) oto.ini のパーサを壊す = と , を含まない。**読み込む音源のファイル名にはこの制限を課さない。** 日本語ファイル名の既存音源を開けること。"
 
 [[requirement]]
 id = 'TR-PKG-17'

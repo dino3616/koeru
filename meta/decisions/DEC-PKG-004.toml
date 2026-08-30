@@ -26,6 +26,5 @@ affects_requirements = [
   'TR-PKG-45',
   'TR-EDT-42',
 ]
-affects_questions = [
-  'Q-ALL-002',
-]
+
+# この決定に追いついていなかった要件（TR-RCL-08 / TR-REC-33 / TR-PKG-16）は書き換え済み。
