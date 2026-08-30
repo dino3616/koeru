@@ -14,3 +14,9 @@ workspace = true
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
+
+# macOS の AVFoundation。マイクモード検知と権限だけ。
+# CoreAudio の HAL は自前束縛（backend/macos/sys.rs）で、こちらは Objective-C なので届かない。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-av-foundation.workspace = true

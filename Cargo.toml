@@ -39,3 +39,9 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
 
+# macOS の AVFoundation。**マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。**
+# CoreAudio の HAL は素の C API なので自前で束縛しており、ここは Objective-C なので届かない。
+# **[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が既に objc2 を引いている。**
+objc2 = "0.6"
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat"] }
+

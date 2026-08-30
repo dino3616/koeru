@@ -44,8 +44,16 @@ Linux は **pipewire-rs**（freedesktop.org 公式、MIT）。
 `AudioObjectGetPropertyData` 系は Objective-C ではなく素の C API なので、
 宣言は100行そこそこで足りる。**依存を1つも増やさずにデバイス列挙と生死判定が通った。**
 
-**[Risk] `AVCaptureDevice`（マイクモード検知、TR-REC-11）だけは Objective-C なので、
-自前では書けない。** ここは objc2 が要るか、マイクモードの検知を諦めるかになる。まだ決めていない。
+**`AVCaptureDevice`（マイクモード検知 TR-REC-11、マイク権限 TR-PLT-18）だけは
+Objective-C なので、自前では書けない。ここは objc2-av-foundation を足す。**
+
+**検知を諦める案は採らない。** macOS の voiceIsolation が有効だと OS が全キャプチャに
+ノイズ抑制と音声強調をかけ、**アプリから standard へ戻すことはできない**（TR-REC-11）。
+検知できないと、**本人の声ではない音が本人の声として録れて、誰も気づかない。**
+
+**[Risk] objc2 は個人のリポジトリ。** ただし **Tauri が objc2 / objc2-app-kit /
+objc2-foundation / objc2-web-kit を既に引く**ので、アプリの依存木は増えない。
+増えるのは koeru-audio 単体の木だけ。
 '''
 review_triggers = [
   "3 OS ぶんの配管を自前で持つコストが、見積もりを大きく超えたとき",

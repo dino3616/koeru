@@ -1611,15 +1611,16 @@ id = 'CMP-111'
 name = 'objc2 / objc2-av-foundation'
 purpose = 'macOS の AVCaptureDevice マイクモード検知（activeMicrophoneMode / preferredMicrophoneMode）'
 license = 'MIT / Apache-2.0'
-status = '条件付き'
+status = '採用'
 decided_by = 'DEC-REC-001'
 domains = [
   'recording',
 ]
 supports_requirements = [
   'TR-REC-11',
+  'TR-PLT-18',
 ]
-note = '**[Risk] 個人のリポジトリ（madsmtm）。** 組織がメンテするものに限るという方針の唯一の例外。AVCaptureDevice を使わずにマイクモードを知る経路が見つかれば外せる'
+note = '**マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。** CoreAudio の HAL は素の C API なので自前束縛（CMP-112）で足りたが、AVCaptureDevice は Objective-C なので同じ手が使えない。**[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が objc2 / objc2-app-kit / objc2-foundation / objc2-web-kit を既に引くので、アプリの依存木は増えない**'
 
 [[component]]
 id = 'CMP-112'

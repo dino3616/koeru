@@ -6,7 +6,13 @@
 //!
 //! `TR-REC-04` の消失検知は `kAudioDevicePropertyDeviceIsAlive` を見る。
 
+mod capture_device;
 mod sys;
+
+pub use capture_device::{
+    MicPermission, MicrophoneMode, active_microphone_mode, microphone_permission,
+    preferred_microphone_mode, privacy_settings_url,
+};
 
 use crate::device::{DeviceId, DeviceInfo, RedactedName};
 use std::os::raw::c_void;
