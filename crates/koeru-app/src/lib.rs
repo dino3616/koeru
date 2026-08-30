@@ -66,6 +66,8 @@ pub fn run() {
             commands::import_ust,
             commands::set_song_in_bank,
             commands::sing_song,
+            commands::waveform_window,
+            commands::spectrogram_window,
             commands::preflight,
             commands::use_mixed_channels,
             commands::stop_preview,

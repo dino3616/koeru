@@ -31,6 +31,7 @@ use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::ust;
+use koeru_core::waveform;
 use koeru_synth::f0;
 use koeru_synth::oto::{Oto, OtoPreset, derive_cv};
 use koeru_synth::resampler::{RenderRequest, render};
@@ -45,6 +46,11 @@ use crate::storage;
 
 /// 単独音の収録音高。**A3 を既定にする**（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
+
+/// 段を持ち回すテイクの数（`TR-PLT-04`）。
+///
+/// **上限を置く。** 3時間ぶんの段を全部持つとメモリが尽きる。
+const MIPMAP_CACHE: usize = 8;
 
 /// リングの容量（サンプル）。**8秒ぶん。**
 ///
@@ -187,6 +193,8 @@ pub struct Studio {
     observed_f0: Vec<Vec<f64>>,
     /// 話者音域から決めた探索下限。**まだ分からなければ `None`。**
     f0_floor: Option<f64>,
+    /// テイクごとの波形の段（`TR-PLT-04`）。**上限を置いて持ち回す。**
+    mipmaps: HashMap<i32, (Arc<waveform::Mipmap>, u32)>,
 }
 
 /// 採用テイクから集めた素材。
@@ -253,6 +261,7 @@ impl Studio {
             playback_stream: None,
             observed_f0: Vec::new(),
             f0_floor: None,
+            mipmaps: HashMap::new(),
         })
     }
 
@@ -1200,6 +1209,93 @@ impl Studio {
         self.playback = None;
         self.playback = Some(mac::play(pcm, rate)?);
         Ok(n)
+    }
+
+    /// 見えている範囲の波形（`TR-PLT-04`）。
+    ///
+    /// **読む量は画素数に比例する。** 範囲の広さには比例しない。
+    /// 段はテイクごとに一度だけ積んで持ち回す。
+    #[tracing::instrument(skip(self), fields(take_id, pixels), err)]
+    pub fn waveform_window(
+        &mut self,
+        take_id: i32,
+        from_ms: f64,
+        to_ms: f64,
+        pixels: usize,
+    ) -> Result<Vec<(f32, f32)>> {
+        let (map, rate) = self.mipmap_of(take_id)?;
+        let at = |ms: f64| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "位置はミリ秒から作る非負の値"
+            )]
+            let v = ((ms.max(0.0) / 1000.0) * f64::from(rate)) as usize;
+            v
+        };
+        Ok(map
+            .window(at(from_ms), at(to_ms), pixels)
+            .into_iter()
+            .map(|v| (v.min, v.max))
+            .collect())
+    }
+
+    /// 見えている範囲のスペクトログラム（`TR-PLT-04`）。
+    ///
+    /// **素材ファイル全体の STFT を一括で先行計算しない。**
+    #[tracing::instrument(skip(self), fields(take_id, columns, rows), err)]
+    pub fn spectrogram_window(
+        &mut self,
+        take_id: i32,
+        from_ms: f64,
+        to_ms: f64,
+        columns: usize,
+        rows: usize,
+    ) -> Result<waveform::Spectrogram> {
+        let (samples, rate) = self.samples_of(take_id)?;
+        let at = |ms: f64| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "位置はミリ秒から作る非負の値"
+            )]
+            let v = ((ms.max(0.0) / 1000.0) * f64::from(rate)) as usize;
+            v
+        };
+        Ok(waveform::spectrogram(
+            &samples,
+            at(from_ms),
+            at(to_ms),
+            columns,
+            rows,
+        ))
+    }
+
+    /// テイクの段を積む。**一度積んだら持ち回す。**
+    fn mipmap_of(&mut self, take_id: i32) -> Result<(Arc<waveform::Mipmap>, u32)> {
+        if let Some((map, rate)) = self.mipmaps.get(&take_id) {
+            return Ok((Arc::clone(map), *rate));
+        }
+        let (samples, rate) = self.samples_of(take_id)?;
+        let map = Arc::new(waveform::Mipmap::build(&samples));
+        // **上限を置く。** 3時間ぶんの段を全部持つとメモリが尽きる。
+        if self.mipmaps.len() >= MIPMAP_CACHE {
+            self.mipmaps.clear();
+        }
+        self.mipmaps.insert(take_id, (Arc::clone(&map), rate));
+        Ok((map, rate))
+    }
+
+    /// テイクの波形を読む。
+    fn samples_of(&mut self, take_id: i32) -> Result<(Vec<f32>, u32)> {
+        let root = self.opened()?.dir.root().to_path_buf();
+        let take = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .ok_or_else(|| AppError::new("app.unknown_take", "そのテイクが台帳に無い"))?;
+        let w = wav::read(root.join(&take.rel_path))?;
+        Ok((w.samples, w.rate_hz))
     }
 
     /// 鳴らしている音を止める（`TR-SYN-27`）。

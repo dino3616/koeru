@@ -309,6 +309,51 @@ impl From<Preflight> for PreflightView {
     }
 }
 
+/// 見えている範囲の波形（`TR-PLT-04`）。
+///
+/// **上下の組を画素数ぶん返す。** 読む量は画素数に比例し、範囲の広さには比例しない。
+#[tauri::command]
+pub fn waveform_window(
+    state: State<'_, AppState>,
+    take_id: i32,
+    from_ms: f64,
+    to_ms: f64,
+    pixels: usize,
+) -> Result<Vec<(f32, f32)>> {
+    lock(&state)?.waveform_window(take_id, from_ms, to_ms, pixels)
+}
+
+/// 見えている範囲のスペクトログラム（`TR-PLT-04`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SpectrogramView {
+    /// 列を並べた強度（0〜255）。
+    pub bins: Vec<u8>,
+    /// 列の数（時間方向）。
+    pub columns: usize,
+    /// 1列あたりの高さ（周波数方向）。
+    pub rows: usize,
+}
+
+/// 見えている範囲のスペクトログラムを作る（`TR-PLT-04`）。
+///
+/// **素材ファイル全体を先に計算しない。**
+#[tauri::command]
+pub fn spectrogram_window(
+    state: State<'_, AppState>,
+    take_id: i32,
+    from_ms: f64,
+    to_ms: f64,
+    columns: usize,
+    rows: usize,
+) -> Result<SpectrogramView> {
+    let s = lock(&state)?.spectrogram_window(take_id, from_ms, to_ms, columns, rows)?;
+    Ok(SpectrogramView {
+        bins: s.bins,
+        columns: s.columns,
+        rows: s.rows,
+    })
+}
+
 /// 画面へ返す試唱の結果（`TR-SYN-18`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct SungSongView {

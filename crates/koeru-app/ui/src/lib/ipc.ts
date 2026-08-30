@@ -141,6 +141,22 @@ export const api = {
   playPitch: (midi: number) => invoke<void>("play_pitch", { midi }),
   songStatus: () => invoke<SongView[]>("song_status"),
   singSong: (index: number) => invoke<SungSongView>("sing_song", { index }),
+  waveformWindow: (takeId: number, fromMs: number, toMs: number, pixels: number) =>
+    invoke<[number, number][]>("waveform_window", { takeId, fromMs, toMs, pixels }),
+  spectrogramWindow: (
+    takeId: number,
+    fromMs: number,
+    toMs: number,
+    columns: number,
+    rows: number,
+  ) =>
+    invoke<{ bins: number[]; columns: number; rows: number }>("spectrogram_window", {
+      takeId,
+      fromMs,
+      toMs,
+      columns,
+      rows,
+    }),
   importUst: (bytes: number[], title: string) => invoke<string>("import_ust", { bytes, title }),
   setSongInBank: (id: string, inBank: boolean) => invoke<void>("set_song_in_bank", { id, inBank }),
 };

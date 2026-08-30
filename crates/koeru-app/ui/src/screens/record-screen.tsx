@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CalibrationCard } from "~/components/calibration-card";
 import { LeakCard } from "~/components/leak-card";
 import { SongList } from "~/components/song-list";
+import { TakeInspector } from "~/components/take-inspector";
 import { LevelMeter } from "~/components/level-meter";
 import { Button } from "~/components/ui/button";
 import { Card, CardTitle } from "~/components/ui/card";
@@ -14,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { Waveform } from "~/components/waveform";
 import { cn } from "~/lib/cn";
 import {
   api,
@@ -382,7 +382,11 @@ export const RecordScreen = () => {
         <Card>
           <CardTitle>録れたもの</CardTitle>
           <div className="mt-3 flex flex-col gap-4">
-            <Waveform peaks={take.thumbnail} peak={take.peak} durationMs={take.duration_ms} />
+            {/*
+              **アプリが所有する単一の描画面へ直接描く**（TR-PLT-04）。
+              可視域のみ計算し、可視域のみ描く。
+            */}
+            <TakeInspector takeId={take.take_id} durationMs={take.duration_ms} peak={take.peak} />
 
             {/*
               **取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。
