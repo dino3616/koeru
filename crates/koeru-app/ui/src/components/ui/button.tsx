@@ -9,6 +9,9 @@ import { cn } from "~/lib/cn";
  *
  * **高さは 44px 以上を既定にする**（TR-PLT-28 の対象サイズ）。
  * 収録中は画面を見ずに押すことがあるので、小さい的にしない。
+ *
+ * **キーボードだけで到達でき、閉じ込められない**（TR-PLT-26）。
+ * 素の `<button>` のまま出すので、Tab の順序も Enter / Space も既定のまま効く。
  */
 const buttonVariants = cva(
   cn(

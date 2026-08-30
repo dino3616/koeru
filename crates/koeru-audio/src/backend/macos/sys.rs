@@ -1,5 +1,7 @@
 //! CoreAudio HAL の最小束縛。
 //!
+//! **FFI の境界はここ1枚に閉じる**（`TR-PLT-06`）。ここから外は安全な Rust だけ。
+//!
 //! **objc2 を通さない。** CoreAudio の HAL（`AudioObjectGetPropertyData` 系）は
 //! Objective-C ではなく素の C API なので、`extern "C"` で直接宣言できる。
 //!

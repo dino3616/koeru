@@ -1,6 +1,7 @@
 //! KOERU の音声入出力。
 //!
-//! **各 OS の API を直接叩き、抽象レイヤを挟まない**（`DEC-REC-001`）。
+//! **各 OS の API を直接叩き、抽象レイヤを挟まない**（`DEC-REC-001`, `TR-REC-39`, `TR-PLT-05`）。
+//! **束ねる相手は組織メンテのものに限る**（`TR-REC-39`）。
 //! `TR-REC-08`〜`12` が要求する制御（`IAudioEffectsManager`、
 //! `IAudioClient2::SetClientProperties`、`AVCaptureDevice.activeMicrophoneMode`、
 //! PipeWire のノード選択）はどれもバックエンド固有で、抽象が出すものではない。

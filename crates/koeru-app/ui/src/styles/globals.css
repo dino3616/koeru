@@ -9,6 +9,9 @@
  * この対応を崩すと、明暗どちらかで WCAG 2.2 AA（TR-PLT-25、TR-PLT-28）を割る。
  *
  * `.dark` / `.light` は public/theme.js が付ける。
+ *
+ * **相対単位を既定にする**（TR-PLT-34）。文字を拡大しても行間を広げても、
+ * 内容が消えたり重なったりしない。
  */
 @import "@radix-ui/colors/slate.css";
 @import "@radix-ui/colors/slate-dark.css";

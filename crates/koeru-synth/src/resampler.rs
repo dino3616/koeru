@@ -96,7 +96,7 @@ const SOURCE_F0_CEIL_HZ: f64 = 1100.0;
 pub struct PreviewFlags {
     /// 子音速度。100 が等倍。
     pub consonant_velocity: f64,
-    /// 音量（%）。
+    /// 音量（%）。**試唱では既定に固定する**（`TR-SYN-29`）。
     pub volume: f64,
     /// モジュレーション（%）。**0 は目標 F0 へ完全に倒す。**
     pub modulation: f64,
