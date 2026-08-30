@@ -1,0 +1,38 @@
+schema = 'decision'
+id = 'DEC-RCL-005'
+constraint_label = '辞書の同梱'
+constraint = '配布物に載せる辞書は、要る場面が示されてから積む'
+title = '歌詞の g2p を M2 から外す。UST は仮名を持っているので、主経路は g2p 無しで通る'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'M2 から外す',
+  'jpreprocess を M2 で入れる',
+  'lindera を M2 で入れる',
+]
+selected = 'M2 から外す'
+rationale = '''
+**M2 の主経路は「本人が持ち込む UST」**（TR-RCL-12）。
+UST はノートごとに歌詞を持ち、それは仮名で書かれている。
+**g2p が無くても、曲を持ち込んでカバレッジを測るところまでは通る。**
+
+g2p が要るのは「漢字混じりの歌詞テキストを貼り付けたい」場面だけで、
+**それは M2 の中核体験（録音の途中でも自分の声で歌を聴ける）の外にある。**
+
+**辞書の同梱は配布物の大きさに直接効く。** jpreprocess の naist-jdic で約30MB、
+lindera の IPADIC で約50MB。TR-PLT-19 の配布サイズと、TR-ALN-02 が引いた
+同梱物の予算に効く。**要る場面が来てから積む。**
+
+候補の下調べは済んでいる。**jpreprocess（Organization、BSD-3-Clause、活発）**が
+第一候補で、OpenJTalk のテキスト処理を Rust へ移したもの。
+**読みだけでなくアクセントも出る**ので、連続音やアライメントにも使える。
+方式を広げる段（M5）で一緒に積むのが自然。
+'''
+review_triggers = [
+  '漢字混じりの歌詞を貼り付けたいという要望が実際に出たとき',
+  'アライナやアクセント推定で、同じ辞書が別の理由でも要ることになったとき',
+]
+affects_requirements = [
+  'TR-RCL-14',
+]
+supersedes = []

@@ -1,0 +1,43 @@
+schema = 'decision'
+id = 'DEC-SYN-007'
+constraint_label = 'F0 推定の同梱'
+constraint = 'ONNX Runtime を積むだけの理由が、実測で示されていること'
+title = 'M2 では Harvest のまま進む。SwiftF0 は実測で差が聞こえてから入れる'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Harvest のまま進む',
+  'M2 で SwiftF0 を入れる',
+  '実測してから決める',
+]
+selected = 'Harvest のまま進む'
+rationale = '''
+**DEC-SYN-004 は SwiftF0 を採ると決めたが、それは「いつ入れるか」を決めていない。**
+ここで決めるのは順序であって、DEC-SYN-004 を覆すものではない。
+
+**退避経路は実装して実機で鳴っている。** TR-SYN-22 が定める二段構え
+（最初の数テイクは DIO+StoneMask で即座に確定し、話者音域が判明したら Harvest で引き直す）は
+そのまま入っている。**試唱も `.frq` も、これで成立している。**
+
+**ONNX Runtime を積むと、配布物が OS ごとに 10〜20MB 増える。**
+加えてプラットフォームごとのネイティブライブラリ配布と署名の手間が増える
+（TR-ALN-02 が (b) を「将来 ONNX を必要とする別の機能が入った場合にのみ再検討する」と
+書いているのは、この手間を避けるため）。
+
+**DEC-SYN-004 の性能差はベンチマークの数字であって、KOERU の素材での実測ではない。**
+その決定自身が review_triggers に
+「SwiftF0 が KOERU の想定録音条件で Harvest を上回らないと実測で分かったとき」を挙げている。
+**先に実測する。** 差が聞こえてから積む。
+
+**[Unknown] 自分の声の素材で Harvest と SwiftF0 を比べていない。** それが済むまで、
+TR-SYN-22 の「既定は SwiftF0」は満たさない状態が続く。
+'''
+review_triggers = [
+  '自分の声の素材で Harvest と SwiftF0 を比べ、差が聞こえたとき',
+  'Harvest の推定が実際の収録で崩れたとき（雑音下、かすれ声、低い声）',
+  'ONNX を必要とする別の機能（アライナ等）が入って、Runtime を積む理由が別にできたとき',
+]
+affects_requirements = [
+  'TR-SYN-22',
+]
+supersedes = []
