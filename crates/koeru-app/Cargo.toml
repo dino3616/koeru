@@ -1,0 +1,43 @@
+[package]
+name = "koeru-app"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU のアプリケーション層。Tauri のコマンドと、ドメイン層の組み立て"
+
+# **Tauri の慣例は src-tauri/ だが、ここでは crates/ に置く。**
+# ワークスペースのメンバは crates/* で、音声・合成・ドメインと並べたほうが
+# 「どの層か」が場所から読める。tauri.conf.json をこのディレクトリに置けば動く。
+[lib]
+name = "koeru_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+koeru-audio = { path = "../koeru-audio" }
+koeru-core = { path = "../koeru-core" }
+koeru-synth = { path = "../koeru-synth" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.11.5", features = [] }
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+# 合成結果の音高を測る。**鳴らせただけでは音高が合っているか分からない。**
+koeru-synth = { path = "../koeru-synth" }
+
+# 保存先の残量を引く（REQ-REC-110）。**libc は rust-lang org。**
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

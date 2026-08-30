@@ -1805,3 +1805,93 @@ note = '''**WebGPU 専用。Tauri の WebView では OS ごとに揃わない。
 Linux の WebKitGTK は対応状況が確認できず、TR-PLT-01 が Linux を対象に含めている以上、
 ここに敷くと Linux で波形が出ない。用途もシェーダ・3D・GPU テンソル寄りで、
 TR-PLT-04 が要る min/max 包絡と STFT テクスチャとは重ならない'''
+
+[[component]]
+id = 'CMP-124'
+name = 'React / TanStack Start（SPA モード）'
+purpose = 'WebView 側の描画と画面遷移'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-015'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-03',
+]
+note = '**SPA モードで使う。** Tauri の中にサーバは無いので SSR は要らない。起動時に配るのは殻だけで、あとは全部クライアントで組む。出力は `dist/client`'
+
+[[component]]
+id = 'CMP-125'
+name = 'Tailwind CSS'
+purpose = 'スタイルの記述'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-015'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-03',
+]
+note = '相対単位を既定にするので、文字の拡大と行間の変更で内容が失われにくい（TR-PLT-34）。**トークンは @theme に集め、画面側から Radix の段を直に触らせない**'
+
+[[component]]
+id = 'CMP-126'
+name = 'Radix Primitives / Radix Colors'
+purpose = 'アクセシビリティを担保する部品と、段の意味を持つ配色'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-015'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-26',
+  'TR-PLT-27',
+  'TR-PLT-28',
+  'TR-PLT-29',
+]
+note = '''**名前・役割・値の公開とフォーカス管理を部品側が持つ**（TR-PLT-29）。
+配色は段の意味（1=地 … 11=低コントラストの字、12=高コントラストの字）を守り、
+`apps/koeru/scripts/check-contrast.ts` が **Radix の CSS を実際に読んで**比を検査する。
+**塗りは段 9 ではなく段 11 を使う。** 段 9 は明暗で同じ値になる色があり、
+字を載せると 4.5:1 に届かない（実測）'''
+
+[[component]]
+id = 'CMP-127'
+name = 'shadcn/ui'
+purpose = '部品の実装を写す先。**依存としては入れない**'
+license = 'MIT'
+status = '参照'
+domains = [
+  'platform',
+]
+note = '**レジストリからコードを写すだけ。** 写した後は KOERU のコードなので、要件に合わせて直せる（押せるものの高さを 44px 以上に固定した、など）。package.json には載らない'
+
+[[component]]
+id = 'CMP-128'
+name = 'valibot'
+purpose = '画面が受け取る値の検査'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-015'
+domains = [
+  'platform',
+]
+note = '**UUID として読めない識別子を画面の入口で止める**（TR-PLT-23）。奥まで運ぶと「そのプロジェクトが無い」になり、原因が遠くなる'
+
+[[component]]
+id = 'CMP-129'
+name = 'bun / vite-plus'
+purpose = 'フロントの依存解決とビルド・検査'
+license = 'MIT / 商用（vite-plus）'
+status = '採用'
+decided_by = 'DEC-PLT-015'
+domains = [
+  'platform',
+]
+note = '''**開発時のみ。配布物には入らない。** ただし貢献者がビルドするのに要るので、
+AGPL で「Made to be handed on」を原則に置いている以上、入手性は注意して見る（DEC-PLT-015）。
+**検査の範囲は apps/ と packages/ に絞る。** 広げると docs/generated/ と meta/ を黙って整形し、
+FSL の drift 検出と check-meta の差分を壊す（vite.config.ts の ignorePatterns）'''

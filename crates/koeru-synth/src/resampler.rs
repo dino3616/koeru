@@ -29,7 +29,11 @@ pub struct RenderRequest<'a> {
     /// 素材。**44100 Hz の倍精度配列**（`TR-SYN-08`）。
     pub samples: &'a [f64],
     pub sample_rate_hz: u32,
-    /// 収録音高（MIDI ノート番号）。
+    /// **鳴らしたい音高**（MIDI ノート番号）。収録音高ではない。
+    ///
+    /// 素材が何の高さで録られていたかは、ここには要らない。
+    /// WORLD が F0 を直に置き換えるので、収録音高はスペクトル包絡の中に暗黙に残る。
+    /// **`modulation` が 0 なら、出力の F0 はちょうどこの音高になる。**
     pub tone: i32,
     /// oto の5値。
     pub oto: Oto,
@@ -322,6 +326,46 @@ mod tests {
             (hz - 261.6).abs() < 20.0,
             "指定した C4 の近くで鳴る: {hz:.1} Hz"
         );
+    }
+
+    /// **別の音高を頼めば、別の音が返る。**
+    ///
+    /// `tone` は「鳴らしたい音高」であって収録音高ではない。ここに収録音高を渡すと、
+    /// **どの音高を選んでも同じ高さで鳴る。** アプリ側で実際にそう書いて、
+    /// 「3音とも鳴った」まで通ってしまった。
+    ///
+    /// 実機ハーネスでは検出できない。素材に有声フレームが無いと目標 F0 が全部 0 になり、
+    /// どの音高でも同じ波形が返るので、静かな部屋では毎回すり抜ける。
+    /// **だからここに置く。**
+    #[test]
+    fn 別の音高を頼めば別の音が返る() {
+        let src = voiced(220.0, 0.5, 44_100);
+        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+
+        let mut req_lo = req(&src, o, 300.0, &[]);
+        req_lo.tone = 55; // G3 ≒ 196 Hz
+        let mut req_hi = req(&src, o, 300.0, &[]);
+        req_hi.tone = 67; // G4 ≒ 392 Hz
+
+        let lo = render(&req_lo).expect("合成できる");
+        let hi = render(&req_hi).expect("合成できる");
+        assert_ne!(lo.len(), 0);
+        assert_eq!(lo.len(), hi.len(), "長さは音高で変わらない");
+        assert!(
+            lo.iter().zip(&hi).any(|(a, b)| (a - b).abs() > 1e-9),
+            "**同じ波形が返っている。tone が使われていない**"
+        );
+
+        let (lo_hz, hi_hz) = (analyze_hz(&lo), analyze_hz(&hi));
+        assert!(
+            (lo_hz - midi_to_hz(55)).abs() < 15.0,
+            "G3 の近くで鳴る: {lo_hz:.1} Hz"
+        );
+        assert!(
+            (hi_hz - midi_to_hz(67)).abs() < 25.0,
+            "G4 の近くで鳴る: {hi_hz:.1} Hz"
+        );
+        assert!(hi_hz > lo_hz * 1.8, "1オクターブぶん離れていること");
     }
 
     /// **required_length のとおりの長さが返る。**

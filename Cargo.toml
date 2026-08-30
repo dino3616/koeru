@@ -35,6 +35,9 @@ unimplemented = "warn"
 
 [workspace.dependencies]
 anyhow = "1"
+# Tauri のコマンド境界で使う。**ドメイン層には入れない**（型は Rust 側が正本）。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
@@ -43,7 +46,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"
 # CoreAudio の HAL は素の C API なので自前で束縛しており、ここは Objective-C なので届かない。
 # **[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が既に objc2 を引いている。**
 objc2 = "0.6"
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "AVCaptureDevice",
+  "AVMediaFormat",
+] }
 # 権限要求の完了ブロックを組み立てるために要る（objc2 族）。
 block2 = "0.6"
 
@@ -53,7 +61,10 @@ cc = "1"
 # プロジェクトの永続化。**SQLite を bundled で同梱**し、OS の libsqlite3 に依存しない
 # （TR-PLT-20 のオフライン完結、TR-PLT-07 の外部インストール禁止）。
 # diesel-rs は Organization、Apache-2.0。
-diesel = { version = "2.3", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.3", default-features = false, features = [
+  "sqlite",
+  "returning_clauses_for_sqlite_3_35",
+] }
 diesel_migrations = { version = "2.3", default-features = false, features = ["sqlite"] }
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KOERU",
+  "version": "0.0.0",
+  "identifier": "app.koeru.studio",
+  "build": {
+    "frontendDist": "../../apps/koeru/dist/client",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "bun run --cwd ../../apps/koeru dev",
+    "beforeBuildCommand": "bun run --cwd ../../apps/koeru build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "KOERU",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' blob: asset: http://asset.localhost; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    },
+    "category": "Music",
+    "shortDescription": "UTAU 向けの歌声ライブラリ制作スタジオ",
+    "longDescription": "録音から配布パッケージ生成までを一つのプロジェクトで扱い、録音の途中でも自分の声で歌を聴ける"
+  }
+}

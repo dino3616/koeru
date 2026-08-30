@@ -82,6 +82,19 @@ cargo test --workspace --all-features
 cargo deny check   # 要 cargo install cargo-deny --locked
 ```
 
+フロント側は別に検証する。**配色の検査を飛ばさない。** 段を選び直したまま出すと、
+明暗どちらかで WCAG 2.2 AA を割る。
+
+```bash
+bun run check                          # フォーマット・lint・型（vp check --fix）
+bun run --cwd apps/koeru build         # ビルド ＋ 型 ＋ コントラスト検査
+bun run --cwd apps/koeru check:contrast
+```
+
+**`vp check` の範囲を広げない。** `vite.config.ts` の `ignorePatterns` が
+`docs/` `meta/` `specs/` `crates/` を外している。外さないと `docs/generated/` を整形して
+FSL の drift 検出を落とし、`meta/` の TOML を畳み直して差分を濁らせる。**一度やった。**
+
 仕様側は別に検証する。
 
 ```bash
@@ -109,14 +122,20 @@ fslc mutate specs/requirements/project-lifecycle.fsl --depth 8
 ```
 .agents/skills/     Skills の正本
 .claude/skills/     .agents/skills への symlink
-crates/koeru-core/  ドメイン層。GUI と OS に依存しない（実装は未着手）
+crates/koeru-core/  ドメイン層。GUI と OS に依存しない。台帳・録音リスト・プロジェクト・書式
 crates/koeru-audio/ 音声 I/O。各 OS の API を直接叩く。状態機械は recording-input.fsl の写し
+crates/koeru-synth/ 合成。同梱した WORLD への FFI、境界検出、oto 導出、resampler
+crates/koeru-app/   アプリケーション層。Tauri のコマンドと、縦切りの組み立て。tauri.conf.json もここ
+apps/koeru/         WebView 側。React + TanStack Start（SPA）+ Tailwind + Radix
+packages/tsconfig/  TypeScript の設定の共有元
 xtask/              仕様ゲート。meta と FSL / 技術要件の ID を突き合わせる
 specs/              FSL の正本。requirements / design / refinement
 meta/               要件・判断・未決の論点・Evidence・予算・リリースプロファイル
 docs/               設計文書
 docs/generated/     FSL から生成した文書。手で編集しない
 Cargo.toml          [workspace.lints] で clippy::all を deny
+package.json        bun workspaces。catalog で vite / vite-plus の版を固定する
+vite.config.ts      フロントの検査（vp check）。**範囲は apps/ と packages/ に絞ってある**
 deny.toml           AGPL 互換ライセンスの許可リスト
 ```
 
@@ -125,6 +144,9 @@ deny.toml           AGPL 互換ライセンスの許可リスト
 - **実装は Rust + Tauri。** 単一のネイティブアプリ、PC 前提。処理はローカル完結で、声をサーバへ送らない
 - **音声 I/O は各 OS の API を直接叩く**（`DEC-REC-001`）。必要なのは OS 側の音声加工を無効化する経路（排他モード、または共有モード＋ RAW ストリーム要求）へ到達できることで、`cpal` はそのどちらにも降りられない。**抽象レイヤも採らない。** TR-REC-08〜12 が要求する制御をどの抽象も出さず、省けるのはデバイス列挙とコールバックの配管だけだった。束ねるのは windows-rs / coreaudio-rs / pipewire-rs
 - **合成は WORLD ベース。** ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
+- **フロントは shadcn に依存しない。** レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
+- **配色は Radix Colors の段の意味を守る。** 1=地、2=面、…11=低コントラストの字、12=高コントラストの字。**塗りは段 9 ではなく段 11**（段 9 は明暗で同じ値になる色があり、字を載せると 4.5:1 に届かない）。検査は `apps/koeru/scripts/check-contrast.ts`
+- **`koeru-synth` の `RenderRequest.tone` は「鳴らしたい音高」。収録音高ではない。** ここに収録音高を渡すと、どの音高を選んでも同じ高さで鳴る（**踏んだ**）
 - **未解決の設計課題が2件ある**（`meta/questions/Q-PLT-001` と `Q-EDT-001`）。いずれもメモリ予算の破綻で、実装着手前に数値を積み直す必要がある
 - **FSL 化してあるのは縦切り1本だけ**（録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し）。技術要件を一度に FSL へ移さないこと。形式化できない文章まで入れると、FSL が新しい巨大文書になる
 - **`fslc` はバージョンと SHA-256 で固定している**（CI 参照）。更新は Renovate 任せにせず、semantic diff を確認してから上げる。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する

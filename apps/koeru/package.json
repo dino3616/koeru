@@ -1,0 +1,39 @@
+{
+  "name": "@koeru/app",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build && tsc --noEmit && bun run check:contrast",
+    "preview": "vp preview",
+    "check:contrast": "bun run scripts/check-contrast.ts"
+  },
+  "dependencies": {
+    "@radix-ui/colors": "3.0.0",
+    "@radix-ui/react-progress": "1.1.7",
+    "@radix-ui/react-select": "2.2.6",
+    "@radix-ui/react-slot": "1.2.3",
+    "@tanstack/react-router": "1.170.32",
+    "@tanstack/react-start": "1.168.49",
+    "@tauri-apps/api": "2.11.1",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwind-merge": "3.4.1",
+    "valibot": "1.4.2"
+  },
+  "devDependencies": {
+    "@koeru/tsconfig": "workspace:*",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "22.20.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

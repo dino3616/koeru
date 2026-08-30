@@ -1,0 +1,49 @@
+schema = 'decision'
+id = 'DEC-PLT-015'
+constraint_label = 'フロントの枠組み'
+constraint = 'WCAG 2.2 Level AA を、部品を作るたびに積み直さずに満たす'
+title = 'React + TanStack Start（SPA）+ Tailwind + Radix。shadcn は写す先であって依存先ではない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'React + TanStack Start + Tailwind + Radix',
+  '素の TypeScript + Vite',
+  'Svelte + Vite',
+]
+selected = 'React + TanStack Start + Tailwind + Radix'
+rationale = '''
+**M2 に WCAG 2.2 AA の要件が6件ある**（TR-PLT-25〜34）。名前・役割・値の公開、
+フォーカス管理、キーボード到達性、コントラスト。**これを部品ごとに自前で積むと、
+必ずどこかで落ちる。** Radix Primitives がそこを担保する。
+
+**shadcn には依存しない。** レジストリからコードを写すだけで、実体は自前実装になる。
+写した後は KOERU のコードなので、要件に合わせて直せる
+（例: 押せるものの高さを 44px 以上に固定した。TR-PLT-28 の対象サイズ）。
+
+**配色は Radix Colors から取り、段の意味を守る。** 1=地、2=面、…11=低コントラストの字、
+12=高コントラストの字。段の対応を崩すと明暗どちらかで AA を割るので、
+`apps/koeru/scripts/check-contrast.ts` が実際の Radix の値を読んで比を検査する。
+**手で写した色を検査しない。** Radix の版が上がって段がずれたら落ちる。
+
+**TanStack Start は SPA モードで使う。** Tauri の中にサーバは無いので、
+SSR は要らない。起動時に配るのは殻だけで、あとは全部クライアントで組む。
+
+**ビルドツールは vite-plus。** これは開発時のみの依存で配布物には入らないが、
+**貢献者がビルドするのに必要になる。** KOERU は AGPL で「Made to be handed on」を
+原則に置いているので、ここは注意して見る点として残す。
+'''
+review_triggers = [
+  'vite-plus の入手性が、外部の貢献者にとって障害になったとき',
+  'WebView 上で Radix Primitives のフォーカス管理が壊れたとき（3 OS で実機確認する）',
+  'Radix Colors の版が上がって、段とコントラストの対応が変わったとき',
+]
+affects_requirements = [
+  'TR-PLT-03',
+  'TR-PLT-25',
+  'TR-PLT-26',
+  'TR-PLT-27',
+  'TR-PLT-28',
+  'TR-PLT-29',
+  'TR-PLT-34',
+]
+supersedes = []

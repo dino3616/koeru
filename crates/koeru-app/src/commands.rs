@@ -1,0 +1,228 @@
+//! Tauri のコマンド。**判断はここに置かない。**
+//!
+//! [`crate::studio::Studio`] を呼んで、結果を画面へ渡す形へ直すだけ。
+//! **筋を足すときは `studio` 側に足す**（GUI 無しで検査できる場所に置く）。
+
+use std::sync::Mutex;
+
+use serde::Serialize;
+use tauri::State;
+
+use crate::error::{AppError, Result};
+use crate::studio::{Progress, Studio, TakeResult};
+
+/// アプリが持つ状態。**1本の `Mutex` で囲む。**
+///
+/// 音声のコールバックはこの `Mutex` を取らない（`Capture` の中はアトミック）。
+/// ここが守るのは画面から来る操作の直列化だけ。
+#[derive(Debug)]
+pub struct AppState {
+    studio: Mutex<Studio>,
+}
+
+impl AppState {
+    /// 状態を作る。
+    #[must_use]
+    pub const fn new(studio: Studio) -> Self {
+        Self {
+            studio: Mutex::new(studio),
+        }
+    }
+}
+
+/// `Mutex` が毒されたときの失敗。
+///
+/// **毒されたら握り潰さない。** どこかのコマンドが panic した証拠で、
+/// そのまま続けると壊れた状態の上で操作を重ねる。
+fn lock(state: &AppState) -> Result<std::sync::MutexGuard<'_, Studio>> {
+    state
+        .studio
+        .lock()
+        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))
+}
+
+/// 画面へ返すデバイス。
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceView {
+    /// 永続識別子（`TR-REC-03`）。**同一性の判定はこれで行う。**
+    pub id: String,
+    /// 表示名。**一覧に出すためだけ。**
+    pub name: String,
+}
+
+/// 画面へ返すプロジェクト。
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectView {
+    /// 不変の識別子。
+    pub id: String,
+    /// 表示名。**manifest が読めなければ `None`。**
+    pub display_name: Option<String>,
+    /// 方式。
+    pub method: Option<String>,
+    /// 項目数。
+    pub item_count: Option<u32>,
+}
+
+/// 画面へ返す進み具合。
+#[derive(Debug, Clone, Serialize)]
+pub struct ProgressView {
+    /// 次に録る行の ID。
+    pub next_row_id: Option<String>,
+    /// 次に録る行の読み上げ文字列。
+    pub next_row_text: Option<String>,
+    /// 収録済み単位。
+    pub covered: usize,
+    /// 必要な単位。
+    pub required: usize,
+    /// 完成状態。
+    pub coverage: String,
+    /// 手渡し状態。**完成判定はこれを見ない**（`TR-PKG-33`）。
+    pub handoff: String,
+}
+
+impl From<Progress> for ProgressView {
+    fn from(p: Progress) -> Self {
+        let (id, text) = p.next_row.map_or((None, None), |(i, t)| (Some(i), Some(t)));
+        Self {
+            next_row_id: id,
+            next_row_text: text,
+            covered: p.covered,
+            required: p.required,
+            coverage: format!("{:?}", p.coverage),
+            handoff: format!("{:?}", p.handoff),
+        }
+    }
+}
+
+/// 画面へ返すテイク。
+#[derive(Debug, Clone, Serialize)]
+pub struct TakeView {
+    /// 台帳の ID。
+    pub take_id: i32,
+    /// どの行か。
+    pub row_id: String,
+    /// 長さ（ミリ秒）。
+    pub duration_ms: f64,
+    /// 絶対値の最大。**1.0 に達していたらクリップ。**
+    pub peak: f32,
+    /// 波形サムネイル（0〜255）。
+    pub thumbnail: Vec<u8>,
+    /// 原音設定が導けたか。
+    pub has_oto: bool,
+    /// 境界の確信度。
+    pub confidence: Option<f64>,
+    /// 取りこぼしの回数。**0 でなければ録り直しを促す**（`TR-REC-07`）。
+    pub discontinuities: usize,
+}
+
+impl From<TakeResult> for TakeView {
+    fn from(t: TakeResult) -> Self {
+        Self {
+            take_id: t.take_id,
+            row_id: t.row_id,
+            duration_ms: t.duration_ms,
+            peak: t.peak,
+            thumbnail: t.thumbnail,
+            has_oto: t.oto.is_some(),
+            confidence: t.confidence,
+            discontinuities: t.discontinuities,
+        }
+    }
+}
+
+/// 入力デバイスを挙げる。
+#[tauri::command]
+pub fn list_devices() -> Result<Vec<DeviceView>> {
+    Ok(Studio::devices()?
+        .into_iter()
+        .map(|d| DeviceView {
+            id: d.id.as_str().to_owned(),
+            name: d.name.expose().to_owned(),
+        })
+        .collect())
+}
+
+/// ライブラリの中身を挙げる。
+#[tauri::command]
+pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectView>> {
+    Ok(lock(&state)?
+        .projects()?
+        .into_iter()
+        .map(|(id, m)| ProjectView {
+            id: id.to_string(),
+            display_name: m.as_ref().map(|m| m.display_name.clone()),
+            method: m.as_ref().map(|m| m.method.as_str().to_owned()),
+            item_count: m.as_ref().map(|m| m.item_count),
+        })
+        .collect())
+}
+
+/// プロジェクトを作る。
+#[tauri::command]
+pub fn create_project(state: State<'_, AppState>, display_name: String) -> Result<String> {
+    Ok(lock(&state)?.create_project(&display_name)?.to_string())
+}
+
+/// プロジェクトを開く。
+#[tauri::command]
+pub fn open_project(state: State<'_, AppState>, id: String) -> Result<ProgressView> {
+    let mut s = lock(&state)?;
+    let uuid = id
+        .parse()
+        .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
+    s.open_project(uuid)?;
+    Ok(s.progress()?.into())
+}
+
+/// いまの進み具合。
+#[tauri::command]
+pub fn progress(state: State<'_, AppState>) -> Result<ProgressView> {
+    Ok(lock(&state)?.progress()?.into())
+}
+
+/// デバイスを選び、ストリームを開く。
+///
+/// 返るのは、**OS 側の音声加工が残っているかどうか**（`TR-REC-11`）。
+#[tauri::command]
+pub fn arm_device(state: State<'_, AppState>, device_id: String) -> Result<String> {
+    let mode = lock(&state)?.arm_device(&koeru_audio::DeviceId::new(device_id))?;
+    Ok(format!("{mode:?}"))
+}
+
+/// 入力が届いているかを確かめる（`TR-REC-17`）。
+///
+/// **権限が無いと macOS は無音を返す。** 成否ではなくピークを見る。
+#[tauri::command]
+pub fn probe_input(state: State<'_, AppState>, ms: u64) -> Result<f32> {
+    lock(&state)?.probe_input(ms)
+}
+
+/// いま録るべき行の収録を始める。
+#[tauri::command]
+pub fn start_take(state: State<'_, AppState>) -> Result<String> {
+    lock(&state)?.start_take()
+}
+
+/// 収録を止めて、テイクを確定させる。
+#[tauri::command]
+pub fn finish_take(state: State<'_, AppState>) -> Result<TakeView> {
+    Ok(lock(&state)?.finish_take()?.into())
+}
+
+/// 収録済みのテイクを、指定した音高で鳴らす。
+#[tauri::command]
+pub fn preview(
+    state: State<'_, AppState>,
+    take_id: i32,
+    midi: i32,
+    length_ms: f64,
+) -> Result<usize> {
+    lock(&state)?.preview(take_id, midi, length_ms)
+}
+
+/// 鳴らしている音を止める。
+#[tauri::command]
+pub fn stop_preview(state: State<'_, AppState>) -> Result<()> {
+    lock(&state)?.stop_preview();
+    Ok(())
+}

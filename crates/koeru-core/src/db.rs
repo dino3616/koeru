@@ -651,6 +651,75 @@ impl Ledger {
         Ok(n > 0)
     }
 
+    /// まだ採用テイクが無い行の数。**残量の見積もりに使う**（`REQ-REC-110`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn remaining_rows(&mut self) -> Result<u64> {
+        let n: i64 = rows::table
+            .filter(rows::id.ne_all(adopted_takes::table.select(adopted_takes::row_id)))
+            .count()
+            .get_result(&mut self.conn)
+            .map_err(db("remaining_rows"))?;
+        Ok(u64::try_from(n).unwrap_or(0))
+    }
+
+    /// テイクを1件引く。**無ければ `None`。**
+    #[tracing::instrument(skip(self), fields(take_id), err)]
+    pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
+        takes::table
+            .filter(takes::id.eq(take_id))
+            .select((
+                takes::id,
+                takes::row_id,
+                takes::rel_path,
+                takes::frames,
+                takes::invalid,
+                takes::generation,
+            ))
+            .first::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .optional()
+            .map_err(db("take"))
+            .map(|o| {
+                o.map(|(id, row_id, rel_path, frames, invalid, generation)| Take {
+                    id,
+                    row_id,
+                    rel_path,
+                    frames,
+                    invalid: invalid != 0,
+                    generation,
+                })
+            })
+    }
+
+    /// テイクに紐づく oto の5値を引く。**まだ無ければ `None`。**
+    #[tracing::instrument(skip(self), fields(take_id), err)]
+    pub fn oto_of(&mut self, take_id: i32) -> Result<Option<koeru_oto::Oto>> {
+        oto_values::table
+            .filter(oto_values::take_id.eq(take_id))
+            .select((
+                oto_values::offset_ms,
+                oto_values::consonant_ms,
+                oto_values::cutoff_ms,
+                oto_values::preutterance_ms,
+                oto_values::overlap_ms,
+            ))
+            .first::<(f64, f64, f64, f64, f64)>(&mut self.conn)
+            .optional()
+            .map_err(db("oto_of"))
+            .map(|o| {
+                o.map(
+                    |(offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms)| {
+                        koeru_oto::Oto {
+                            offset_ms,
+                            consonant_ms,
+                            cutoff_ms,
+                            preutterance_ms,
+                            overlap_ms,
+                        }
+                    },
+                )
+            })
+    }
+
     /// 行が生む単位を引く。
     pub fn units_of(&mut self, row_id: &str) -> Result<Vec<String>> {
         row_units::table
