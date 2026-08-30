@@ -2,6 +2,12 @@
 //!
 //! recording-input.fsl の状態機械を通し、macOS のキャプチャから
 //! `.wav.part` → fsync → rename までを実機で確かめる。
+//!
+//! **これは回帰テストではなく、実機ハーネス。** マイクが無い環境では途中で戻る。
+//! 何が起きたかを読むために標準出力を使う。ここだけ `print_stdout` を許す
+//! （出力は tracing に統一する規律は、アプリのコードに掛かるもの）。
+
+#![allow(clippy::print_stdout)]
 
 use koeru_audio::{Session, backend::macos as mac, wav};
 
