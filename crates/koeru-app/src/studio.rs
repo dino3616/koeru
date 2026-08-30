@@ -21,7 +21,9 @@ use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};
 use koeru_core::db::{FinalizedTake, Ledger, SessionSnapshot, koeru_oto};
 use koeru_core::frq;
+use koeru_core::guide::{self, GuideSpec};
 use koeru_core::inventory::UnitSet;
+use koeru_core::leak::{self, LeakCheck};
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_synth::oto::{Oto, OtoPreset, derive_cv};
@@ -139,6 +141,8 @@ pub struct Studio {
     device: Option<DeviceId>,
     /// アプリが触る前のゲイン。**終了時にここへ戻す**（`TR-REC-15`）。
     gain_before: Option<(DeviceId, f32)>,
+    /// 回り込みの検査結果（`TR-REC-24`）。**済むまで音高提示を鳴らさない。**
+    leak: Option<LeakCheck>,
     playback: Option<mac::Playback>,
 }
 
@@ -157,6 +161,7 @@ impl Studio {
             xrun_baseline: 0,
             device: None,
             gain_before: None,
+            leak: None,
             playback: None,
         })
     }
@@ -399,6 +404,115 @@ impl Studio {
     #[must_use]
     pub fn preroll_ms(&self) -> u64 {
         self.pump.as_ref().map_or(0, Pump::preroll_ms)
+    }
+
+    /// 出力がどこへ出ているらしいか（`TR-REC-24`）。
+    ///
+    /// **これは一次の足切りでしかない。** `TransportType` も `DataSource` も
+    /// ドライバの自己申告で、Unknown が正規値として存在する。
+    /// 実際の回り込みは [`Studio::check_guide_leak`] が録った音で確かめる。
+    #[must_use]
+    pub fn output_kind() -> mac::OutputKind {
+        mac::default_output_kind()
+    }
+
+    /// ガイドを鳴らしながら録って、回り込みを確かめる（`TR-REC-24`）。
+    ///
+    /// **出力経路の判定だけでは足りない。** ヘッドホンと申告していても、
+    /// 装着されている保証はない。**回り込みは録音側でしか確認できない。**
+    ///
+    /// **これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。**
+    ///
+    /// 既知の再生信号との相関を取るだけなので、声質の評価を一切含まない
+    /// （`TR-REC-17` と同じ性質の静的な経路検査）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn check_guide_leak(&mut self, midi: i32) -> Result<LeakCheck> {
+        let rate = self
+            .capture
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .format()
+            .sample_rate_hz;
+
+        // スピーカと分かっているなら、鳴らすまでもなく漏れる。
+        if Self::output_kind().definitely_speakers() {
+            let found = LeakCheck {
+                correlation: 1.0,
+                lag_ms: 0.0,
+                leaking: true,
+            };
+            self.leak = Some(found);
+            self.session.check_guide_leak()?;
+            return Ok(found);
+        }
+
+        // 1秒ぶんのガイドを鳴らしながら録る。
+        let spec = GuideSpec {
+            moras: 2,
+            lead_in_ms: 0.0,
+            tail_ms: 0.0,
+            ..GuideSpec::default()
+        };
+        let played = guide::render(&spec, midi, rate);
+        let captured = self.play_and_capture(&played, rate)?;
+
+        let found = leak::detect(&played, &captured, rate);
+        tracing::info!(
+            correlation = found.correlation,
+            lag_ms = found.lag_ms,
+            leaking = found.leaking,
+            "回り込みを確かめた"
+        );
+        self.leak = Some(found);
+        self.session.check_guide_leak()?;
+        Ok(found)
+    }
+
+    /// 音高を鳴らす（`TR-REC-23` の音高提示）。
+    ///
+    /// **回り込みが確かめられていなければ鳴らさない**（`TR-REC-24`）。
+    /// 鳴らしたものが全テイクに混じる。
+    #[tracing::instrument(skip(self), err)]
+    pub fn play_pitch(&mut self, midi: i32) -> Result<()> {
+        match self.leak {
+            None => {
+                return Err(AppError::new(
+                    "recording.leak_unchecked",
+                    "先に回り込みを確かめてほしい",
+                ));
+            }
+            Some(l) if l.leaking => {
+                return Err(AppError::new(
+                    "recording.guide_leaks",
+                    "ガイドが録音へ回り込むので鳴らさない",
+                ));
+            }
+            Some(_) => {}
+        }
+        let rate = self
+            .capture
+            .as_ref()
+            .ok_or_else(no_stream)?
+            .format()
+            .sample_rate_hz;
+        let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
+        self.playback = None;
+        self.playback = Some(mac::play(pcm, rate)?);
+        Ok(())
+    }
+
+    /// 鳴らしながら録る。**回り込みの検査にだけ使う。**
+    fn play_and_capture(&mut self, played: &[f32], rate: u32) -> Result<Vec<f32>> {
+        let pump = self.pump.as_ref().ok_or_else(no_stream)?;
+        pump.begin_probe();
+        let handle = mac::play(played.to_vec(), rate)?;
+
+        // 鳴っているあいだ待つ。**余裕を持たせる**（バッファのぶん遅れる）。
+        let ms = (played.len() as u64 * 1000 / u64::from(rate.max(1))) + 200;
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+        drop(handle);
+
+        Ok(self.pump.as_ref().ok_or_else(no_stream)?.end_probe())
     }
 
     /// 保存してある校正と、いまのゲインを突き合わせる（`TR-REC-15`）。

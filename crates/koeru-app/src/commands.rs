@@ -255,6 +255,55 @@ pub struct CalibrationView {
     pub settled: bool,
 }
 
+/// 次のフレーズへ進むまでの長さ（ミリ秒、`TR-REC-20`）。
+///
+/// **単独音はガイドを使わないので固定長。** 発話の検出結果を条件にしない。
+#[tauri::command]
+pub const fn auto_advance_ms() -> f64 {
+    koeru_core::guide::AUTO_ADVANCE_MS
+}
+
+/// 出力がどこへ出ているらしいか（`TR-REC-24`）。
+///
+/// **一次の足切りでしかない。** ドライバの自己申告なので、
+/// 実際の回り込みは [`check_guide_leak`] が録った音で確かめる。
+#[tauri::command]
+pub fn output_kind() -> Result<String> {
+    Ok(Studio::output_kind().as_str().to_owned())
+}
+
+/// ガイドを鳴らしながら録って、回り込みを確かめる（`TR-REC-24`）。
+///
+/// **これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。**
+#[tauri::command]
+pub fn check_guide_leak(state: State<'_, AppState>, midi: i32) -> Result<LeakView> {
+    let c = lock(&state)?.check_guide_leak(midi)?;
+    Ok(LeakView {
+        correlation: c.correlation,
+        lag_ms: c.lag_ms,
+        leaking: c.leaking,
+    })
+}
+
+/// 音高を鳴らす（`TR-REC-23` の音高提示）。
+///
+/// **回り込みが確かめられていなければ鳴らさない。**
+#[tauri::command]
+pub fn play_pitch(state: State<'_, AppState>, midi: i32) -> Result<()> {
+    lock(&state)?.play_pitch(midi)
+}
+
+/// 画面へ返す回り込みの検査結果（`TR-REC-24`）。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct LeakView {
+    /// 見つかった相関（0.0〜1.0）。
+    pub correlation: f64,
+    /// そのときの遅れ（ミリ秒）。**参考値。**
+    pub lag_ms: f64,
+    /// 回り込んでいるとみなすか。
+    pub leaking: bool,
+}
+
 /// 残量を見積もる（`TR-REC-41`）。
 #[tauri::command]
 pub fn estimate_space(state: State<'_, AppState>) -> Result<SpaceView> {

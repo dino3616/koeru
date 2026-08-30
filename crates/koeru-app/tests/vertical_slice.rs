@@ -17,9 +17,13 @@ use koeru_audio::backend::macos as mac;
 const RECORD_MS: u64 = 900;
 
 /// これを下回る素材は、信号ではなく部屋の音。
-///
-/// **静かな部屋で走らせたときに、推定器の出まかせを検査してしまわないための下限。**
 const SIGNAL_FLOOR: f32 = 0.05;
+
+/// これを下回る境界は、発声ではなく物音。
+///
+/// **ピークだけでは足りない。** ドアや打鍵は大きいが声ではなく、
+/// そこから測った F0 は推定器の出まかせになる（実機で踏んだ）。
+const CONFIDENCE_FLOOR: f64 = 0.5;
 
 #[test]
 fn 録って聴けるところまで一本で通す() {
@@ -215,9 +219,10 @@ fn 録って聴けるところまで一本で通す() {
         rendered.push((midi, pcm, rate));
     }
 
-    if take.peak < SIGNAL_FLOOR {
+    let confidence = take.confidence.unwrap_or(0.0);
+    if take.peak < SIGNAL_FLOOR || confidence < CONFIDENCE_FLOOR {
         println!(
-            "録れた音が小さすぎる（ピーク {:.4} < {SIGNAL_FLOOR}）。**音高の検査は飛ばす**",
+            "声として録れていない（ピーク {:.4} / 確信度 {confidence:.2}）。**音高の検査は飛ばす**",
             take.peak
         );
     } else {

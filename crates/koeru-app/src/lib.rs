@@ -57,6 +57,10 @@ pub fn run() {
             commands::calibrate,
             commands::gain_drift,
             commands::restore_saved_gain,
+            commands::auto_advance_ms,
+            commands::output_kind,
+            commands::check_guide_leak,
+            commands::play_pitch,
             commands::stop_preview,
         ])
         .run(tauri::generate_context!())

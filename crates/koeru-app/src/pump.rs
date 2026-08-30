@@ -75,6 +75,9 @@ pub struct Pump {
     /// 直近に流れてきた音のピーク。**入力が届いているかの判定に使う**（`TR-REC-17`）。
     /// 読むたびに 0 へ戻すので、「前回見てから今までの最大」になる。
     recent_peak: Arc<Mutex<f32>>,
+    /// 検査のあいだだけ、流れてきたものを丸ごと溜める（`TR-REC-24`）。
+    /// **録音とは別の経路。** テイクの中身には混ぜない。
+    probe: Arc<Mutex<Option<Vec<f32>>>>,
     rate_hz: u32,
 }
 
@@ -117,12 +120,14 @@ impl Pump {
         let stop = Arc::new(AtomicBool::new(false));
         let held = Arc::new(Mutex::new(0_usize));
         let recent_peak = Arc::new(Mutex::new(0.0_f32));
+        let probe = Arc::new(Mutex::new(None));
 
         let handle = std::thread::spawn({
             let stop = Arc::clone(&stop);
             let held = Arc::clone(&held);
             let peak = Arc::clone(&recent_peak);
-            move || run(consumer, rate_hz, &cmd_rx, &stop, &held, &peak)
+            let probe = Arc::clone(&probe);
+            move || run(consumer, rate_hz, &cmd_rx, &stop, &held, &peak, &probe)
         });
 
         Self {
@@ -131,6 +136,7 @@ impl Pump {
             handle: Some(handle),
             held,
             recent_peak,
+            probe,
             rate_hz,
         }
     }
@@ -155,6 +161,23 @@ impl Pump {
             *g = 0.0;
             v
         })
+    }
+
+    /// 検査のための収集を始める（`TR-REC-24`）。
+    ///
+    /// **録音とは別の経路。** テイクの中身には混ざらない。
+    pub fn begin_probe(&self) {
+        if let Ok(mut g) = self.probe.lock() {
+            *g = Some(Vec::new());
+        }
+    }
+
+    /// 集めたものを取り出して、収集を終える。
+    #[must_use]
+    pub fn end_probe(&self) -> Vec<f32> {
+        self.probe
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut g| g.take().unwrap_or_default())
     }
 
     /// テイクを始める。**プリロールぶんを先に書き込む。**
@@ -208,6 +231,7 @@ fn run(
     stop: &AtomicBool,
     held: &Mutex<usize>,
     recent_peak: &Mutex<f32>,
+    probe: &Mutex<Option<Vec<f32>>>,
 ) {
     let cap = (u64::from(rate_hz) * PREROLL_CAPACITY_MS / 1000) as usize;
     let preroll_want = (u64::from(rate_hz) * PREROLL_MS / 1000) as usize;
@@ -290,6 +314,11 @@ fn run(
         }
         if let Ok(mut g) = recent_peak.lock() {
             *g = got.iter().fold(*g, |m, v| m.max(v.abs()));
+        }
+        if let Ok(mut g) = probe.lock()
+            && let Some(buf) = g.as_mut()
+        {
+            buf.extend_from_slice(got);
         }
 
         if let Some(r) = rec.as_mut() {

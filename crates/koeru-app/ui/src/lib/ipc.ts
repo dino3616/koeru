@@ -84,6 +84,14 @@ export type CalibrationView = {
   settled: boolean;
 };
 
+/** 回り込みの検査結果（TR-REC-24）。 */
+export type LeakView = {
+  correlation: number;
+  /** 参考値。判定に使うのは相関の大きさ。 */
+  lag_ms: number;
+  leaking: boolean;
+};
+
 export const api = {
   listDevices: () => invoke<DeviceView[]>("list_devices"),
   listProjects: () => invoke<ProjectView[]>("list_projects"),
@@ -102,4 +110,8 @@ export const api = {
   calibrate: (seconds: number) => invoke<CalibrationView>("calibrate", { seconds }),
   gainDrift: () => invoke<[number, number] | null>("gain_drift"),
   restoreSavedGain: () => invoke<void>("restore_saved_gain"),
+  autoAdvanceMs: () => invoke<number>("auto_advance_ms"),
+  outputKind: () => invoke<"headphones" | "speakers" | "unknown">("output_kind"),
+  checkGuideLeak: (midi: number) => invoke<LeakView>("check_guide_leak", { midi }),
+  playPitch: (midi: number) => invoke<void>("play_pitch", { midi }),
 };

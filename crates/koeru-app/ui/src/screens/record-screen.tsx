@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CalibrationCard } from "~/components/calibration-card";
+import { LeakCard } from "~/components/leak-card";
 import { LevelMeter } from "~/components/level-meter";
 import { Button } from "~/components/ui/button";
 import { Card, CardTitle } from "~/components/ui/card";
@@ -55,6 +56,11 @@ export const RecordScreen = () => {
   const [error, setError] = useState<string | null>(null);
   const [space, setSpace] = useState<SpaceView | null>(null);
   const [status, setStatus] = useState("");
+  // 連続収録（TR-REC-20）。**発話の検出結果を条件にしない。固定長で進む。**
+  const [continuous, setContinuous] = useState(false);
+  const [advanceMs, setAdvanceMs] = useState(3000);
+  const continuing = useRef(false);
+  const [leaking, setLeaking] = useState<boolean | null>(null);
   const startedAt = useRef<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
 
@@ -64,6 +70,7 @@ export const RecordScreen = () => {
     if (id === undefined) return;
     api.openProject(id).then(setProgress).catch(fail);
     api.listDevices().then(setDevices).catch(fail);
+    api.autoAdvanceMs().then(setAdvanceMs).catch(fail);
   }, [id, fail]);
 
   // 収録中の経過時間。**1秒ごとに読み上げへは流さない**（うるさい）。
@@ -96,18 +103,34 @@ export const RecordScreen = () => {
       .catch(fail);
   };
 
+  /** 1フレーズ録って確定させる。**連続収録もここを繰り返す。** */
+  const recordOnce = async (holdMs: number) => {
+    setTake(null);
+    await api.startTake();
+    startedAt.current = performance.now();
+    setElapsed(0);
+    setRecording(true);
+    setStatus("収録中");
+
+    await new Promise((r) => setTimeout(r, holdMs));
+
+    setRecording(false);
+    const t = await api.finishTake();
+    setTake(t);
+    setStatus(
+      t.invalidated
+        ? "取りこぼしがあったので、もう一度録ります"
+        : t.has_oto
+          ? "録れました。音高を選ぶと歌います"
+          : "録れましたが、発声を見つけられませんでした",
+    );
+    setProgress(await api.progress());
+    return t;
+  };
+
   const start = () => {
     setError(null);
-    setTake(null);
-    api
-      .startTake()
-      .then(() => {
-        startedAt.current = performance.now();
-        setElapsed(0);
-        setRecording(true);
-        setStatus("収録中");
-      })
-      .catch(fail);
+    recordOnce(advanceMs).catch(fail);
   };
 
   const stop = () => {
@@ -127,6 +150,36 @@ export const RecordScreen = () => {
       })
       .then(setProgress)
       .catch(fail);
+  };
+
+  /**
+   * 連続収録（TR-REC-20）。
+   *
+   * **止めたフレーズは未収録のまま残る。** 途中で抜けても、続きから再開できる。
+   * フレーズの間もストリームは止めないので、プリロールは保たれる（TR-REC-19）。
+   */
+  const runContinuous = async () => {
+    continuing.current = true;
+    setContinuous(true);
+    try {
+      while (continuing.current) {
+        const p = await api.progress();
+        if (p.next_row_id === null) break;
+        await recordOnce(advanceMs);
+        // フレーズ間の間。**声を出し終える時間を残す。**
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    } catch (e) {
+      fail(e);
+    } finally {
+      continuing.current = false;
+      setContinuous(false);
+      setStatus("連続収録を止めました");
+    }
+  };
+
+  const pauseContinuous = () => {
+    continuing.current = false;
   };
 
   const sing = (midi: number) => {
@@ -224,6 +277,13 @@ export const RecordScreen = () => {
 
       <CalibrationCard ready={ready} onStatus={setStatus} />
 
+      <LeakCard
+        ready={ready}
+        midi={PREVIEW_PITCHES[1]?.midi ?? 60}
+        onStatus={setStatus}
+        onChecked={setLeaking}
+      />
+
       <Card>
         <CardTitle>いま録るところ</CardTitle>
         {loaded ? (
@@ -239,7 +299,7 @@ export const RecordScreen = () => {
           <p className="mt-3 text-5xl font-semibold tracking-widest text-text-dim">…</p>
         )}
 
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-5 flex flex-wrap items-center gap-3">
           {recording ? (
             <Button variant="danger" size="lg" onClick={stop}>
               止める（{elapsed} 秒）
@@ -249,13 +309,55 @@ export const RecordScreen = () => {
               variant="primary"
               size="lg"
               onClick={start}
-              disabled={!ready || !loaded || allDone}
+              disabled={!ready || !loaded || allDone || continuous}
             >
               録る
             </Button>
           )}
+
+          {/*
+            **連続収録**（TR-REC-20）。1フレーズ {advanceMs}ms の固定長で進む。
+            発話の検出結果を条件にしない。
+          */}
+          {continuous ? (
+            <Button variant="secondary" size="lg" onClick={pauseContinuous}>
+              続けて録るのをやめる
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={() => {
+                setError(null);
+                void runContinuous();
+              }}
+              disabled={!ready || !loaded || allDone || recording}
+            >
+              続けて録る
+            </Button>
+          )}
+
+          {/* **音高提示は回り込みが無いときだけ**（TR-REC-24）。 */}
+          {leaking === false && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                api.playPitch(PREVIEW_PITCHES[1]?.midi ?? 60).catch(fail);
+              }}
+              disabled={recording || continuous}
+            >
+              音高を聞く
+            </Button>
+          )}
+
           {!ready && <span className="text-sm text-text-dim">先にマイクを選んでください</span>}
         </div>
+
+        {continuous && (
+          <p className="mt-3 text-sm text-text-dim">
+            1フレーズ {(advanceMs / 1000).toFixed(1)} 秒で自動的に次へ進みます。
+            やめたフレーズは未収録のまま残ります。
+          </p>
+        )}
       </Card>
 
       {take !== null && (

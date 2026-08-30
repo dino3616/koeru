@@ -35,6 +35,7 @@ const fn fourcc(s: &[u8; 4]) -> u32 {
 
 pub(super) const kAudioHardwarePropertyDevices: u32 = fourcc(b"dev#");
 pub(super) const kAudioHardwarePropertyDefaultInputDevice: u32 = fourcc(b"dIn ");
+pub(super) const kAudioHardwarePropertyDefaultOutputDevice: u32 = fourcc(b"dOut");
 /// **TR-REC-03 が要求する永続識別子。** 表示名ではなくこれをプロジェクトに固定する。
 pub(super) const kAudioDevicePropertyDeviceUID: u32 = fourcc(b"uid ");
 pub(super) const kAudioObjectPropertyName: u32 = fourcc(b"lnam");
@@ -52,6 +53,24 @@ pub(super) const kAudioDevicePropertyVolumeScalar: u32 = fourcc(b"volm");
 pub(super) const kAudioDevicePropertyTransportType: u32 = fourcc(b"tran");
 pub(super) const kAudioDeviceTransportTypeVirtual: u32 = fourcc(b"virt");
 pub(super) const kAudioDeviceTransportTypeAggregate: u32 = fourcc(b"grup");
+pub(super) const kAudioDeviceTransportTypeBuiltIn: u32 = fourcc(b"bltn");
+pub(super) const kAudioDeviceTransportTypeBluetooth: u32 = fourcc(b"blue");
+pub(super) const kAudioDeviceTransportTypeBluetoothLE: u32 = fourcc(b"blea");
+pub(super) const kAudioDeviceTransportTypeUSB: u32 = fourcc(b"usb ");
+pub(super) const kAudioDeviceTransportTypeHDMI: u32 = fourcc(b"hdmi");
+pub(super) const kAudioDeviceTransportTypeDisplayPort: u32 = fourcc(b"dprt");
+pub(super) const kAudioDeviceTransportTypeAirPlay: u32 = fourcc(b"airp");
+
+/// 出力の経路（内蔵スピーカ / ヘッドホン端子など）。
+///
+/// **これもドライバの自己申告**（TR-REC-24 の [Fact]）。安全側の根拠にはしない。
+pub(super) const kAudioDevicePropertyDataSource: u32 = fourcc(b"ssrc");
+/// 内蔵スピーカ。
+pub(super) const kAudioDataSourceInternalSpeaker: u32 = fourcc(b"ispk");
+/// ヘッドホン端子。
+pub(super) const kAudioDataSourceHeadphones: u32 = fourcc(b"hdpn");
+/// 出力スコープ。
+pub(super) const kAudioObjectPropertyScopeOutput: u32 = fourcc(b"outp");
 
 pub(super) const kAudioObjectPropertyScopeGlobal: u32 = fourcc(b"glob");
 pub(super) const kAudioObjectPropertyScopeInput: u32 = fourcc(b"inpt");
@@ -80,6 +99,15 @@ impl AudioObjectPropertyAddress {
         Self {
             mSelector: selector,
             mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain,
+        }
+    }
+
+    #[must_use]
+    pub(super) const fn output(selector: u32) -> Self {
+        Self {
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeOutput,
             mElement: kAudioObjectPropertyElementMain,
         }
     }

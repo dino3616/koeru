@@ -9,6 +9,7 @@
 mod capture;
 mod capture_device;
 mod gain;
+mod output;
 mod playback;
 mod sys;
 mod watch;
@@ -19,6 +20,7 @@ pub use capture_device::{
     preferred_microphone_mode, privacy_settings_url, request_microphone_permission,
 };
 pub use gain::{GainControl, control as gain_control, read as read_gain, write as write_gain};
+pub use output::{OutputKind, default_output_kind};
 pub use playback::{Playback, PlaybackError, play};
 pub use watch::{DeviceWatch, watch};
 
