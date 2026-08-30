@@ -8,6 +8,7 @@
 
 mod capture;
 mod capture_device;
+mod playback;
 mod sys;
 mod watch;
 
@@ -16,6 +17,7 @@ pub use capture_device::{
     MicPermission, MicrophoneMode, active_microphone_mode, microphone_permission,
     preferred_microphone_mode, privacy_settings_url, request_microphone_permission,
 };
+pub use playback::{Playback, PlaybackError, play};
 pub use watch::{DeviceWatch, watch};
 
 use crate::device::{DeviceId, DeviceInfo, RedactedName};

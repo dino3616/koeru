@@ -132,6 +132,11 @@ pub(super) type AudioUnitRenderActionFlags = u32;
 
 pub(super) const kAudioUnitType_Output: u32 = fourcc(b"auou");
 pub(super) const kAudioUnitSubType_HALOutput: u32 = fourcc(b"ahal");
+/// 既定の出力デバイスへ流す。**試唱の再生に使う。**
+///
+/// 収録の入力は `HALOutput` でデバイスを名指しするが（TR-REC-08 の経路が要る）、
+/// **再生は OS の既定でよい。** 出す側に音声加工を無効化する要求は無い。
+pub(super) const kAudioUnitSubType_DefaultOutput: u32 = fourcc(b"def ");
 pub(super) const kAudioUnitManufacturer_Apple: u32 = fourcc(b"appl");
 
 pub(super) const kAudioOutputUnitProperty_EnableIO: AudioUnitPropertyID = 2003;
@@ -139,6 +144,7 @@ pub(super) const kAudioOutputUnitProperty_CurrentDevice: AudioUnitPropertyID = 2
 pub(super) const kAudioOutputUnitProperty_SetInputCallback: AudioUnitPropertyID = 2005;
 pub(super) const kAudioUnitProperty_StreamFormat: AudioUnitPropertyID = 8;
 pub(super) const kAudioUnitProperty_MaximumFramesPerSlice: AudioUnitPropertyID = 14;
+pub(super) const kAudioUnitProperty_SetRenderCallback: AudioUnitPropertyID = 23;
 
 pub(super) const kAudioUnitScope_Global: AudioUnitScope = 0;
 pub(super) const kAudioUnitScope_Input: AudioUnitScope = 1;
