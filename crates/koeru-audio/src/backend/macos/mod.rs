@@ -6,13 +6,17 @@
 //!
 //! `TR-REC-04` の消失検知は `kAudioDevicePropertyDeviceIsAlive` を見る。
 
+mod capture;
 mod capture_device;
 mod sys;
+mod watch;
 
+pub use capture::{Capture, CaptureError, CaptureFormat, open};
 pub use capture_device::{
     MicPermission, MicrophoneMode, active_microphone_mode, microphone_permission,
-    preferred_microphone_mode, privacy_settings_url,
+    preferred_microphone_mode, privacy_settings_url, request_microphone_permission,
 };
+pub use watch::{DeviceWatch, watch};
 
 use crate::device::{DeviceId, DeviceInfo, RedactedName};
 use std::os::raw::c_void;
@@ -274,6 +278,11 @@ fn object_id_for(id: &DeviceId) -> Result<Option<sys::AudioObjectID>> {
         }
     }
     Ok(None)
+}
+
+/// 永続識別子から `AudioObjectID` を引く（capture が使う）。
+pub(crate) fn object_id_for_public(id: &DeviceId) -> Option<u32> {
+    object_id_for(id).ok().flatten()
 }
 
 #[cfg(test)]

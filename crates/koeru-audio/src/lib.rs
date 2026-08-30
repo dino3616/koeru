@@ -16,6 +16,7 @@
 pub mod backend;
 pub mod device;
 pub mod error;
+pub mod ring;
 pub mod session;
 
 pub use device::{DeviceId, DeviceInfo, RedactedName};

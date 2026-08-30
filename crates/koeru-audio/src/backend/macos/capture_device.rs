@@ -151,6 +151,38 @@ pub const fn privacy_settings_url() -> &'static str {
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
 }
 
+/// マイク権限を要求する（TR-PLT-18）。
+///
+/// **要求してよいのは「初回の録音画面に入る直前」の1回だけ。**
+/// 起動時やプロジェクト作成時には呼ばない。
+///
+/// この呼び出しはブロックしない。OS のダイアログが出て、本人が答えると
+/// `on_result` が **CoreAudio 側の任意のスレッドから1度だけ**呼ばれる。
+///
+/// **権限が無い間、macOS はエラーを返さず無音を流す**（Apple の仕様）。
+/// だから「無音のまま録音が進む状態にしない」ことが要件になっている（TR-PLT-18）。
+/// 権限が付いたら、アプリを再起動せずに収録へ戻れること。
+pub fn request_microphone_permission<F>(on_result: F)
+where
+    F: Fn(bool) + Send + Sync + 'static,
+{
+    // SAFETY: AVFoundation が持つ不変の静的文字列。
+    let media_type = unsafe { AVMediaTypeAudio };
+    let Some(media_type) = media_type else {
+        tracing::warn!("AVMediaTypeAudio を引けなかった。要求できない");
+        on_result(false);
+        return;
+    };
+    let handler = block2::RcBlock::new(move |granted: objc2::runtime::Bool| {
+        on_result(granted.as_bool());
+    });
+    // SAFETY: media_type と handler はどちらも有効。handler は RcBlock が
+    // 保持しており、Objective-C 側が copy して持つ。
+    unsafe {
+        AVCaptureDevice::requestAccessForMediaType_completionHandler(media_type, &handler);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -43,5 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"
 # CoreAudio の HAL は素の C API なので自前で束縛しており、ここは Objective-C なので届かない。
 # **[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が既に objc2 を引いている。**
 objc2 = "0.6"
-objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat"] }
+objc2-av-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
+# 権限要求の完了ブロックを組み立てるために要る（objc2 族）。
+block2 = "0.6"
 
