@@ -18,9 +18,15 @@
 //! （`Q-REC-005` → `DEC-REC-004`）。[`Ledger::find_orphans`] が見つけて
 //! **復旧候補として提示する。本人が採るか捨てるまで消さない。**
 
+use crate::analysis::{TakeAnalysis, bytes_to_f64s, f64s_to_bytes};
+use crate::frq::Frq;
 use crate::inventory::Unit;
+use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
-use crate::schema::{adopted_takes, oto_values, row_units, rows, sessions, takes};
+use crate::release::{NewRelease, Release, Validation, archive_name};
+use crate::schema::{
+    adopted_takes, oto_values, releases, row_units, rows, sessions, take_analysis, takes,
+};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
@@ -460,6 +466,191 @@ impl Ledger {
         Ok(())
     }
 
+    /// 録音停止時の解析値を保存する（`TR-PKG-05`, `TR-PKG-42`）。
+    ///
+    /// **ここで入れたものを書き出し時に使う。WAV を読み直さない。**
+    #[tracing::instrument(skip(self, a), fields(take_id), err)]
+    pub fn put_analysis(&mut self, take_id: i32, a: &TakeAnalysis) -> Result<()> {
+        let f0 = f64s_to_bytes(&a.frq.f0);
+        let amp = f64s_to_bytes(&a.frq.amp);
+        #[allow(clippy::cast_possible_wrap, reason = "HOP_SIZE は 256 の定数")]
+        let hop = a.hop_size() as i32;
+        diesel::insert_into(take_analysis::table)
+            .values((
+                take_analysis::take_id.eq(take_id),
+                take_analysis::peak.eq(f64::from(a.peak)),
+                take_analysis::hop_size.eq(hop),
+                take_analysis::f0.eq(&f0),
+                take_analysis::amp.eq(&amp),
+                take_analysis::thumbnail.eq(&a.thumbnail),
+            ))
+            .on_conflict(take_analysis::take_id)
+            .do_update()
+            .set((
+                take_analysis::peak.eq(f64::from(a.peak)),
+                take_analysis::hop_size.eq(hop),
+                take_analysis::f0.eq(&f0),
+                take_analysis::amp.eq(&amp),
+                take_analysis::thumbnail.eq(&a.thumbnail),
+            ))
+            .execute(&mut self.conn)
+            .map_err(db("put_analysis"))?;
+        Ok(())
+    }
+
+    /// 解析値を引く。**無ければ `None`。** 解析が無いことは失敗ではない
+    /// （古いプロジェクトや、まだ解析が終わっていないテイク）。
+    #[tracing::instrument(skip(self), fields(take_id), err)]
+    pub fn analysis_of(&mut self, take_id: i32) -> Result<Option<TakeAnalysis>> {
+        let row = take_analysis::table
+            .filter(take_analysis::take_id.eq(take_id))
+            .select((
+                take_analysis::peak,
+                take_analysis::f0,
+                take_analysis::amp,
+                take_analysis::thumbnail,
+            ))
+            .first::<(f64, Vec<u8>, Vec<u8>, Vec<u8>)>(&mut self.conn)
+            .optional()
+            .map_err(db("analysis_of"))?;
+
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "peak は 0.0..=1.0 付近。f32 で保つ"
+        )]
+        Ok(row.map(|(peak, f0, amp, thumbnail)| TakeAnalysis {
+            peak: peak as f32,
+            frq: Frq {
+                f0: bytes_to_f64s(&f0),
+                amp: bytes_to_f64s(&amp),
+            },
+            thumbnail,
+        }))
+    }
+
+    /// 書き出しを1件記録する（`TR-PKG-44`）。
+    ///
+    /// **連番と書き出し先の名前はここが決める。** 呼び出し側に採番させると、
+    /// 同じ番号のリリースが2つできる。返るのは確定したレコード。
+    ///
+    /// **書き出し先の名前は過去のものと衝突しない**（連番が先頭に付く）。
+    #[tracing::instrument(skip(self, r), err)]
+    pub fn record_release(&mut self, r: &NewRelease, ext: &str) -> Result<Release> {
+        let next = releases::table
+            .select(diesel::dsl::max(releases::seq))
+            .first::<Option<i32>>(&mut self.conn)
+            .map_err(db("record_release"))?
+            .unwrap_or(0)
+            + 1;
+        let name = archive_name(next, &r.version, ext);
+
+        diesel::insert_into(releases::table)
+            .values((
+                releases::seq.eq(next),
+                releases::version.eq(&r.version),
+                releases::method.eq(r.method.as_str()),
+                releases::alias_count.eq(r.alias_count),
+                releases::validation.eq(r.validation.as_str()),
+                releases::oto_hash.eq(&r.oto_hash),
+                releases::terms_hash.eq(&r.terms_hash),
+                releases::archive_name.eq(&name),
+                releases::released_at.eq(&r.released_at),
+            ))
+            .execute(&mut self.conn)
+            .map_err(db("record_release"))?;
+
+        Ok(Release {
+            seq: next,
+            version: r.version.clone(),
+            method: r.method,
+            alias_count: r.alias_count,
+            validation: r.validation,
+            oto_hash: r.oto_hash.clone(),
+            terms_hash: r.terms_hash.clone(),
+            archive_name: name,
+            released_at: r.released_at.clone(),
+        })
+    }
+
+    /// 書き出しの履歴を古い順に引く（`TR-PKG-44`）。
+    ///
+    /// **過去のリリースはここからだけ取り出せる**（`TR-PKG-46`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn releases(&mut self) -> Result<Vec<Release>> {
+        let rows = releases::table
+            .order(releases::seq.asc())
+            .select((
+                releases::seq,
+                releases::version,
+                releases::method,
+                releases::alias_count,
+                releases::validation,
+                releases::oto_hash,
+                releases::terms_hash,
+                releases::archive_name,
+                releases::released_at,
+            ))
+            .load::<(
+                i32,
+                String,
+                String,
+                i32,
+                String,
+                String,
+                String,
+                String,
+                String,
+            )>(&mut self.conn)
+            .map_err(db("releases"))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    seq,
+                    version,
+                    method,
+                    alias_count,
+                    validation,
+                    oto_hash,
+                    terms_hash,
+                    archive_name,
+                    released_at,
+                )| Release {
+                    seq,
+                    version,
+                    // **保存した方式名が読めなくても履歴は出す。**
+                    // 読めないものを落とすと、その回に何を配ったかが辿れなくなる。
+                    method: parse_method_or_single(&method),
+                    alias_count,
+                    validation: Validation::parse(&validation),
+                    oto_hash,
+                    terms_hash,
+                    archive_name,
+                    released_at,
+                },
+            )
+            .collect())
+    }
+
+    /// 一番新しい書き出し。**外部編集の検出はここと突き合わせる**（`TR-PKG-48`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn latest_release(&mut self) -> Result<Option<Release>> {
+        Ok(self.releases()?.pop())
+    }
+
+    /// 書き出し履歴があるか（`TR-PKG-33` の `handoff_state`）。
+    ///
+    /// **完成判定はこれを参照しない。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn has_been_exported(&mut self) -> Result<bool> {
+        let n: i64 = releases::table
+            .count()
+            .get_result(&mut self.conn)
+            .map_err(db("has_been_exported"))?;
+        Ok(n > 0)
+    }
+
     /// 行が生む単位を引く。
     pub fn units_of(&mut self, row_id: &str) -> Result<Vec<String>> {
         row_units::table
@@ -480,6 +671,18 @@ pub mod koeru_oto {
         pub cutoff_ms: f64,
         pub preutterance_ms: f64,
         pub overlap_ms: f64,
+    }
+}
+
+/// 保存されていた方式名を戻す。
+///
+/// **知らない名前でも履歴を落とさない。** その回に何を配ったかが辿れなくなるほうが痛い。
+fn parse_method_or_single(s: &str) -> Method {
+    match s {
+        "sequential" => Method::Sequential,
+        "cvvc" => Method::Cvvc,
+        "multi_pitch_sequential" => Method::MultiPitchSequential,
+        _ => Method::Single,
     }
 }
 
@@ -673,5 +876,171 @@ mod tests {
         let (mut l, _sid, list) = ready();
         let before = l.units_of(&list[0].id).expect("引ける");
         assert_eq!(before.len(), list[0].units.len());
+    }
+    /// **解析値を録音時に確定させ、書き出しと再開で WAV を読み直さない**
+    /// （TR-PKG-05, TR-PKG-42）。
+    #[test]
+    fn 解析値が往復する() {
+        let (mut l, sid, list) = ready();
+        let id = l
+            .commit_take(&take(&list[0].id, sid, 1))
+            .expect("確定できる");
+
+        let samples: Vec<f32> = (0..44_100)
+            .map(|i| ((i as f32) / 100.0).sin() * 0.5)
+            .collect();
+        let a = crate::analysis::TakeAnalysis::compute(&samples, 44_100, &[220.0; 200], 0.005);
+        l.put_analysis(id, &a).expect("保存できる");
+
+        let got = l.analysis_of(id).expect("引ける").expect("ある");
+        assert!((got.peak - a.peak).abs() < 1e-6);
+        assert_eq!(got.frq, a.frq, "F0 と振幅がそのまま戻ること");
+        assert_eq!(got.thumbnail, a.thumbnail);
+    }
+
+    /// **解析がまだ無いことは失敗ではない。**
+    #[test]
+    fn 解析が無いテイクは無しを返す() {
+        let (mut l, sid, list) = ready();
+        let id = l
+            .commit_take(&take(&list[0].id, sid, 1))
+            .expect("確定できる");
+        assert!(l.analysis_of(id).expect("引ける").is_none());
+    }
+
+    #[test]
+    fn 解析は上書きできる() {
+        let (mut l, sid, list) = ready();
+        let id = l
+            .commit_take(&take(&list[0].id, sid, 1))
+            .expect("確定できる");
+
+        let quiet =
+            crate::analysis::TakeAnalysis::compute(&[0.1_f32; 512], 44_100, &[220.0; 4], 0.005);
+        let loud =
+            crate::analysis::TakeAnalysis::compute(&[0.9_f32; 512], 44_100, &[220.0; 4], 0.005);
+        l.put_analysis(id, &quiet).expect("保存できる");
+        l.put_analysis(id, &loud).expect("上書きできる");
+
+        assert!((l.analysis_of(id).expect("引ける").expect("ある").peak - 0.9).abs() < 1e-6);
+    }
+
+    fn new_release(version: &str) -> NewRelease {
+        NewRelease {
+            version: version.into(),
+            method: Method::Single,
+            alias_count: 102,
+            validation: Validation::Passed,
+            oto_hash: crate::release::content_hash(b"[a.wav]"),
+            terms_hash: crate::release::content_hash(b"terms"),
+            released_at: "2026-08-30T12:00:00Z".into(),
+        }
+    }
+
+    #[test]
+    fn 書き出しの連番は台帳が採る() {
+        let (mut l, _sid, _list) = ready();
+        assert_eq!(
+            l.record_release(&new_release("v1"), "zip")
+                .expect("記録できる")
+                .seq,
+            1
+        );
+        assert_eq!(
+            l.record_release(&new_release("v2"), "zip")
+                .expect("記録できる")
+                .seq,
+            2
+        );
+    }
+
+    /// **過去のバージョンの ZIP を上書きしない**（TR-PKG-44）。
+    /// 同じバージョン文字列で二度書き出しても、名前が別になる。
+    #[test]
+    fn 同じバージョン文字列でも書き出し先が衝突しない() {
+        let (mut l, _sid, _list) = ready();
+        let a = l
+            .record_release(&new_release("v1.0"), "zip")
+            .expect("記録できる");
+        let b = l
+            .record_release(&new_release("v1.0"), "zip")
+            .expect("記録できる");
+        assert_ne!(a.archive_name, b.archive_name);
+        assert_eq!(a.archive_name, "000001-v1.0.zip");
+        assert_eq!(b.archive_name, "000002-v1.0.zip");
+    }
+
+    /// **リリースレコードは不変**（TR-PKG-44）。規律ではなくトリガが止める。
+    #[test]
+    fn リリースレコードは書き換えられない() {
+        let (mut l, _sid, _list) = ready();
+        l.record_release(&new_release("v1"), "zip")
+            .expect("記録できる");
+
+        let updated = diesel::update(releases::table.filter(releases::seq.eq(1)))
+            .set(releases::version.eq("すり替え"))
+            .execute(&mut l.conn);
+        assert!(updated.is_err(), "UPDATE が拒まれること");
+
+        let deleted =
+            diesel::delete(releases::table.filter(releases::seq.eq(1))).execute(&mut l.conn);
+        assert!(deleted.is_err(), "DELETE が拒まれること");
+
+        assert_eq!(
+            l.releases().expect("引ける")[0].version,
+            "v1",
+            "元のまま残ること"
+        );
+    }
+
+    #[test]
+    fn 履歴は古い順に並ぶ() {
+        let (mut l, _sid, _list) = ready();
+        for v in ["v1", "v2", "v3"] {
+            l.record_release(&new_release(v), "zip")
+                .expect("記録できる");
+        }
+        let seqs: Vec<i32> = l
+            .releases()
+            .expect("引ける")
+            .iter()
+            .map(|r| r.seq)
+            .collect();
+        assert_eq!(seqs, [1, 2, 3]);
+        assert_eq!(
+            l.latest_release().expect("引ける").expect("ある").version,
+            "v3"
+        );
+    }
+
+    /// **書き出し履歴は完成判定と直交する**（TR-PKG-33, TR-PKG-36）。
+    #[test]
+    fn 書き出し履歴の有無だけが手渡し状態を決める() {
+        let (mut l, _sid, _list) = ready();
+        assert!(!l.has_been_exported().expect("引ける"));
+        l.record_release(&new_release("v1"), "zip")
+            .expect("記録できる");
+        assert!(l.has_been_exported().expect("引ける"));
+    }
+
+    /// **知らない方式名でも履歴を落とさない。**
+    #[test]
+    fn 読めない方式名でも履歴が残る() {
+        let (mut l, _sid, _list) = ready();
+        diesel::insert_into(releases::table)
+            .values((
+                releases::seq.eq(1),
+                releases::version.eq("v1"),
+                releases::method.eq("未来の方式"),
+                releases::alias_count.eq(1),
+                releases::validation.eq("passed"),
+                releases::oto_hash.eq("x"),
+                releases::terms_hash.eq("y"),
+                releases::archive_name.eq("000001-v1.zip"),
+                releases::released_at.eq("2026-08-30T12:00:00Z"),
+            ))
+            .execute(&mut l.conn)
+            .expect("入る");
+        assert_eq!(l.releases().expect("引ける").len(), 1);
     }
 }

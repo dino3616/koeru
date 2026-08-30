@@ -1690,7 +1690,11 @@ supports_requirements = [
   'TR-REC-28',
   'TR-REC-31',
   'TR-RCL-18',
+  'TR-RCL-23',
+  'TR-REC-29',
+  'TR-REC-30',
   'TR-PKG-41',
+  'TR-PKG-42',
 ]
 note = '**diesel-rs は Organization**、Apache-2.0。マイグレーションは実行ファイルへ埋め込み、外部ファイルに依存しない（TR-PLT-20）'
 
@@ -1707,6 +1711,66 @@ domains = [
 ]
 supports_requirements = [
   'TR-PLT-07',
-  'TR-PLT-20',
 ]
 note = '**bundled 機能で SQLite を同梱する。** OS 側の版に依存すると、TR-PLT-20 のオフライン完結と TR-PLT-07 の外部インストール禁止が保てない'
+
+[[component]]
+id = 'CMP-118'
+name = 'uuid'
+purpose = 'プロジェクトディレクトリの不変な名前'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-006'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-38',
+]
+note = '**uuid-rs は Organization。** v4 のみ使う。既定機能を切って getrandom 経由の生成だけを引く'
+
+[[component]]
+id = 'CMP-119'
+name = 'sha2（RustCrypto）'
+purpose = '生成した oto.ini と規約本文の内容ハッシュ'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-006'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-44',
+  'TR-PKG-48',
+]
+note = '**RustCrypto は Organization。** 外部ツールでの編集をハッシュの不一致から検出する経路に使う'
+
+[[component]]
+id = 'CMP-120'
+name = 'toml_edit'
+purpose = '人間可読な manifest の読み書き'
+license = 'MIT / Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-006'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-38',
+]
+note = '**toml-rs は Organization。** serde を要さず、**コメントを保ったまま往復できる**。manifest は「人が見て中身が判別できる」ために置くものなので、説明のコメントが消えると意味が薄れる'
+
+[[component]]
+id = 'CMP-121'
+name = 'zip'
+purpose = 'ライブラリ書き出し（.koerulib）と、配布パッケージ（.zip）'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PKG-006'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-47',
+]
+note = '**zip-rs は Organization**、活発。**deflate だけに絞る**（bzip2 / lzma / zstd / AES は引かない）。配布 ZIP は UTAU 側が読める必要があるので、圧縮方式を広げる利点がない'

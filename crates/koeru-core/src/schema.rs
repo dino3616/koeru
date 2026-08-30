@@ -84,12 +84,41 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// 録音停止時に算出した解析値。**書き出しと再開で WAV を再走査しない**
+    /// （`TR-PKG-05`, `TR-PKG-42`）。
+    take_analysis (take_id) {
+        take_id -> Integer,
+        peak -> Double,
+        hop_size -> Integer,
+        f0 -> Binary,
+        amp -> Binary,
+        thumbnail -> Binary,
+    }
+}
+
+diesel::table! {
+    /// 書き出し単位のリリースレコード（`TR-PKG-44`）。**不変。**
+    releases (seq) {
+        seq -> Integer,
+        version -> Text,
+        method -> Text,
+        alias_count -> Integer,
+        validation -> Text,
+        oto_hash -> Text,
+        terms_hash -> Text,
+        archive_name -> Text,
+        released_at -> Text,
+    }
+}
+
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
 diesel::joinable!(adopted_takes -> rows (row_id));
 diesel::joinable!(adopted_takes -> takes (take_id));
 diesel::joinable!(oto_values -> takes (take_id));
+diesel::joinable!(take_analysis -> takes (take_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     sessions,
@@ -98,4 +127,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     takes,
     adopted_takes,
     oto_values,
+    take_analysis,
+    releases,
 );

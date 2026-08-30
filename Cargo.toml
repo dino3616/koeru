@@ -57,3 +57,16 @@ diesel = { version = "2.3", default-features = false, features = ["sqlite", "ret
 diesel_migrations = { version = "2.3", default-features = false, features = ["sqlite"] }
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 
+# プロジェクトディレクトリ名（TR-PKG-37）。**uuid-rs は Organization**、Apache-2.0/MIT。
+uuid = { version = "1", default-features = false, features = ["v4", "std"] }
+# manifest（TR-PKG-37）の読み書き。**toml-rs は Organization。**
+# serde を要さず、コメントを保存したまま往復できるので選んだ。
+# manifest は「人が見て中身が判別できる」ために置くもので、コメントが消えると意味が薄れる。
+toml_edit = { version = "0.24", default-features = false, features = ["parse", "display"] }
+# 書き出した oto.ini の内容ハッシュ（TR-PKG-44, TR-PKG-48）。**RustCrypto は Organization。**
+sha2 = "0.10"
+# ライブラリ書き出し（TR-PKG-47）と配布パッケージ（M4）。
+# **zip-rs は Organization**、MIT、活発。deflate だけに絞り、
+# bzip2 / lzma / zstd / AES は引かない（配布 ZIP は UTAU が読める必要がある）。
+zip = { version = "8", default-features = false, features = ["deflate"] }
+
