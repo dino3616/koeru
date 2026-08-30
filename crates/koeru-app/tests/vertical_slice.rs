@@ -16,15 +16,6 @@ use koeru_audio::backend::macos as mac;
 /// 収録する長さ。**短くする。** 通ることを確かめるのが目的。
 const RECORD_MS: u64 = 900;
 
-/// これを下回る素材は、信号ではなく部屋の音。
-const SIGNAL_FLOOR: f32 = 0.05;
-
-/// これを下回る境界は、発声ではなく物音。
-///
-/// **ピークだけでは足りない。** ドアや打鍵は大きいが声ではなく、
-/// そこから測った F0 は推定器の出まかせになる（実機で踏んだ）。
-const CONFIDENCE_FLOOR: f64 = 0.5;
-
 #[test]
 fn 録って聴けるところまで一本で通す() {
     let root = std::env::temp_dir().join(format!("koeru-slice-{}", std::process::id()));
@@ -219,23 +210,22 @@ fn 録って聴けるところまで一本で通す() {
         rendered.push((midi, pcm, rate));
     }
 
+    // **ここでは音高を断定しない。**
+    //
+    // このハーネスは部屋にある音をそのまま録る。歌ではないので、
+    // 何を録ったかによって出る F0 は変わる。**閾値を置いても、
+    // 部屋が静かか騒がしいかで通ったり落ちたりするだけ**（実際に両方見た）。
+    //
+    // 音高が正しく渡ることの検査は `koeru-synth` の
+    // `別の音高を頼めば別の音が返る` に置いてある。**あちらは決定的で、
+    // わざと壊して捕まえることを確かめてある。**
     let confidence = take.confidence.unwrap_or(0.0);
-    if take.peak < SIGNAL_FLOOR || confidence < CONFIDENCE_FLOOR {
-        println!(
-            "声として録れていない（ピーク {:.4} / 確信度 {confidence:.2}）。**音高の検査は飛ばす**",
-            take.peak
-        );
-    } else {
-        for (midi, pcm, rate) in &rendered {
-            let want = koeru_synth::resampler::midi_to_hz(*midi);
-            let got = measure_hz(pcm, *rate);
-            let cents = 1200.0 * (got / want).log2();
-            println!("  MIDI {midi}: 目標 {want:.1}Hz → 実測 {got:.1}Hz（{cents:+.0} セント）");
-            assert!(
-                cents.abs() < 50.0,
-                "**目標音高で鳴ること。** 半音（100セント）の半分より近い"
-            );
-        }
+    println!("  ピーク {:.4} / 境界の確信度 {confidence:.2}", take.peak);
+    for (midi, pcm, rate) in &rendered {
+        let want = koeru_synth::resampler::midi_to_hz(*midi);
+        let got = measure_hz(pcm, *rate);
+        let cents = 1200.0 * (got / want).log2();
+        println!("  MIDI {midi}: 目標 {want:.1}Hz → 実測 {got:.1}Hz（{cents:+.0} セント）");
     }
 
     for (midi, _, _) in &rendered {

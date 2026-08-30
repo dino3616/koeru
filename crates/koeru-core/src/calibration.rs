@@ -129,6 +129,8 @@ pub struct Calibration {
     pub settled: bool,
     /// どのデバイスで校正したか（永続識別子）。
     pub device_id: String,
+    /// モノラルの元にするチャンネル（`TR-REC-06`）。**-1 は混ぜる。**
+    pub source_channel: i32,
 }
 
 #[cfg(test)]

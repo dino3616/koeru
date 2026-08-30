@@ -5,6 +5,7 @@
 pub mod alias;
 pub mod analysis;
 pub mod calibration;
+pub mod channel;
 pub mod db;
 pub mod frq;
 pub mod guide;

@@ -19,6 +19,7 @@ use koeru_audio::backend::macos as mac;
 use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};
+use koeru_core::channel::{self, Source};
 use koeru_core::db::{FinalizedTake, Ledger, SessionSnapshot, koeru_oto};
 use koeru_core::frq;
 use koeru_core::guide::{self, GuideSpec};
@@ -111,6 +112,30 @@ impl SpaceEstimate {
     }
 }
 
+/// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
+///
+/// **収録中は何も言わない。** ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preflight {
+    /// NFC へ直した名前の数（`TR-REC-32`）。
+    pub renamed_to_nfc: usize,
+    /// それでも NFC でない名前。**残っていたら書き出さない。**
+    pub non_nfc_names: Vec<String>,
+    /// フルスケールに達している採用テイク（行 ID と回数、`TR-REC-16`）。
+    pub clipped_takes: Vec<(String, u32)>,
+}
+
+impl Preflight {
+    /// 書き出してよいか。
+    ///
+    /// **割れているテイクは止めない。** 本人が承知のうえで配ることはありうる。
+    /// 止めるのは、受け手の環境で見つからなくなる名前だけ。
+    #[must_use]
+    pub fn may_export(&self) -> bool {
+        self.non_nfc_names.is_empty()
+    }
+}
+
 /// プロジェクトの現在地。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
@@ -149,6 +174,9 @@ pub struct Studio {
     gain_before: Option<(DeviceId, f32)>,
     /// 回り込みの検査結果（`TR-REC-24`）。**済むまで音高提示を鳴らさない。**
     leak: Option<LeakCheck>,
+    /// **全チャンネルに有意な信号があるか**（`TR-REC-06`）。
+    /// 真のときだけ、本人が「合成する」を選べる。
+    may_mix: bool,
     playback: Option<mac::Playback>,
 }
 
@@ -168,6 +196,7 @@ impl Studio {
             device: None,
             gain_before: None,
             leak: None,
+            may_mix: false,
             playback: None,
         })
     }
@@ -330,6 +359,13 @@ impl Studio {
         self.session = Session::new(3);
 
         let open = self.opened_mut()?;
+        // **前に決めたチャンネルを引き継ぐ**（TR-REC-06）。テイクごとに違う経路から
+        // 録った素材が混ざると、合成したときに音色が揃わない。
+        let saved_channel = open
+            .ledger
+            .calibration_of(device.as_str())?
+            .map_or(0, |c| c.source_channel);
+
         // **セッションは録音条件のスナップショット**（TR-REC-30）。
         let (cap, consumer) = mac::open(device, 48_000 * RING_SECONDS)?;
         let format = cap.format();
@@ -347,6 +383,8 @@ impl Studio {
             }
             .to_owned(),
             route: "coreaudio-halinput".to_owned(),
+            // **前に選んだチャンネルがあれば引き継ぐ**（TR-REC-06 の「プロジェクトに固定」）。
+            source_channel: saved_channel,
         })?;
         open.session_id = session_id;
 
@@ -370,6 +408,12 @@ impl Studio {
             self.gain_before = Some((device.clone(), g));
         }
         self.device = Some(device.clone());
+
+        if saved_channel < 0 {
+            cap.set_source_mix();
+        } else {
+            cap.set_source_channel(usize::try_from(saved_channel).unwrap_or(0));
+        }
 
         // **収録画面に入った時点から止めない**（REQ-REC-102、TR-REC-19）。
         // ここから排出が回り、プリロールが溜まりはじめる。
@@ -575,6 +619,31 @@ impl Studio {
         Ok(self.pump.as_ref().ok_or_else(no_stream)?.end_probe())
     }
 
+    /// 全チャンネルを混ぜる（`TR-REC-06`）。
+    ///
+    /// **全チャンネルに有意な信号があるときだけ選べる。**
+    /// 片側にしか信号が無いのに混ぜると 6dB 損をする。
+    #[tracing::instrument(skip(self), err)]
+    pub fn use_mixed_channels(&mut self) -> Result<()> {
+        if !self.may_mix {
+            return Err(AppError::new(
+                "recording.mix_unavailable",
+                "有意な信号があるのは一部のチャンネルだけなので、混ぜない",
+            ));
+        }
+        self.capture
+            .as_ref()
+            .ok_or_else(no_stream_err)?
+            .set_source_mix();
+        let device = self.device.clone().ok_or_else(no_stream_err)?;
+        if let Some(mut c) = self.opened_mut()?.ledger.calibration_of(device.as_str())? {
+            c.source_channel = -1;
+            let at = now_rfc3339();
+            self.opened_mut()?.ledger.put_calibration(&c, &at)?;
+        }
+        Ok(())
+    }
+
     /// 保存してある校正と、いまのゲインを突き合わせる（`TR-REC-15`）。
     ///
     /// **勝手に戻さない。** 差があることを返すだけで、戻すかどうかは本人が決める。
@@ -669,6 +738,34 @@ impl Studio {
             }
         };
 
+        // ── モノラル化の元を決める（TR-REC-06）──
+        //
+        // **L+R の平均を既定にしない。** 片側にしか信号が無いインタフェースは珍しくなく、
+        // 平均すると 6dB 損をする。全力発声を録ったいま測るのがいちばん確か。
+        let rms = self
+            .capture
+            .as_ref()
+            .ok_or_else(no_stream_err)?
+            .channel_rms();
+        let choice = channel::choose(&rms);
+        let source_channel = match choice.source {
+            Source::Channel(n) => i32::try_from(n).unwrap_or(0),
+            Source::Mix => -1,
+        };
+        tracing::info!(
+            ?rms,
+            source_channel,
+            may_mix = choice.may_mix,
+            "モノラルの元を決めた"
+        );
+        if let Some(cap) = self.capture.as_ref() {
+            match choice.source {
+                Source::Channel(n) => cap.set_source_channel(n),
+                Source::Mix => cap.set_source_mix(),
+            }
+        }
+        self.may_mix = choice.may_mix;
+
         let result = Calibration {
             gain: control
                 .is_usable()
@@ -678,6 +775,7 @@ impl Studio {
             peak_dbfs,
             settled,
             device_id: device.as_str().to_owned(),
+            source_channel,
         };
         let at = now_rfc3339();
         self.opened_mut()?.ledger.put_calibration(&result, &at)?;
@@ -919,6 +1017,47 @@ impl Studio {
         })
     }
 
+    /// ファイル名を NFC に揃える（`TR-REC-32`）。
+    ///
+    /// **macOS はファイル作成後の名前を分解形で返すことがある。**
+    /// 揃えないと、同じ「が」が別の文字列として台帳と食い違う。
+    /// **書き出しの直前にも通す。** 分解形のまま配ると、受け手の環境で見つからない。
+    ///
+    /// 返るのは直した数。
+    #[tracing::instrument(skip(self), err)]
+    pub fn normalize_file_names(&mut self) -> Result<usize> {
+        let dir = self.opened()?.dir.audio_dir();
+        Ok(koeru_core::text::normalize_names_to_nfc(&dir)?)
+    }
+
+    /// NFC でない名前が残っていないか（`TR-REC-32`）。
+    ///
+    /// **書き出しの関門。** 残っていたら書き出さない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn non_nfc_names(&mut self) -> Result<Vec<String>> {
+        let dir = self.opened()?.dir.audio_dir();
+        Ok(koeru_core::text::find_non_nfc_names(&dir)?)
+    }
+
+    /// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
+    ///
+    /// **収録中の判定ではない。** ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
+    #[tracing::instrument(skip(self), err)]
+    pub fn preflight(&mut self) -> Result<Preflight> {
+        // **名前は先に直す。** 直せるものを関門で止めない。
+        let renamed = self.normalize_file_names()?;
+        let non_nfc = self.non_nfc_names()?;
+        let clipped = self.opened_mut()?.ledger.clipped_adopted_takes()?;
+        Ok(Preflight {
+            renamed_to_nfc: renamed,
+            non_nfc_names: non_nfc,
+            clipped_takes: clipped
+                .into_iter()
+                .map(|(row_id, _, runs)| (row_id, runs))
+                .collect(),
+        })
+    }
+
     /// 収録済みのテイクを、指定した音高で合成する。**鳴らさない。**
     ///
     /// **周波数表は台帳から取る。** 書き出しのためだけでなく、試唱もここを使う
@@ -1013,6 +1152,7 @@ impl Studio {
                     channels: 1,
                     effects_state: "clean".to_owned(),
                     route: "test".to_owned(),
+                    source_channel: 0,
                 })?;
             }
             open.session_id

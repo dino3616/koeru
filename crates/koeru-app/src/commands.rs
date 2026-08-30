@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::{AppError, Result};
-use crate::studio::{Progress, SpaceEstimate, Studio, TakeResult};
+use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 
 /// アプリが持つ状態。**1本の `Mutex` で囲む。**
 ///
@@ -280,6 +280,47 @@ pub struct SongView {
     pub missing_units: usize,
     /// 総モーラ数。
     pub total_moras: usize,
+}
+
+/// 画面へ返す書き出し前の関門（`TR-REC-16`, `TR-REC-32`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PreflightView {
+    /// NFC へ直した名前の数。
+    pub renamed_to_nfc: usize,
+    /// それでも NFC でない名前。**残っていたら書き出さない。**
+    pub non_nfc_names: Vec<String>,
+    /// フルスケールに達している採用テイク（行 ID と回数）。
+    ///
+    /// **止めない。** 本人が承知のうえで配ることはありうる。
+    pub clipped_takes: Vec<(String, u32)>,
+    /// 書き出してよいか。
+    pub may_export: bool,
+}
+
+impl From<Preflight> for PreflightView {
+    fn from(p: Preflight) -> Self {
+        let may_export = p.may_export();
+        Self {
+            renamed_to_nfc: p.renamed_to_nfc,
+            non_nfc_names: p.non_nfc_names,
+            clipped_takes: p.clipped_takes,
+            may_export,
+        }
+    }
+}
+
+/// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
+#[tauri::command]
+pub fn preflight(state: State<'_, AppState>) -> Result<PreflightView> {
+    Ok(lock(&state)?.preflight()?.into())
+}
+
+/// 全チャンネルを混ぜる（`TR-REC-06`）。
+///
+/// **全チャンネルに有意な信号があるときだけ選べる。**
+#[tauri::command]
+pub fn use_mixed_channels(state: State<'_, AppState>) -> Result<()> {
+    lock(&state)?.use_mixed_channels()
 }
 
 /// 曲ごとの状態を、手が届く順に返す（`TR-RCL-17`）。

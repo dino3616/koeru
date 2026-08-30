@@ -14,7 +14,7 @@ mod playback;
 mod sys;
 mod watch;
 
-pub use capture::{Capture, CaptureError, CaptureFormat, open};
+pub use capture::{Capture, CaptureError, CaptureFormat, MIX_ALL, open};
 pub use capture_device::{
     MicPermission, MicrophoneMode, active_microphone_mode, microphone_permission,
     preferred_microphone_mode, privacy_settings_url, request_microphone_permission,

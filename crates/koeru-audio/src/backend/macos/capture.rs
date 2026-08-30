@@ -102,7 +102,25 @@ struct Shared {
     channels: usize,
     /// 収録中か。止めている間もコールバックは来るので、ここで捨てる。
     armed: AtomicBool,
+    /// **どのチャンネルをモノラルの元にするか**（`TR-REC-06`）。
+    /// [`MIX_ALL`] なら全チャンネルの平均。
+    source: AtomicUsize,
+    /// チャンネルごとの二乗和。**校正で「有意な信号を持つ側」を選ぶために測る**（`TR-REC-06`）。
+    ///
+    /// f64 を CAS で積むとコールバックの中でループになるので、
+    /// **固定小数へ直して `fetch_add` する。** RMS の比較には十分な精度。
+    channel_energy: Box<[AtomicU64]>,
+    /// 上に積んだフレーム数。
+    energy_frames: AtomicU64,
 }
+
+/// 全チャンネルを混ぜる（`TR-REC-06`）。
+///
+/// **既定にしない。** L+R の平均は、片側にしか信号が無いときに 6dB 損をする。
+pub const MIX_ALL: usize = usize::MAX;
+
+/// 二乗和を積むときの倍率。
+const ENERGY_SCALE: f64 = 1_048_576.0;
 
 // SAFETY: scratch へはコールバックだけが触れる。他のフィールドはすべてアトミック。
 unsafe impl Send for Shared {}
@@ -298,6 +316,13 @@ fn build(
         scratch: scratch.into_boxed_slice(),
         channels: channels as usize,
         armed: AtomicBool::new(false),
+        // **既定は先頭チャンネル。** 混ぜない（TR-REC-06）。
+        source: AtomicUsize::new(0),
+        channel_energy: (0..channels as usize)
+            .map(|_| AtomicU64::new(0))
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        energy_frames: AtomicU64::new(0),
     });
 
     let cb = sys::AURenderCallbackStruct {
@@ -440,16 +465,57 @@ unsafe extern "C" fn input_callback(
         .last_end
         .store(start_u + u64::from(frames), Ordering::Relaxed);
 
+    let n = frames as usize;
+
+    // **チャンネルごとの二乗和を積む**（TR-REC-06 の「有意な信号を持つ側を選ぶ」）。
+    // 収録していない間も積む。校正はストリームを開いたまま行うので、ここが唯一の経路。
+    for ch in 0..shared.channels {
+        // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
+        let data =
+            unsafe { std::slice::from_raw_parts(shared.scratch[ch * n].get().cast_const(), n) };
+        let sum: f64 = data.iter().map(|v| f64::from(*v) * f64::from(*v)).sum();
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "サンプルは -1.0..=1.0 付近。倍率を掛けても u64 に収まる"
+        )]
+        let scaled = (sum * ENERGY_SCALE) as u64;
+        if let Some(slot) = shared.channel_energy.get(ch) {
+            slot.fetch_add(scaled, Ordering::Relaxed);
+        }
+    }
+    shared
+        .energy_frames
+        .fetch_add(frames.into(), Ordering::Relaxed);
+
     if !shared.armed.load(Ordering::Relaxed) {
         return sys::kAudioHardwareNoError; // 収録していないので捨てる
     }
 
-    // 先頭チャンネルだけをリングへ流す。**モノラル化の規則はこの層より後ろ**（TR-REC-06）。
-    // SAFETY: scratch[0..frames] は直前の AudioUnitRender が書いた領域。
-    let first = unsafe {
-        std::slice::from_raw_parts(shared.scratch[0].get().cast_const(), frames as usize)
-    };
-    shared.producer.push_or_drop(first);
+    // **選んだチャンネルだけをリングへ流す**（TR-REC-06）。
+    // L+R の平均を既定にしない。片側にしか信号が無いときに 6dB 損をする。
+    let source = shared.source.load(Ordering::Relaxed);
+    if source == MIX_ALL && shared.channels > 1 {
+        // **混ぜるのは、全チャンネルに有意な信号があると本人が選んだときだけ。**
+        // 事前確保した最後のチャンネル領域を作業場に使う——ここでは確保しない。
+        // SAFETY: scratch は channels*max_frames ぶん確保してあり、コールバックだけが触る。
+        let out = unsafe { std::slice::from_raw_parts_mut(shared.scratch[0].get(), n) };
+        for (i, slot) in out.iter_mut().enumerate() {
+            let mut acc = *slot;
+            for ch in 1..shared.channels {
+                // SAFETY: 同上。ch*n+i は確保済みの範囲。
+                acc += unsafe { *shared.scratch[ch * n + i].get() };
+            }
+            *slot = acc / shared.channels as f32;
+        }
+        shared.producer.push_or_drop(out);
+    } else {
+        let ch = source.min(shared.channels.saturating_sub(1));
+        // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
+        let picked =
+            unsafe { std::slice::from_raw_parts(shared.scratch[ch * n].get().cast_const(), n) };
+        shared.producer.push_or_drop(picked);
+    }
 
     sys::kAudioHardwareNoError
 }
@@ -482,6 +548,59 @@ impl Capture {
     #[must_use]
     pub fn render_errors(&self) -> usize {
         self.shared.render_errors.load(Ordering::Relaxed)
+    }
+
+    /// チャンネルごとの RMS（`TR-REC-06`）。
+    ///
+    /// **積んできたぶん全部の平均。** 測り直したいときは [`Capture::reset_channel_rms`]。
+    #[must_use]
+    pub fn channel_rms(&self) -> Vec<f32> {
+        let frames = self.shared.energy_frames.load(Ordering::Relaxed);
+        if frames == 0 {
+            return vec![0.0; self.shared.channels];
+        }
+        self.shared
+            .channel_energy
+            .iter()
+            .map(|e| {
+                let sum = e.load(Ordering::Relaxed) as f64 / ENERGY_SCALE;
+                #[allow(clippy::cast_possible_truncation, reason = "RMS は 0.0..=1.0 付近")]
+                let v = (sum / frames as f64).sqrt() as f32;
+                v
+            })
+            .collect()
+    }
+
+    /// チャンネルごとの測定をやり直す。
+    pub fn reset_channel_rms(&self) {
+        for e in &self.shared.channel_energy {
+            e.store(0, Ordering::Relaxed);
+        }
+        self.shared.energy_frames.store(0, Ordering::Relaxed);
+    }
+
+    /// モノラルの元にするチャンネルを決める（`TR-REC-06`）。
+    ///
+    /// **プロジェクトに固定して、以後変えない。** テイクごとに違う経路から
+    /// 録った素材が混ざると、合成したときに音色が揃わない。
+    pub fn set_source_channel(&self, channel: usize) {
+        self.shared.source.store(
+            channel.min(self.shared.channels.saturating_sub(1)),
+            Ordering::Release,
+        );
+    }
+
+    /// 全チャンネルを混ぜる（`TR-REC-06`）。
+    ///
+    /// **全チャンネルに有意な信号があると本人が選んだときだけ。**
+    pub fn set_source_mix(&self) {
+        self.shared.source.store(MIX_ALL, Ordering::Release);
+    }
+
+    /// いまどこから取っているか。
+    #[must_use]
+    pub fn source_channel(&self) -> usize {
+        self.shared.source.load(Ordering::Acquire)
     }
 }
 

@@ -136,6 +136,8 @@ pub struct SessionSnapshot {
     pub effects_state: String,
     /// 実際に接続した経路（`TR-REC-12`）。
     pub route: String,
+    /// モノラルの元にしたチャンネル（`TR-REC-06`）。**-1 は混ぜた。**
+    pub source_channel: i32,
 }
 
 /// 確定したテイクの記録。
@@ -785,6 +787,7 @@ impl Ledger {
             }),
             calibrations::settled.eq(i32::from(c.settled)),
             calibrations::measured_at.eq(measured_at),
+            calibrations::source_channel.eq(c.source_channel),
         );
         diesel::insert_into(calibrations::table)
             .values((calibrations::device_id.eq(&c.device_id), values))
@@ -806,22 +809,26 @@ impl Ledger {
                 calibrations::control,
                 calibrations::peak_dbfs,
                 calibrations::settled,
+                calibrations::source_channel,
             ))
-            .first::<(Option<f32>, String, f64, i32)>(&mut self.conn)
+            .first::<(Option<f32>, String, f64, i32, i32)>(&mut self.conn)
             .optional()
             .map_err(db("calibration_of"))?;
 
-        Ok(row.map(|(gain, control, peak_dbfs, settled)| Calibration {
-            gain,
-            control,
-            peak_dbfs: if peak_dbfs <= SILENT_PEAK_DBFS {
-                f64::NEG_INFINITY
-            } else {
-                peak_dbfs
+        Ok(row.map(
+            |(gain, control, peak_dbfs, settled, source_channel)| Calibration {
+                gain,
+                control,
+                peak_dbfs: if peak_dbfs <= SILENT_PEAK_DBFS {
+                    f64::NEG_INFINITY
+                } else {
+                    peak_dbfs
+                },
+                settled: settled != 0,
+                device_id: device_id.to_owned(),
+                source_channel,
             },
-            settled: settled != 0,
-            device_id: device_id.to_owned(),
-        }))
+        ))
     }
 
     /// 課題曲を入れる（`TR-RCL-12`）。
@@ -1029,6 +1036,7 @@ mod tests {
             channels: 1,
             effects_state: "clean".into(),
             route: "coreaudio".into(),
+            source_channel: 0,
         }
     }
 

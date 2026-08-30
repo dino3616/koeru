@@ -22,6 +22,7 @@ diesel::table! {
         channels -> Integer,
         effects_state -> Text,
         route -> Text,
+        source_channel -> Integer,
     }
 }
 
@@ -137,6 +138,7 @@ diesel::table! {
         peak_dbfs -> Double,
         settled -> Integer,
         measured_at -> Text,
+        source_channel -> Integer,
     }
 }
 

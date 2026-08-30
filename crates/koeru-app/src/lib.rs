@@ -64,6 +64,8 @@ pub fn run() {
             commands::song_status,
             commands::import_ust,
             commands::set_song_in_bank,
+            commands::preflight,
+            commands::use_mixed_channels,
             commands::stop_preview,
         ])
         .run(tauri::generate_context!())
