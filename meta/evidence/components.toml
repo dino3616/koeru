@@ -1561,38 +1561,13 @@ id = 'CMP-109'
 name = 'coreaudio-rs / coreaudio-sys'
 purpose = 'macOS CoreAudio の Rust 束縛。AUHAL 入力と AudioObjectID へ直接到達する'
 license = 'Apache-2.0 / MIT'
-status = '採用'
+status = '不適'
 decided_by = 'DEC-REC-001'
 domains = [
   'recording',
   'platform',
 ]
-supports_requirements = [
-  'TR-EDT-19',
-  'TR-PLT-05',
-  'TR-REC-03',
-  'TR-REC-04',
-  'TR-REC-05',
-  'TR-REC-06',
-  'TR-REC-07',
-  'TR-REC-11',
-  'TR-REC-14',
-  'TR-REC-15',
-  'TR-REC-16',
-  'TR-REC-17',
-  'TR-REC-19',
-  'TR-REC-22',
-  'TR-REC-23',
-  'TR-REC-24',
-  'TR-REC-26',
-  'TR-REC-39',
-  'TR-REC-40',
-  'TR-SYN-03',
-  'TR-SYN-28',
-  'TR-SYN-29',
-  'TR-SYN-35',
-]
-note = 'RustAudio org。kAudioUnitSubType_VoiceProcessingIO を使わず HALOutput で開く（TR-REC-11）'
+note = '**中身が objc2 族（個人のリポジトリ）で、依存木に16ノード入る。** CoreAudio の HAL は素の C API なので自前の extern 宣言で足りた（crates/koeru-audio/src/backend/macos/sys.rs、約100行）。**依存を増やさずに列挙と生死判定が通ることを実機で確かめた**'
 
 [[component]]
 id = 'CMP-110'
@@ -1645,3 +1620,20 @@ supports_requirements = [
   'TR-REC-11',
 ]
 note = '**[Risk] 個人のリポジトリ（madsmtm）。** 組織がメンテするものに限るという方針の唯一の例外。AVCaptureDevice を使わずにマイクモードを知る経路が見つかれば外せる'
+
+[[component]]
+id = 'CMP-112'
+name = 'CoreAudio HAL の自前束縛'
+purpose = 'macOS のデバイス列挙・永続識別子（DeviceUID）・生死判定。objc2 を通さない'
+license = '自前（KOERU の一部。AGPL-3.0-or-later）'
+status = '採用'
+decided_by = 'DEC-REC-001'
+domains = [
+  'recording',
+  'platform',
+]
+supports_requirements = [
+  'TR-REC-03',
+  'TR-REC-04',
+]
+note = '**Apple の interop で組織がメンテしている crate 族が存在しないため、ここだけ自前で持つ。** AudioObjectGetPropertyData 系は素の C API で、宣言は約100行。**AVCaptureDevice（マイクモード検知、TR-REC-11）は Objective-C なので自前では書けず、そこだけ未決**'

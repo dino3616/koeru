@@ -36,8 +36,16 @@ Windows は **windows-rs**（Microsoft、Apache-2.0 / MIT）、
 macOS は **coreaudio-rs**（RustAudio org、Apache-2.0）、
 Linux は **pipewire-rs**（freedesktop.org 公式、MIT）。
 
-**[Risk] macOS の `AVCaptureDevice`（マイクモード検知、TR-REC-11）には objc2 が要り、
-これは個人のリポジトリである。** ここだけ方針の外にある。
+**macOS だけは、束ねる相手が無い。** `coreaudio-rs` は RustAudio org だが、
+中身は `objc2-core-audio` 族（個人のリポジトリ）で、依存木に16ノード入る。
+**Apple の interop で組織がメンテしている crate 族は存在しない。**
+
+そこで **CoreAudio の HAL だけ自前で `extern "C"` を書いた。**
+`AudioObjectGetPropertyData` 系は Objective-C ではなく素の C API なので、
+宣言は100行そこそこで足りる。**依存を1つも増やさずにデバイス列挙と生死判定が通った。**
+
+**[Risk] `AVCaptureDevice`（マイクモード検知、TR-REC-11）だけは Objective-C なので、
+自前では書けない。** ここは objc2 が要るか、マイクモードの検知を諦めるかになる。まだ決めていない。
 '''
 review_triggers = [
   "3 OS ぶんの配管を自前で持つコストが、見積もりを大きく超えたとき",
@@ -58,4 +66,5 @@ affects_components = [
   "CMP-109",
   "CMP-110",
   "CMP-111",
+  "CMP-112",
 ]

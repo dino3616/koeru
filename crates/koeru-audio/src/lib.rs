@@ -9,10 +9,11 @@
 //!
 //! - [`session`] — 収録セッションの状態機械。**純粋で、I/O を持たない。**
 //!   `specs/requirements/recording-input.fsl`（`proved`）の写し
-//! - バックエンド — OS の API を叩き、出来事を [`session::Session`] へ渡す（未実装）
+//! - [`backend`] — OS の API を叩き、出来事を [`session::Session`] へ渡す
 //!
 //! **状態機械を純粋にしてあるのは、ハードウェアなしで契約を検査できるようにするため。**
 
+pub mod backend;
 pub mod device;
 pub mod error;
 pub mod session;
