@@ -3,15 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "koeru",
-      "devDependencies": {
-        "@tauri-apps/cli": "2.11.4",
-        "vite": "catalog:",
-        "vite-plus": "catalog:",
-      },
-    },
-    "apps/koeru": {
-      "name": "@koeru/app",
+      "name": "@koeru/ui",
       "dependencies": {
         "@radix-ui/colors": "3.0.0",
         "@radix-ui/react-progress": "1.1.7",
@@ -28,32 +20,23 @@
         "valibot": "1.4.2",
       },
       "devDependencies": {
-        "@koeru/tsconfig": "workspace:*",
         "@tailwindcss/vite": "4.3.3",
+        "@tauri-apps/cli": "2.11.4",
+        "@tsconfig/strictest": "2.0.8",
+        "@tsconfig/vite-react": "8.1.1",
         "@types/node": "22.20.1",
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
         "@vitejs/plugin-react": "6.1.1",
         "tailwindcss": "4.3.3",
         "typescript": "5.9.3",
-        "vite": "catalog:",
-        "vite-plus": "catalog:",
-      },
-    },
-    "packages/tsconfig": {
-      "name": "@koeru/tsconfig",
-      "dependencies": {
-        "@tsconfig/strictest": "2.0.8",
-        "@tsconfig/vite-react": "8.1.1",
+        "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
+        "vite-plus": "0.3.0",
       },
     },
   },
   "overrides": {
-    "vite": "catalog:",
-  },
-  "catalog": {
     "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
-    "vite-plus": "0.3.0",
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.27.1", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.27.1", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg=="],
@@ -109,10 +92,6 @@
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.6.0", "", {}, "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw=="],
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
-
-    "@koeru/app": ["@koeru/app@workspace:apps/koeru"],
-
-    "@koeru/tsconfig": ["@koeru/tsconfig@workspace:packages/tsconfig"],
 
     "@oozcitak/dom": ["@oozcitak/dom@2.0.2", "", { "dependencies": { "@oozcitak/infra": "^2.0.2", "@oozcitak/url": "^3.0.0", "@oozcitak/util": "^10.0.0" } }, "sha512-GjpKhkSYC3Mj4+lfwEyI1dqnsKTgwGy48ytZEhm4A/xnH/8z9M3ZVXKr/YGQi3uCLs1AEBS+x5T2JPiueEDW8w=="],
 
@@ -743,8 +722,6 @@
     "@tailwindcss/oxide-wasm32-wasi/@tybys/wasm-util": ["@tybys/wasm-util@0.10.3", "", { "dependencies": { "tslib": "^2.4.0" }, "bundled": true }, "sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg=="],
 
     "@tailwindcss/oxide-wasm32-wasi/tslib": ["tslib@2.8.1", "", { "bundled": true }, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
-
-    "@testing-library/dom/@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
     "@tailwindcss/node/lightningcss/lightningcss-android-arm64": ["lightningcss-android-arm64@1.32.0", "", { "os": "android", "cpu": "arm64" }, "sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg=="],
 

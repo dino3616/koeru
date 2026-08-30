@@ -1,9 +1,12 @@
 .DS_Store
 /target
 
-# JavaScript
+# JavaScript（WebView 側は crates/koeru-app/ui にまとめてある）
 node_modules/
-apps/*/dist/
-apps/*/.tanstack/
-apps/*/.output/
+crates/koeru-app/ui/dist/
+crates/koeru-app/ui/.tanstack/
+crates/koeru-app/ui/.output/
 .vite-plus/
+
+# Tauri が生成する
+crates/koeru-app/gen/

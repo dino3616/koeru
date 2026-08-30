@@ -22,7 +22,7 @@ rationale = '''
 
 **配色は Radix Colors から取り、段の意味を守る。** 1=地、2=面、…11=低コントラストの字、
 12=高コントラストの字。段の対応を崩すと明暗どちらかで AA を割るので、
-`apps/koeru/scripts/check-contrast.ts` が実際の Radix の値を読んで比を検査する。
+`crates/koeru-app/ui/scripts/check-contrast.ts` が実際の Radix の値を読んで比を検査する。
 **手で写した色を検査しない。** Radix の版が上がって段がずれたら落ちる。
 
 **TanStack Start は SPA モードで使う。** Tauri の中にサーバは無いので、
@@ -31,6 +31,10 @@ SSR は要らない。起動時に配るのは殻だけで、あとは全部ク�
 **ビルドツールは vite-plus。** これは開発時のみの依存で配布物には入らないが、
 **貢献者がビルドするのに必要になる。** KOERU は AGPL で「Made to be handed on」を
 原則に置いているので、ここは注意して見る点として残す。
+
+**TypeScript 側をモノレポにしない。** WebView 側は `crates/koeru-app/ui` に閉じ、
+package.json も bun.lock もその中に置く。Tauri のコマンドと画面は一体のもので、
+別のワークスペースに切ると、コマンドを1つ足すたびに2箇所を行き来することになる。
 '''
 review_triggers = [
   'vite-plus の入手性が、外部の貢献者にとって障害になったとき',

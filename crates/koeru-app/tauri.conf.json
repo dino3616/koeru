@@ -4,10 +4,16 @@
   "version": "0.0.0",
   "identifier": "app.koeru.studio",
   "build": {
-    "frontendDist": "../../apps/koeru/dist/client",
+    "frontendDist": "ui/dist/client",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "bun run --cwd ../../apps/koeru dev",
-    "beforeBuildCommand": "bun run --cwd ../../apps/koeru build"
+    "beforeDevCommand": {
+      "cwd": "ui",
+      "script": "bun run dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "ui",
+      "script": "bun run build"
+    }
   },
   "app": {
     "windows": [
@@ -28,7 +34,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0"
     },

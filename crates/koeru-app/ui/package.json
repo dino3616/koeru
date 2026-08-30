@@ -1,5 +1,5 @@
 {
-  "name": "@koeru/app",
+  "name": "@koeru/ui",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -7,7 +7,9 @@
     "dev": "vp dev",
     "build": "vp build && tsc --noEmit && bun run check:contrast",
     "preview": "vp preview",
-    "check:contrast": "bun run scripts/check-contrast.ts"
+    "check": "vp check --fix",
+    "check:contrast": "bun run scripts/check-contrast.ts",
+    "tauri": "cd .. && ui/node_modules/.bin/tauri"
   },
   "dependencies": {
     "@radix-ui/colors": "3.0.0",
@@ -25,15 +27,21 @@
     "valibot": "1.4.2"
   },
   "devDependencies": {
-    "@koeru/tsconfig": "workspace:*",
     "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "2.11.4",
+    "@tsconfig/strictest": "2.0.8",
+    "@tsconfig/vite-react": "8.1.1",
     "@types/node": "22.20.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.1.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
-    "vite": "catalog:",
-    "vite-plus": "catalog:"
-  }
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0",
+    "vite-plus": "0.3.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.0"
+  },
+  "packageManager": "bun@1.3.6"
 }

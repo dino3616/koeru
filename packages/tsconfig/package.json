@@ -1,8 +1,0 @@
-{
-  "name": "@koeru/tsconfig",
-  "private": true,
-  "dependencies": {
-    "@tsconfig/strictest": "2.0.8",
-    "@tsconfig/vite-react": "8.1.1"
-  }
-}
