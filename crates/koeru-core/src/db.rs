@@ -684,6 +684,7 @@ impl Ledger {
         m: &TakeMetrics,
         discontinuities: usize,
         preroll_frames: usize,
+        guide_offset_frames: Option<i64>,
     ) -> Result<()> {
         // **SQLite に -inf は入らない。** 無音のピークを -1000 dBFS で表す。
         let peak = if m.peak_dbfs.is_finite() {
@@ -701,6 +702,8 @@ impl Ledger {
             take_metrics::trailing_margin_ms.eq(m.trailing_margin_ms),
             take_metrics::discontinuities.eq(i32::try_from(discontinuities).unwrap_or(i32::MAX)),
             take_metrics::preroll_frames.eq(i32::try_from(preroll_frames).unwrap_or(i32::MAX)),
+            // **参考値**（TR-REC-26）。切り出しの根拠にしない。
+            take_metrics::guide_offset_frames.eq(guide_offset_frames),
         );
         diesel::insert_into(take_metrics::table)
             .values((take_metrics::take_id.eq(take_id), values))

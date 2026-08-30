@@ -177,6 +177,10 @@ pub struct Studio {
     recording: Option<String>,
     /// 収録開始時点の取りこぼし数。**このテイクの中で増えたぶんだけを見る**（`TR-REC-07`）。
     xrun_baseline: usize,
+    /// ガイドのフレーズ開始が、録音の何サンプル目に相当するか（`TR-REC-26`）。
+    ///
+    /// **参考値。** 切り出しの根拠にしない。ガイドが鳴っていなければ `None`。
+    guide_offset_at_start: Option<i64>,
     /// 選んでいるデバイス。
     device: Option<DeviceId>,
     /// アプリが触る前のゲイン。**終了時にここへ戻す**（`TR-REC-15`）。
@@ -283,6 +287,7 @@ impl Studio {
             session: Session::new(3),
             recording: None,
             xrun_baseline: 0,
+            guide_offset_at_start: None,
             device: None,
             gain_before: None,
             leak: None,
@@ -988,6 +993,7 @@ impl Studio {
             .ok_or_else(no_stream)?
             .format()
             .sample_rate_hz;
+        let guide_offset = self.guide_offset_at_start.take();
 
         // **指示のあとも `TAIL_MS` ぶん書く**（TR-REC-19）。ここで待つ。
         let finished = self
@@ -1078,6 +1084,7 @@ impl Studio {
             &metrics,
             discontinuities,
             finished.preroll_frames,
+            guide_offset,
         )?;
 
         let (oto, conf) = match boundaries {

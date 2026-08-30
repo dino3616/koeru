@@ -126,6 +126,7 @@ diesel::table! {
         trailing_margin_ms -> Double,
         discontinuities -> Integer,
         preroll_frames -> Integer,
+        guide_offset_frames -> Nullable<BigInt>,
     }
 }
 
