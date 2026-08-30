@@ -69,6 +69,10 @@ dependencies = [
 [[package]]
 name = "koeru-core"
 version = "0.0.0"
+dependencies = [
+ "thiserror",
+ "tracing",
+]
 
 [[package]]
 name = "koeru-synth"

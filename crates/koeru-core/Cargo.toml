@@ -6,7 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "KOERU のドメイン層。GUI と OS に依存しない"
 
 [lints]
 workspace = true
 
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true

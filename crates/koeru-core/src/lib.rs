@@ -1,4 +1,6 @@
-//! KOERU のドメイン層。GUI と OS に依存しない部分をここに置く。
+//! KOERU のドメイン層。GUI と OS に依存しない。
 //!
-//! **設計段階のため、実装はまだ入っていない。** ワークスペースと lint 設定の
-//! 置き場として存在している。型を足すときは `rust-conventions` skill に従うこと。
+//! 型を足すときは `rust-conventions` skill に従うこと。
+
+pub mod inventory;
+pub mod reclist;
