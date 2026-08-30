@@ -8,6 +8,7 @@
     "build": "vp build && tsc --noEmit && bun run check:contrast",
     "preview": "vp preview",
     "check": "vp check --fix",
+    "check:ci": "vp check",
     "check:contrast": "bun run scripts/check-contrast.ts",
     "tauri": "cd .. && ui/node_modules/.bin/tauri"
   },

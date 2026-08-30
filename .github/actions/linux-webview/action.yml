@@ -1,0 +1,25 @@
+name: Linux WebView dependencies
+description: >
+  Tauri が Linux で要る WebKitGTK 一式を入れる。
+  macOS と Windows は OS の WebView を使うので、この手当ては Linux だけ。
+
+runs:
+  using: composite
+  steps:
+    # **入れないと glib-sys のビルドが pkg-config で落ちる**（DEC-PLT-014）。
+    # Tauri が前提として挙げている組み合わせをそのまま採る。
+    # 個別に削ると、どれが要るかを自分で追うことになり、CI が1往復ずつ遅れる。
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libwebkit2gtk-4.1-dev \
+          libjavascriptcoregtk-4.1-dev \
+          libsoup-3.0-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libxdo-dev \
+          libssl-dev \
+          patchelf

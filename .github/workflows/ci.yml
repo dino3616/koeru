@@ -19,19 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # **Tauri は Linux で WebKitGTK を要る**（DEC-PLT-014）。
-      # 入れないと glib-sys のビルドが pkg-config で落ちる。
-      # macOS / Windows は OS の WebView を使うので、この手当ては Linux だけ。
-      - name: Install Linux WebView dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            patchelf
+      - uses: ./.github/actions/linux-webview
       - name: Show toolchain
         run: rustc --version && cargo --version
       - name: rustfmt
@@ -51,18 +39,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Linux だけ WebKitGTK が要る（上と同じ理由）。
-      - name: Install Linux WebView dependencies
+      - uses: ./.github/actions/linux-webview
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            patchelf
       # **音声デバイスを要るテストは、実機ハーネスとして自分で戻る。**
       # CI のランナーにマイクは無いので、通らないのではなく通り抜ける。
       - run: cargo test --workspace --all-features
@@ -137,7 +115,7 @@ jobs:
         run: bun install --frozen-lockfile
       # 整形・lint・型。**--fix を付けない。** CI は直す場所ではない。
       - name: vp check
-        run: bunx vp check
+        run: bun run check:ci
       # ビルドと型と**配色の検査**。段を選び直したまま出すと、
       # 明暗どちらかで WCAG 2.2 AA を割る（TR-PLT-25、TR-PLT-28）。
       - name: build
