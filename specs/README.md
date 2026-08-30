@@ -4,7 +4,7 @@
 
 FSL に入れないものは3つある。
 
-- **要件そのもの・判断・未決の論点・調査 Evidence・実測予算** → `meta/`（261件の要件は `meta/requirements/`）
+- **要件そのもの・判断・未決の論点・調査 Evidence・実測予算** → `meta/`（262件の要件は `meta/requirements/`）
 - **実時間（ms、パーセンタイル）、確率、連続量、自由文の意味** → FSL の対象外。`meta/targets/` と実機ベンチが持つ
 - **ビジョン、ペルソナ、ジャーニーマップ、調査の説明** → `docs/`
 
@@ -40,7 +40,7 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 
 `business` 層はまだ無い。ビジョンの3原則を形式化できるかは未検証で、先に requirements と design の継ぎ目が有効かを確かめる段階にある。
 
-**`meta/requirements/` の261件を一度に FSL へ移さないこと。** 大半は状態機械ではなく、形式化できない文章まで入れると FSL が新しい巨大文書になる。FSL へ上げるのは、**操作の順序や組み合わせで到達してはいけない状態がある**ものに限る。上げたら、その要件の `formalized_as` に FSL の ID を書く。
+**`meta/requirements/` の262件を一度に FSL へ移さないこと。** 大半は状態機械ではなく、形式化できない文章まで入れると FSL が新しい巨大文書になる。FSL へ上げるのは、**操作の順序や組み合わせで到達してはいけない状態がある**ものに限る。上げたら、その要件の `formalized_as` に FSL の ID を書く。
 
 ## 検証されている契約
 
@@ -53,6 +53,9 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 | 異常終了でも、確定したテイクの数は減らない | `REQ-REC-004` |
 | 公開操作なしに完成状態へ到達できる | `REQ-VIS-001` |
 | ファイルの無いテイク行が DB にできない | `NoOrphanTakeRow`（設計層） |
+| **復旧候補は、本人が採るか捨てるまで消えない** | `RecoverableNeverVanishesOnItsOwn` / `OrphanNeverVanishesOnItsOwn`（設計層） |
+| 確定済みファイルが減るのは、本人が捨てたときだけ | `FinalizedFilesOnlyLeaveByChoice`（設計層） |
+| 残量を見積もらないまま収録を始めない | `FB-REC-107` |
 | **デバイスを失った状態では収録していない** | `INV-REC-101` |
 | 入力が届いていないまま収録することはない | `INV-REC-103` |
 | 手順の提示は多くとも一度しか出ない | `INV-REC-108` |

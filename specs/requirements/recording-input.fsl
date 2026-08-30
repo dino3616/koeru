@@ -31,6 +31,8 @@ requirements KoeruRecordingInput {
     guide_enabled:    Bool,
     leak_checked:     Bool,
     liveness:         Liveness,
+    space_estimated:  Bool,
+    space_sufficient: Bool,
     recording:        Bool,
     takes:            Count,
     app_exited:       Bool
@@ -47,6 +49,8 @@ requirements KoeruRecordingInput {
     guide_enabled = false
     leak_checked = false
     liveness = Unchecked
+    space_estimated = false
+    space_sufficient = false
     recording = false
     takes = 0
     app_exited = false
@@ -138,13 +142,33 @@ requirements KoeruRecordingInput {
     guide_enabled = true
   }
 
+  // 保存先の残量を見積もる。**足りるかどうかは見積もった結果で決まり、選べない**
+  @requirement("REQ-REC-110", "収録を始める前に、リスト全体が必要とする容量を見積もる")
+  fair action estimate_space_enough() {
+    requires not app_exited
+    requires not recording
+    space_estimated = true
+    space_sufficient = true
+  }
+
+  @requirement("REQ-REC-110", "足りないと分かったら、録りきれる件数を提示して開始させない")
+  action estimate_space_short() {
+    requires not app_exited
+    requires not recording
+    space_estimated = true
+    space_sufficient = false
+  }
+
   @requirement("REQ-REC-108", "収録は、デバイスが生きていて入力が届いているときだけ始められる")
+  @requirement("REQ-REC-110", "残量が足りないと分かっている間は収録を始めない")
   fair action start_take() {
     requires not app_exited
     requires device == Selected
     requires stream_open
     requires liveness == Alive
     requires gain == Calibrated
+    requires space_estimated
+    requires space_sufficient
     requires not recording
     requires takes < MAX_TAKES
     recording = true
@@ -278,12 +302,13 @@ requirements KoeruRecordingInput {
     prompts_shown == 1
   }
 
-  acceptance AC-REC-101 "選んで、開いて、効果を無効化し、校正し、生死を確かめて録る" {
+  acceptance AC-REC-101 "選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る" {
     select_device()
     open_stream()
     disable_all_effects()
     calibrate_gain()
     input_is_alive()
+    estimate_space_enough()
     start_take()
     finish_take()
     expect takes == 1 and stream_open
@@ -295,6 +320,7 @@ requirements KoeruRecordingInput {
     disable_all_effects()
     calibrate_gain()
     input_is_alive()
+    estimate_space_enough()
     device_lost()
     start_take()
     expect rejected
@@ -306,6 +332,7 @@ requirements KoeruRecordingInput {
     disable_all_effects()
     calibrate_gain()
     input_is_dead()
+    estimate_space_enough()
     start_take()
     expect rejected
   }
@@ -315,6 +342,7 @@ requirements KoeruRecordingInput {
     open_stream()
     disable_all_effects()
     input_is_alive()
+    estimate_space_enough()
     start_take()
     expect rejected
   }
@@ -325,8 +353,30 @@ requirements KoeruRecordingInput {
     some_effects_remain()
     calibrate_gain()
     input_is_alive()
+    estimate_space_enough()
     start_take()
     show_prompt_once()
+    expect rejected
+  }
+
+  forbidden FB-REC-106 "残量が足りないまま収録を始められない" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    calibrate_gain()
+    input_is_alive()
+    estimate_space_short()
+    start_take()
+    expect rejected
+  }
+
+  forbidden FB-REC-107 "残量を見積もらないまま収録を始められない" {
+    select_device()
+    open_stream()
+    disable_all_effects()
+    calibrate_gain()
+    input_is_alive()
+    start_take()
     expect rejected
   }
 

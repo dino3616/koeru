@@ -74,7 +74,8 @@ jobs:
         run: |
           set -euo pipefail
           # 仕様の側から回す。文書が無いことを黙って見逃さないため。
-          for f in specs/requirements/*.fsl; do
+          # **設計層も含める。** 読ませる仕様なのに網から外れていた。
+          for f in specs/requirements/*.fsl specs/design/*.fsl; do
             b="$(basename "$f" .fsl)"
             # method-downgrade は fslc document generate が関係の空リテラルを扱えない。
             # 検証は通るが文書だけ作れない（fslc 4.0.0）。

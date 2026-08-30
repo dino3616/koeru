@@ -10,9 +10,23 @@ refinement ProjectDesignRefinesRequirements {
 
   maps auto
 
+  // 要求層の「復旧候補」は、この層では確定済みで DB に行が無い WAV そのもの
+  map recoverable[i: ListItem] = orphans[i]
+  map discarded[i: ListItem]   = dismissed[i]
+
   // ファイル確定は、要求層から見れば何も起きていない
   action finalize_file() -> stutter
 
   // DB へ行が載った瞬間が、要求層の「テイクが確定した」
   action commit_take() -> finalize_valid_take()
+
+  // クラッシュは2通りに割れる。書きかけを失ったか、確定済みを孤児として残したか。
+  // **要求層はどちらになるかを決めない。** 決めるのは書き込みがどこまで進んでいたかで、
+  // それはこの層しか知らない
+  action crash_losing_part()    -> crash_losing_take()
+  action crash_leaving_orphan() -> crash_leaving_recoverable()
+
+  // 孤児は、要求層の「復旧候補」そのもの
+  action adopt_orphan(i)   -> recover_take(i)
+  action dismiss_orphan(i) -> discard_recoverable(i)
 }

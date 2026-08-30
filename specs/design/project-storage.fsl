@@ -11,9 +11,10 @@
 //           コミット済みの行は残る。fsync してから rename し、rename が成功してから
 //           DB へコミットすることで満たす。
 //
-// **[Unknown] ファイル確定後・DB コミット前にクラッシュすると、DB に載らない確定済み WAV が
-// 残る。** その扱いは要件に無い（→ meta/questions/Q-REC-005）。この仕様は残ることだけを
-// 認めており、回収も再利用も規定していない。DB 側に行が無いので、テイクとしては存在しない。
+// ASSUME-7: ファイル確定後・DB コミット前にクラッシュすると、DB に載らない確定済み WAV が
+//           残る（この層の検証が見つけた）。TR-REC-28 はこれを**復旧候補として提示する**と定める。
+//           提示のみで、DB へ自動で書き戻さない（TR-REC-31 の「自動修復しない」）。
+//           **本人が選ぶまで消えない**ことが、この層が守る契約。
 
 spec KoeruProjectStorage {
   type ListItem = 0..1
@@ -33,6 +34,9 @@ spec KoeruProjectStorage {
     finalized: Map<ListItem, Count>,
     recording: Option<ListItem>,
     wav:       WavFile,
+    orphans:   Map<ListItem, Count>,
+    dismissed: Map<ListItem, Count>,
+    ever_recovered: Bool,
     handoff:   Handoff,
     crashes:   Count
   }
@@ -44,6 +48,9 @@ spec KoeruProjectStorage {
     forall i: ListItem { finalized[i] = 0 }
     recording = none
     wav = NoFile
+    forall i: ListItem { orphans[i] = 0 }
+    forall i: ListItem { dismissed[i] = 0 }
+    ever_recovered = false
     handoff = NotExported
     crashes = 0
   }
@@ -61,6 +68,7 @@ spec KoeruProjectStorage {
   }
 
   // fsync してから .wav へ rename する。ここまでは DB に何も書かない
+  @requirement("REQ-REC-004", "ファイル確定は fsync と rename で行い、DB より先に済ませる")
   fair action finalize_file() {
     requires recording is some(i)
     requires wav == Writing
@@ -69,6 +77,7 @@ spec KoeruProjectStorage {
   }
 
   // ファイルが確定してからだけ DB に行を足す
+  @requirement("REQ-REC-004", "DB へ行を足すのは、ファイル確定が済んでからだけ")
   fair action commit_take() {
     requires recording is some(i)
     requires wav == Finalized
@@ -106,16 +115,53 @@ spec KoeruProjectStorage {
     invalid[i] = invalid[i] + 1
   }
 
-  // 書きかけだけが失われる。確定済みファイルと DB の行は残る（DEC-REC-004）
-  action crash_and_recover() {
+  // 書きかけだけが失われる。確定済みファイルと DB の行は残る（DEC-REC-004）。
+  // 確定済み・未コミットのまま落ちた1本は孤児として残る（ASSUME-7）
+  action crash_losing_part() {
     requires recording != none
+    requires wav != Finalized
     requires crashes < MAX_CRASHES
     recording = none
     wav = NoFile
     crashes = crashes + 1
   }
 
+  // rename は済んでいたがコミット前だった。確定済み WAV が孤児として残る
+  @requirement("REQ-REC-006", "コミット前に落ちた確定済み WAV は、孤児として残る")
+  action crash_leaving_orphan() {
+    requires recording is some(i)
+    requires wav == Finalized
+    requires crashes < MAX_CRASHES
+    orphans[i] = orphans[i] + 1
+    recording = none
+    wav = NoFile
+    crashes = crashes + 1
+  }
+
+  // 起動時の整合性検証が孤児を提示し、本人が復旧を選ぶ（TR-REC-28）
+  @requirement("REQ-REC-007", "起動時の整合性検証が孤児を提示し、本人が復旧として採る")
+  action adopt_orphan(i: ListItem) {
+    requires recording == none
+    requires orphans[i] > 0
+    requires takes[i] < MAX_TAKES
+    orphans[i] = orphans[i] - 1
+    takes[i] = takes[i] + 1
+    item[i] = Adopted
+    ever_recovered = true
+  }
+
+  // 本人が要らないと判断して捨てる。**本人の操作でしか消えない**
+  @requirement("REQ-REC-007", "本人が要らないと判断したときだけ、孤児を捨てる")
+  action dismiss_orphan(i: ListItem) {
+    requires recording == none
+    requires orphans[i] > 0
+    orphans[i] = orphans[i] - 1
+    finalized[i] = finalized[i] - 1
+    dismissed[i] = dismissed[i] + 1
+  }
+
   // この層が背負う契約：ファイルの無いテイク行が DB にできない
+  @requirement("DES-REC-001", "ファイルの無いテイク行が DB にできない")
   invariant NoOrphanTakeRow {
     forall i: ListItem { takes[i] <= finalized[i] }
   }
@@ -123,7 +169,7 @@ spec KoeruProjectStorage {
   // 確定済みで未コミットのファイルが1本あるなら、確定数はコミット数より必ず多い
   invariant FinalizedAheadOfCommitted {
     forall i: ListItem {
-      (wav == Finalized and recording == some(i)) => takes[i] < finalized[i]
+      (wav == Finalized and recording == some(i)) => takes[i] + orphans[i] < finalized[i]
     }
   }
 
@@ -142,9 +188,21 @@ spec KoeruProjectStorage {
   invariant FinalizedAccountedFor {
     forall i: ListItem {
       finalized[i]
-        <= takes[i] + crashes
+        <= takes[i] + orphans[i]
            + (if (wav == Finalized and recording == some(i)) then 1 else 0)
     }
+  }
+
+  // 孤児はクラッシュ1回につき最大1本。**全項目の合計で押さえる**
+  invariant OrphansBounded {
+    sum(i: ListItem of orphans[i] + dismissed[i]) <= crashes
+  }
+
+  // 孤児にもコミット済みテイクにも、必ず対応する確定済みファイルがある。
+  // NoOrphanTakeRow をこの向きから支える（dismiss で finalized が負に落ちない根拠）
+  @requirement("DES-REC-001", "テイクにも孤児にも、必ず対応する確定済みファイルがある")
+  invariant OrphanHasFile {
+    forall i: ListItem { takes[i] + orphans[i] <= finalized[i] }
   }
 
   invariant RecordingImpliesRoom {
@@ -165,13 +223,28 @@ spec KoeruProjectStorage {
     forall i: ListItem { item[i] == Unrecorded => (takes[i] == 0 and invalid[i] == 0) }
   }
 
+  @requirement("REQ-REC-004", "コミット済みテイクは減らない")
   trans TakesAreNeverLost {
     forall i: ListItem { takes[i] >= old(takes[i]) }
   }
 
-  // クラッシュしても、確定済みファイルの数は減らない
-  trans FinalizedFilesNeverLost {
-    forall i: ListItem { finalized[i] >= old(finalized[i]) }
+  // クラッシュしても確定済みファイルは減らない。**減るのは本人が捨てたときだけ。**
+  // 孤児を黙って消さないことが TR-REC-31（自動修復しない）の中身
+  @requirement("REQ-REC-007", "確定済みファイルが減るのは、本人が捨てたときだけ")
+  trans FinalizedFilesOnlyLeaveByChoice {
+    forall i: ListItem {
+      finalized[i] >= old(finalized[i]) or dismissed[i] > old(dismissed[i])
+    }
+  }
+
+  // 孤児が消えるのは、本人が復旧として採るか、本人が捨てるかのどちらかだけ
+  @requirement("REQ-REC-007", "孤児は、本人が採るか捨てるまで消えない")
+  trans OrphanNeverVanishesOnItsOwn {
+    forall i: ListItem {
+      orphans[i] >= old(orphans[i])
+      or takes[i] > old(takes[i])
+      or dismissed[i] > old(dismissed[i])
+    }
   }
 
   trans ExportOnlyWhenComplete {
@@ -184,6 +257,11 @@ spec KoeruProjectStorage {
 
   trans CrashKeepsCommittedTakes {
     (crashes != old(crashes)) => forall i: ListItem { takes[i] == old(takes[i]) }
+  }
+
+  // クラッシュのあと孤児が提示され、本人がそれを復旧として採れる
+  reachable OrphanRecoveredByUser {
+    ever_recovered
   }
 
   reachable CompleteWhileUnpublished {

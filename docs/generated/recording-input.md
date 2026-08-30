@@ -6,8 +6,8 @@ source: specs/requirements/recording-input.fsl
 renderer: fslc-document-renderer
 renderer_version: 1.3.0
 normative_scope: generated-claim-blocks-only
-spec_digest: sha256:42607b3df78fc84f257d9bc9c61034157b212984c5dab3743ee3e70feb2a45b3
-claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb55955c23318e
+spec_digest: sha256:a5d5a1438298543f27c6dc08719bbedcc639d94388a9c51555a7c9d58ef83946
+claim_set_digest: sha256:edb9464e528fd4bc9e54fe8deeb350fbb82e42a9a82f139492dc3e37ae1a2578
 ---
 
 # 要件仕様書: KoeruRecordingInput
@@ -57,18 +57,18 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
-> 選んで、開いて、効果を無効化し、校正し、生死を確かめて録る
+> 選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る
 
-（出典: `specs/requirements/recording-input.fsl:281`）
+（出典: `specs/requirements/recording-input.fsl:305`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="acceptance:AC-REC-101#acceptance_trace" digest="sha256:c26c3c2e6ea2df70bb29973cce41d965c7bd681fee549e6806adfd27f013b68a" -->
+<!-- fsl:claim begin id="acceptance:AC-REC-101#acceptance_trace" digest="sha256:b522684e58436942901d5a10b1258e0722a185ca9778c8ac733efbc7c4e97a53" -->
 #### 受け入れ基準: `AC-REC-101`
 
 - 識別子: `acceptance:AC-REC-101#acceptance_trace`
-- 出典: `specs/requirements/recording-input.fsl:281`
-- 表題: 選んで、開いて、効果を無効化し、校正し、生死を確かめて録る
+- 出典: `specs/requirements/recording-input.fsl:305`
+- 表題: 選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る
 
 この受け入れ基準は、一つの具体的な実行例である。
 
@@ -79,8 +79,9 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
   3. `disable_all_effects()`
   4. `calibrate_gain()`
   5. `input_is_alive()`
-  6. `start_take()`
-  7. `finish_take()`
+  6. `estimate_space_enough()`
+  7. `start_take()`
+  8. `finish_take()`
 - 期待（Then）: 最後の操作のあと、`takes` が `1` に等しい、かつ、`stream_open` が `true` である。
 
 この基準が示すのは、上記の一連の操作が成功し、期待が成立することのみである。同種のすべての入力・順序・状態で同じ結果になることを主張するものではない。
@@ -98,15 +99,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > デバイスが消失したまま収録を始められない
 
-（出典: `specs/requirements/recording-input.fsl:292`）
+（出典: `specs/requirements/recording-input.fsl:317`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-101#forbidden_trace" digest="sha256:1f16f0293ae64b75437d3ee04f78d54b26d4c3b79e07e56e736c17bc2da6a8bb" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-101#forbidden_trace" digest="sha256:d25197560b3542a7b4fa6eb0ba0355f5c278dd5b2b942cf59416fb3e08c0f592" -->
 #### 禁止手順: `FB-REC-101`
 
 - 識別子: `forbidden:FB-REC-101#forbidden_trace`
-- 出典: `specs/requirements/recording-input.fsl:292`
+- 出典: `specs/requirements/recording-input.fsl:317`
 - 表題: デバイスが消失したまま収録を始められない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -118,7 +119,8 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
   3. `disable_all_effects()`
   4. `calibrate_gain()`
   5. `input_is_alive()`
-  6. `device_lost()`
+  6. `estimate_space_enough()`
+  7. `device_lost()`
 - 期待（Then）: 続けて実行しようとする最後の操作 `start_take()` は、拒否されなければならない（この時点では実行できてはならない）。
 
 この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
@@ -136,15 +138,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 入力が届いていないまま収録を始められない
 
-（出典: `specs/requirements/recording-input.fsl:303`）
+（出典: `specs/requirements/recording-input.fsl:329`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-102#forbidden_trace" digest="sha256:b95b657dc48ae57977e8ddba0b36d640f13d87dc1cae696828a766df6c3fefb5" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-102#forbidden_trace" digest="sha256:59ac2c7d6c309ba809a702709f34bf0dfb7735d16af785dfe35a2527e65bf161" -->
 #### 禁止手順: `FB-REC-102`
 
 - 識別子: `forbidden:FB-REC-102#forbidden_trace`
-- 出典: `specs/requirements/recording-input.fsl:303`
+- 出典: `specs/requirements/recording-input.fsl:329`
 - 表題: 入力が届いていないまま収録を始められない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -156,6 +158,7 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
   3. `disable_all_effects()`
   4. `calibrate_gain()`
   5. `input_is_dead()`
+  6. `estimate_space_enough()`
 - 期待（Then）: 続けて実行しようとする最後の操作 `start_take()` は、拒否されなければならない（この時点では実行できてはならない）。
 
 この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
@@ -173,15 +176,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 校正しないまま収録を始められない
 
-（出典: `specs/requirements/recording-input.fsl:313`）
+（出典: `specs/requirements/recording-input.fsl:340`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-103#forbidden_trace" digest="sha256:fa7e6830cfe5b8488b822549b807f40ef71be6b62c54254b5db79f2761d4685a" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-103#forbidden_trace" digest="sha256:b18f2b5e167177422c087b7f398ee0805f841340e9cb59a4b581b68fb42065fa" -->
 #### 禁止手順: `FB-REC-103`
 
 - 識別子: `forbidden:FB-REC-103#forbidden_trace`
-- 出典: `specs/requirements/recording-input.fsl:313`
+- 出典: `specs/requirements/recording-input.fsl:340`
 - 表題: 校正しないまま収録を始められない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -192,6 +195,7 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
   2. `open_stream()`
   3. `disable_all_effects()`
   4. `input_is_alive()`
+  5. `estimate_space_enough()`
 - 期待（Then）: 続けて実行しようとする最後の操作 `start_take()` は、拒否されなければならない（この時点では実行できてはならない）。
 
 この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
@@ -209,15 +213,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 収録中に手順の提示を出せない
 
-（出典: `specs/requirements/recording-input.fsl:322`）
+（出典: `specs/requirements/recording-input.fsl:350`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-104#forbidden_trace" digest="sha256:9bbd5b0f204372794e320b27fb2e95ed5ba2315c9f507f9961367bc255912944" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-104#forbidden_trace" digest="sha256:4bfce2a8e0d6051080158c2efd85ee24e4c8b8932027b0f1b099af7291211eda" -->
 #### 禁止手順: `FB-REC-104`
 
 - 識別子: `forbidden:FB-REC-104#forbidden_trace`
-- 出典: `specs/requirements/recording-input.fsl:322`
+- 出典: `specs/requirements/recording-input.fsl:350`
 - 表題: 収録中に手順の提示を出せない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -229,7 +233,8 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
   3. `some_effects_remain()`
   4. `calibrate_gain()`
   5. `input_is_alive()`
-  6. `start_take()`
+  6. `estimate_space_enough()`
+  7. `start_take()`
 - 期待（Then）: 続けて実行しようとする最後の操作 `show_prompt_once()` は、拒否されなければならない（この時点では実行できてはならない）。
 
 この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
@@ -247,15 +252,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 回り込みを確認しないままガイドを鳴らせない
 
-（出典: `specs/requirements/recording-input.fsl:333`）
+（出典: `specs/requirements/recording-input.fsl:383`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-REC-105#forbidden_trace" digest="sha256:404b3928c6a732c4475950ddf1e82c390516e7b65a12faf053375a977436b05b" -->
+<!-- fsl:claim begin id="forbidden:FB-REC-105#forbidden_trace" digest="sha256:e02f3c6e0addec6ba83626b520cbce455c7468d5c9725626f593f6bdfe7a7bed" -->
 #### 禁止手順: `FB-REC-105`
 
 - 識別子: `forbidden:FB-REC-105#forbidden_trace`
-- 出典: `specs/requirements/recording-input.fsl:333`
+- 出典: `specs/requirements/recording-input.fsl:383`
 - 表題: 回り込みを確認しないままガイドを鳴らせない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -275,21 +280,96 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 - 実装適合: `not_run` — 対応するエビデンスは供給されていない。
 - 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
 
+### FB-REC-106
+
+**要件原文（意図。形式意味との一致は人間が確認する）**
+
+> 残量が足りないまま収録を始められない
+
+（出典: `specs/requirements/recording-input.fsl:362`）
+
+**形式化された意味（FSLから決定論的に生成）**
+
+<!-- fsl:claim begin id="forbidden:FB-REC-106#forbidden_trace" digest="sha256:53bfb6ae4455a7c5cfca551b41ac097f4bce6f07904d6ea038d57c0691b826aa" -->
+#### 禁止手順: `FB-REC-106`
+
+- 識別子: `forbidden:FB-REC-106#forbidden_trace`
+- 出典: `specs/requirements/recording-input.fsl:362`
+- 表題: 残量が足りないまま収録を始められない
+
+この禁止手順は、一つの具体的な実行例である。
+
+- 前提（Given）: 初期化直後の状態から開始する。
+- 先行手順（When）: 次の操作をこの順に実行する。いずれも成功しなければならない。
+  1. `select_device()`
+  2. `open_stream()`
+  3. `disable_all_effects()`
+  4. `calibrate_gain()`
+  5. `input_is_alive()`
+  6. `estimate_space_short()`
+- 期待（Then）: 続けて実行しようとする最後の操作 `start_take()` は、拒否されなければならない（この時点では実行できてはならない）。
+
+この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
+<!-- fsl:claim end -->
+
+**保証クラス**
+
+- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
+- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
+- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
+
+### FB-REC-107
+
+**要件原文（意図。形式意味との一致は人間が確認する）**
+
+> 残量を見積もらないまま収録を始められない
+
+（出典: `specs/requirements/recording-input.fsl:373`）
+
+**形式化された意味（FSLから決定論的に生成）**
+
+<!-- fsl:claim begin id="forbidden:FB-REC-107#forbidden_trace" digest="sha256:f86877446428d2886d4fe013186059c288ef09a7c092d615d05a3c91b3617a54" -->
+#### 禁止手順: `FB-REC-107`
+
+- 識別子: `forbidden:FB-REC-107#forbidden_trace`
+- 出典: `specs/requirements/recording-input.fsl:373`
+- 表題: 残量を見積もらないまま収録を始められない
+
+この禁止手順は、一つの具体的な実行例である。
+
+- 前提（Given）: 初期化直後の状態から開始する。
+- 先行手順（When）: 次の操作をこの順に実行する。いずれも成功しなければならない。
+  1. `select_device()`
+  2. `open_stream()`
+  3. `disable_all_effects()`
+  4. `calibrate_gain()`
+  5. `input_is_alive()`
+- 期待（Then）: 続けて実行しようとする最後の操作 `start_take()` は、拒否されなければならない（この時点では実行できてはならない）。
+
+この基準が示すのは、上記の手順の直後に最後の操作が拒否されることのみである。この操作があらゆる状況で禁止されることを主張するものではない。
+<!-- fsl:claim end -->
+
+**保証クラス**
+
+- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
+- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
+- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
+
 ### INV-REC-101
 
 **要件原文（意図。形式意味との一致は人間が確認する）**
 
 > デバイスを失った状態では収録していない
 
-（出典: `specs/requirements/recording-input.fsl:196`）
+（出典: `specs/requirements/recording-input.fsl:220`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutDevice#state_rule" digest="sha256:9873b2225b0c2684789413a28d78a2f79d7a42d1b3ef366fb651797c78dfa2b0" -->
+<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutDevice#state_rule" digest="sha256:71511c506b0c0a594d36dbe7ddfed240c8efd51552d8c6c9176f633c6fbbf54b" -->
 #### 状態不変条件: `NoRecordingWithoutDevice`
 
 - 識別子: `property:invariant:NoRecordingWithoutDevice#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:197`
+- 出典: `specs/requirements/recording-input.fsl:221`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -310,15 +390,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 収録しているならストリームは開いている
 
-（出典: `specs/requirements/recording-input.fsl:201`）
+（出典: `specs/requirements/recording-input.fsl:225`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:RecordingRequiresOpenStream#state_rule" digest="sha256:03fc79265c5ea9e71aca945c7619d5d91de60be9c4d76f812989e1e2b9b4a5f5" -->
+<!-- fsl:claim begin id="property:invariant:RecordingRequiresOpenStream#state_rule" digest="sha256:4f33d403ef40f75f9c24d76d7d98c990cc0dae39a4fe0847d158936030e0913f" -->
 #### 状態不変条件: `RecordingRequiresOpenStream`
 
 - 識別子: `property:invariant:RecordingRequiresOpenStream#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:202`
+- 出典: `specs/requirements/recording-input.fsl:226`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -339,15 +419,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 入力が届いていない、または未判定のまま収録することはない
 
-（出典: `specs/requirements/recording-input.fsl:206`）
+（出典: `specs/requirements/recording-input.fsl:230`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutLiveInput#state_rule" digest="sha256:adc6cb4c218494cdb305fc6a150f41d636fb8e8dc81b4c0158b53b4b037a309f" -->
+<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutLiveInput#state_rule" digest="sha256:32615ea4937c52fde4de28c3cc9d77867eb46dd7a34a5051fa38a05b19987325" -->
 #### 状態不変条件: `NoRecordingWithoutLiveInput`
 
 - 識別子: `property:invariant:NoRecordingWithoutLiveInput#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:207`
+- 出典: `specs/requirements/recording-input.fsl:231`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -368,15 +448,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 校正していないまま収録することはない
 
-（出典: `specs/requirements/recording-input.fsl:211`）
+（出典: `specs/requirements/recording-input.fsl:235`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutCalibration#state_rule" digest="sha256:469d85c94f74b45fa1431d87a0c0742bee8f92533f0470ac3a48bb659b4aa097" -->
+<!-- fsl:claim begin id="property:invariant:NoRecordingWithoutCalibration#state_rule" digest="sha256:6c655cd051d0aec1f3ad89ce676a8126a2d27f741f5ce5f1433fb3706bcf2d5f" -->
 #### 状態不変条件: `NoRecordingWithoutCalibration`
 
 - 識別子: `property:invariant:NoRecordingWithoutCalibration#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:212`
+- 出典: `specs/requirements/recording-input.fsl:236`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -397,15 +477,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 回り込みを確認しないままガイドを鳴らすことはない
 
-（出典: `specs/requirements/recording-input.fsl:216`）
+（出典: `specs/requirements/recording-input.fsl:240`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:GuideRequiresLeakCheck#state_rule" digest="sha256:0bfd15bb0944f9dc0da869a702f5bd0053243886f03e5c89db4070ef8868bd12" -->
+<!-- fsl:claim begin id="property:invariant:GuideRequiresLeakCheck#state_rule" digest="sha256:d10f16e0aef9526e6bd0d5c352389f44c3389263cfcacc6825318f16d61b043f" -->
 #### 状態不変条件: `GuideRequiresLeakCheck`
 
 - 識別子: `property:invariant:GuideRequiresLeakCheck#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:217`
+- 出典: `specs/requirements/recording-input.fsl:241`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -426,15 +506,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > テイクが確定するのは、入力が届いていると判定できているときだけ
 
-（出典: `specs/requirements/recording-input.fsl:221`）
+（出典: `specs/requirements/recording-input.fsl:245`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:trans:TakeOnlyWhileAlive#transition_rule" digest="sha256:7cc4f4e091ae758e1f6d1bf820b2286d8ba48fd7288d8a4cc77bc7f90b596868" -->
+<!-- fsl:claim begin id="property:trans:TakeOnlyWhileAlive#transition_rule" digest="sha256:79bd304074fee1c2182b2ebe3974e34738af39adde84c23fabfc468463c91e08" -->
 #### 遷移条件: `TakeOnlyWhileAlive`
 
 - 識別子: `property:trans:TakeOnlyWhileAlive#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:222`
+- 出典: `specs/requirements/recording-input.fsl:246`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -455,15 +535,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > アプリが OS 側のゲインを変えたなら、終了時に必ず戻している
 
-（出典: `specs/requirements/recording-input.fsl:226`）
+（出典: `specs/requirements/recording-input.fsl:250`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:GainRestoredOnExit#state_rule" digest="sha256:05a210eaee6b3d3112b46ba7a90617072319dd4e7282eaebac268df83247f39a" -->
+<!-- fsl:claim begin id="property:invariant:GainRestoredOnExit#state_rule" digest="sha256:ed9523deec1888cc2017f5eeab5dc2e5768e36e4604b12770ad7353a61807c73" -->
 #### 状態不変条件: `GainRestoredOnExit`
 
 - 識別子: `property:invariant:GainRestoredOnExit#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:227`
+- 出典: `specs/requirements/recording-input.fsl:251`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -484,15 +564,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 手順の提示は多くとも一度しか出ない
 
-（出典: `specs/requirements/recording-input.fsl:186`）
+（出典: `specs/requirements/recording-input.fsl:210`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:PromptAtMostOnce#state_rule" digest="sha256:7742abd6fe703d7c1353b1a12eaa7288033f14db6d71e00a5926acd32d0e6b83" -->
+<!-- fsl:claim begin id="property:invariant:PromptAtMostOnce#state_rule" digest="sha256:830533089075dcf7329ba320feedb6bc9dcb8fa31ba1dad324a73f3b4c9e322a" -->
 #### 状態不変条件: `PromptAtMostOnce`
 
 - 識別子: `property:invariant:PromptAtMostOnce#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:187`
+- 出典: `specs/requirements/recording-input.fsl:211`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -513,15 +593,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > ASSUME-3: 収録中なら、テイク数の上限にはまだ達していない
 
-（出典: `specs/requirements/recording-input.fsl:191`）
+（出典: `specs/requirements/recording-input.fsl:215`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:RecordingImpliesRoom#state_rule" digest="sha256:5a560b45ad70d177921436bc5b9a6ebafe8a8f495ba618050e831898accf0c4f" -->
+<!-- fsl:claim begin id="property:invariant:RecordingImpliesRoom#state_rule" digest="sha256:204a1b5004fc4626f98b30589dc1548560f62223cd5cf11f5c757d889846d421" -->
 #### 状態不変条件: `RecordingImpliesRoom`
 
 - 識別子: `property:invariant:RecordingImpliesRoom#state_rule`
-- 出典: `specs/requirements/recording-input.fsl:192`
+- 出典: `specs/requirements/recording-input.fsl:216`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -542,15 +622,15 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > 入力デバイスは本人が明示的に選び、識別子でプロジェクトに固定する
 
-（出典: `specs/requirements/recording-input.fsl:55`）
+（出典: `specs/requirements/recording-input.fsl:59`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:select_device#operation" digest="sha256:50963ed24dbe29c6ca34a3ef80bab05d1417623bad4400900566385267a4ff9b" -->
+<!-- fsl:claim begin id="action:select_device#operation" digest="sha256:56af877b9eacfaecc09d728510f3dfda3c1038591e8794b532d8cdf08a429583" -->
 #### 操作: `select_device`
 
 - 識別子: `action:select_device#operation`
-- 出典: `specs/requirements/recording-input.fsl:56`
+- 出典: `specs/requirements/recording-input.fsl:60`
 - パラメータ: なし
 
 操作 `select_device` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -577,19 +657,19 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 
 > テイクが確定してもストリームを閉じない
 
-（出典: `specs/requirements/recording-input.fsl:251`）
+（出典: `specs/requirements/recording-input.fsl:275`）
 
 > 収録画面に入った時点でストリームを開き、テイクごとに開閉しない
 
-（出典: `specs/requirements/recording-input.fsl:62`）
+（出典: `specs/requirements/recording-input.fsl:66`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:open_stream#operation" digest="sha256:b885cae3262d4cb3cc788d6bdeb703685444389db1e10fe86349b95ff3d0b2ac" -->
+<!-- fsl:claim begin id="action:open_stream#operation" digest="sha256:6df35711ec261dab26ed0b58c2ee0d75fc6e3db4c72e82ac400fa2b7befe6bb0" -->
 #### 操作: `open_stream`
 
 - 識別子: `action:open_stream#operation`
-- 出典: `specs/requirements/recording-input.fsl:63`
+- 出典: `specs/requirements/recording-input.fsl:67`
 - パラメータ: なし
 
 操作 `open_stream` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -605,11 +685,11 @@ claim_set_digest: sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb559
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:StreamStaysOpenAcrossTakes#transition_rule" digest="sha256:114cff7d485ad3bbefd85d2227aa616673e94e49e862d8f612c28cf00408a6b5" -->
+<!-- fsl:claim begin id="property:trans:StreamStaysOpenAcrossTakes#transition_rule" digest="sha256:32836cbf4d2ede4faefcfd03018555556e61721902c86b097a7a4e6332a0d3e9" -->
 #### 遷移条件: `StreamStaysOpenAcrossTakes`
 
 - 識別子: `property:trans:StreamStaysOpenAcrossTakes#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:252`
+- 出典: `specs/requirements/recording-input.fsl:276`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -634,19 +714,19 @@ takes != old(takes) => stream_open and old(stream_open)
 
 > 無効化できない効果が残ることがある
 
-（出典: `specs/requirements/recording-input.fsl:78`）
+（出典: `specs/requirements/recording-input.fsl:82`）
 
 > 開いたストリームに適用中の効果を列挙し、無効化できたものは無効化する
 
-（出典: `specs/requirements/recording-input.fsl:70`）
+（出典: `specs/requirements/recording-input.fsl:74`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:disable_all_effects#operation" digest="sha256:f211fe1a3239f3401053d9833833f3ba6fe9863a2fb2576357d90d781e159c57" -->
+<!-- fsl:claim begin id="action:disable_all_effects#operation" digest="sha256:507015a6bc0bd9147629e94d6deaba4491aae8f4d4117b3538bc70848a01ed7f" -->
 #### 操作: `disable_all_effects`
 
 - 識別子: `action:disable_all_effects#operation`
-- 出典: `specs/requirements/recording-input.fsl:71`
+- 出典: `specs/requirements/recording-input.fsl:75`
 - パラメータ: なし
 
 操作 `disable_all_effects` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -662,11 +742,11 @@ takes != old(takes) => stream_open and old(stream_open)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:some_effects_remain#operation" digest="sha256:d55a1f7fcf815f52ae28bab66f02b4ffbf61771831672188b6ba59d80546cbbc" -->
+<!-- fsl:claim begin id="action:some_effects_remain#operation" digest="sha256:495021baf10d0afbe5112579c17c112e60e0420098dcf2b24b6c095833dbce54" -->
 #### 操作: `some_effects_remain`
 
 - 識別子: `action:some_effects_remain#operation`
-- 出典: `specs/requirements/recording-input.fsl:79`
+- 出典: `specs/requirements/recording-input.fsl:83`
 - パラメータ: なし
 
 操作 `some_effects_remain` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -694,31 +774,31 @@ takes != old(takes) => stream_open and old(stream_open)
 
 > 手順が提示される経路が存在する
 
-（出典: `specs/requirements/recording-input.fsl:276`）
+（出典: `specs/requirements/recording-input.fsl:300`）
 
 > 手順の提示は収録中に出ない
 
-（出典: `specs/requirements/recording-input.fsl:231`）
+（出典: `specs/requirements/recording-input.fsl:255`）
 
 > 手順を提示するのは、無効化できない効果が残っているときだけ
 
-（出典: `specs/requirements/recording-input.fsl:236`）
+（出典: `specs/requirements/recording-input.fsl:260`）
 
 > 無効化できない効果が残ったまま、それでも収録へ進める
 
-（出典: `specs/requirements/recording-input.fsl:256`）
+（出典: `specs/requirements/recording-input.fsl:280`）
 
 > 無効化できない効果が残ったら、収録開始前に一度だけ手順を提示する
 
-（出典: `specs/requirements/recording-input.fsl:86`）
+（出典: `specs/requirements/recording-input.fsl:90`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:show_prompt_once#operation" digest="sha256:40d1f6c671b670e65ee9f3b0e433c965a95b4668ded1a99432f7b0ef53bd9fc3" -->
+<!-- fsl:claim begin id="action:show_prompt_once#operation" digest="sha256:1e42f7b9a80ee589120d279045a447fbd5a3b65e2aff777e3c8fd5e7c181492c" -->
 #### 操作: `show_prompt_once`
 
 - 識別子: `action:show_prompt_once#operation`
-- 出典: `specs/requirements/recording-input.fsl:87`
+- 出典: `specs/requirements/recording-input.fsl:91`
 - パラメータ: なし
 
 操作 `show_prompt_once` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -735,11 +815,11 @@ takes != old(takes) => stream_open and old(stream_open)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:PromptCanBeShown#reachability_goal" digest="sha256:0bb3f7f2e05bf65e59bc9cb3fc9daf5e5bfa9137abb1353de2a62ac0ad1c9d3b" -->
+<!-- fsl:claim begin id="property:reachable:PromptCanBeShown#reachability_goal" digest="sha256:8ba64bcfa75cff6ae4d6c64bdf09fc559aa7583433c1ec4168a47bc74fa055e6" -->
 #### 到達目標: `PromptCanBeShown`
 
 - 識別子: `property:reachable:PromptCanBeShown#reachability_goal`
-- 出典: `specs/requirements/recording-input.fsl:277`
+- 出典: `specs/requirements/recording-input.fsl:301`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -750,11 +830,11 @@ takes != old(takes) => stream_open and old(stream_open)
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:RecordsWithRemainingEffects#reachability_goal" digest="sha256:8eb491f40c72426fcb820b3243b83ffb2bf40ef8afd2aff5f79aa46f5d844b6c" -->
+<!-- fsl:claim begin id="property:reachable:RecordsWithRemainingEffects#reachability_goal" digest="sha256:46fc4007965e5f509e06d5dae3d4b9f02089ecdb89ecae36e6e72cfd42d92af3" -->
 #### 到達目標: `RecordsWithRemainingEffects`
 
 - 識別子: `property:reachable:RecordsWithRemainingEffects#reachability_goal`
-- 出典: `specs/requirements/recording-input.fsl:257`
+- 出典: `specs/requirements/recording-input.fsl:281`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -771,11 +851,11 @@ takes != old(takes) => stream_open and old(stream_open)
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:PromptNeverDuringRecording#transition_rule" digest="sha256:25d9395f43a41017937f6773e0c55ebd2c4b9a592f2c27e2938b659a80772f74" -->
+<!-- fsl:claim begin id="property:trans:PromptNeverDuringRecording#transition_rule" digest="sha256:3f0061fd8b5daa4b50602040f663432ff4af6f77c4e510284dfb0700518a261d" -->
 #### 遷移条件: `PromptNeverDuringRecording`
 
 - 識別子: `property:trans:PromptNeverDuringRecording#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:232`
+- 出典: `specs/requirements/recording-input.fsl:256`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -784,11 +864,11 @@ takes != old(takes) => stream_open and old(stream_open)
 この関係を満たさない候補遷移はコミットされない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:PromptOnlyWhenEffectsRemain#transition_rule" digest="sha256:a4043df32a3f6867164e96e432037ace6c189e300069657ad38624463a93f3ff" -->
+<!-- fsl:claim begin id="property:trans:PromptOnlyWhenEffectsRemain#transition_rule" digest="sha256:8e1449a561e41201946fbe966d2c289d132701bcbc722f9b6a8ab77acba709a6" -->
 #### 遷移条件: `PromptOnlyWhenEffectsRemain`
 
 - 識別子: `property:trans:PromptOnlyWhenEffectsRemain#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:237`
+- 出典: `specs/requirements/recording-input.fsl:261`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -809,23 +889,23 @@ takes != old(takes) => stream_open and old(stream_open)
 
 > アプリが変更した OS 側のゲインは、終了時に変更前の値へ戻す
 
-（出典: `specs/requirements/recording-input.fsl:178`）
+（出典: `specs/requirements/recording-input.fsl:202`）
 
 > 入力レベルの校正は収録前の1回のセットアップ工程で、収録中は行わない
 
-（出典: `specs/requirements/recording-input.fsl:95`）
+（出典: `specs/requirements/recording-input.fsl:99`）
 
 > 収録中にゲインを変えない
 
-（出典: `specs/requirements/recording-input.fsl:246`）
+（出典: `specs/requirements/recording-input.fsl:270`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:calibrate_gain#operation" digest="sha256:8837ca967156b4dc6e81530a6be3a2f5e18709daf1e711f0dad59e59440138f6" -->
+<!-- fsl:claim begin id="action:calibrate_gain#operation" digest="sha256:54100c9c63aa88fa03c42c22eb4ef2e53aa801046cb2c2dafc4248c755a17226" -->
 #### 操作: `calibrate_gain`
 
 - 識別子: `action:calibrate_gain#operation`
-- 出典: `specs/requirements/recording-input.fsl:96`
+- 出典: `specs/requirements/recording-input.fsl:100`
 - パラメータ: なし
 
 操作 `calibrate_gain` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -843,11 +923,11 @@ takes != old(takes) => stream_open and old(stream_open)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:exit_app#operation" digest="sha256:a51d2fb2885a1fe69b9997607566a547e241a8a3552f70e6b591e4f4aa56fec4" -->
+<!-- fsl:claim begin id="action:exit_app#operation" digest="sha256:97326386ba918a89f307184205a80bbedda3f617b464f2d2814d831bc7475177" -->
 #### 操作: `exit_app`
 
 - 識別子: `action:exit_app#operation`
-- 出典: `specs/requirements/recording-input.fsl:179`
+- 出典: `specs/requirements/recording-input.fsl:203`
 - パラメータ: なし
 
 操作 `exit_app` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -863,11 +943,11 @@ takes != old(takes) => stream_open and old(stream_open)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:GainFixedDuringRecording#transition_rule" digest="sha256:1a8ac5bf3c1f82b9a476817074e9007fefc2797adfc92d2fd0a03620c4871768" -->
+<!-- fsl:claim begin id="property:trans:GainFixedDuringRecording#transition_rule" digest="sha256:f756b7c732db3d08d5fdafda22fbb3e1b414972eac2a472a0db17e8477b70898" -->
 #### 遷移条件: `GainFixedDuringRecording`
 
 - 識別子: `property:trans:GainFixedDuringRecording#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:247`
+- 出典: `specs/requirements/recording-input.fsl:271`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -892,27 +972,27 @@ gain != old(gain) => not recording and not old(recording)
 
 > 入力が届いていないことは状態として記録される
 
-（出典: `specs/requirements/recording-input.fsl:271`）
+（出典: `specs/requirements/recording-input.fsl:295`）
 
 > 入力が届いていないと判定したら、デバイス選択へ戻す
 
-（出典: `specs/requirements/recording-input.fsl:241`）
+（出典: `specs/requirements/recording-input.fsl:265`）
 
 > 入力が届いていなければ収録を止め、テイクを作らずデバイス選択へ戻す
 
-（出典: `specs/requirements/recording-input.fsl:113`）
+（出典: `specs/requirements/recording-input.fsl:117`）
 
 > 入力経路の生死は収録開始後の冒頭で一度だけ判定する
 
-（出典: `specs/requirements/recording-input.fsl:105`）
+（出典: `specs/requirements/recording-input.fsl:109`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:input_is_alive#operation" digest="sha256:2dbf1e6a882f9729dc532002150ff66ecbfd2f9b6f0f4fe1e50212491950c769" -->
+<!-- fsl:claim begin id="action:input_is_alive#operation" digest="sha256:794dd0bc1dc2fdf0b910f6d002be0f21faa10b31c125ca3e13e0bac3938f46c2" -->
 #### 操作: `input_is_alive`
 
 - 識別子: `action:input_is_alive#operation`
-- 出典: `specs/requirements/recording-input.fsl:106`
+- 出典: `specs/requirements/recording-input.fsl:110`
 - パラメータ: なし
 
 操作 `input_is_alive` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -928,11 +1008,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:input_is_dead#operation" digest="sha256:0ae1f4cf8f1ec5c4b422ce7912861ce51e30af5a6907544b486e92502ec0219f" -->
+<!-- fsl:claim begin id="action:input_is_dead#operation" digest="sha256:4d97372743b30a0fa29edcdce67124b885bb590030f0bcf2c84025a899ea672c" -->
 #### 操作: `input_is_dead`
 
 - 識別子: `action:input_is_dead#operation`
-- 出典: `specs/requirements/recording-input.fsl:114`
+- 出典: `specs/requirements/recording-input.fsl:118`
 - パラメータ: なし
 
 操作 `input_is_dead` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -951,11 +1031,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:InputCanBeDead#reachability_goal" digest="sha256:5589dd2582817026b345014b3db56ddc466da38d3f32bf63aa4d2bd20054fd49" -->
+<!-- fsl:claim begin id="property:reachable:InputCanBeDead#reachability_goal" digest="sha256:ead122724ecdf472ee6594479973ec805a5111e2fcb9c8e4c6ceafe5431d344d" -->
 #### 到達目標: `InputCanBeDead`
 
 - 識別子: `property:reachable:InputCanBeDead#reachability_goal`
-- 出典: `specs/requirements/recording-input.fsl:272`
+- 出典: `specs/requirements/recording-input.fsl:296`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -966,11 +1046,11 @@ gain != old(gain) => not recording and not old(recording)
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:DeadInputReturnsToDeviceSelection#transition_rule" digest="sha256:5d7df639aaea98a48b3821486839f3f123c3eaaeed8d90600a0e2257e714ac59" -->
+<!-- fsl:claim begin id="property:trans:DeadInputReturnsToDeviceSelection#transition_rule" digest="sha256:2c51022e3e2cd3150f2ce4defefaa6e67ebb088380fea90d0ab7d9d41a73c4f5" -->
 #### 遷移条件: `DeadInputReturnsToDeviceSelection`
 
 - 識別子: `property:trans:DeadInputReturnsToDeviceSelection#transition_rule`
-- 出典: `specs/requirements/recording-input.fsl:242`
+- 出典: `specs/requirements/recording-input.fsl:266`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -991,19 +1071,19 @@ gain != old(gain) => not recording and not old(recording)
 
 > ガイドを鳴らす前に、回り込みの有無を一度だけ確認する
 
-（出典: `specs/requirements/recording-input.fsl:124`）
+（出典: `specs/requirements/recording-input.fsl:128`）
 
 > 回り込みが無いと確認できたときだけガイドを鳴らす
 
-（出典: `specs/requirements/recording-input.fsl:133`）
+（出典: `specs/requirements/recording-input.fsl:137`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:check_guide_leak#operation" digest="sha256:e456073f0103b45681282ad88752c223a2f091cbcfb56df0ddbe107c529173f4" -->
+<!-- fsl:claim begin id="action:check_guide_leak#operation" digest="sha256:b9f6390314657ede898a56c900bbaee1bab3cf4405ed6cef7d6a2adb53c6af2d" -->
 #### 操作: `check_guide_leak`
 
 - 識別子: `action:check_guide_leak#operation`
-- 出典: `specs/requirements/recording-input.fsl:125`
+- 出典: `specs/requirements/recording-input.fsl:129`
 - パラメータ: なし
 
 操作 `check_guide_leak` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1020,11 +1100,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:enable_guide#operation" digest="sha256:20ace266208499d8cf871a4209924c3df8ce7bcb788dd5baf0de1c9e31125e7d" -->
+<!-- fsl:claim begin id="action:enable_guide#operation" digest="sha256:81b7544fe0cd934a2a7d90bda1e6201382e810e3678115103bc707733f54ff20" -->
 #### 操作: `enable_guide`
 
 - 識別子: `action:enable_guide#operation`
-- 出典: `specs/requirements/recording-input.fsl:134`
+- 出典: `specs/requirements/recording-input.fsl:138`
 - パラメータ: なし
 
 操作 `enable_guide` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1052,19 +1132,19 @@ gain != old(gain) => not recording and not old(recording)
 
 > テイクが確定してもストリームは開いたままにする
 
-（出典: `specs/requirements/recording-input.fsl:153`）
+（出典: `specs/requirements/recording-input.fsl:177`）
 
 > 収録は、デバイスが生きていて入力が届いているときだけ始められる
 
-（出典: `specs/requirements/recording-input.fsl:141`）
+（出典: `specs/requirements/recording-input.fsl:162`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:finish_take#operation" digest="sha256:dafc3f30caaadf42e63d50d6e4ac923b6ff131a5ec8a2668601fa99866058ffd" -->
+<!-- fsl:claim begin id="action:finish_take#operation" digest="sha256:69794fc369050715d86bd08c55e738a13fdc791636de46ea95792f7bbc2be980" -->
 #### 操作: `finish_take`
 
 - 識別子: `action:finish_take#operation`
-- 出典: `specs/requirements/recording-input.fsl:154`
+- 出典: `specs/requirements/recording-input.fsl:178`
 - パラメータ: なし
 
 操作 `finish_take` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1080,11 +1160,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作には弱い公平性（weak fairness）を仮定する。これはスケジューリング上の仮定であり、この操作が実行可能（enabled）であり続けるならば、いつかは実行される、という意味である。直ちに実行されることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:start_take#operation" digest="sha256:adb1f0958a17bce303792ead779454948a16b2965b007f7976df608bb306476b" -->
+<!-- fsl:claim begin id="action:start_take#operation" digest="sha256:0e80b60496c5a2412216a94cbe53ab5777d7d0b36307dfe02b709afa9642a32a" -->
 #### 操作: `start_take`
 
 - 識別子: `action:start_take#operation`
-- 出典: `specs/requirements/recording-input.fsl:142`
+- 出典: `specs/requirements/recording-input.fsl:164`
 - パラメータ: なし
 
 操作 `start_take` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1094,8 +1174,10 @@ gain != old(gain) => not recording and not old(recording)
 3. `stream_open` が `true` である。
 4. `liveness` が `Alive` である。
 5. `gain` が `Calibrated` である。
-6. `recording` が `false` である。
-7. `takes` が `MAX_TAKES` より小さい。
+6. `space_estimated` が `true` である。
+7. `space_sufficient` が `true` である。
+8. `recording` が `false` である。
+9. `takes` が `MAX_TAKES` より小さい。
 
 操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
 
@@ -1116,27 +1198,27 @@ gain != old(gain) => not recording and not old(recording)
 
 > デバイスが戻れば収録を再開できる
 
-（出典: `specs/requirements/recording-input.fsl:261`）
+（出典: `specs/requirements/recording-input.fsl:285`）
 
 > デバイスの消失は状態として記録される
 
-（出典: `specs/requirements/recording-input.fsl:266`）
+（出典: `specs/requirements/recording-input.fsl:290`）
 
 > 復帰は同一識別子のデバイスが戻ったときだけ。別のデバイスへ自動で切り替えない
 
-（出典: `specs/requirements/recording-input.fsl:171`）
+（出典: `specs/requirements/recording-input.fsl:195`）
 
 > 選択済みデバイスが録音中に消失したら、進行中テイクを破棄して収録を止める
 
-（出典: `specs/requirements/recording-input.fsl:161`）
+（出典: `specs/requirements/recording-input.fsl:185`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:device_lost#operation" digest="sha256:4e02dfa60c0836e5a0dbc68ba34c06123d9eb4c2f028d18fb92e0b24feac253b" -->
+<!-- fsl:claim begin id="action:device_lost#operation" digest="sha256:0bf19602aa67569d4d8a57bbb046ba4181be34febbf2bbd71fe1e59bb3ba8ab8" -->
 #### 操作: `device_lost`
 
 - 識別子: `action:device_lost#operation`
-- 出典: `specs/requirements/recording-input.fsl:162`
+- 出典: `specs/requirements/recording-input.fsl:186`
 - パラメータ: なし
 
 操作 `device_lost` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1154,11 +1236,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:same_device_returned#operation" digest="sha256:a2c92924f2077265a0913064045d7d10e33d7e570acd9407f40d4042915052f8" -->
+<!-- fsl:claim begin id="action:same_device_returned#operation" digest="sha256:f27e0492b49efb0ff8607a7ffe81e876a43574d7410311ff4d389a05084998ff" -->
 #### 操作: `same_device_returned`
 
 - 識別子: `action:same_device_returned#operation`
-- 出典: `specs/requirements/recording-input.fsl:172`
+- 出典: `specs/requirements/recording-input.fsl:196`
 - パラメータ: なし
 
 操作 `same_device_returned` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -1173,11 +1255,11 @@ gain != old(gain) => not recording and not old(recording)
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:DeviceCanBeLost#reachability_goal" digest="sha256:66420bfe993c6ca036f2f17a649abf497282ab182fbf06e60b4dc2541a1bb720" -->
+<!-- fsl:claim begin id="property:reachable:DeviceCanBeLost#reachability_goal" digest="sha256:414d6146ff868e42db5ddfbfd1c022660ba3da76e087819e660b4683055610ad" -->
 #### 到達目標: `DeviceCanBeLost`
 
 - 識別子: `property:reachable:DeviceCanBeLost#reachability_goal`
-- 出典: `specs/requirements/recording-input.fsl:267`
+- 出典: `specs/requirements/recording-input.fsl:291`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -1188,11 +1270,11 @@ gain != old(gain) => not recording and not old(recording)
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:ResumesAfterDeviceReturn#reachability_goal" digest="sha256:5bad65292dab723844868bcd50eed057082c9d5b4183d48088519bf92b7de688" -->
+<!-- fsl:claim begin id="property:reachable:ResumesAfterDeviceReturn#reachability_goal" digest="sha256:6ebb31fdebc4e8cd0129d48b42aca893f08b9311502aa22d005a800fa10715fb" -->
 #### 到達目標: `ResumesAfterDeviceReturn`
 
 - 識別子: `property:reachable:ResumesAfterDeviceReturn#reachability_goal`
-- 出典: `specs/requirements/recording-input.fsl:262`
+- 出典: `specs/requirements/recording-input.fsl:286`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -1202,6 +1284,72 @@ gain != old(gain) => not recording and not old(recording)
 
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
+
+**保証クラス**
+
+- 形式検証: `not_run` — 対応するエビデンスは供給されていない。
+- 実装適合: `not_run` — 対応するエビデンスは供給されていない。
+- 統計的裏付け: `not_run` — 対応するエビデンスは供給されていない。
+
+### REQ-REC-110
+
+**要件原文（意図。形式意味との一致は人間が確認する）**
+
+> 収録を始める前に、リスト全体が必要とする容量を見積もる
+
+（出典: `specs/requirements/recording-input.fsl:146`）
+
+> 残量が足りないと分かっている間は収録を始めない
+
+（出典: `specs/requirements/recording-input.fsl:163`）
+
+> 足りないと分かったら、録りきれる件数を提示して開始させない
+
+（出典: `specs/requirements/recording-input.fsl:154`）
+
+**形式化された意味（FSLから決定論的に生成）**
+
+<!-- fsl:claim begin id="action:estimate_space_enough#operation" digest="sha256:34976729e7265f3b3ee1dbf0adbfac3325b8155cfdb993d8094b874c60c80d6f" -->
+#### 操作: `estimate_space_enough`
+
+- 識別子: `action:estimate_space_enough#operation`
+- 出典: `specs/requirements/recording-input.fsl:147`
+- パラメータ: なし
+
+操作 `estimate_space_enough` を実行できるのは、次の条件をすべて満たす場合に限る。
+
+1. `app_exited` が `false` である。
+2. `recording` が `false` である。
+
+操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
+
+1. `space_estimated` を `true` にする。
+2. `space_sufficient` を `true` にする。
+
+この操作には弱い公平性（weak fairness）を仮定する。これはスケジューリング上の仮定であり、この操作が実行可能（enabled）であり続けるならば、いつかは実行される、という意味である。直ちに実行されることを意味しない。
+<!-- fsl:claim end -->
+
+<!-- fsl:claim begin id="action:estimate_space_short#operation" digest="sha256:49ebf168d3374c446a429954722e2bdd63653bd2dea2309213da51bba4387c8c" -->
+#### 操作: `estimate_space_short`
+
+- 識別子: `action:estimate_space_short#operation`
+- 出典: `specs/requirements/recording-input.fsl:155`
+- パラメータ: なし
+
+操作 `estimate_space_short` を実行できるのは、次の条件をすべて満たす場合に限る。
+
+1. `app_exited` が `false` である。
+2. `recording` が `false` である。
+
+操作が成功した場合、次の更新を同一ステップで同時に適用する。更新の右辺は遷移前の状態を読む。
+
+1. `space_estimated` を `true` にする。
+2. `space_sufficient` を `false` にする。
+
+この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
+<!-- fsl:claim end -->
+
+この操作の内容は、`REQ-REC-108` の節に記載している。この要件にも同じ意味で適用される。
 
 **保証クラス**
 
@@ -1240,9 +1388,9 @@ gain != old(gain) => not recording and not old(recording)
 ## 生成情報
 
 - 生成元仕様: `specs/requirements/recording-input.fsl`（`KoeruRecordingInput`、dialect: `requirements`）
-- spec digest: `sha256:42607b3df78fc84f257d9bc9c61034157b212984c5dab3743ee3e70feb2a45b3`
-- claim set digest: `sha256:2ffb625fb2481b5edbb6e47fde0aebc1246b628d22e56d20b8cb55955c23318e`
-- 形式要素の分類: rendered 40 件 / unattributed 1 件 / unsupported 1 件
+- spec digest: `sha256:a5d5a1438298543f27c6dc08719bbedcc639d94388a9c51555a7c9d58ef83946`
+- claim set digest: `sha256:edb9464e528fd4bc9e54fe8deeb350fbb82e42a9a82f139492dc3e37ae1a2578`
+- 形式要素の分類: rendered 44 件 / unattributed 1 件 / unsupported 1 件
 - 自然言語への言い換えを行わなかった式: 2 箇所
 - 由来情報は不完全である（completeness: `Partial`）。一部の要素について、FSL ソース上の出所を特定できていない。
 - 上記 2 箇所では、誤解を招く言い換えを避けるため、自然言語文の代わりに FSL の canonical 形式をそのまま示した。これは本レンダラーの仕様どおりの動作であり、情報の欠落や生成の失敗ではない。
