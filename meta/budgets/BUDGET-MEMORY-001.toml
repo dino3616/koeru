@@ -3,7 +3,8 @@ id = "BUDGET-MEMORY-001"
 title = "プロセス全体のピークメモリ"
 limit = 1500
 unit = "MB"
-scope = "多音階連続音・約3時間分の素材を持つプロジェクトを開いた状態（8GB 搭載機で他アプリと共存）"
+scope = "SCALE-REF-001 の代表プロジェクトを開いた状態（8GB 搭載機で他アプリと共存）"
+derives_from = ["SCALE-REF-001"]
 source_requirements = ["TR-PLT-19"]
 note = """
 未解決の設計課題（Q-PLT-001）。領域ごとの独立キャップの合計が上限を超えている。

@@ -11,6 +11,7 @@
 | 部品台帳。ライセンス監査の面 | `evidence/ledger-{領域}.toml` | `CMP-{領域}-{番号}` |
 | 上限と配分。合計を検査する | `budgets/BUDGET-*.toml` | `BUDGET-{種別}-{番号}` |
 | 領域ごとの性能目標。上限は無い | `budgets/{領域}.toml` | `TGT-{領域}-{番号}` |
+| **代表プロジェクトの規模。予算はここから導く** | `budgets/SCALE-*.toml` | `SCALE-{種別}-{番号}` |
 | リリース対象 | `profiles/PROFILE-*.toml` | `PROFILE-{名前}` |
 
 **すべての項目が ID を持ち、ID で引ける。** 1件1ファイルのものも、収集ファイルの中の1件も同じ。
@@ -29,6 +30,7 @@
 | `component-ledger` | `evidence/` | `[[component]]` の配列 |
 | `budget` | `budgets/` | 1件1ファイル。`BUDGET-*`。上限と配分を持つ |
 | `target-set` | `budgets/` | `[[target]]` の配列。上限は無い |
+| `scale-reference` | `budgets/` | 1件1ファイル。`SCALE-*`。基点と `[[derived]]` の導出式を持つ |
 | `profile` | `profiles/` | 1件1ファイル。`PROFILE-*` |
 
 **1つのディレクトリに2つの形が入るのは、それが同じ種類のものだから。** 予算と目標値はどちらも

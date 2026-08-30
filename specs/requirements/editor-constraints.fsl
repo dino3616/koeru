@@ -95,9 +95,8 @@ requirements KoeruEditorConstraints {
   action advanced_edit(e: Entry) {
     requires mode == Advanced
     requires history < MAX_HISTORY
-    // TR-EDT-08 は「自動的に確認済み」と言うが、TR-EDT-45 は「違反が残るエントリは
-    // 必ず確認待ちに出す」と言う。**無制約編集で違反を残した場合に両立しない。**
-    // ここでは TR-EDT-45 を採る（→ meta/questions/Q-EDT-002）。
+    // TR-EDT-08 の「自動的に確認済み」は、制約違反が残っていない場合に限る（DEC-EDT-003）。
+    // **上級モードを一度も開かない利用者にも違反が届くことを優先する。**
     confirmed[e] = if unconstrained then (not violating[e]) else true
     violating[e] = if unconstrained then violating[e] else false
     history = history + 1

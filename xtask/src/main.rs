@@ -36,6 +36,10 @@ struct Shape {
     /// 配列で複数件。配列のキー、項目 ID の接頭辞、各項目の必須項目。
     /// **項目にも ID を持たせる。** 引けないものは参照できず、参照できないものは検査できない。
     collection: Option<(&'static str, &'static str, &'static [&'static str])>,
+    /// entity が持ってよい表の配列。ここに無い `[[key]]` は打ち間違いとして弾く。
+    /// **collection と同じ穴が entity 側にも空いていた。** 一部だけ綴りを間違えると
+    /// 配列は空にならず、その分だけ黙って減る。
+    entity_arrays: &'static [&'static str],
 }
 
 const SHAPES: &[Shape] = &[
@@ -48,6 +52,7 @@ const SHAPES: &[Shape] = &[
             "TR-",
             &["id", "title", "confidence", "statement"],
         )),
+        entity_arrays: &[],
     },
     Shape {
         schema: "decision",
@@ -66,6 +71,7 @@ const SHAPES: &[Shape] = &[
             ],
         )),
         collection: None,
+        entity_arrays: &[],
     },
     Shape {
         schema: "question",
@@ -82,6 +88,7 @@ const SHAPES: &[Shape] = &[
             ],
         )),
         collection: None,
+        entity_arrays: &[],
     },
     Shape {
         schema: "evidence",
@@ -91,6 +98,7 @@ const SHAPES: &[Shape] = &[
             &["id", "title", "kind", "source", "provenance", "confidence"],
         )),
         collection: None,
+        entity_arrays: &[],
     },
     Shape {
         schema: "component-ledger",
@@ -101,24 +109,35 @@ const SHAPES: &[Shape] = &[
             "CMP-",
             &["id", "name", "purpose", "license", "status"],
         )),
+        entity_arrays: &[],
     },
     Shape {
         schema: "budget",
         dir: "budgets",
         entity: Some(("BUDGET-", &["id", "title", "limit", "unit", "scope"])),
         collection: None,
+        entity_arrays: &["allocations"],
     },
     Shape {
         schema: "target-set",
         dir: "budgets",
         entity: None,
         collection: Some(("target", "TGT-", &["id", "item", "goal"])),
+        entity_arrays: &[],
+    },
+    Shape {
+        schema: "scale-reference",
+        dir: "budgets",
+        entity: Some(("SCALE-", &["id", "title", "basis", "scope", "rationale"])),
+        collection: None,
+        entity_arrays: &["derived"],
     },
     Shape {
         schema: "profile",
         dir: "profiles",
         entity: Some(("PROFILE-", &["id", "title", "status"])),
         collection: None,
+        entity_arrays: &[],
     },
 ];
 
@@ -326,6 +345,35 @@ fn check_shape(e: &Entry, rep: &mut Report) {
             None => rep.error(format!("{file}: `id` が文字列でない")),
         }
     }
+    // entity 側の表配列にも、collection と同じ網を掛ける。
+    // **`[[allocations]]` を `[[allocatoins]]` と書いても、以前は黙って0件になっていた。**
+    if e.shape.entity.is_some() {
+        for (k, v) in &e.table {
+            let is_table_array = v
+                .as_array()
+                .is_some_and(|a| !a.is_empty() && a.iter().all(toml::Value::is_table));
+            if is_table_array && !e.shape.entity_arrays.contains(&k.as_str()) {
+                rep.error(format!(
+                    "{file}: schema `{}` の知らない `[[{k}]]` がある。許すのは {:?} だけ",
+                    e.shape.schema, e.shape.entity_arrays
+                ));
+            }
+        }
+        for want in e.shape.entity_arrays {
+            let present = e
+                .table
+                .get(*want)
+                .and_then(toml::Value::as_array)
+                .is_some_and(|a| !a.is_empty());
+            if !present {
+                rep.error(format!(
+                    "{file}: schema `{}` は `[[{want}]]` を1件以上持つ必要がある",
+                    e.shape.schema
+                ));
+            }
+        }
+    }
+
     let Some((key, prefix, required)) = e.shape.collection else {
         return;
     };
@@ -627,6 +675,8 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
         for (key, universe, label) in [
             ("affects_requirements", &tr, "技術要件"),
             ("supports_requirements", &tr, "技術要件"),
+            ("source_requirements", &tr, "技術要件"),
+            ("derives_from_requirements", &tr, "技術要件"),
             ("affects_fsl", &fsl, "FSL の要求"),
             ("includes_fsl", &fsl, "FSL の要求"),
         ] {
@@ -644,6 +694,8 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
             "affects_components",
             "affects_targets",
             "affects_budgets",
+            "source_targets",
+            "derives_from",
             "blocks_profiles",
             "decisions",
             "budgets",

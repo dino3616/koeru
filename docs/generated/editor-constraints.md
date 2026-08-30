@@ -59,15 +59,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 上級モードを開いても、確認状態も履歴も変わらない
 
-（出典: `specs/requirements/editor-constraints.fsl:182`）
+（出典: `specs/requirements/editor-constraints.fsl:181`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="acceptance:AC-EDT-001#acceptance_trace" digest="sha256:2e1859b77a932d47468006ef163e2b8ad41af3a15323e02dbf3b94aeff602074" -->
+<!-- fsl:claim begin id="acceptance:AC-EDT-001#acceptance_trace" digest="sha256:a0b38509a40f323c317adb372ee1cd4402029fbea1dade3743989fdd8ba0833a" -->
 #### 受け入れ基準: `AC-EDT-001`
 
 - 識別子: `acceptance:AC-EDT-001#acceptance_trace`
-- 出典: `specs/requirements/editor-constraints.fsl:182`
+- 出典: `specs/requirements/editor-constraints.fsl:181`
 - 表題: 上級モードを開いても、確認状態も履歴も変わらない
 
 この受け入れ基準は、一つの具体的な実行例である。
@@ -97,15 +97,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 違反を直すと確認済みになる
 
-（出典: `specs/requirements/editor-constraints.fsl:188`）
+（出典: `specs/requirements/editor-constraints.fsl:187`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="acceptance:AC-EDT-002#acceptance_trace" digest="sha256:c7e94df696972b5e6ce9105f733222fff62322578d47c0316eecf4045d7e3fa3" -->
+<!-- fsl:claim begin id="acceptance:AC-EDT-002#acceptance_trace" digest="sha256:0d7faed25f7c17a20656f05e6819bda03955d3b9887f94069cfc416e087a448c" -->
 #### 受け入れ基準: `AC-EDT-002`
 
 - 識別子: `acceptance:AC-EDT-002#acceptance_trace`
-- 出典: `specs/requirements/editor-constraints.fsl:188`
+- 出典: `specs/requirements/editor-constraints.fsl:187`
 - 表題: 違反を直すと確認済みになる
 
 この受け入れ基準は、一つの具体的な実行例である。
@@ -131,15 +131,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 違反の残るエントリを通常モードで確認済みにできない
 
-（出典: `specs/requirements/editor-constraints.fsl:194`）
+（出典: `specs/requirements/editor-constraints.fsl:193`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-EDT-001#forbidden_trace" digest="sha256:a2829258cc2b1f311d94d9ca9d94a6999f93e856030e0d7233294bb9a018e336" -->
+<!-- fsl:claim begin id="forbidden:FB-EDT-001#forbidden_trace" digest="sha256:df06ce25177a742b801d2deb43a04fd13409c023fb2a0fc4357b04334d20463f" -->
 #### 禁止手順: `FB-EDT-001`
 
 - 識別子: `forbidden:FB-EDT-001#forbidden_trace`
-- 出典: `specs/requirements/editor-constraints.fsl:194`
+- 出典: `specs/requirements/editor-constraints.fsl:193`
 - 表題: 違反の残るエントリを通常モードで確認済みにできない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -164,15 +164,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 通常モードでは無制約編集を有効にできない
 
-（出典: `specs/requirements/editor-constraints.fsl:200`）
+（出典: `specs/requirements/editor-constraints.fsl:199`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-EDT-002#forbidden_trace" digest="sha256:57894654cf37731aa0c7e45f48ef2c357e8559d4b2dc8e34bbd57e359efea2ec" -->
+<!-- fsl:claim begin id="forbidden:FB-EDT-002#forbidden_trace" digest="sha256:7adc0bec2c99918e592f025a529b988c3752bd57a9f661131fe18301663662e2" -->
 #### 禁止手順: `FB-EDT-002`
 
 - 識別子: `forbidden:FB-EDT-002#forbidden_trace`
-- 出典: `specs/requirements/editor-constraints.fsl:200`
+- 出典: `specs/requirements/editor-constraints.fsl:199`
 - 表題: 通常モードでは無制約編集を有効にできない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -196,15 +196,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 通常モードでは上級モードの編集をできない
 
-（出典: `specs/requirements/editor-constraints.fsl:205`）
+（出典: `specs/requirements/editor-constraints.fsl:204`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="forbidden:FB-EDT-003#forbidden_trace" digest="sha256:44003ef3a09484c42aa9f6d140a0d61c9e3c9478f4667ef343745d97585c8183" -->
+<!-- fsl:claim begin id="forbidden:FB-EDT-003#forbidden_trace" digest="sha256:2a6b8d0cb20301dd3cccb7a55d363d8a7879255630a2b7f38048f8faf5a90148" -->
 #### 禁止手順: `FB-EDT-003`
 
 - 識別子: `forbidden:FB-EDT-003#forbidden_trace`
-- 出典: `specs/requirements/editor-constraints.fsl:205`
+- 出典: `specs/requirements/editor-constraints.fsl:204`
 - 表題: 通常モードでは上級モードの編集をできない
 
 この禁止手順は、一つの具体的な実行例である。
@@ -228,15 +228,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 制約違反が残っているエントリは、確認済みにならない
 
-（出典: `specs/requirements/editor-constraints.fsl:138`）
+（出典: `specs/requirements/editor-constraints.fsl:137`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:ViolationIsNeverConfirmed#state_rule" digest="sha256:b1426b104c990888db8e4661c5a3cc340b7ea627b0915713b01bf44711b8c4f0" -->
+<!-- fsl:claim begin id="property:invariant:ViolationIsNeverConfirmed#state_rule" digest="sha256:fb27782e9f57015f02005706d17d7406f36ac362d0588f2186b24ee76fdcc0b0" -->
 #### 状態不変条件: `ViolationIsNeverConfirmed`
 
 - 識別子: `property:invariant:ViolationIsNeverConfirmed#state_rule`
-- 出典: `specs/requirements/editor-constraints.fsl:139`
+- 出典: `specs/requirements/editor-constraints.fsl:138`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -257,15 +257,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > 無制約編集は上級モードでしか有効にならない
 
-（出典: `specs/requirements/editor-constraints.fsl:143`）
+（出典: `specs/requirements/editor-constraints.fsl:142`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:UnconstrainedOnlyInAdvanced#state_rule" digest="sha256:55e0bcb82e6b0db78928a3fbffe4ad74b98a28b1522bea5a7b0848c72500226e" -->
+<!-- fsl:claim begin id="property:invariant:UnconstrainedOnlyInAdvanced#state_rule" digest="sha256:8494cb91da33c319f21f6abe7384e32c70a2d0c2684da5272227922a3ca8b119" -->
 #### 状態不変条件: `UnconstrainedOnlyInAdvanced`
 
 - 識別子: `property:invariant:UnconstrainedOnlyInAdvanced#state_rule`
-- 出典: `specs/requirements/editor-constraints.fsl:144`
+- 出典: `specs/requirements/editor-constraints.fsl:143`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -286,15 +286,15 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > ASSUME-3: 履歴は検証用に有限へ閉じる
 
-（出典: `specs/requirements/editor-constraints.fsl:148`）
+（出典: `specs/requirements/editor-constraints.fsl:147`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:invariant:HistoryBounded#state_rule" digest="sha256:2c9ca7d344628d109087056f5a4e708480c3801e5de8225c48aa94644d62313e" -->
+<!-- fsl:claim begin id="property:invariant:HistoryBounded#state_rule" digest="sha256:b3296a40dd8994edede8e489f1efb30e35d64058dc08a33f3eb73814aa211a50" -->
 #### 状態不変条件: `HistoryBounded`
 
 - 識別子: `property:invariant:HistoryBounded#state_rule`
-- 出典: `specs/requirements/editor-constraints.fsl:149`
+- 出典: `specs/requirements/editor-constraints.fsl:148`
 
 初期化後、および成功した各操作のコミット後に、次の条件が成立しなければならない。
 
@@ -319,7 +319,7 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 
 > ドラッグは新しい違反を作らない
 
-（出典: `specs/requirements/editor-constraints.fsl:153`）
+（出典: `specs/requirements/editor-constraints.fsl:152`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
@@ -344,11 +344,11 @@ claim_set_digest: sha256:dd0009d82dc5275d556f97170f9601976f465a2fd6f88e383a56677
 この操作には弱い公平性（weak fairness）を仮定する。これはスケジューリング上の仮定であり、この操作が実行可能（enabled）であり続けるならば、いつかは実行される、という意味である。直ちに実行されることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:DragNeverCreatesViolation#transition_rule" digest="sha256:035773ca5e792ba29581fa89e2e36a6ed98fa1d92af770626796f068302758e1" -->
+<!-- fsl:claim begin id="property:trans:DragNeverCreatesViolation#transition_rule" digest="sha256:519252348eb7b7d4c52c3c804c17efbb194e67f4a9014a003e607904b7c29acd" -->
 #### 遷移条件: `DragNeverCreatesViolation`
 
 - 識別子: `property:trans:DragNeverCreatesViolation#transition_rule`
-- 出典: `specs/requirements/editor-constraints.fsl:154`
+- 出典: `specs/requirements/editor-constraints.fsl:153`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -381,23 +381,23 @@ last == Drag => (forall e: Entry { violating[e] => old(violating[e]) })
 
 > 無制約編集では、違反を残したまま上級モードで編集できる
 
-（出典: `specs/requirements/editor-constraints.fsl:177`）
+（出典: `specs/requirements/editor-constraints.fsl:176`）
 
 > 無制約編集は上級モードだけが持つ
 
-（出典: `specs/requirements/editor-constraints.fsl:123`）
+（出典: `specs/requirements/editor-constraints.fsl:122`）
 
 > 直接入力で違反が残る状態が生じうる
 
-（出典: `specs/requirements/editor-constraints.fsl:172`）
+（出典: `specs/requirements/editor-constraints.fsl:171`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:enable_unconstrained#operation" digest="sha256:6c60983ae3a2e088d12ea0a3f66df1ab0cab928b5475a4363b007023fb7c3599" -->
+<!-- fsl:claim begin id="action:enable_unconstrained#operation" digest="sha256:43de9e3f8ce0e8d8b68430c4c0396ea4f3ef066f22d494cc3a31555f05b370ee" -->
 #### 操作: `enable_unconstrained`
 
 - 識別子: `action:enable_unconstrained#operation`
-- 出典: `specs/requirements/editor-constraints.fsl:124`
+- 出典: `specs/requirements/editor-constraints.fsl:123`
 - パラメータ: なし
 
 操作 `enable_unconstrained` を実行できるのは、次の条件をすべて満たす場合に限る。
@@ -456,11 +456,11 @@ last == Drag => (forall e: Entry { violating[e] => old(violating[e]) })
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:UnconstrainedKeepsViolation#reachability_goal" digest="sha256:cddbfce4eecaf5ec2cb5ef5cafd1695ee8011dffd3ee67db54259f040b602a03" -->
+<!-- fsl:claim begin id="property:reachable:UnconstrainedKeepsViolation#reachability_goal" digest="sha256:bc4c4a13f7712f6b86128eeb56b04baf92f2d3edfb7783a7b59e63e00a5a153f" -->
 #### 到達目標: `UnconstrainedKeepsViolation`
 
 - 識別子: `property:reachable:UnconstrainedKeepsViolation#reachability_goal`
-- 出典: `specs/requirements/editor-constraints.fsl:178`
+- 出典: `specs/requirements/editor-constraints.fsl:177`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -475,11 +475,11 @@ unconstrained and (exists e: Entry { violating[e] })
 - 検証状態: この規範文自体は検証結果を含まない。検証エビデンスが供給されている場合はこの要件の「保証クラス」欄に別掲され、供給されていない場合は `not_run` と明示される。到達が確認済みであることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:reachable:ViolationCanRemain#reachability_goal" digest="sha256:ef23372d8268a0d886f5f7fd6321f1c49eab7000e93a0c0a8a2d79d5f4ba9c5f" -->
+<!-- fsl:claim begin id="property:reachable:ViolationCanRemain#reachability_goal" digest="sha256:4533986d2af267ab8fd4d583e5e312a4157f96aba6040833decba163263b2525" -->
 #### 到達目標: `ViolationCanRemain`
 
 - 識別子: `property:reachable:ViolationCanRemain#reachability_goal`
-- 出典: `specs/requirements/editor-constraints.fsl:173`
+- 出典: `specs/requirements/editor-constraints.fsl:172`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 
@@ -540,7 +540,7 @@ unconstrained and (exists e: Entry { violating[e] })
 
 > 履歴を1件戻せる
 
-（出典: `specs/requirements/editor-constraints.fsl:131`）
+（出典: `specs/requirements/editor-constraints.fsl:130`）
 
 > 通常モードの確認操作も1件の操作として履歴に積む
 
@@ -571,11 +571,11 @@ unconstrained and (exists e: Entry { violating[e] })
 この操作には弱い公平性（weak fairness）を仮定する。これはスケジューリング上の仮定であり、この操作が実行可能（enabled）であり続けるならば、いつかは実行される、という意味である。直ちに実行されることを意味しない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:undo#operation" digest="sha256:f9981af708997f8c523bf92e883b0b06acb413483f4bcf215ac53f45bb20f557" -->
+<!-- fsl:claim begin id="action:undo#operation" digest="sha256:3f9f56b4b0f22f11400481fbc3f9355be391c7034ccc866210099a9ceb623af8" -->
 #### 操作: `undo`
 
 - 識別子: `action:undo#operation`
-- 出典: `specs/requirements/editor-constraints.fsl:132`
+- 出典: `specs/requirements/editor-constraints.fsl:131`
 - パラメータ: なし
 
 操作 `undo` を実行できるのは、次の条件を満たす場合に限る。
@@ -640,23 +640,23 @@ unconstrained and (exists e: Entry { violating[e] })
 
 > モードの切り替えは、エントリの状態も履歴も変えない
 
-（出典: `specs/requirements/editor-constraints.fsl:158`）
+（出典: `specs/requirements/editor-constraints.fsl:157`）
 
 > 上級モードは1操作で開ける。開いてもプロジェクトの状態は変わらない
 
-（出典: `specs/requirements/editor-constraints.fsl:107`）
+（出典: `specs/requirements/editor-constraints.fsl:106`）
 
 > 通常モードへ戻る操作も1操作
 
-（出典: `specs/requirements/editor-constraints.fsl:115`）
+（出典: `specs/requirements/editor-constraints.fsl:114`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="action:close_advanced#operation" digest="sha256:8f7d718f7ef66ffcd0c1155cd2b852bb0fe85b870b369e4bb53a286da6f2d8e5" -->
+<!-- fsl:claim begin id="action:close_advanced#operation" digest="sha256:413b85df2a8e7ad15001fb274cc86cc7a6cb2ab726d15d92254096e8ab6676bf" -->
 #### 操作: `close_advanced`
 
 - 識別子: `action:close_advanced#operation`
-- 出典: `specs/requirements/editor-constraints.fsl:116`
+- 出典: `specs/requirements/editor-constraints.fsl:115`
 - パラメータ: なし
 
 操作 `close_advanced` を実行できるのは、次の条件を満たす場合に限る。
@@ -672,11 +672,11 @@ unconstrained and (exists e: Entry { violating[e] })
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="action:open_advanced#operation" digest="sha256:3ff8a704cc38e426ab6ed87d6574bbc9b08a355eae9f7b8b9c838be29147b944" -->
+<!-- fsl:claim begin id="action:open_advanced#operation" digest="sha256:ef590b458bd2c562c78e3c5b2546a188841d52f48c42c90bb865bdeac51964fe" -->
 #### 操作: `open_advanced`
 
 - 識別子: `action:open_advanced#operation`
-- 出典: `specs/requirements/editor-constraints.fsl:108`
+- 出典: `specs/requirements/editor-constraints.fsl:107`
 - パラメータ: なし
 
 操作 `open_advanced` を実行できるのは、次の条件を満たす場合に限る。
@@ -692,11 +692,11 @@ unconstrained and (exists e: Entry { violating[e] })
 この操作に公平性の仮定はない。実行可能（enabled）であっても、実行されることは保証されない。
 <!-- fsl:claim end -->
 
-<!-- fsl:claim begin id="property:trans:ModeSwitchChangesNothing#transition_rule" digest="sha256:2de96ec382584eb0e95b2fd87dc66195e2950ec7dbbd26ccef68bf81e558eb31" -->
+<!-- fsl:claim begin id="property:trans:ModeSwitchChangesNothing#transition_rule" digest="sha256:427b2cd33363065d4e0389a1fda307fdc6c51686550e6048843cc42f89b12455" -->
 #### 遷移条件: `ModeSwitchChangesNothing`
 
 - 識別子: `property:trans:ModeSwitchChangesNothing#transition_rule`
-- 出典: `specs/requirements/editor-constraints.fsl:159`
+- 出典: `specs/requirements/editor-constraints.fsl:158`
 
 成功する各遷移について、遷移前の状態と遷移後の状態は次の関係を満たさなければならない。以下で「遷移前の `x`」は遷移前の値を指し、それ以外の読み取りは遷移後の値を指す。
 
@@ -721,15 +721,15 @@ last == OpenAdvanced or last == CloseAdvanced => history == old(history) and (fo
 
 > 上級モードを一度も開かずに、すべてを確認済みにできる
 
-（出典: `specs/requirements/editor-constraints.fsl:167`）
+（出典: `specs/requirements/editor-constraints.fsl:166`）
 
 **形式化された意味（FSLから決定論的に生成）**
 
-<!-- fsl:claim begin id="property:reachable:CompletableWithoutAdvanced#reachability_goal" digest="sha256:bd58b31316fdf8d485037ea78cf4ebaf0657b825e5c70ce02bfba6c9838a95d3" -->
+<!-- fsl:claim begin id="property:reachable:CompletableWithoutAdvanced#reachability_goal" digest="sha256:a81e37d0a7b971ef87d95f7a4dae462af3792a3defdc72a04df1ee6ed51b4516" -->
 #### 到達目標: `CompletableWithoutAdvanced`
 
 - 識別子: `property:reachable:CompletableWithoutAdvanced#reachability_goal`
-- 出典: `specs/requirements/editor-constraints.fsl:168`
+- 出典: `specs/requirements/editor-constraints.fsl:167`
 
 次の状態に到達する実行例が存在しなければならない（到達目標）。
 

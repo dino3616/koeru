@@ -54,6 +54,8 @@ note = 'Q-PLT-001・Q-EDT-001'
 id = 'TGT-EDT-009'
 item = '一括編集の実行 / プレビュー生成'
 goal = '5000エントリを1秒以内 / 200ms 以内'
+derives_from = ['SCALE-REF-001']
+note = '5000 は SCALE-REF-001 の総モーラ3,120に対して係数1.6。連続音の VCV / VC を含めた妥当な桁'
 
 [[target]]
 id = 'TGT-EDT-010'
