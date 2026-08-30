@@ -31,6 +31,7 @@ use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::ust;
+use koeru_synth::f0;
 use koeru_synth::oto::{Oto, OtoPreset, derive_cv};
 use koeru_synth::resampler::{RenderRequest, render};
 use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
@@ -41,14 +42,6 @@ use crate::error::{AppError, Result};
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
-
-/// 素材の F0 を探す下限（Hz）。**歌声の音域を広く取る。**
-///
-/// 目標音高から範囲を作ってはいけない。素材は別の音高で録られている
-/// （`koeru-synth` の resampler と同じ理由）。
-const SOURCE_F0_FLOOR_HZ: f64 = 55.0;
-/// 素材の F0 を探す上限（Hz）。
-const SOURCE_F0_CEIL_HZ: f64 = 1100.0;
 
 /// 単独音の収録音高。**A3 を既定にする**（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
@@ -190,6 +183,10 @@ pub struct Studio {
     singing: Option<Running>,
     /// 継ぎ足しながら鳴らしている再生（`TR-SYN-03`）。
     playback_stream: Option<mac::Playback>,
+    /// 集めた F0 系列。**話者音域を見るため**（`TR-SYN-22`）。
+    observed_f0: Vec<Vec<f64>>,
+    /// 話者音域から決めた探索下限。**まだ分からなければ `None`。**
+    f0_floor: Option<f64>,
 }
 
 /// 採用テイクから集めた素材。
@@ -254,6 +251,8 @@ impl Studio {
             song_cache: Arc::new(Mutex::new(PhraseCache::new())),
             singing: None,
             playback_stream: None,
+            observed_f0: Vec::new(),
+            f0_floor: None,
         })
     }
 
@@ -982,17 +981,34 @@ impl Studio {
         let f64s: Vec<f64> = finished.samples.iter().map(|s| f64::from(*s)).collect();
         // **試唱のために走らせる解析を、そのまま .frq へ回す**（TR-PKG-05）。
         // 書き出しのために推定し直さない。
-        const F0_PERIOD_MS: f64 = 5.0;
-        let (source_f0, _t) = koeru_synth::world::estimate_f0(
-            &f64s,
+        //
+        // **二段構え**（TR-SYN-22）。最初の数テイクは DIO+StoneMask で即座に確定し、
+        // 話者音域が判明したら Harvest で引き直す。
+        // `.frq` が要求するのは F0 と平均振幅だけなので、初期テイクの試唱には
+        // DIO の精度で足りる。**待たせないことのほうが効く。**
+        let purpose = if self.observed_f0.len() >= f0::RANGE_SAMPLE_TAKES {
+            f0::Purpose::Distribution
+        } else {
+            f0::Purpose::Preview
+        };
+        let cond = f0::conditions(purpose, self.f0_floor);
+        let (source_f0, _t) = f0::estimate(&f64s, rate, &cond);
+
+        // 音域を溜めて、集まったら下限を引き上げる。
+        self.observed_f0.push(source_f0.clone());
+        if self.f0_floor.is_none()
+            && let Some(floor) = f0::tighten_floor(&self.observed_f0)
+        {
+            tracing::info!(floor_hz = floor, "話者音域から探索の下限を上げた");
+            self.f0_floor = Some(floor);
+        }
+
+        let analysis = TakeAnalysis::compute(
+            &finished.samples,
             rate,
-            koeru_synth::world::F0Method::Harvest,
-            SOURCE_F0_FLOOR_HZ,
-            SOURCE_F0_CEIL_HZ,
-            F0_PERIOD_MS,
+            &source_f0,
+            cond.frame_period_ms / 1000.0,
         );
-        let analysis =
-            TakeAnalysis::compute(&finished.samples, rate, &source_f0, F0_PERIOD_MS / 1000.0);
         self.opened_mut()?.ledger.put_analysis(take_id, &analysis)?;
         analysis.frq.write(&frq::frq_path(&finished.path)?)?;
 

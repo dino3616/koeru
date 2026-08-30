@@ -85,6 +85,33 @@ const SOURCE_F0_FLOOR_HZ: f64 = 55.0;
 /// 素材の F0 を探す上限（Hz）。
 const SOURCE_F0_CEIL_HZ: f64 = 1100.0;
 
+/// 試唱で固定する音色フラグ（`TR-SYN-09`）。
+///
+/// **UI に出さない。** 試唱は「自分の声が歌になる」を確かめる場であって、
+/// 音を作り込む場ではない。ここを触れるようにすると、
+/// **本人の声そのものではないものを聴いて判断することになる。**
+///
+/// **試唱の設定値を oto や配布パッケージへ書き込むこともしない**（`TR-SYN-09`）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PreviewFlags {
+    /// 子音速度。100 が等倍。
+    pub consonant_velocity: f64,
+    /// 音量（%）。
+    pub volume: f64,
+    /// モジュレーション（%）。**0 は目標 F0 へ完全に倒す。**
+    pub modulation: f64,
+}
+
+impl Default for PreviewFlags {
+    fn default() -> Self {
+        Self {
+            consonant_velocity: 100.0,
+            volume: 100.0,
+            modulation: 0.0,
+        }
+    }
+}
+
 /// MIDI ノート番号を Hz にする。A4（69）= 440 Hz。
 #[must_use]
 pub fn midi_to_hz(note: i32) -> f64 {
@@ -366,6 +393,20 @@ mod tests {
             "G4 の近くで鳴る: {hi_hz:.1} Hz"
         );
         assert!(hi_hz > lo_hz * 1.8, "1オクターブぶん離れていること");
+    }
+
+    /// **試唱のフラグは既定に固定する**（TR-SYN-09）。
+    ///
+    /// ここが動くと、聴いているのが本人の声そのものではなくなる。
+    #[test]
+    fn 試唱のフラグは既定に固定される() {
+        let f = PreviewFlags::default();
+        assert!((f.consonant_velocity - 100.0).abs() < f64::EPSILON, "等倍");
+        assert!((f.volume - 100.0).abs() < f64::EPSILON, "等倍");
+        assert!(
+            (f.modulation - 0.0).abs() < f64::EPSILON,
+            "目標音高へ完全に倒す"
+        );
     }
 
     /// **required_length のとおりの長さが返る。**

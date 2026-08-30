@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use crate::oto::Oto;
-use crate::resampler::{RenderError, RenderRequest, render};
+use crate::resampler::{PreviewFlags, RenderError, RenderRequest, render};
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
 ///
@@ -144,6 +144,7 @@ pub fn render_phrase(
         return Ok(Vec::new());
     }
     let per_ms = f64::from(rate_hz) / 1000.0;
+    let flags = PreviewFlags::default();
     let mut out: Vec<f64> = Vec::new();
 
     for note in &phrase.notes {
@@ -156,9 +157,10 @@ pub fn render_phrase(
             tone: note.midi,
             oto: note.oto,
             required_length_ms: note.duration_ms,
-            consonant_velocity: 100.0,
-            volume: 100.0,
-            modulation: 0.0,
+            // **試唱のフラグは既定に固定し、UI に出さない**（TR-SYN-09）。
+            consonant_velocity: flags.consonant_velocity,
+            volume: flags.volume,
+            modulation: flags.modulation,
             tempo: 120.0,
             pitch_bend_cents: &[],
             frequency_table: &table,

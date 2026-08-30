@@ -104,6 +104,13 @@ pub struct WavSamples {
     pub tables: HashMap<String, Vec<f64>>,
 }
 
+/// 合成へ渡す素材のサンプルレート（`TR-SYN-31`）。
+///
+/// **この条件を満たさない WAV を、試唱のために変換して通さない。**
+/// 録音側の設定不備として扱う。ここで黙って変換すると、
+/// 「なぜか音が変」の原因が試唱側に隠れる。
+pub const REQUIRED_RATE_HZ: u32 = 44_100;
+
 impl Samples for WavSamples {
     fn load(&self, note: &NoteSpec) -> Result<(Vec<f64>, u32), RenderError> {
         let path = self
@@ -111,6 +118,15 @@ impl Samples for WavSamples {
             .get(&note.alias)
             .ok_or(RenderError::RegionOutOfRange)?;
         let w = koeru_audio::wav::read(path).map_err(|_| RenderError::RegionOutOfRange)?;
+        // **変換して通さない**（TR-SYN-31）。
+        if w.rate_hz != REQUIRED_RATE_HZ {
+            tracing::warn!(
+                got = w.rate_hz,
+                want = REQUIRED_RATE_HZ,
+                "素材のサンプルレートが合わない。録音側の設定不備として扱う"
+            );
+            return Err(RenderError::RegionOutOfRange);
+        }
         Ok((w.samples.iter().map(|s| f64::from(*s)).collect(), w.rate_hz))
     }
 
