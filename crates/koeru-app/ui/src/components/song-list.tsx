@@ -102,8 +102,13 @@ export const SongList = ({ revision }: SongListProps) => {
                   いま歌えます（あと {s.missing_units} 項目で本来の音に）
                 </span>
               ) : (
+                /*
+                  **エイリアス名の一覧ではなく、この形で出す**（TR-SYN-20）。
+                  行数と所要時間も添える（TR-RCL-17）。
+                */
                 <span className="font-mono text-sm text-text-dim tabular-nums">
-                  あと {s.missing_units} 項目
+                  あと {s.missing_units} 項目（{s.missing_rows} 行・約{" "}
+                  {Math.max(1, Math.round(s.seconds / 60))} 分）
                 </span>
               )}
 

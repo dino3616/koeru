@@ -399,11 +399,15 @@ impl Studio {
             .into_iter()
             .map(|(_, s)| s)
             .collect();
+        // **あと何行かは、フルリストの部分集合として数える**（TR-RCL-16）。
+        // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
+        let full_list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
         Ok(song::status_of(
             &songs,
             koeru_core::alias::Method::Single,
             &covered,
             UnitSet::Core,
+            &full_list,
         ))
     }
 

@@ -278,6 +278,10 @@ pub struct SongView {
     ///
     /// **エイリアス名の一覧は返さない。** 出すのはこの数。
     pub missing_units: usize,
+    /// **あと何行録れば完全になるか**（`TR-RCL-16`, `TR-RCL-17`）。
+    pub missing_rows: usize,
+    /// その行を録るのに掛かる推定時間（秒、`TR-RCL-09`）。
+    pub seconds: f64,
     /// 総モーラ数。
     pub total_moras: usize,
 }
@@ -450,6 +454,8 @@ pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
             covered: s.covered,
             required: s.required,
             missing_units: s.missing_units,
+            missing_rows: s.missing_rows,
+            seconds: s.seconds,
             total_moras: s.total_moras,
         })
         .collect())

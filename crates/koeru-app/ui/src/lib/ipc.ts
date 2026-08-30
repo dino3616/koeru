@@ -53,6 +53,10 @@ export type SongView = {
   required: number;
   /** あと何項目録れば完全になるか。**エイリアス名の一覧は返らない。** */
   missing_units: number;
+  /** あと何行録れば完全になるか（TR-RCL-16、TR-RCL-17）。 */
+  missing_rows: number;
+  /** その行を録るのに掛かる推定時間（秒）。 */
+  seconds: number;
   total_moras: number;
 };
 

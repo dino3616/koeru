@@ -311,9 +311,17 @@ fn 録るほど歌える曲に近づく() {
     let before = studio.song_status().expect("引ける");
     assert_eq!(before.len(), 1, "曲バンクを持たない。同梱は最小限");
     println!(
-        "{}: あと {} 項目（必要 {} / 収録 {}）",
-        before[0].title, before[0].missing_units, before[0].required, before[0].covered
+        "{}: あと {} 項目 = {} 行（約 {:.0} 分）／必要 {} / 収録 {}",
+        before[0].title,
+        before[0].missing_units,
+        before[0].missing_rows,
+        before[0].seconds / 60.0,
+        before[0].required,
+        before[0].covered
     );
+    // **あと何行かも出る**（TR-RCL-16, TR-RCL-17）。
+    assert!(before[0].missing_rows > 0, "行数でも数えること");
+    assert!(before[0].seconds > 0.0, "所要時間も出すこと");
     assert!(before[0].missing_units > 0, "まだ何も録っていない");
     assert!(!before[0].singability.is_singable());
 

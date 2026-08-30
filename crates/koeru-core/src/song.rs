@@ -113,7 +113,7 @@ impl Singability {
 }
 
 /// 曲ごとの状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SongStatus {
     /// 曲名。
     pub title: String,
@@ -127,6 +127,12 @@ pub struct SongStatus {
     ///
     /// エイリアス名の一覧ではなく、この数で出す。
     pub missing_units: usize,
+    /// **あと何行録れば完全になるか**（`TR-RCL-16`, `TR-RCL-17`）。
+    ///
+    /// フルリストの行の部分集合として数える。**詰め直さない。**
+    pub missing_rows: usize,
+    /// その行を録るのに掛かる推定時間（秒、`TR-RCL-09`）。
+    pub seconds: f64,
     /// 総モーラ数。**同数のときの並べ替えに使う**（`TR-RCL-17`）。
     pub total_moras: usize,
 }
@@ -141,6 +147,7 @@ pub fn status_of(
     method: Method,
     recorded: &BTreeSet<String>,
     set: UnitSet,
+    full_list: &[crate::reclist::Row],
 ) -> Vec<SongStatus> {
     let mut out: Vec<SongStatus> = songs
         .iter()
@@ -165,12 +172,18 @@ pub fn status_of(
                 }
             };
 
+            // **あと何行か**を、フルリストの部分集合として数える（TR-RCL-16）。
+            let still: BTreeSet<String> = required.difference(recorded).cloned().collect();
+            let plan = crate::plan::rows_to_cover(&still, full_list);
+
             SongStatus {
                 title: song.title.clone(),
                 singability,
                 covered,
                 required: required.len(),
                 missing_units: missing,
+                missing_rows: plan.rows.len(),
+                seconds: plan.seconds,
                 total_moras: song.total_moras(set),
             }
         })
@@ -228,6 +241,10 @@ mod tests {
         xs.iter().map(|s| (*s).to_owned()).collect()
     }
 
+    fn full_list() -> Vec<crate::reclist::Row> {
+        crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる")
+    }
+
     #[test]
     fn 音域と総モーラ数を出す() {
         let s = song("test", &["さ", "く", "ら"]);
@@ -255,6 +272,7 @@ mod tests {
             Method::Single,
             &have(&["さ", "く", "ら"]),
             UnitSet::Core,
+            &full_list(),
         );
         assert_eq!(got[0].singability, Singability::Complete);
         assert_eq!(got[0].missing_units, 0);
@@ -270,6 +288,7 @@ mod tests {
             Method::Single,
             &have(&["さ", "ら"]),
             UnitSet::Core,
+            &full_list(),
         );
         assert_eq!(got[0].singability, Singability::Unavailable);
         assert_eq!(got[0].missing_units, 1);
@@ -287,6 +306,7 @@ mod tests {
             Method::Sequential,
             &have(&["さ", "く", "ら"]),
             UnitSet::Core,
+            &full_list(),
         );
         assert_eq!(got[0].singability, Singability::WithFallback);
         assert!(got[0].missing_units > 0, "必要集合は満たしていない");
@@ -305,6 +325,7 @@ mod tests {
             Method::Single,
             &have(&["さ", "く"]),
             UnitSet::Core,
+            &full_list(),
         );
         assert_eq!(got[0].title, "近い", "0項目で歌える");
         assert_eq!(got[1].title, "短い", "1項目。同数なら短い順");
@@ -320,10 +341,14 @@ mod tests {
             Method::Single,
             &BTreeSet::new(),
             UnitSet::Core,
+            &full_list(),
         );
         assert_eq!(got[0].missing_units, 3);
         assert_eq!(got[0].covered, 0);
         assert_eq!(got[0].required, 3);
+        // **行数でも出せる**（TR-RCL-16, TR-RCL-17）。
+        assert!(got[0].missing_rows > 0, "あと何行かも数えること");
+        assert!(got[0].seconds > 0.0, "所要時間も出すこと");
     }
 
     /// **読めない歌詞の曲は必要集合が空になる。** 一部だけ読めた形で先へ進めない。
