@@ -38,6 +38,22 @@ export type ProgressView = {
   required: number;
   coverage: "Incomplete" | "AwaitingOto" | "Complete";
   handoff: "NotExported" | "Exported";
+  /** いま歌える曲の数（TR-RCL-19）。カバレッジと常に両方出す。 */
+  singable_songs: number;
+  /** バンクに入っている曲の数。0 でも成立する。 */
+  songs_in_bank: number;
+};
+
+/** 曲の状態（TR-RCL-17、TR-RCL-19、TR-SYN-20）。 */
+export type SongView = {
+  title: string;
+  singability: "Complete" | "WithFallback" | "Unavailable";
+  singable: boolean;
+  covered: number;
+  required: number;
+  /** あと何項目録れば完全になるか。**エイリアス名の一覧は返らない。** */
+  missing_units: number;
+  total_moras: number;
 };
 
 export type TakeView = {
@@ -114,4 +130,7 @@ export const api = {
   outputKind: () => invoke<"headphones" | "speakers" | "unknown">("output_kind"),
   checkGuideLeak: (midi: number) => invoke<LeakView>("check_guide_leak", { midi }),
   playPitch: (midi: number) => invoke<void>("play_pitch", { midi }),
+  songStatus: () => invoke<SongView[]>("song_status"),
+  importUst: (bytes: number[], title: string) => invoke<string>("import_ust", { bytes, title }),
+  setSongInBank: (id: string, inBank: boolean) => invoke<void>("set_song_in_bank", { id, inBank }),
 };

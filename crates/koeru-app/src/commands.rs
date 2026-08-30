@@ -78,6 +78,10 @@ pub struct ProgressView {
     pub coverage: String,
     /// 手渡し状態。**完成判定はこれを見ない**（`TR-PKG-33`）。
     pub handoff: String,
+    /// **いま歌える曲の数**（`TR-RCL-19`）。カバレッジと常に両方出す。
+    pub singable_songs: usize,
+    /// バンクに入っている曲の数。**0 でも成立する。**
+    pub songs_in_bank: usize,
 }
 
 impl From<Progress> for ProgressView {
@@ -90,6 +94,8 @@ impl From<Progress> for ProgressView {
             required: p.required,
             coverage: format!("{:?}", p.coverage),
             handoff: format!("{:?}", p.handoff),
+            singable_songs: p.singable_songs,
+            songs_in_bank: p.songs_in_bank,
         }
     }
 }
@@ -253,6 +259,57 @@ pub struct CalibrationView {
     pub peak_dbfs: Option<f64>,
     /// 目標範囲（-12〜-6 dBFS）に入ったか。**入らなくても収録には進める。**
     pub settled: bool,
+}
+
+/// 画面へ返す曲の状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SongView {
+    /// 曲名。
+    pub title: String,
+    /// `Complete` / `WithFallback` / `Unavailable`（`TR-RCL-19`）。
+    pub singability: String,
+    /// 「歌える」に含めてよいか。
+    pub singable: bool,
+    /// 必要単位のうち収録済みの数。
+    pub covered: usize,
+    /// 必要単位の数。
+    pub required: usize,
+    /// **あと何項目録れば完全になるか**（`TR-SYN-20`）。
+    ///
+    /// **エイリアス名の一覧は返さない。** 出すのはこの数。
+    pub missing_units: usize,
+    /// 総モーラ数。
+    pub total_moras: usize,
+}
+
+/// 曲ごとの状態を、手が届く順に返す（`TR-RCL-17`）。
+#[tauri::command]
+pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
+    Ok(lock(&state)?
+        .song_status()?
+        .into_iter()
+        .map(|s| SongView {
+            title: s.title,
+            singability: format!("{:?}", s.singability),
+            singable: s.singability.is_singable(),
+            covered: s.covered,
+            required: s.required,
+            missing_units: s.missing_units,
+            total_moras: s.total_moras,
+        })
+        .collect())
+}
+
+/// UST を取り込む（`TR-RCL-12`）。**主経路はこれ。**
+#[tauri::command]
+pub fn import_ust(state: State<'_, AppState>, bytes: Vec<u8>, title: String) -> Result<String> {
+    lock(&state)?.import_ust(&bytes, &title)
+}
+
+/// 曲をバンクから外す／戻す（`TR-RCL-12`）。**曲そのものは消さない。**
+#[tauri::command]
+pub fn set_song_in_bank(state: State<'_, AppState>, id: String, in_bank: bool) -> Result<()> {
+    lock(&state)?.set_song_in_bank(&id, in_bank)
 }
 
 /// 次のフレーズへ進むまでの長さ（ミリ秒、`TR-REC-20`）。

@@ -299,3 +299,74 @@ fn プロジェクトを作ると録音リストが入る() {
     let _ = mac::enumerate_input_devices();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// **「あと何項目で歌えるか」が録るたびに動く**（`TR-RCL-17`, `TR-RCL-19`）。
+///
+/// 音声デバイスを要らない。台帳の上だけで確かめる。
+/// **`test-hooks` が要る。** 収録を通さずに台帳を進める入口は、既定では出さない。
+#[cfg(feature = "test-hooks")]
+#[test]
+fn 録るほど歌える曲に近づく() {
+    use koeru_core::inventory::UnitSet;
+    use koeru_core::reclist::generate_single;
+
+    let root = std::env::temp_dir().join(format!("koeru-songs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+
+    let mut studio = Studio::open(root.clone()).expect("開ける");
+    let id = studio.create_project("曲の進み方").expect("作れる");
+    studio.open_project(id).expect("開ける");
+
+    // **同梱曲が初期メンバとして入っている**（TR-RCL-12）。
+    let before = studio.song_status().expect("引ける");
+    assert_eq!(before.len(), 1, "曲バンクを持たない。同梱は最小限");
+    println!(
+        "{}: あと {} 項目（必要 {} / 収録 {}）",
+        before[0].title, before[0].missing_units, before[0].required, before[0].covered
+    );
+    assert!(before[0].missing_units > 0, "まだ何も録っていない");
+    assert!(!before[0].singability.is_singable());
+
+    let p = studio.progress().expect("引ける");
+    assert_eq!(p.songs_in_bank, 1);
+    assert_eq!(p.singable_songs, 0);
+
+    // 曲に要る単位を含む行を、台帳の上だけで埋めていく。
+    let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+    let need = &before[0];
+    println!(
+        "必要な単位を含む行を順に埋める（必要 {} 単位）",
+        need.required
+    );
+
+    let mut filled = 0;
+    let mut last = before[0].missing_units;
+    for row in &list {
+        studio
+            .mark_recorded_for_test(&row.id)
+            .expect("印を付けられる");
+        filled += 1;
+        let now = studio.song_status().expect("引ける");
+        assert!(
+            now[0].missing_units <= last,
+            "録るほど減ること: {} → {}",
+            last,
+            now[0].missing_units
+        );
+        last = now[0].missing_units;
+        if last == 0 {
+            break;
+        }
+    }
+
+    let after = studio.song_status().expect("引ける");
+    println!("{} 行で「{}」が歌えるようになった", filled, after[0].title);
+    assert_eq!(after[0].missing_units, 0);
+    assert_eq!(
+        after[0].singability,
+        koeru_core::song::Singability::Complete
+    );
+    assert_eq!(studio.progress().expect("引ける").singable_songs, 1);
+
+    let _ = std::fs::remove_dir_all(&root);
+}

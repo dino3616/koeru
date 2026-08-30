@@ -140,6 +140,32 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// 課題曲（`TR-RCL-12`）。**曲バンクを持たない。**
+    songs (id) {
+        id -> Text,
+        title -> Text,
+        source -> Text,
+        license -> Text,
+        bundled -> Integer,
+        in_bank -> Integer,
+        added_at -> Text,
+    }
+}
+
+diesel::table! {
+    /// 曲のノート（`TR-RCL-12` (a)(b)）。
+    song_notes (song_id, ordinal) {
+        song_id -> Text,
+        ordinal -> Integer,
+        lyric -> Text,
+        midi -> Integer,
+        ticks -> Integer,
+    }
+}
+
+diesel::joinable!(song_notes -> songs (song_id));
+
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
@@ -160,4 +186,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     take_metrics,
     releases,
     calibrations,
+    songs,
+    song_notes,
 );

@@ -2,6 +2,7 @@
 //!
 //! 型を足すときは `rust-conventions` skill に従うこと。
 
+pub mod alias;
 pub mod analysis;
 pub mod calibration;
 pub mod db;
@@ -10,8 +11,11 @@ pub mod guide;
 pub mod handoff;
 pub mod inventory;
 pub mod leak;
+pub mod mora;
 pub mod project;
 pub mod reclist;
 pub mod release;
 pub mod schema;
+pub mod song;
 pub mod text;
+pub mod ust;

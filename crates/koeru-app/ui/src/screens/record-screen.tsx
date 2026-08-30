@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CalibrationCard } from "~/components/calibration-card";
 import { LeakCard } from "~/components/leak-card";
+import { SongList } from "~/components/song-list";
 import { LevelMeter } from "~/components/level-meter";
 import { Button } from "~/components/ui/button";
 import { Card, CardTitle } from "~/components/ui/card";
@@ -216,8 +217,25 @@ export const RecordScreen = () => {
         <div>
           <h1 className="text-xl font-semibold">収録</h1>
           {/* **分母に書き出し・公開・作者を含めない**（TR-PKG-35）。 */}
+          {/*
+            **カバレッジと「いま歌える曲の数」を常時両方出す。どちらかを隠さない**
+            （TR-RCL-19）。カバレッジは単位の被覆率で、行の消化率ではない——
+            行数は本人の作業量、単位の被覆は音源の到達度で、意味が違う。
+          */}
           <p className="mt-1 font-mono text-sm text-text-dim tabular-nums">
-            {loaded ? `${progress.covered} / ${progress.required} 音（${pct}%）` : "読み込み中"}
+            {loaded ? (
+              <>
+                {progress.covered} / {progress.required} 音（{pct}%）
+                {progress.songs_in_bank > 0 && (
+                  <>
+                    {" · "}
+                    {progress.singable_songs} / {progress.songs_in_bank} 曲が歌える
+                  </>
+                )}
+              </>
+            ) : (
+              "読み込み中"
+            )}
           </p>
         </div>
         <Button variant="ghost" onClick={() => navigate({ to: "/" })}>
@@ -428,6 +446,8 @@ export const RecordScreen = () => {
           </div>
         </Card>
       )}
+
+      <SongList revision={progress?.covered ?? 0} />
 
       {error !== null && (
         <p role="alert" className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text">

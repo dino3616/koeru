@@ -15,6 +15,11 @@ description = "KOERU のアプリケーション層。Tauri のコマンドと�
 name = "koeru_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# **統合テストから、音声デバイス無しで台帳を進めるための入口。**
+# 既定では入らない。
+test-hooks = []
+
 [lints]
 workspace = true
 

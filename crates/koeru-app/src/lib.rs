@@ -61,6 +61,9 @@ pub fn run() {
             commands::output_kind,
             commands::check_guide_leak,
             commands::play_pitch,
+            commands::song_status,
+            commands::import_ust,
+            commands::set_song_in_bank,
             commands::stop_preview,
         ])
         .run(tauri::generate_context!())

@@ -26,9 +26,10 @@ use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, calibrations, oto_values, releases, row_units, rows, sessions, take_analysis,
-    take_metrics, takes,
+    adopted_takes, calibrations, oto_values, releases, row_units, rows, sessions, song_notes,
+    songs, take_analysis, take_metrics, takes,
 };
+use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
@@ -821,6 +822,98 @@ impl Ledger {
             settled: settled != 0,
             device_id: device_id.to_owned(),
         }))
+    }
+
+    /// 課題曲を入れる（`TR-RCL-12`）。
+    ///
+    /// **同じ id なら差し替える。** 同梱曲を毎回入れ直せるようにしておく。
+    #[tracing::instrument(skip(self, song), fields(id, notes = song.notes.len()), err)]
+    pub fn put_song(&mut self, id: &str, song: &Song, bundled: bool, added_at: &str) -> Result<()> {
+        self.conn
+            .transaction::<_, diesel::result::Error, _>(|conn| {
+                let values = (
+                    songs::title.eq(&song.title),
+                    songs::source.eq(&song.provenance.source),
+                    songs::license.eq(&song.provenance.license),
+                    songs::bundled.eq(i32::from(bundled)),
+                    songs::in_bank.eq(1),
+                    songs::added_at.eq(added_at),
+                );
+                diesel::insert_into(songs::table)
+                    .values((songs::id.eq(id), values))
+                    .on_conflict(songs::id)
+                    .do_update()
+                    .set(values)
+                    .execute(conn)?;
+
+                diesel::delete(song_notes::table.filter(song_notes::song_id.eq(id)))
+                    .execute(conn)?;
+                for (i, n) in song.notes.iter().enumerate() {
+                    diesel::insert_into(song_notes::table)
+                        .values((
+                            song_notes::song_id.eq(id),
+                            song_notes::ordinal.eq(i32::try_from(i).unwrap_or(i32::MAX)),
+                            song_notes::lyric.eq(&n.lyric),
+                            song_notes::midi.eq(n.midi),
+                            song_notes::ticks.eq(i32::try_from(n.ticks).unwrap_or(i32::MAX)),
+                        ))
+                        .execute(conn)?;
+                }
+                Ok(())
+            })
+            .map_err(db("put_song"))?;
+        Ok(())
+    }
+
+    /// 曲バンクの中身（`TR-RCL-12`）。
+    ///
+    /// **バンクが空でも成立する。** そのとき進捗はカバレッジだけで読む。
+    #[tracing::instrument(skip(self), err)]
+    pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
+        let heads = songs::table
+            .filter(songs::in_bank.eq(1))
+            .order(songs::added_at.asc())
+            .select((songs::id, songs::title, songs::source, songs::license))
+            .load::<(String, String, String, String)>(&mut self.conn)
+            .map_err(db("songs_in_bank"))?;
+
+        let mut out = Vec::with_capacity(heads.len());
+        for (id, title, source, license) in heads {
+            let notes = song_notes::table
+                .filter(song_notes::song_id.eq(&id))
+                .order(song_notes::ordinal.asc())
+                .select((song_notes::lyric, song_notes::midi, song_notes::ticks))
+                .load::<(String, i32, i32)>(&mut self.conn)
+                .map_err(db("songs_in_bank"))?;
+            out.push((
+                id,
+                Song {
+                    title,
+                    notes: notes
+                        .into_iter()
+                        .map(|(lyric, midi, ticks)| Note {
+                            lyric,
+                            midi,
+                            ticks: u32::try_from(ticks).unwrap_or(0),
+                        })
+                        .collect(),
+                    provenance: Provenance { source, license },
+                },
+            ));
+        }
+        Ok(out)
+    }
+
+    /// 曲をバンクから外す／戻す（`TR-RCL-12`）。
+    ///
+    /// **曲そのものは消さない。** 同梱分も本人が外せる。
+    #[tracing::instrument(skip(self), err)]
+    pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
+        diesel::update(songs::table.filter(songs::id.eq(id)))
+            .set(songs::in_bank.eq(i32::from(in_bank)))
+            .execute(&mut self.conn)
+            .map_err(db("set_song_in_bank"))?;
+        Ok(())
     }
 
     /// テイクを1件引く。**無ければ `None`。**

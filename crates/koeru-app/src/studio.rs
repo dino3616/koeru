@@ -26,6 +26,8 @@ use koeru_core::inventory::UnitSet;
 use koeru_core::leak::{self, LeakCheck};
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
+use koeru_core::song::{self, Song, SongStatus};
+use koeru_core::ust;
 use koeru_synth::oto::{Oto, OtoPreset, derive_cv};
 use koeru_synth::resampler::{RenderRequest, render};
 use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
@@ -122,6 +124,10 @@ pub struct Progress {
     pub coverage: CoverageState,
     /// 手渡し状態。**完成判定はこれを見ない**（`TR-PKG-33`）。
     pub handoff: HandoffState,
+    /// **いま歌える曲の数**（`TR-RCL-19`）。カバレッジと常に両方出す。
+    pub singable_songs: usize,
+    /// バンクに入っている曲の数。**0 でも成立する。**
+    pub songs_in_bank: usize,
 }
 
 /// 縦切りの本体。
@@ -192,6 +198,13 @@ impl Studio {
         })?;
         let mut ledger = Ledger::open(dir.db_path())?;
         ledger.install_reclist(&list, DEFAULT_TONE_MIDI)?;
+
+        // **初回のとっかかりに要る最小限だけ入れる**（TR-RCL-12）。
+        // 曲バンクではない。本人が外せる。
+        let at = now_rfc3339();
+        for (i, song) in ust::bundled_songs().iter().enumerate() {
+            ledger.put_song(&format!("bundled-{i}"), song, true, &at)?;
+        }
         Ok(dir.id())
     }
 
@@ -230,13 +243,60 @@ impl Studio {
         // **oto の検証はまだ通していない。** 全部録れても AwaitingOto で止まる。
         let coverage = koeru_core::project::coverage_state(&required, &covered, false, &name);
 
+        // **いま歌える曲の数**（TR-RCL-19）。曲が1本も無くても進捗は読める。
+        let status = self.song_status()?;
+
         Ok(Progress {
             next_row,
             covered: covered.len(),
             required: required.len(),
             coverage,
             handoff,
+            singable_songs: song::singable_count(&status),
+            songs_in_bank: status.len(),
         })
+    }
+
+    /// 曲ごとの状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
+    ///
+    /// **収録済み単位が増えるたびに再計算する**（`TR-RCL-17`）。
+    /// 手が届く順に並ぶ（追加項目が少ない順、同数なら短い順）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn song_status(&mut self) -> Result<Vec<SongStatus>> {
+        let open = self.opened_mut()?;
+        let covered = open.ledger.covered_units()?;
+        let songs: Vec<Song> = open
+            .ledger
+            .songs_in_bank()?
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect();
+        Ok(song::status_of(
+            &songs,
+            koeru_core::alias::Method::Single,
+            &covered,
+            UnitSet::Core,
+        ))
+    }
+
+    /// UST を取り込む（`TR-RCL-12`）。
+    ///
+    /// **主経路はこれ。** 曲バンクを持たないので、何を目標にするかは本人が決める。
+    /// **取り込んだ曲データは配布パッケージに含めない。**
+    #[tracing::instrument(skip(self, bytes), fields(len = bytes.len(), title), err)]
+    pub fn import_ust(&mut self, bytes: &[u8], title: &str) -> Result<String> {
+        let song = ust::parse_ust(bytes, title).map_err(|e| AppError::new(e.kind(), e))?;
+        let id = Uuid::new_v4().to_string();
+        let at = now_rfc3339();
+        self.opened_mut()?.ledger.put_song(&id, &song, false, &at)?;
+        Ok(id)
+    }
+
+    /// 曲をバンクから外す／戻す（`TR-RCL-12`）。**曲そのものは消さない。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
+        self.opened_mut()?.ledger.set_song_in_bank(id, in_bank)?;
+        Ok(())
     }
 
     /// 入力デバイスを挙げる。
@@ -934,6 +994,38 @@ impl Studio {
     /// 鳴らしている音を止める。
     pub fn stop_preview(&mut self) {
         self.playback = None;
+    }
+
+    /// **テスト用。** 音声デバイス無しで、行を収録済みとして印を付ける。
+    ///
+    /// 実際の収録は `start_take` → `finish_take` を通る。ここはカバレッジの
+    /// 計算だけを確かめたいときの入口。
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[tracing::instrument(skip(self), err)]
+    pub fn mark_recorded_for_test(&mut self, row_id: &str) -> Result<()> {
+        let session_id = {
+            let open = self.opened_mut()?;
+            if open.session_id == 0 {
+                open.session_id = open.ledger.start_session(&SessionSnapshot {
+                    started_at: now_rfc3339(),
+                    device_id: "test".to_owned(),
+                    sample_rate_hz: 44_100,
+                    channels: 1,
+                    effects_state: "clean".to_owned(),
+                    route: "test".to_owned(),
+                })?;
+            }
+            open.session_id
+        };
+        let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
+            row_id: row_id.to_owned(),
+            session_id,
+            rel_path: format!("audio/{row_id}_1.wav"),
+            frames: 44_100,
+            recorded_at: now_rfc3339(),
+        })?;
+        self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+        Ok(())
     }
 
     /// 開いているプロジェクトのディレクトリ。
