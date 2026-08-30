@@ -33,6 +33,11 @@ const config = defineConfig({
             outputPath: "/index.html",
           },
         },
+        // **画面ごとに殻を出しておく。**
+        // Tauri はファイルをそのまま配るので、URL に対応する html が無いと
+        // 再読み込みで 404 になる。**普段は画面遷移がクライアント側で完結するので
+        // 表に出ないが、Cmd+R 一発で見える。**
+        pages: [{ path: "/" }, { path: "/record" }],
       }),
       viteReact(),
     ]) ?? [],

@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Waveform } from "~/components/waveform";
+import { cn } from "~/lib/cn";
 import { api, type DeviceView, errorMessage, type ProgressView, type TakeView } from "~/lib/ipc";
 
 /** 試唱の音高（MIDI）。C4 = 60。 */
@@ -51,6 +52,7 @@ export const RecordScreen = () => {
   const fail = useCallback((e: unknown) => setError(errorMessage(e)), []);
 
   useEffect(() => {
+    if (id === undefined) return;
     api.openProject(id).then(setProgress).catch(fail);
     api.listDevices().then(setDevices).catch(fail);
   }, [id, fail]);
@@ -120,10 +122,27 @@ export const RecordScreen = () => {
     api.preview(take.take_id, midi, PREVIEW_LENGTH_MS).catch(fail);
   };
 
-  const covered = progress?.covered ?? 0;
-  const required = progress?.required ?? 0;
-  const pct = required === 0 ? 0 : Math.round((covered / required) * 100);
+  // **識別子が無いまま開かれることがある**（殻だけを先に出したときや、
+  // 履歴から直接来たとき）。落とさず、戻る道を出す。
+  if (id === undefined) {
+    return (
+      <main className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-4 p-8">
+        <p className="text-text-dim">音源が選ばれていません。</p>
+        <Button variant="primary" onClick={() => navigate({ to: "/" })}>
+          一覧へ戻る
+        </Button>
+      </main>
+    );
+  }
+
   const ready = deviceId !== undefined;
+
+  // **まだ読めていないことと、全部録れたことを混ぜない。**
+  // 混ぜると、開いた直後に「全部録れました」と出る。
+  const loaded = progress !== null;
+  const allDone = loaded && progress.next_row_id === null;
+  const pct =
+    loaded && progress.required > 0 ? Math.round((progress.covered / progress.required) * 100) : 0;
 
   return (
     <main className="mx-auto flex h-full max-w-4xl flex-col gap-5 overflow-y-auto p-8">
@@ -132,7 +151,7 @@ export const RecordScreen = () => {
           <h1 className="text-xl font-semibold">収録</h1>
           {/* **分母に書き出し・公開・作者を含めない**（TR-PKG-35）。 */}
           <p className="mt-1 font-mono text-sm text-text-dim tabular-nums">
-            {covered} / {required} 音（{pct}%）
+            {loaded ? `${progress.covered} / ${progress.required} 音（${pct}%）` : "読み込み中"}
           </p>
         </div>
         <Button variant="ghost" onClick={() => navigate({ to: "/" })}>
@@ -178,9 +197,18 @@ export const RecordScreen = () => {
 
       <Card>
         <CardTitle>いま録るところ</CardTitle>
-        <p className="mt-3 select-text text-5xl font-semibold tracking-widest">
-          {progress?.next_row_text ?? "全部録れました"}
-        </p>
+        {loaded ? (
+          <p
+            className={cn(
+              "mt-3 select-text text-5xl font-semibold tracking-widest",
+              allDone && "text-text-dim",
+            )}
+          >
+            {progress.next_row_text ?? "全部録れました"}
+          </p>
+        ) : (
+          <p className="mt-3 text-5xl font-semibold tracking-widest text-text-dim">…</p>
+        )}
 
         <div className="mt-5 flex items-center gap-3">
           {recording ? (
@@ -192,7 +220,7 @@ export const RecordScreen = () => {
               variant="primary"
               size="lg"
               onClick={start}
-              disabled={!ready || progress?.next_row_id == null}
+              disabled={!ready || !loaded || allDone}
             >
               録る
             </Button>
