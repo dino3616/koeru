@@ -122,6 +122,12 @@ cargo run --package koeru-app
 cd crates/koeru-app/ui && bun run tauri dev
 ```
 
+**`vite.config.ts` の `environments.ssr` を消さない。** TanStack Start の dev サーバは
+`ssr` 環境の中でサーバ入口を実行して HTML を返す。vite-plus の既定の `ssr` 環境は
+それができない形なので、**Start は黙って middleware を入れず、画面が「Cannot GET /」だけになる。**
+**一度やった。** `createRunnableDevEnvironment` は **`vite` から取る**——
+`vite-plus` が再輸出するものは別のクラスを作り、Start からは走らせられない環境に見える。
+
 仕様側は別に検証する。
 
 ```bash

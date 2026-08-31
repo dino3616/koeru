@@ -4,8 +4,15 @@ import type { ReactNode } from "react";
 import globalsCss from "~/styles/globals.css?url";
 
 const RootDocument = ({ children }: { children: ReactNode }) => (
-  // **`lang="ja"` を必ず置く**（WCAG 3.1.1）。読み上げの言語がこれで決まる。
-  <html lang="ja">
+  /*
+   * **`lang="ja"` を必ず置く**（WCAG 3.1.1）。読み上げの言語がこれで決まる。
+   *
+   * `suppressHydrationWarning` は `public/theme.js` のため。
+   * あれは最初の描画より前に `class` と `color-scheme` を書き換えるので、
+   * **サーバが出した殻と必ず食い違う。** 食い違いは意図したもので、
+   * ここで黙らせないと毎回コンソールに出る。**`<html>` の1枚だけに掛かる。**
+   */
+  <html lang="ja" suppressHydrationWarning>
     <head>
       <HeadContent />
     </head>

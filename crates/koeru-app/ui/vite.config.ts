@@ -2,6 +2,14 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+// **ここは `vite` から取る。`vite-plus` からではない。**
+//
+// TanStack Start は `vite` の `isRunnableDevEnvironment` で環境を見分ける。
+// `vite-plus` が再輸出する `createRunnableDevEnvironment` は**別のクラス**を作るので、
+// そちらで作ると Start からは「走らせられない環境」に見え、
+// **middleware が入らず `/` が 404 になる。** 実際にそうなった。
+// oxlint-disable-next-line vite-plus/prefer-vite-plus-imports
+import { createRunnableDevEnvironment } from "vite";
 import { defineConfig, lazyPlugins } from "vite-plus";
 
 /*
@@ -39,6 +47,22 @@ const config = defineConfig({
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
   },
+  /*
+   * **SSR 環境を「走らせられる」形で作る。**
+   *
+   * TanStack Start の dev サーバは、`ssr` 環境の中でサーバ入口を実行して HTML を返す。
+   * vite-plus の既定の `ssr` 環境はそれができない形なので、
+   * **Start は黙って middleware を入れず、`/` が 404 になる**（実際になった）。
+   *
+   * Tauri の中にサーバは無いので SSR はしないが、**dev で画面を出すのにこの環境が要る。**
+   */
+  environments: {
+    ssr: {
+      dev: {
+        createEnvironment: (name, config) => createRunnableDevEnvironment(name, config),
+      },
+    },
+  },
   resolve: {
     tsconfigPaths: true,
     alias: {
@@ -69,6 +93,11 @@ const config = defineConfig({
         // 再読み込みで 404 になる。**普段は画面遷移がクライアント側で完結するので
         // 表に出ないが、Cmd+R 一発で見える。**
         pages: [{ path: "/" }, { path: "/record" }],
+        // **黙って諦めさせない。**
+        // Start は `ssr` 環境が走らせられないと判断すると、middleware を入れずに戻る。
+        // そうなると `/` が 404 になり、**画面が「Cannot GET /」だけになる**（実際になった）。
+        // 明示的に立てておけば、同じことが起きたときに起動時点で理由付きで落ちる。
+        vite: { installDevServerMiddleware: true },
       }),
       viteReact(),
     ]) ?? [],
