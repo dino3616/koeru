@@ -5,7 +5,7 @@
 
 #![allow(clippy::print_stdout)]
 // **macOS 専用。** 他 OS のバックエンドはまだ無い。
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_audio::backend::macos as mac;
 

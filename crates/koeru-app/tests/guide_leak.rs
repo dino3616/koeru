@@ -4,7 +4,7 @@
 //! **スピーカで走らせれば漏れると出るのが正しい。** ヘッドホンなら漏れないと出る。
 
 #![allow(clippy::print_stdout)]
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_app_lib::Studio;
 

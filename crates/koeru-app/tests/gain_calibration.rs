@@ -4,7 +4,7 @@
 //! **触ったら必ず元へ戻す。** 利用者のマイク設定を変えたままにしない。
 
 #![allow(clippy::print_stdout)]
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_audio::backend::macos as mac;
 

@@ -4,7 +4,10 @@
 //! `TR-REC-08`〜`12` が要求する制御がバックエンド固有で、包んだ時点で
 //! 出せなくなるものが出るため。**共通化するのは呼び出し側の手順であって、API ではない。**
 
-#[cfg(target_os = "macos")]
+// **フラグを立てると、macOS でもこのモジュールが消える。**
+// Linux では最初から存在しないので、そこまで再現しないと
+// 「macos を名指ししている箇所」を手元で見つけられない。
+#[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 pub mod macos;
 
 // **どの OS でもコンパイルする。** macOS でしか型が合わない形にしておくと、

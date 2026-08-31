@@ -71,7 +71,7 @@ from_domain!(
 from_domain!(koeru_audio::backend::current::CaptureError);
 
 // macOS では3つが別の型。書いていない OS では同じ型なので、重ねて実装できない。
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 from_domain!(
     koeru_audio::backend::macos::CoreAudioError,
     koeru_audio::backend::macos::PlaybackError,

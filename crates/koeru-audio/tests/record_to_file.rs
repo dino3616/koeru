@@ -10,7 +10,7 @@
 #![allow(clippy::print_stdout)]
 // **macOS 専用。** 他 OS のバックエンドはまだ無い（DEC-REC-001 で後回しと決めた）。
 // これを付け忘れて Windows / Linux の CI を落とした。
-#![cfg(target_os = "macos")]
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_audio::{Session, backend::macos as mac, wav};
 

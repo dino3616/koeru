@@ -81,11 +81,21 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo deny check   # 要 cargo install cargo-deny --locked
 
-# **書いていない OS 向けの組み立ても型検査する。**
-# 音声のバックエンドは macOS しか無く、他 OS では backend/unsupported.rs が選ばれる。
-# これを手元で見ないと、アプリが組み立たないことに CI で初めて気づく。**一度やった。**
-RUSTFLAGS='--cfg koeru_force_unsupported_backend' cargo check --workspace --all-targets
 ```
+
+**書いていない OS 向けの組み立ても手元で通す。** 音声のバックエンドは macOS しか無く、
+他 OS では `backend/unsupported.rs` が選ばれる。これを見ないと、アプリが組み立たないことに
+CI で初めて気づく。**一度やった。**
+
+```bash
+F='--cfg koeru_force_unsupported_backend'
+RUSTFLAGS="$F" cargo clippy --workspace --all-targets --all-features -- -D warnings
+RUSTFLAGS="$F" RUSTDOCFLAGS="$F" cargo test --workspace --all-features
+```
+
+**`RUSTDOCFLAGS` を忘れない。** `RUSTFLAGS` は rustdoc に届かないので、
+doctest だけが本物と違う設定でコンパイルされ、**存在しないはずの差分で落ちる。**
+（クロスコンパイルには C のツールチェーンが要り、手元では通せない。これが代わり。）
 
 WebView 側は別に検証する。**すべて `crates/koeru-app/ui` の中で完結する。**
 モノレポにしていないので、ワークスペースを跨ぐ設定は無い。
