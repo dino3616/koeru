@@ -80,6 +80,11 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo deny check   # 要 cargo install cargo-deny --locked
+
+# **書いていない OS 向けの組み立ても型検査する。**
+# 音声のバックエンドは macOS しか無く、他 OS では backend/unsupported.rs が選ばれる。
+# これを手元で見ないと、アプリが組み立たないことに CI で初めて気づく。**一度やった。**
+RUSTFLAGS='--cfg koeru_force_unsupported_backend' cargo check --workspace --all-targets
 ```
 
 WebView 側は別に検証する。**すべて `crates/koeru-app/ui` の中で完結する。**

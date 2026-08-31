@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use koeru_audio::backend::macos as mac;
+use koeru_audio::backend::current as mac;
 use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};

@@ -15,6 +15,9 @@ env:
 jobs:
   lint:
     name: fmt + clippy
+    # **ubuntu で回す。** 音声のバックエンドは macOS しか無いので、
+    # ここでは `backend::current` がスタブを指す。
+    # **「書いていない OS でもアプリが組み立つか」を見ているのはこのジョブ。**
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

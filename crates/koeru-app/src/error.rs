@@ -66,9 +66,13 @@ from_domain!(
     koeru_synth::resampler::RenderError,
 );
 
+// **どの OS でも同じ形で畳む。** 書いていない OS では、
+// これらは「この OS の音声入出力はまだ書いていない」1つの型に潰れている。
+from_domain!(koeru_audio::backend::current::CaptureError);
+
+// macOS では3つが別の型。書いていない OS では同じ型なので、重ねて実装できない。
 #[cfg(target_os = "macos")]
 from_domain!(
-    koeru_audio::backend::macos::CaptureError,
     koeru_audio::backend::macos::CoreAudioError,
     koeru_audio::backend::macos::PlaybackError,
 );

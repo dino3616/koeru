@@ -12,6 +12,12 @@ repository = "https://github.com/dino3616/koeru"
 # clippy::all は priority = -1 にしてあるので、個別の lint 指定が常に優先される。
 # 例外は「行単位・ブロック単位の #[allow(...)]」で入れる。理由をコメントで残すこと。
 [workspace.lints.rust]
+# **手元で「書いていない OS 向けの組み立て」を検査するためのフラグ。**
+# cargo の feature にしないのは、feature が加算的であるべきで、
+# --all-features で挙動が変わるものを混ぜると macOS の CI がスタブを検査しはじめるため。
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(koeru_force_unsupported_backend)',
+] }
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
 missing_debug_implementations = "warn"
