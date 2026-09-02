@@ -15,8 +15,8 @@
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use crate::oto::Oto;
 use crate::resampler::{PreviewFlags, RenderError, RenderRequest, render};
+use koeru_core::oto::Oto;
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
 ///
@@ -229,7 +229,21 @@ pub fn shortened(phrases: &[(Phrase, bool)], min_total_ms: f64) -> Option<Vec<&P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oto::{OtoPreset, derive_cv};
+
+    /// 素材の切り出し位置を、導出規約を通さずに直に置く。
+    ///
+    /// **`koeru-align` の `derive_cv` を呼ばない**（`DEC-ALN-009` で crate が分かれた）。
+    /// resampler の試験は「この5値ならこう鳴る」を見るもので、
+    /// **規約が変わるたびに落ちてはいけない。**
+    const fn oto(preutterance_ms: f64, usable_ms: f64) -> Oto {
+        Oto {
+            offset_ms: 0.0,
+            consonant_ms: preutterance_ms + 30.0,
+            cutoff_ms: -usable_ms,
+            preutterance_ms,
+            overlap_ms: preutterance_ms / 3.0,
+        }
+    }
 
     /// 決まった素材を返す口。
     struct Fixed {
@@ -264,7 +278,7 @@ mod tests {
             alias: alias.to_owned(),
             sample_path: PathBuf::from("x.wav"),
             sample_hash: hash,
-            oto: derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false),
+            oto: oto(20.0, 480.0),
             midi,
             duration_ms: 400.0,
         }

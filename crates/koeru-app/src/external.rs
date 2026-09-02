@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
-use koeru_synth::oto::Oto;
+use koeru_core::oto::Oto;
 
 /// 外部 resampler の呼び出しが失敗した理由。
 #[derive(Debug, thiserror::Error)]
@@ -152,7 +152,9 @@ pub fn run(exe: &Path, args: &ClassicArgs) -> Result<PathBuf, ExternalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koeru_synth::oto::{OtoPreset, derive_cv};
+    use koeru_align::derive::derive_cv;
+    use koeru_align::preset::{ConsonantClass, Preset};
+    use koeru_core::alias::Method;
 
     fn args() -> ClassicArgs {
         ClassicArgs {
@@ -161,7 +163,14 @@ mod tests {
             tone: tone_name(60),
             velocity: 100.0,
             flags: String::new(),
-            oto: derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false),
+            oto: derive_cv(
+                0.0,
+                20.0,
+                480.0,
+                500.0,
+                &Preset::default_for(Method::Single).expect("既定がある"),
+                ConsonantClass::None,
+            ),
             length_ms: 500.0,
             modulation: 0.0,
             pitch: String::new(),

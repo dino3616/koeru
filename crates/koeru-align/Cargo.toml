@@ -1,20 +1,22 @@
 [package]
-name = "koeru-synth"
+name = "koeru-align"
 version = "0.0.0"
 publish = false
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "KOERU の合成。WORLD を自前 FFI で束ね、UTAU 互換 resampler を上に建てる"
+description = "KOERU の自動原音設定。MFA の音響モデルを Kaldi 経由で叩き、oto の5値を導く"
+
+[build-dependencies]
+cc.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
 koeru-core = { path = "../koeru-core" }
+sha2.workspace = true
 thiserror.workspace = true
+toml_edit.workspace = true
 tracing.workspace = true
-
-[build-dependencies]
-cc.workspace = true
