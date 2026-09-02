@@ -11,6 +11,7 @@
 //! **vLabeler / RecStar からは部品を取らない**（`TR-PLT-11`）。
 //! [`studio`] が筋を組み立て、[`commands`] は Tauri へ渡すだけ。
 
+pub mod align;
 pub mod commands;
 pub mod error;
 pub mod external;

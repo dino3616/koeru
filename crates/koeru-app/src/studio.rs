@@ -17,6 +17,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use koeru_align::aligner::{Alignment, Segment};
+use koeru_align::confidence::Confidence;
+use koeru_align::derive::derive_cv;
+use koeru_align::preset::{ConsonantClass, Preset};
+use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
 use koeru_audio::backend::current as mac;
 use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
@@ -27,15 +32,14 @@ use koeru_core::frq;
 use koeru_core::guide::{self, GuideSpec};
 use koeru_core::inventory::UnitSet;
 use koeru_core::leak::{self, LeakCheck};
+use koeru_core::oto::Oto;
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::ust;
 use koeru_core::waveform;
 use koeru_synth::f0;
-use koeru_synth::oto::{Oto, OtoPreset, derive_cv};
 use koeru_synth::resampler::{RenderRequest, render};
-use koeru_synth::segment::{SegmentConfig, confidence, detect_single};
 
 use uuid::Uuid;
 
@@ -168,6 +172,11 @@ pub struct Progress {
 #[derive(Debug)]
 pub struct Studio {
     library: Library,
+    /// 使うアライナ（`TR-ALN-03`, `DEC-ALN-008`）。
+    ///
+    /// **MFA のモデルが読めれば MFA、読めなければ退避経路。**
+    /// 起動時に1度だけ選ぶ——テイクごとに 96MiB を読み直さない（`TGT-ALN-004`）。
+    aligner: crate::align::Chosen,
     open: Option<Open>,
     capture: Option<mac::Capture>,
     /// 排出スレッド。**収録画面にいる間ずっと回っている**（`TR-REC-19`）。
@@ -225,7 +234,7 @@ struct Materials {
     /// エイリアスごとの周波数表（`TR-SYN-25`）。**永続化するのはこれだけ。**
     tables: HashMap<String, Vec<f64>>,
     /// エイリアスごとの oto。
-    otos: HashMap<String, koeru_synth::oto::Oto>,
+    otos: HashMap<String, koeru_core::oto::Oto>,
 }
 
 /// 試唱の待ち時間の実測（`TR-SYN-33`）。
@@ -274,12 +283,53 @@ impl Sink for StreamSink {
     }
 }
 
+/// 退避経路の境界を、アライナと同じ形（`Alignment`）に包む。
+///
+/// **事後確率は持たない。** 音響モデルを通していないので、
+/// `TR-ALN-24` の成分 (1) 経路確信度が出せない（`None` のまま）。
+fn fallback_alignment(samples: &[f64], rate: u32) -> Option<Alignment> {
+    let cfg = SegmentConfig::default();
+    let b = detect_single(samples, rate, &cfg)?;
+    #[allow(clippy::cast_precision_loss)]
+    let total_ms = samples.len() as f64 / f64::from(rate) * 1000.0;
+    let sil = koeru_align::phoneme::Phoneme::new(koeru_align::phoneme::SILENCE)?;
+    Some(Alignment {
+        segments: vec![
+            Segment {
+                phoneme: sil,
+                start_ms: 0.0,
+                end_ms: b.voice_start_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.voice_start_ms,
+                end_ms: b.vowel_start_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.vowel_start_ms,
+                end_ms: b.vowel_end_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.vowel_end_ms,
+                end_ms: total_ms.max(b.vowel_end_ms),
+            },
+        ],
+        posteriors: None,
+        log_likelihood: None,
+        grid_divergence: None,
+    })
+}
+
 impl Studio {
     /// ライブラリを開く。**無ければ作る。**
     #[tracing::instrument(skip(library_root), err)]
     pub fn open(library_root: PathBuf) -> Result<Self> {
         Ok(Self {
             library: Library::open(library_root)?,
+            // **起動時に1度だけ選ぶ**（`TGT-ALN-004`。テイクごとに 96MiB を読み直さない）。
+            aligner: crate::align::Chosen::detect(),
             open: None,
             capture: None,
             pump: None,
@@ -1069,7 +1119,9 @@ impl Studio {
         // ── 境界と oto ──
         let duration_ms = frames as f64 * 1000.0 / f64::from(rate);
         let cfg = SegmentConfig::default();
-        let boundaries = detect_single(&f64s, rate, &cfg);
+        // **アライナを通す**（`TR-ALN-03`）。MFA が使えなければ退避経路が同じ口で答える。
+        let alignment = self.align_take(&f64s, rate, &row_id);
+        let boundaries = alignment.as_ref().and_then(Boundaries::from_alignment);
 
         // ── 計測（TR-REC-16）と無音マージン（TR-REC-38）──
         // **測るだけ。判定も指摘もしない。**
@@ -1090,15 +1142,23 @@ impl Studio {
         let (oto, conf) = match boundaries {
             None => (None, None),
             Some(b) => {
-                let c = confidence(&f64s, rate, &b, &cfg).score();
+                // **事後確率があればそこから組み立てる**（`TR-ALN-24` の成分 (1)(2)）。
+                // 無ければ退避経路の計算へ落ちる。**MFA が動いたのに
+                // パワー比で境界鋭さを測ると、要件の定義と違うものを記録することになる。**
+                let c = alignment
+                    .as_ref()
+                    .and_then(|a| Confidence::from_alignment(a, &f64s))
+                    .unwrap_or_else(|| confidence(&f64s, rate, &b, &cfg))
+                    .score();
                 let o = derive_cv(
                     b.voice_start_ms,
                     b.vowel_start_ms,
                     b.vowel_end_ms,
                     duration_ms,
-                    &OtoPreset::default(),
-                    // **単独音の1テイクでは無声破裂音かどうかを行から引く。**
-                    self.is_unvoiced_plosive(&row_id)?,
+                    &Preset::default_for(koeru_core::alias::Method::Single)
+                        .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?,
+                    // **子音クラスは行から引く**（`TR-ALN-17` の子音クラス別係数）。
+                    self.consonant_class(&row_id)?,
                 );
                 self.opened_mut()?.ledger.put_oto(
                     take_id,
@@ -1594,7 +1654,7 @@ impl Studio {
             }
             otos.insert(
                 unit,
-                koeru_synth::oto::Oto {
+                koeru_core::oto::Oto {
                     offset_ms: oto.offset_ms,
                     consonant_ms: oto.consonant_ms,
                     cutoff_ms: oto.cutoff_ms,
@@ -1653,14 +1713,70 @@ impl Studio {
         Ok(self.opened()?.dir.read_manifest()?.display_name)
     }
 
-    fn is_unvoiced_plosive(&mut self, row_id: &str) -> Result<bool> {
+    /// 1テイクをアライメントする（`TR-ALN-03`, `TR-ALN-10`）。
+    ///
+    /// **録音完了の直後に呼ぶ**（`TR-ALN-10` の逐次推定）。
+    ///
+    /// **`Alignment` をそのまま返す。** 境界だけに畳んで返すと、
+    /// 事後確率が捨てられて `TR-ALN-24` の成分 (1) 経路確信度が永久に出せない
+    /// （**一度そう書いた**）。呼び出し側が確信度を組み立てるのに要る。
+    ///
+    /// アライナが答えられなければ退避経路の [`detect_single`] へ落ち、
+    /// その場合は事後確率を持たない `Alignment` になる。
+    /// **黙って諦めない**——落ちた理由はトレースに種別で出す。
+    fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Option<Alignment> {
+        use koeru_align::aligner::AlignRequest;
+
+        // **読みは録音リストが持っている**（`TR-ALN-07`。実行時に g2p を持ち込まない）。
+        let kana = self.opened_mut().ok()?.ledger.units_of(row_id).ok()?;
+        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
+        let phonemes = match koeru_align::phoneme::phonemes_for_all(&readings) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    reason = e.kind(),
+                    "読みを音素へ写せない。退避経路で境界を出す"
+                );
+                return fallback_alignment(samples, rate);
+            }
+        };
+
+        let req = AlignRequest {
+            samples,
+            sample_rate_hz: rate,
+            phonemes: &phonemes,
+            grid: None,
+        };
+        match self.aligner.as_aligner().align(&req) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                // **テキスト逸脱はここで潰さない**（`TR-ALN-09`）。
+                // 境界が出ないまま返せば、oto が付かず確認キューへ回る。
+                tracing::info!(reason = e.kind(), "アライメントが通らなかった");
+                // **既に退避経路なら、もう一度同じものを呼んでも同じ結果。**
+                if matches!(e, koeru_align::aligner::AlignError::TextDeviation)
+                    || self.aligner.is_fallback()
+                {
+                    None
+                } else {
+                    fallback_alignment(samples, rate)
+                }
+            }
+        }
+    }
+
+    /// 行の子音クラス（`TR-ALN-17` の子音クラス別係数）。
+    ///
+    /// **単独音は1行1モーラ**なので、最初に見つかった単位の子音で決まる。
+    /// 引けなければ母音始まり扱い——**推測で無声破裂音にしない。**
+    /// 取り違えると、重ねてはいけない音を重ねる。
+    fn consonant_class(&mut self, row_id: &str) -> Result<ConsonantClass> {
         let kana = self.opened_mut()?.ledger.units_of(row_id)?;
-        let all = koeru_core::inventory::units(UnitSet::Core);
-        Ok(kana.iter().any(|k| {
-            all.iter()
-                .find(|u| u.kana == k)
-                .is_some_and(|u| u.unvoiced_plosive)
-        }))
+        let all = koeru_core::inventory::units(UnitSet::Extended);
+        Ok(kana
+            .iter()
+            .find_map(|k| all.iter().find(|u| u.kana == *k))
+            .map_or(ConsonantClass::None, |u| ConsonantClass::of(u.consonant)))
     }
 
     fn opened(&self) -> Result<&Open> {

@@ -1,0 +1,58 @@
+schema = 'decision'
+id = 'DEC-ALN-010'
+constraint_label = '退避経路の段数'
+constraint = '一次経路が使えなくなったときに、oto を出せる経路が1つは残っていること'
+title = 'Julius の実装は M5 へ送る。M3 の退避は segment.rs 1段にする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'M5（方式を広げる）へ送る',
+  'M3 で作る',
+  '落として snfa に差し替える',
+  '落として退避は segment.rs だけにする',
+]
+selected = 'M5（方式を広げる）へ送る'
+rationale = '''
+**Julius が本来効くのは連続音・CVVC で、M3 は単独音だけ。** 単独音は音素列が
+`[pau, C, V, pau]` の2〜3境界しかなく、`segment.rs` の音響モデルを使わない実装でも
+oto は出ている（M2 の試唱がその上で動いている）。**M5 で連続音に広げるとき、
+Julius が効く領域と一緒に入れるのが順序として自然。**
+
+**Julius は、想定しているリスクに対して弱い保険だった。** DEC-ALN-008 の撤回条件は
+2つあり、そのうち「**学習コーパスの条件が派生モデルへ及ぶという法的見解が定まったとき**」に対しては、
+**Julius も同じ問題を抱えている。** models.toml のとおり Julius は
+`corpus_status = "unverified"`（出所そのものが未確認）で、MFA は「何が問題か分かっている」状態。
+**見解が定まったら、未確認のほうが弱い立場になる**（確認できるまで最悪を仮定するしかない）。
+
+Julius が実際に守るのは「**MFA だけが個別に引っ込む**」場合に限られる
+（MFA がモデルを取り下げる、GlobalPhone / TEDxJP-10K の権利者が MFA を名指しする）。
+**その筋のためだけに、MFA でやったのと同じ量の作業をもう一度払うのは早い。**
+
+**licensing の筋で本当に独立な戻り先は2つ。** モデルを一切使わない `segment.rs` と、
+重みが Public Domain 宣言の snfa（CMP-001、採用候補のまま）。
+**前者はもう動いている。** 後者へ差し替える判断は、必要になったときに取る。
+
+**落とさないのは、連続音で効く見込みが残っているから。** TR-ALN-04 を削除すると、
+M5 で「音響モデルの戻り先が要る」と気づいたときに、何を検討したのかが文書から消える。
+'''
+review_triggers = [
+  '**MFA のモデルが取り下げられたとき。** そのときは Julius の実装を M5 から前倒しする',
+  'segment.rs の退避で M2 の試唱が成立しなくなったとき',
+  'M5 で連続音に広げたとき。**そこが TR-ALN-04 の予定地**',
+  'snfa の重みの Public Domain 宣言に法的文書が伴うと確認できたとき（Q-ALN-003 の [Risk]）。**そのときは退避を snfa へ寄せてよい**',
+]
+affects_requirements = [
+  'TR-ALN-03',
+  'TR-ALN-04',
+  'TR-ALN-11',
+]
+affects_decisions = [
+  'DEC-ALN-001',
+  'DEC-ALN-004',
+  'DEC-ALN-006',
+  'DEC-ALN-008',
+]
+affects_components = [
+  'CMP-001',
+  'CMP-002',
+]

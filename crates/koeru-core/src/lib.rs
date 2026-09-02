@@ -13,6 +13,7 @@ pub mod handoff;
 pub mod inventory;
 pub mod leak;
 pub mod mora;
+pub mod oto;
 pub mod plan;
 pub mod project;
 pub mod reclist;

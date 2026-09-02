@@ -12,6 +12,7 @@ description = "KOERU の合成。WORLD を自前 FFI で束ね、UTAU 互換 res
 workspace = true
 
 [dependencies]
+koeru-core = { path = "../koeru-core" }
 thiserror.workspace = true
 tracing.workspace = true
 

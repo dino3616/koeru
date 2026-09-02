@@ -10,20 +10,28 @@ domain = 'platform'
 [[target]]
 id = 'TGT-PLT-001'
 item = 'インストーラのダウンロードサイズ（win-x64）'
-goal = '≤ 120MB（圧縮後）'
-note = '**WebView2 固定版の同梱で約180MB 増えるため、120MB の予算は再計算が必要**（→ Q-PLT-001）'
+goal = '≤ 300MB（圧縮後）'
+decided_by = 'DEC-ALN-008'
+note = '''**枠であって実測ではない。** 内訳の見込みは MFA モデル 88.0MiB（EVID-ALN-001）
+＋ Julius 3.6MB（退避経路）＋ Kaldi の共有ライブラリ 約30MiB ＋ アプリ本体
+＋ WebView2 固定版。**ビルドが通った時点で実値に差し替える。**
+従来の 120MB は、同梱モデルが snfa 級（約1.2MB）だった時期の枠'''
 
 [[target]]
 id = 'TGT-PLT-002'
 item = '同（macOS arm64 / Linux x64）'
-goal = '≤ 110MB'
-note = 'macOS は WKWebView が OS 同梱のため増えない。Linux は Flatpak runtime に含める'
+goal = '≤ 250MB'
+decided_by = 'DEC-ALN-008'
+note = '''macOS は WKWebView が OS 同梱のため増えない。Linux は Flatpak runtime に含める。
+**win-x64 との差 50MB は WebView2 固定版のぶん。** こちらも枠であって実測ではない'''
 
 [[target]]
 id = 'TGT-PLT-003'
 item = '同梱する推論モデルの合計サイズ'
-goal = '≤ 60MB'
-note = '実サイズ約 1.2MB（Julius 併載で約5MB）。**約50倍の過剰配分**'
+goal = '≤ 100MB'
+decided_by = 'DEC-ALN-008'
+note = '''**実サイズ約 100.6MiB**——MFA 日本語音響モデル 97.0MiB（展開後、EVID-ALN-001 の実測）
+＋ Julius 3.6MB（退避経路）。**枠にほぼ張り付いている。** TR-ALN-02 の同梱予算と同じ数字'''
 
 [[target]]
 id = 'TGT-PLT-004'

@@ -1,0 +1,6 @@
+[submodule "crates/koeru-synth/vendor/world"]
+	path = crates/koeru-synth/vendor/world
+	url = https://github.com/mmorise/World
+[submodule "crates/koeru-align/vendor/kaldi"]
+	path = crates/koeru-align/vendor/kaldi
+	url = https://github.com/kaldi-asr/kaldi

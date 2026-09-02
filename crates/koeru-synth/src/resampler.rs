@@ -18,8 +18,8 @@
 //! UTAU の `consonant`（固定範囲）はこのための値で、
 //! **ここを伸ばすと「あー」が「あ゛ー」のように濁る。**
 
-use crate::oto::Oto;
 use crate::world;
+use koeru_core::oto::Oto;
 
 /// resampler の入力（`TR-SYN-08` の引数一式）。
 ///
@@ -291,7 +291,21 @@ fn pitch_bend_at(bend: &[f64], i: usize, out_frames: usize) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::oto::{Oto, OtoPreset, derive_cv};
+
+    /// 素材の切り出し位置を、導出規約を通さずに直に置く。
+    ///
+    /// **`koeru-align` の `derive_cv` を呼ばない**（`DEC-ALN-009` で crate が分かれた）。
+    /// resampler の試験は「この5値ならこう鳴る」を見るもので、
+    /// **規約が変わるたびに落ちてはいけない。**
+    const fn oto(preutterance_ms: f64, usable_ms: f64) -> Oto {
+        Oto {
+            offset_ms: 0.0,
+            consonant_ms: preutterance_ms + 30.0,
+            cutoff_ms: -usable_ms,
+            preutterance_ms,
+            overlap_ms: preutterance_ms / 3.0,
+        }
+    }
 
     fn voiced(hz: f64, secs: f64, fs: u32) -> Vec<f64> {
         let n = (secs * f64::from(fs)) as usize;
@@ -344,7 +358,7 @@ mod tests {
     #[test]
     fn 目標音高で鳴る() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         // tone=60（C4 ≒ 261.6 Hz）を指定する
         let y = render(&req(&src, o, 300.0, &[])).expect("合成できる");
         assert!(!y.is_empty());
@@ -367,7 +381,7 @@ mod tests {
     #[test]
     fn 別の音高を頼めば別の音が返る() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
 
         let mut req_lo = req(&src, o, 300.0, &[]);
         req_lo.tone = 55; // G3 ≒ 196 Hz
@@ -413,7 +427,7 @@ mod tests {
     #[test]
     fn 指定した長さで返る() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         for len_ms in [100.0_f64, 300.0, 800.0] {
             let y = render(&req(&src, o, len_ms, &[])).expect("合成できる");
             let got_ms = y.len() as f64 / 44.1;
@@ -428,7 +442,7 @@ mod tests {
     #[test]
     fn 素材より長く伸ばせる() {
         let src = voiced(220.0, 0.2, 44_100); // 200ms
-        let o = derive_cv(0.0, 10.0, 190.0, 200.0, &OtoPreset::default(), false);
+        let o = oto(10.0, 190.0);
         let y = render(&req(&src, o, 1000.0, &[])).expect("合成できる");
         let got_ms = y.len() as f64 / 44.1;
         assert!((got_ms - 1000.0).abs() < 2.0, "5倍に伸びる: {got_ms:.1}ms");
@@ -443,7 +457,7 @@ mod tests {
     #[test]
     fn ピッチベンドで音高が動く() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         let y = render(&req(&src, o, 300.0, &[1200.0])).expect("合成できる");
         let hz = analyze_hz(&y);
         assert!(
@@ -456,7 +470,7 @@ mod tests {
     #[test]
     fn 音量が効く() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         let full = render(&req(&src, o, 300.0, &[])).expect("合成できる");
         let mut half_req = req(&src, o, 300.0, &[]);
         half_req.volume = 50.0;
@@ -470,7 +484,7 @@ mod tests {
     #[test]
     fn 周波数表を渡すと推定を省く() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         // 使う区間ぶんの F0 を一定値で渡す
         let frames = (480.0 / 5.0) as usize;
         let table = vec![220.0_f64; frames];
@@ -488,7 +502,7 @@ mod tests {
     #[test]
     fn 長さが正でなければ弾く() {
         let src = voiced(220.0, 0.5, 44_100);
-        let o = derive_cv(0.0, 20.0, 480.0, 500.0, &OtoPreset::default(), false);
+        let o = oto(20.0, 480.0);
         assert_eq!(
             render(&req(&src, o, 0.0, &[])),
             Err(RenderError::EmptyOutput)

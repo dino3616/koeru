@@ -7,6 +7,9 @@ note = '''連続音・CVVC・多音階。prefix.map と subbank。下位方式�
 UST はノートに仮名の歌詞を持つので g2p が無くても通る。
 辞書の同梱は配布物の大きさに直接効くので、要る場面が来てから積む。'''
 includes_requirements = [
+  'TR-ALN-19',
+  'TR-ALN-22',
+  'TR-ALN-04',
   'TR-RCL-14',
   'TR-SYN-36',
   'TR-RCL-04',
@@ -46,6 +49,8 @@ excludes = [
   '配布経路と署名',
 ]
 decisions = [
+  'DEC-ALN-010',
+  'DEC-ALN-011',
   'DEC-RCL-001',
   'DEC-RCL-002',
 ]

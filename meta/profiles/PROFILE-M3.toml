@@ -2,12 +2,11 @@ schema = 'profile'
 id = 'PROFILE-M3'
 title = '自動原音設定が成立するか'
 status = 'planned'
-note = 'Julius を統合し、評価ハーネスで境界精度を実測する。**「単独音なら編集画面を開かずに済む」が成り立つかの答えを出す。** 成り立たなければプロダクト判断に戻る。'
+note = 'Julius を統合し、単独音の oto が自動で出るところまでを通す。**到達水準の判定（「単独音なら編集画面を開かずに済む」が成り立つか）は M6 へ回した**（DEC-ALN-007）。M3 は動くものを作るマイルストーンで、合否は出さない。**退避経路は `segment.rs` の1段だけ**（DEC-ALN-010 で Julius を M5 へ送った）。'
 includes_requirements = [
   'TR-ALN-01',
   'TR-ALN-02',
   'TR-ALN-03',
-  'TR-ALN-04',
   'TR-ALN-05',
   'TR-ALN-06',
   'TR-ALN-07',
@@ -22,10 +21,8 @@ includes_requirements = [
   'TR-ALN-16',
   'TR-ALN-17',
   'TR-ALN-18',
-  'TR-ALN-19',
   'TR-ALN-20',
   'TR-ALN-21',
-  'TR-ALN-22',
   'TR-ALN-23',
   'TR-ALN-24',
   'TR-ALN-25',
@@ -35,7 +32,6 @@ includes_requirements = [
   'TR-ALN-29',
   'TR-ALN-30',
   'TR-ALN-31',
-  'TR-ALN-32',
 ]
 includes_fsl = [
   'AC-ALN-001',
@@ -69,5 +65,15 @@ excludes = [
 decisions = [
   'DEC-ALN-001',
   'DEC-ALN-002',
+  'DEC-ALN-003',
+  'DEC-ALN-004',
+  'DEC-ALN-005',
+  'DEC-ALN-006',
+  'DEC-ALN-007',
+  'DEC-ALN-008',
+  'DEC-ALN-009',
+  'DEC-PLT-016',
+  'DEC-ALN-010',
+  'DEC-ALN-011',
 ]
 budgets = []

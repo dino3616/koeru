@@ -1,0 +1,56 @@
+schema = 'decision'
+id = 'DEC-PLT-016'
+constraint_label = 'C / C++ の調達'
+constraint = '同梱する C / C++ は、上流の版が特定でき、リポジトリを肥大させないこと'
+title = 'C / C++ は submodule で調達する。WORLD の同梱も submodule へ移す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'submodule に統一する',
+  'vendoring に統一する（DEC-SYN-006 の拡張）',
+  '部品ごとに使い分ける（小さいものは同梱、大きいものは submodule）',
+  'ビルド時にビルド済みバイナリを取得する',
+]
+selected = 'submodule に統一する'
+rationale = '''
+**Kaldi に DEC-SYN-006 の根拠が効かない。** あの判断は「WORLD は 336KB と小さい」
+「参照実装で更新が稀」の2点で同梱を選んでいた。**Kaldi はリポジトリが約123MB で、
+どちらも成り立たない**（DEC-ALN-008 で一次経路に採った）。
+
+**部品ごとに使い分けない。** 「小さいものは同梱、大きいものは submodule」にすると、
+新しい C++ を足すたびに閾値の議論が起き、`vendor/` と `.gitmodules` の両方を見ないと
+何が入っているか分からなくなる。**調達の形は1つにする。**
+
+**WORLD も submodule へ移す。** 同梱のままにすると形が2つ残る。移すことで失うのは
+DEC-SYN-006 が守ろうとした「`git clone` + `cargo build` だけで通る」だが、
+**Kaldi を submodule にした時点でその性質はどのみち失われている。**
+
+**代わりに、失敗の出方を良くする。** `build.rs` は submodule が未初期化のとき、
+コンパイルエラーではなく **`git submodule update --init --recursive` を促すメッセージで落とす。**
+CONTRIBUTING と CI に手順を1つ足す。
+
+**ビルド済みバイナリの取得は採らない。** ビルドがネットワーク依存になり、
+供給鎖の検証が難しくなる（DEC-ALL-006 のローカル完結の方針と、
+配布物に何が入っているかを説明できることの両方に効く）。
+'''
+review_triggers = [
+  '**submodule の初期化忘れによる問い合わせが繰り返し起きたとき。** そのときは vendoring へ戻すか、初期化を自動化する',
+  'Kaldi を使わない判断に変わったとき（DEC-ALN-008 の撤回）。**残るのが WORLD だけなら同梱へ戻してよい**',
+  'CI の submodule 取得がビルド時間の支配項になったとき',
+]
+supersedes = [
+  'DEC-SYN-006',
+]
+affects_requirements = [
+  'TR-ALN-02',
+  'TR-SYN-06',
+  'TR-PLT-06',
+]
+affects_decisions = [
+  'DEC-SYN-006',
+  'DEC-ALN-008',
+  'DEC-ALL-006',
+]
+affects_components = [
+  'CMP-130',
+]

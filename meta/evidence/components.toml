@@ -35,9 +35,9 @@ note = '[Risk] 重みの Public Domain 宣言に法的文書が伴わず SPDX �
 id = 'CMP-002'
 name = 'Julius segmentation-kit + libjulius'
 purpose = '日本語音素セグメンテーション。ライセンスが明確な代替経路'
-license = 'segmentation-kit: MIT（音響モデルを含むリポジトリ全体）/ Julius 本体: BSD-3-Clause'
-status = '条件付き'
-decided_by = 'DEC-ALN-001'
+license = 'segmentation-kit: MIT（リポジトリ全体。ただし License.md は音響モデルを明示列挙していない → DEC-ALN-004 で判断して通した）/ Julius 本体: BSD-3-Clause'
+status = '採用'
+decided_by = 'DEC-ALN-004'
 domains = [
   'align',
 ]
@@ -48,37 +48,41 @@ supports_requirements = [
   'TR-ALN-10',
   'TR-ALN-01',
 ]
-note = '**一次経路として決定済み。** ただし `.binhmm` の同梱可否（Q-ALN-001）が前提条件で、不合格なら snfa へ戻る'
+note = '''**退避経路**（DEC-ALN-008 で一次経路は MFA になった）。**`.binhmm` の同梱は DEC-ALN-004 で
+判断して通した**——リポジトリ全体が MIT で配られている事実を受け取った。学習コーパスの出所は未確認のまま。
+**MFA が覆ったときの戻り先として同梱を続ける**（3.6MB）'''
 
 [[component]]
 id = 'CMP-003'
 name = 'MFA 日本語辞書 v3.0.0'
-purpose = '読み付与の参照'
+purpose = '辞書 FST の語彙。同梱する'
 license = 'CC BY 4.0'
-status = '条件付き'
-decided_by = 'DEC-ALN-001'
+status = '採用'
+decided_by = 'DEC-ALN-008'
 domains = [
   'align',
 ]
 supports_requirements = [
   'TR-ALN-05',
 ]
-note = '帰属表示付きで流用可'
+note = '帰属表示付きで同梱する（DEC-ALN-008）。499,793 語 / 61 音素'
 
 [[component]]
 id = 'CMP-004'
 name = 'MFA 日本語音響モデル v3.0.0'
-purpose = '境界精度の基準線'
-license = 'CC BY 4.0 表示（**上流コーパスに再配布禁止・非商用限定が含まれる**）'
-status = '不適'
-decided_by = 'DEC-ALN-001'
+purpose = '日本語音素の強制アライメント。一次経路'
+license = 'CC BY 4.0 表示（**上流コーパスに GlobalPhone Japanese = ELRA 有償・再配布不可、TEDxJP-10K = CC BY-NC-ND が含まれる。DEC-ALN-008 で判断して通した**）'
+status = '採用'
+decided_by = 'DEC-ALN-008'
 domains = [
   'align',
 ]
 supports_requirements = [
   'TR-ALN-05',
 ]
-note = '評価の対照としてのみ使う。→ Q-ALN-001'
+note = '''**一次経路**（DEC-ALN-008）。展開後 97.0MiB、うち 95.8MiB が `final.alimdl` と `final.mdl`（EVID-ALN-001 の実測）。
+**CC BY 4.0 なので帰属表示・ライセンスへのリンク・変更の明示がアプリ内に要る。**
+覆ったときの戻り先は Julius（CMP-002）'''
 
 [[component]]
 id = 'CMP-005'
@@ -811,18 +815,22 @@ note = '自前実装で置換。下記参照'
 
 [[component]]
 id = 'CMP-059'
-name = 'MFA 3.x'
-purpose = '強制アライメント'
+name = 'MFA 3.x（Python アプリケーション本体）'
+purpose = '強制アライメント。**モデルと辞書だけを取り出して使う**'
 license = 'コード MIT / 日本語音響モデル・辞書は CC BY 4.0 表示'
 status = '不適'
-decided_by = 'DEC-ALN-001'
+decided_by = 'DEC-ALN-008'
 domains = [
   'platform',
 ]
 supports_requirements = [
   'TR-ALN-05',
 ]
-note = 'Python / Conda / Kaldi ランタイムを要する'
+note = '''**アプリケーションとしては採らない**（Python を要するため。TR-ALN-01 / TR-PLT-07）。
+**ただし従来の記録「Python / Conda / Kaldi ランタイムを要する」は Kaldi について不正確だった**——
+MFA 3.0 は kalpy 経由で Kaldi の共有ライブラリを直接呼ぶ形になっており、Kaldi 単体は Apache-2.0 の
+C++ ライブラリとして Rust からも呼べる（CMP-130）。PostgreSQL も 3.x では既定オフで SQLite。
+**採るのはモデル（CMP-004）と辞書（CMP-003）と Kaldi（CMP-130）で、この Python アプリは採らない**'''
 
 [[component]]
 id = 'CMP-060'
@@ -1896,3 +1904,26 @@ AGPL で「Made to be handed on」を原則に置いている以上、入手性�
 **設定も lock も `crates/koeru-app/ui` の中に閉じる。** モノレポにしない。
 Tauri のコマンドと画面は一体のもので、別のワークスペースに切ると2箇所を行き来することになる。
 範囲が `ui/` に閉じているので、docs/generated/ と meta/ を巻き込むこともない'''
+
+[[component]]
+id = 'CMP-130'
+name = 'Kaldi（共有ライブラリ、CPU のみ）'
+purpose = 'GMM-HMM の強制アライメント。MFA モデルを読んで Viterbi を回す'
+license = 'Apache-2.0'
+status = '採用'
+decided_by = 'DEC-ALN-008'
+domains = [
+  'align',
+  'platform',
+]
+supports_requirements = [
+  'TR-ALN-02',
+  'TR-ALN-05',
+  'TR-ALN-06',
+  'TR-ALN-10',
+]
+note = '''**C++ なので Rust からは C シム経由で呼ぶ**（pybind11 で kalpy がやっていることの Rust 版）。
+Apache-2.0 は `deny.toml` の allow に載っており、DEC-PLT-002（AGPL-3.0-or-later）と両立する。
+conda-forge のパッケージは linux-64 で約33MB / osx-arm64 で約28MB（圧縮）だが、
+**同梱するのは GMM アライメントに要る部分だけ。** OpenFst（Apache-2.0）を推移的に引く。
+→ EVID-ALN-001'''

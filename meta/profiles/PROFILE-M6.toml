@@ -2,8 +2,9 @@ schema = 'profile'
 id = 'PROFILE-M6'
 title = '原音設定エディタ'
 status = 'planned'
-note = 'setParam / vLabeler と同等の編集機能。**スペクトログラムがメモリを食い潰す問題をここで解く。**'
+note = 'setParam / vLabeler と同等の編集機能。**スペクトログラムがメモリを食い潰す問題をここで解く。** **あわせて、M3 から回した到達水準の判定をここで出す**（DEC-ALN-007）——評価ハーネスと参照データを作り、「単独音なら編集画面を開かずに済む」が成り立つかを実測する。'
 includes_requirements = [
+  'TR-ALN-32',
   'TR-PLT-30',
   'TR-PLT-31',
   'TR-PLT-32',
@@ -78,6 +79,9 @@ excludes = [
 ]
 decisions = [
   'DEC-ALN-002',
+  'DEC-ALN-003',
+  'DEC-ALN-007',
+  'DEC-EDT-003',
 ]
 budgets = [
   'BUDGET-MEMORY-001',

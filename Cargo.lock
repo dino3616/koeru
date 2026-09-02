@@ -1801,10 +1801,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "koeru-align"
+version = "0.0.0"
+dependencies = [
+ "cc",
+ "koeru-core",
+ "sha2",
+ "thiserror 2.0.20",
+ "toml_edit 0.24.1+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "koeru-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "koeru-align",
  "koeru-audio",
  "koeru-core",
  "koeru-synth",
@@ -1852,6 +1865,7 @@ name = "koeru-synth"
 version = "0.0.0"
 dependencies = [
  "cc",
+ "koeru-core",
  "thiserror 2.0.20",
  "tracing",
 ]

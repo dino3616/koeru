@@ -1,0 +1,58 @@
+# 同梱するモデル・辞書・音響モデルの台帳（TR-ALN-31）。
+#
+# > 出所 URL、ライセンス（SPDX 識別子または原文）、学習データの出所とそのライセンス、
+# > 必要な帰属表示、商用配布の可否を台帳として持ち**ライセンス表記に反映する**。
+# > **ライセンスまたは学習データの出所が確認できないモデルは同梱しない。**
+# > 例外は、判断記録に「何を受け取ったか」と「何が未確認のままか」を書いて通したものに限る。
+# > **台帳にはその判断記録の ID を併記し、未確認の項目を空欄にせず未確認と書く。黙って通さない。**
+#
+# **CC BY 系は帰属表示・ライセンスへのリンク・変更の明示が義務**なので、
+# `attribution` を必ず埋め、アプリ内のライセンス表記へ出す。
+#
+# `corpus_status` に使う値:
+#   ok        条件に問題がない
+#   restricted 再配布禁止・非商用限定などが含まれる。**judgement が要る**
+#   unverified 出所またはライセンスが未確認。**judgement が要る**
+
+[[model]]
+id = "mfa-japanese-acoustic"
+name = "MFA 日本語音響モデル v3.0.0"
+purpose = "日本語音素の強制アライメント（一次経路）"
+source_url = "https://github.com/MontrealCorpusTools/mfa-models/releases/tag/acoustic-japanese_mfa-v3.0.0"
+license = "CC-BY-4.0"
+attribution = "Montreal Forced Aligner — Japanese MFA acoustic model v3.0.0 (CC BY 4.0)。KOERU は重みを改変せず、そのまま同梱している"
+corpus_status = "restricted"
+corpus = """
+Common Voice Japanese v12.0（CC0）/ GlobalPhone Japanese v3.1（ELRA の有償ライセンス、\
+研究用と商用で料金が分かれ再配布不可）/ Microsoft Speech Language Translation Japanese（**未確認**）/ \
+Japanese Versatile Speech（タグは CC BY-SA 4.0、音声は独自条項）/ TEDxJP-10K v1.1（TED・TEDx は CC BY-NC-ND）\
+"""
+commercial_ok = "unverified"
+judgement = "DEC-ALN-008"
+note = "**学習コーパスの条件が派生した重みへ及ぶかは法的に定まっていない。配布者の表示を額面どおり受け取る判断であって、確実性の主張ではない。** → EVID-ALN-001"
+
+[[model]]
+id = "mfa-japanese-dictionary"
+name = "MFA 日本語辞書 v3.0.0"
+purpose = "辞書 FST の語彙（499,793 語 / 61 音素）"
+source_url = "https://github.com/MontrealCorpusTools/mfa-models/releases"
+license = "CC-BY-4.0"
+attribution = "Montreal Forced Aligner — Japanese MFA dictionary v3.0.0 (CC BY 4.0)"
+corpus_status = "ok"
+corpus = "辞書は語と読みの対応表で、音声コーパスから学習した重みではない"
+commercial_ok = "yes"
+judgement = "DEC-ALN-008"
+note = ""
+
+[[model]]
+id = "julius-segmentation-kit"
+name = "Julius セグメンテーションキットの日本語音響モデル"
+purpose = "日本語音素の強制アライメント（退避経路）"
+source_url = "https://github.com/julius-speech/segmentation-kit"
+license = "MIT"
+attribution = "Julius segmentation-kit (MIT) / Julius engine (BSD-3-Clause)"
+corpus_status = "unverified"
+corpus = "**未確認。** License.md は対象を \"the Software\" と定義するだけで、同梱の .binhmm を明示的に列挙していない"
+commercial_ok = "unverified"
+judgement = "DEC-ALN-004"
+note = "**リポジトリ全体が MIT で配られている事実を受け取った判断。** 上流への問い合わせは継続中"

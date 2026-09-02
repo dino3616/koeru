@@ -11,6 +11,8 @@ note = """
 以前は4つの領域キャップを単純に足して 1,724MB になり、上限を 15% 超えていた（Q-PLT-001）。
 `mode` を持たない行はどのモードにも乗る共通分で、上限と比べるのはモードごとの合計の最大値。
 
+**align の 160MB は DEC-ALN-008 で MFA を同梱したことによる。** editor から 96MB 回している。
+
 **残っている未実測は WebView プロセスの常駐分。** ここが空欄のまま他を詰めても意味がないので、
 **共通分に枠として置いた**（DEC-PLT-012）。実測が枠を超えたら、editor の 512MB を
 ディスクキャッシュ前提で削る（Q-EDT-001）。
@@ -39,9 +41,13 @@ measured = false
 [[allocations]]
 name = "align（アライナのモデルと推論）"
 kind = "step"
-value = 64
+value = 160
 measured = false
-note = "実測 13.5ms / 重み 1.25MB から見て、従来の 500MB は2桁過大だった"
+note = """**MFA の2つのモデルを常駐させる枠**（DEC-ALN-008）。`final.alimdl` と `final.mdl` が
+展開後それぞれ 47.9MiB で、合わせて 95.8MiB（EVID-ALN-001 の実測）。残りは tree / lda.mat /
+phone_lm.fst で 1.2MiB。**逐次ロードなら 112MB で足りるが、TR-ALN-10 の逐次推定で
+テイクごとに 48MiB を読み直すことになり TGT-ALN-001 と TGT-ALN-005 を割る。**
+従来の 64MB は snfa 級（重み 1.25MB）を前提にした枠だった"""
 
 # ── 収録中（editor は前面に無い）────────────────────
 [[allocations]]
@@ -70,9 +76,12 @@ measured = false
 name = "editor（音声 + チャート画像。可視域＋前後数エントリ）"
 kind = "step"
 mode = "編集中"
-value = 512
+value = 416
 measured = false
-note = "Q-EDT-001 によりディスクキャッシュ前提へ変更が必要。**枠を割るならここから削る**"
+note = """Q-EDT-001 によりディスクキャッシュ前提へ変更が必要。**枠を割るならここから削る。**
+**96MB を align へ回した**（DEC-ALN-008）——MFA のモデル 95.8MiB を常駐させるため。
+編集中の山は 1456MB のまま変わらず、上限 1500MB と scope の「8GB 搭載機」は動かしていない。
+**M6 のディスクキャッシュ化が、この削減ぶんだけ先に縛られる**"""
 
 [[allocations]]
 name = "editor（undo 履歴）"
