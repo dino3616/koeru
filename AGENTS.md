@@ -75,6 +75,13 @@
 
 ## 検証
 
+**最初に submodule を取る。** WORLD と Kaldi は submodule で調達している（`DEC-PLT-016`）。
+取っていないと `build.rs` が手順を出して止まる。
+
+```bash
+git submodule update --init --recursive
+```
+
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -157,7 +164,9 @@ fslc mutate specs/requirements/project-lifecycle.fsl --depth 8
 .claude/skills/     .agents/skills への symlink
 crates/koeru-core/  ドメイン層。GUI と OS に依存しない。台帳・録音リスト・プロジェクト・書式
 crates/koeru-audio/ 音声 I/O。各 OS の API を直接叩く。状態機械は recording-input.fsl の写し
-crates/koeru-synth/ 合成。同梱した WORLD への FFI、境界検出、oto 導出、resampler
+crates/koeru-synth/ 合成。submodule の WORLD への FFI、resampler
+crates/koeru-align/ 自動原音設定。MFA のモデルを Kaldi 経由で叩き、5値を導く
+crates/koeru-align/vendor/kaldi/  submodule。**推論に要る8モジュールだけ cc で組む**
 crates/koeru-app/   アプリケーション層。**Rust も WebView 側もここ1つに入っている**
 crates/koeru-app/src/   Tauri のコマンドと、縦切りの組み立て
 crates/koeru-app/ui/    WebView 側。React + TanStack Start（SPA）+ Tailwind + Radix
@@ -175,6 +184,13 @@ deny.toml           AGPL 互換ライセンスの許可リスト
 
 - **実装は Rust + Tauri。** 単一のネイティブアプリ、PC 前提。処理はローカル完結で、声をサーバへ送らない
 - **音声 I/O は各 OS の API を直接叩く**（`DEC-REC-001`）。必要なのは OS 側の音声加工を無効化する経路（排他モード、または共有モード＋ RAW ストリーム要求）へ到達できることで、`cpal` はそのどちらにも降りられない。**抽象レイヤも採らない。** TR-REC-08〜12 が要求する制御をどの抽象も出さず、省けるのはデバイス列挙とコールバックの配管だけだった。束ねるのは windows-rs / coreaudio-rs / pipewire-rs
+- **アライナは MFA の日本語音響モデルを Kaldi 経由で叩く**（`DEC-ALN-008`）。**Python は要らない。** OpenFst も引かない——`OPENFST_VER=10800` を定義し、`hmm/transition-model.h` が引く `fst/fst-decl.h` に空スタブを置けば、推論に要る8モジュールは通る（`EVID-ALN-001`）
+- **MFA のモデルは 16kHz 前提。** KOERU のマスターは 44100 Hz なので、アライメントの入口でダウンサンプルが要る。**特徴は LDA+MLLT の 40 次で、`meta.json` の `uses_splices` / `uses_deltas` は当てにならない**（バイナリを読んで確かめた）
+- **MFCC の dither は 0 にしてある。** `meta.json` は 1 だが、乱数を足すので `TR-ALN-29` の「ビット単位で同一」と両立しない。**戻さないこと**
+- **MFA の topology は音素の飛び越しを許す。** `k` も `a` も3状態だが `HmmTopology::MinLength` は 1。**「状態数＝最短の継続長」ではない**（`EVID-ALN-001`）
+- **1パス目は `final.alimdl`（話者非依存）。** `final.mdl` は SAT で fMLLR 済みの特徴を前提にしており、素の特徴に当てると尤度が歪む。**踏んだ**
+- **`ComputeFmllrDiagGmm` は使えない。** ヘッダに宣言があるだけで Kaldi に定義が無く、リンクで初めて分かる。実際の口は `FmllrDiagGmmAccs::Update`
+- **`koeru-align` にも「書いていない OS」の席がある**（`src/mfa/unsupported.rs`）。**trait を足したら両方に実装すること。踏んだ**
 - **合成は WORLD ベース。** ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - **フロントは shadcn に依存しない。** レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - **配色は Radix Colors の段の意味を守る。** 1=地、2=面、…11=低コントラストの字、12=高コントラストの字。**塗りは段 9 ではなく段 11**（段 9 は明暗で同じ値になる色があり、字を載せると 4.5:1 に届かない）。検査は `crates/koeru-app/ui/scripts/check-contrast.ts`

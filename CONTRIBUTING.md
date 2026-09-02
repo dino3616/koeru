@@ -4,6 +4,18 @@ Issue と Pull Request を歓迎します。
 
 まず [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を読んでください。設計の前提は [docs/product-vision.md](docs/product-vision.md) にあります。**確定している方針に反する変更は、その方針を変えるべき理由から議論してください。** 実装の詳細から入ると噛み合いません。
 
+## 最初に submodule を取ってください
+
+C / C++ の依存（WORLD と Kaldi）は submodule で調達しています（`meta/decisions/DEC-PLT-016.toml`）。
+
+```bash
+git clone --recurse-submodules https://github.com/dino3616/koeru
+# もう clone してしまった場合
+git submodule update --init --recursive
+```
+
+取っていないと `build.rs` が止まります。**C++ のコンパイルエラーではなく、この手順を出して落ちる**ようにしてあります。
+
 ## DCO — すべてのコミットに Signed-off-by が必要です
 
 このプロジェクトは [Developer Certificate of Origin](https://developercertificate.org/) を採用しています。CLA はありません（再ライセンスの予定がないため）。

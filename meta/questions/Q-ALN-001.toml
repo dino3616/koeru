@@ -1,7 +1,7 @@
 schema = 'question'
 id = "Q-ALN-001"
 title = "Julius セグメンテーションキットの .binhmm を配布物に同梱できるか"
-status = "open"
+status = "closed"
 owner = "dino3616"
 why_it_matters = """
 License.md は対象を "the Software" と定義するだけで、同梱のモデルファイルを明示的に含んでいない。
@@ -9,9 +9,15 @@ License.md は対象を "the Software" と定義するだけで、同梱のモ�
 根拠の薄さがそのままリスクになる。
 """
 how_to_close = "リポジトリの一次資料を確認し、必要なら上流へ書面で問い合わせる。"
-blocks_profiles = [
-  'PROFILE-M3',
-]
+closed_by = 'DEC-ALN-004'
+closed_how = '''
+**測って閉じたのではなく、判断で閉じた。** リポジトリ全体が MIT で配られており、
+音響モデルはそのリポジトリの中にある——その事実を受け取ることにした（DEC-ALN-004）。
+License.md が `.binhmm` を明示的に列挙していないこと、学習コーパスの出所が未確認である
+ことは変わっていない。**TR-ALN-31 には例外条項を足した。**
+
+**上流への問い合わせは続ける。** 否定されたら DEC-ALN-001 ごと snfa へ戻す。
+'''
 affects_requirements = ["TR-ALN-04"]
 affects_decisions = ["DEC-ALN-001"]
 affects_evidence = ["EVID-LIC-001"]
