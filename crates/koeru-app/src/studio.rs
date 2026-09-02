@@ -17,6 +17,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use koeru_align::aligner::{Alignment, Segment};
+use koeru_align::confidence::Confidence;
 use koeru_align::derive::derive_cv;
 use koeru_align::preset::{ConsonantClass, Preset};
 use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
@@ -279,6 +281,45 @@ impl Sink for StreamSink {
     fn seal(&self) {
         self.feed.seal();
     }
+}
+
+/// 退避経路の境界を、アライナと同じ形（`Alignment`）に包む。
+///
+/// **事後確率は持たない。** 音響モデルを通していないので、
+/// `TR-ALN-24` の成分 (1) 経路確信度が出せない（`None` のまま）。
+fn fallback_alignment(samples: &[f64], rate: u32) -> Option<Alignment> {
+    let cfg = SegmentConfig::default();
+    let b = detect_single(samples, rate, &cfg)?;
+    #[allow(clippy::cast_precision_loss)]
+    let total_ms = samples.len() as f64 / f64::from(rate) * 1000.0;
+    let sil = koeru_align::phoneme::Phoneme::new(koeru_align::phoneme::SILENCE)?;
+    Some(Alignment {
+        segments: vec![
+            Segment {
+                phoneme: sil,
+                start_ms: 0.0,
+                end_ms: b.voice_start_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.voice_start_ms,
+                end_ms: b.vowel_start_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.vowel_start_ms,
+                end_ms: b.vowel_end_ms,
+            },
+            Segment {
+                phoneme: sil,
+                start_ms: b.vowel_end_ms,
+                end_ms: total_ms.max(b.vowel_end_ms),
+            },
+        ],
+        posteriors: None,
+        log_likelihood: None,
+        grid_divergence: None,
+    })
 }
 
 impl Studio {
@@ -1079,7 +1120,8 @@ impl Studio {
         let duration_ms = frames as f64 * 1000.0 / f64::from(rate);
         let cfg = SegmentConfig::default();
         // **アライナを通す**（`TR-ALN-03`）。MFA が使えなければ退避経路が同じ口で答える。
-        let boundaries = self.align_take(&f64s, rate, &row_id);
+        let alignment = self.align_take(&f64s, rate, &row_id);
+        let boundaries = alignment.as_ref().and_then(Boundaries::from_alignment);
 
         // ── 計測（TR-REC-16）と無音マージン（TR-REC-38）──
         // **測るだけ。判定も指摘もしない。**
@@ -1100,7 +1142,14 @@ impl Studio {
         let (oto, conf) = match boundaries {
             None => (None, None),
             Some(b) => {
-                let c = confidence(&f64s, rate, &b, &cfg).score();
+                // **事後確率があればそこから組み立てる**（`TR-ALN-24` の成分 (1)(2)）。
+                // 無ければ退避経路の計算へ落ちる。**MFA が動いたのに
+                // パワー比で境界鋭さを測ると、要件の定義と違うものを記録することになる。**
+                let c = alignment
+                    .as_ref()
+                    .and_then(|a| Confidence::from_alignment(a, &f64s))
+                    .unwrap_or_else(|| confidence(&f64s, rate, &b, &cfg))
+                    .score();
                 let o = derive_cv(
                     b.voice_start_ms,
                     b.vowel_start_ms,
@@ -1664,16 +1713,20 @@ impl Studio {
         Ok(self.opened()?.dir.read_manifest()?.display_name)
     }
 
-    /// 1テイクをアライメントして、単独音の境界を得る（`TR-ALN-03`, `TR-ALN-10`）。
+    /// 1テイクをアライメントする（`TR-ALN-03`, `TR-ALN-10`）。
     ///
     /// **録音完了の直後に呼ぶ**（`TR-ALN-10` の逐次推定）。
     ///
-    /// アライナが答えられなければ退避経路の [`detect_single`] へ落ちる。
+    /// **`Alignment` をそのまま返す。** 境界だけに畳んで返すと、
+    /// 事後確率が捨てられて `TR-ALN-24` の成分 (1) 経路確信度が永久に出せない
+    /// （**一度そう書いた**）。呼び出し側が確信度を組み立てるのに要る。
+    ///
+    /// アライナが答えられなければ退避経路の [`detect_single`] へ落ち、
+    /// その場合は事後確率を持たない `Alignment` になる。
     /// **黙って諦めない**——落ちた理由はトレースに種別で出す。
-    fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Option<Boundaries> {
+    fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Option<Alignment> {
         use koeru_align::aligner::AlignRequest;
 
-        let cfg = SegmentConfig::default();
         // **読みは録音リストが持っている**（`TR-ALN-07`。実行時に g2p を持ち込まない）。
         let kana = self.opened_mut().ok()?.ledger.units_of(row_id).ok()?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
@@ -1684,7 +1737,7 @@ impl Studio {
                     reason = e.kind(),
                     "読みを音素へ写せない。退避経路で境界を出す"
                 );
-                return detect_single(samples, rate, &cfg);
+                return fallback_alignment(samples, rate);
             }
         };
 
@@ -1695,7 +1748,7 @@ impl Studio {
             grid: None,
         };
         match self.aligner.as_aligner().align(&req) {
-            Ok(a) => Boundaries::from_alignment(&a).or_else(|| detect_single(samples, rate, &cfg)),
+            Ok(a) => Some(a),
             Err(e) => {
                 // **テキスト逸脱はここで潰さない**（`TR-ALN-09`）。
                 // 境界が出ないまま返せば、oto が付かず確認キューへ回る。
@@ -1706,7 +1759,7 @@ impl Studio {
                 {
                     None
                 } else {
-                    detect_single(samples, rate, &cfg)
+                    fallback_alignment(samples, rate)
                 }
             }
         }

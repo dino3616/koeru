@@ -21,7 +21,7 @@
 //! ネイティブ実装を既定とする」と定めており、単独音では音素列が
 //! 2〜3境界しかないので、統計的なアライメントを持ち出す必要がない。
 
-use crate::confidence::Confidence;
+use crate::confidence::{Confidence, acoustic_score};
 
 /// 検出した境界（ミリ秒）。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -213,7 +213,7 @@ pub fn confidence(
             path: None,
             sharpness: 0.0,
             prior: 1.0,
-            acoustic: 0.0,
+            acoustic: acoustic_score(samples),
         };
     }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -245,16 +245,8 @@ pub fn confidence(
         0.0
     };
 
-    // クリッピング（±1.0 に張り付く）とレベル不足を見る。
-    let clipped = samples.iter().filter(|v| v.abs() >= 0.999).count();
-    let peak = samples.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    let acoustic = if clipped > samples.len() / 1000 {
-        0.2 // **1000サンプルに1つ以上張り付いていたら疑う。**
-    } else if peak < 0.01 {
-        0.3 // レベル不足
-    } else {
-        1.0
-    };
+    // 音響異常度は一次経路と共通（`TR-ALN-24` の成分 (4)）。
+    let acoustic = crate::confidence::acoustic_score(samples);
 
     Confidence {
         // **退避経路は経路確信度を出せない**（TR-ALN-24 の成分 (1)）。
