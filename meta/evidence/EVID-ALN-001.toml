@@ -191,3 +191,47 @@ sinc が `1/cutoff` 倍に伸びるので、入力サンプルで数えた窓幅
 **端の窓が欠けたぶんを重みで割り戻さないこと**——割り戻すと信号が急に始まるとき
 **先頭に無い音を作る。** ゼロ詰めなら素直に立ち上がるだけで済む。
 '''
+
+# ── 同梱する版（v3.3.0）──────────────────────────
+bundled_version = '''
+**同梱するのは HuggingFace の `MontrealCorpusTools/japanese_mfa`（v3.3.0）**（DEC-ALN-012）。
+調査と最初の実装は Release zip の v3.0.0 で行ったが、**そちらは git で追えない**——
+`mfa-models` リポジトリに入っているのは `LICENSE` / `README.md` / `meta.json`（824B）だけで、
+モデルは Release アセット。**HF のほうは本物の git リポジトリ**（git + LFS）。
+
+| | v3.0.0（Release zip） | v3.3.0（HF、同梱するもの） |
+|---|---|---|
+| train_date | 2024-02-08 | 2026-05-20 |
+| 学習量 | 873,325 秒（242h）/ 2,352 話者 | **7,553,057 秒（2,089h）/ 309,319 話者** |
+| dither | 1 | **0.0** |
+| `final.mdl` | 50,255,653 B | 50,239,066 B |
+| `final.alimdl` | 50,255,653 B | 50,239,066 B |
+| `tree` | 380,757 B | 377,033 B |
+| `lda.mat` | 14,575 B | **14,575 B（同一）** |
+| `phones.txt` | 580 B | **580 B（同一）** |
+| 音素セット | 83 | **83、完全一致** |
+
+**音素セットが完全に一致するので、同梱の辞書リソース（`kana-phonemes.tsv`、144行）は
+そのまま使える。** 特徴次元 40 も変わらず、試験も全部通った。
+
+**[Fact] 上流が dither を 0 にしている。** v3.0.0 の `meta.json` は `dither: 1` だったが、
+v3.3.0 は `0.0`。**TR-ALN-29 のために切った判断が、上流の側でも同じ結論になっている。**
+
+**[Risk] 学習コーパスの構成が大きく変わり、ライセンスの重さが増した。**
+
+| コーパス | 時間 | 比率 | ライセンス |
+|---|---|---|---|
+| **LaboroTV Japanese** | 1,915.43 | **91.7%** | **LaboroTV Non-commercial** |
+| Common Voice Japanese | 71.54 | 3.4% | CC0 |
+| GlobalPhone Japanese | 33.88 | 1.6% | ELRA（有償・再配布不可） |
+| Japanese Versatile Speech | 30.25 | 1.4% | CC BY-SA 4.0 |
+| MagicData ASR-SJapDuSC | 18.71 | 0.9% | CC BY-NC-ND 4.0 |
+| Microsoft Speech Language Translation | 9.85 | 0.5% | Microsoft Research Data License |
+| TEDxJP-10K | 8.85 | 0.4% | Apache-2.0 |
+
+**非商用または再配布不可が 1,968.02h（94.2%）。** v3.0.0 では 42.7h（17.6%）の少数派だった。
+
+**訂正: TEDxJP-10K は Apache-2.0 だった。** 以前この Evidence と台帳に
+「TED / TEDx は CC BY-NC-ND」と書いたのは、TED 本体の利用規約からの推定で、
+**コーパス自体のライセンスを確かめていなかった。** HF のモデルカードは Apache-2.0 と明記している。
+'''

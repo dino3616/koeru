@@ -13,35 +13,36 @@
 #   ok        条件に問題がない
 #   restricted 再配布禁止・非商用限定などが含まれる。**judgement が要る**
 #   unverified 出所またはライセンスが未確認。**judgement が要る**
+#
+# **モデルの実体は submodule で持っている**（DEC-ALN-012）。
+# `crates/koeru-align/models/japanese_mfa` が HuggingFace のリポジトリを指す。
+# **上流がホストしているので、KOERU 自身が再配布しているわけではない。**
 
 [[model]]
 id = "mfa-japanese-acoustic"
-name = "MFA 日本語音響モデル v3.0.0"
+name = "MFA 日本語音響モデル v3.3.0"
 purpose = "日本語音素の強制アライメント（一次経路）"
-source_url = "https://github.com/MontrealCorpusTools/mfa-models/releases/tag/acoustic-japanese_mfa-v3.0.0"
+source_url = "https://huggingface.co/MontrealCorpusTools/japanese_mfa"
 license = "CC-BY-4.0"
-attribution = "Montreal Forced Aligner — Japanese MFA acoustic model v3.0.0 (CC BY 4.0)。KOERU は重みを改変せず、そのまま同梱している"
+attribution = "Montreal Forced Aligner — japanese_mfa v3.3.0 by Michael McAuliffe (CC BY 4.0)。KOERU は重みを改変せず、そのまま同梱している"
 corpus_status = "restricted"
 corpus = """
-Common Voice Japanese v12.0（CC0）/ GlobalPhone Japanese v3.1（ELRA の有償ライセンス、\
-研究用と商用で料金が分かれ再配布不可）/ Microsoft Speech Language Translation Japanese（**未確認**）/ \
-Japanese Versatile Speech（タグは CC BY-SA 4.0、音声は独自条項）/ TEDxJP-10K v1.1（TED・TEDx は CC BY-NC-ND）\
-"""
+LaboroTV Japanese 1,915.43h（**LaboroTV Non-commercial。学習量の 91.7%**）/ Common Voice Japanese 71.54h（CC0）/ GlobalPhone Japanese 33.88h（**ELRA の有償ライセンス、再配布不可**）/ Japanese Versatile Speech 30.25h（CC BY-SA 4.0）/ MagicData ASR-SJapDuSC 18.71h（**CC BY-NC-ND 4.0**）/ Microsoft Speech Language Translation Japanese 9.85h（Microsoft Research Data License）/ TEDxJP-10K 8.85h（Apache-2.0）。**合計 2,088.51h のうち 1,968.02h（94.2%）が非商用または再配布不可**"""
 commercial_ok = "unverified"
-judgement = "DEC-ALN-008"
-note = "**学習コーパスの条件が派生した重みへ及ぶかは法的に定まっていない。配布者の表示を額面どおり受け取る判断であって、確実性の主張ではない。** → EVID-ALN-001"
+judgement = "DEC-ALN-012"
+note = "**学習データの 94.2% が非商用・再配布不可。** DEC-ALN-008 の「配布者の表示を額面どおり受け取る」判断を、DEC-ALN-012 でこの重さを承知の上で継続した。**確実性の主張ではない。** → EVID-ALN-001"
 
 [[model]]
 id = "mfa-japanese-dictionary"
-name = "MFA 日本語辞書 v3.0.0"
-purpose = "辞書 FST の語彙（499,793 語 / 61 音素）"
-source_url = "https://github.com/MontrealCorpusTools/mfa-models/releases"
+name = "MFA 日本語辞書（japanese_mfa.dict）"
+purpose = "辞書 FST の語彙"
+source_url = "https://huggingface.co/MontrealCorpusTools/japanese_mfa"
 license = "CC-BY-4.0"
 attribution = "Montreal Forced Aligner — Japanese MFA dictionary v3.0.0 (CC BY 4.0)"
 corpus_status = "ok"
 corpus = "辞書は語と読みの対応表で、音声コーパスから学習した重みではない"
 commercial_ok = "yes"
-judgement = "DEC-ALN-008"
+judgement = "DEC-ALN-012"
 note = ""
 
 [[model]]

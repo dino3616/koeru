@@ -30,8 +30,10 @@ id = 'TGT-ALN-003'
 item = '同梱物のサイズ'
 goal = '**100MB 以下**'
 decided_by = 'DEC-ALN-008'
-note = '''**MFA 日本語音響モデル v3.0.0 が展開後 97.0MiB**（zip 88.0MiB。EVID-ALN-001 の実測）。
-うち 95.8MiB が `final.alimdl` と `final.mdl` の2つ。**退避経路の Julius を併載して約 100.6MiB。**
+note = '''**MFA 日本語音響モデル v3.3.0 の `acoustic/` が 96.0MiB**（DEC-ALN-012、EVID-ALN-001 の実測）。
+うち 95.8MiB が `final.alimdl` と `final.mdl` の2つ。辞書（`japanese_mfa.dict`）が 5.9MiB、
+退避経路の Julius が 3.6MB。**合計で約 105.5MiB。**
+**submodule には使わない `g2p/model.fst`（33.2MiB）も入っているが、配布物へは入れない。**
 従来の 50MB は snfa 級（約1.2MB）と Julius 級（約3.6MB）しか候補が無かった時期の枠'''
 
 [[target]]

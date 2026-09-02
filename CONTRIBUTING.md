@@ -4,9 +4,18 @@ Issue と Pull Request を歓迎します。
 
 まず [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を読んでください。設計の前提は [docs/product-vision.md](docs/product-vision.md) にあります。**確定している方針に反する変更は、その方針を変えるべき理由から議論してください。** 実装の詳細から入ると噛み合いません。
 
-## 最初に submodule を取ってください
+## 最初に git-lfs と submodule を用意してください
 
-C / C++ の依存（WORLD と Kaldi）は submodule で調達しています（`meta/decisions/DEC-PLT-016.toml`）。
+**先に `git-lfs` を入れてください。** MFA の音響モデルは HuggingFace のリポジトリを
+submodule にしていて（`meta/decisions/DEC-ALN-012.toml`）、実体が LFS に入っています。
+**入れずに clone すると `git-lfs filter-process: command not found` で途中で死にます。**
+
+```bash
+brew install git-lfs   # macOS。他は https://git-lfs.com
+git lfs install
+```
+
+C / C++ の依存（WORLD と Kaldi）も submodule です（`meta/decisions/DEC-PLT-016.toml`）。
 
 ```bash
 git clone --recurse-submodules https://github.com/dino3616/koeru
@@ -15,6 +24,9 @@ git submodule update --init --recursive
 ```
 
 取っていないと `build.rs` が止まります。**C++ のコンパイルエラーではなく、この手順を出して落ちる**ようにしてあります。
+
+**モデルが無くてもアプリは動きます。** 自動原音設定が音響モデルを使わない退避経路に落ちるだけで、
+録音も試唱も止まりません（ログに「自動原音設定は退避経路で動く」と出ます）。
 
 ## DCO — すべてのコミットに Signed-off-by が必要です
 

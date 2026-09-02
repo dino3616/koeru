@@ -22,9 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ は submodule で調達している**（DEC-PLT-016）。
+          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
+          lfs: true
       # **Tauri は Linux で WebKitGTK を要る**（DEC-PLT-014）。
       - uses: ./.github/actions/linux-webview
       - name: Show toolchain
@@ -46,9 +49,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ は submodule で調達している**（DEC-PLT-016）。
+          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
+          lfs: true
       # Linux だけ WebKitGTK が要る（上と同じ理由）。
       - uses: ./.github/actions/linux-webview
         if: matrix.os == 'ubuntu-latest'
@@ -62,9 +68,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ は submodule で調達している**（DEC-PLT-016）。
+          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
+          lfs: true
       # 配布バイナリはバージョンと SHA-256 の両方で固定する。
       # 更新は Renovate 任せにせず、semantic diff を確認してから上げること。
       - name: Install fslc
@@ -124,9 +133,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ は submodule で調達している**（DEC-PLT-016）。
+          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
+          lfs: true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: crates/koeru-app/ui/package.json
@@ -146,9 +158,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ は submodule で調達している**（DEC-PLT-016）。
+          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
+          lfs: true
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。

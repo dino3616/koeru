@@ -1,0 +1,82 @@
+schema = 'decision'
+id = 'DEC-ALN-012'
+constraint_label = 'モデルの同梱方法'
+constraint = '実行時に取りに行かないこと。何を配っているかを説明できること'
+title = 'MFA のモデルを HuggingFace の submodule で同梱し、v3.3.0 へ上げる'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'HuggingFace の japanese_mfa を submodule にする（v3.3.0）',
+  'v3.0.0 の Release zip を Git LFS でリポジトリへ入れる',
+  'v3.0.0 を自前のリポジトリへ置いて submodule にする',
+  'ビルド時 / リリース時に取得する',
+]
+selected = 'HuggingFace の japanese_mfa を submodule にする（v3.3.0）'
+rationale = '''
+**`MontrealCorpusTools/mfa-models` は submodule にできない。** モデルは Release アセットで、
+git に入っているのは `LICENSE` / `README.md` / `meta.json`（824B）だけ。
+
+**HuggingFace の `MontrealCorpusTools/japanese_mfa` は本物の git リポジトリ**（git + LFS）で、
+`final.mdl` / `final.alimdl` / `tree` / `lda.mat` / `phones.txt` / `meta.json` が入っている。
+**上流がホストしているので、KOERU が再配布する必要がない。** 自前のミラーを作る案
+（選択肢3）はそこが違う——ミラーは KOERU による再配布そのものになる。
+
+**辞書も一緒に入る**（`dictionary/japanese_mfa.dict`、6.2MB）。CMP-003 を採用と宣言しながら
+入手経路を持っていなかったので、ここで埋まる。
+
+**HF にあるのは v3.3.0 で、試験してきた v3.0.0 とは別物。**
+
+| | v3.0.0（Release zip） | v3.3.0（HF） |
+|---|---|---|
+| train_date | 2024-02-08 | 2026-05-20 |
+| 学習量 | 242時間 / 2,352話者 | **2,089時間 / 309,319話者** |
+| dither | 1 | **0.0** |
+| 音素セット | 83個 | **83個で完全一致** |
+
+**音素セットが一致するので、同梱の辞書リソース（`kana-phonemes.tsv`）はそのまま使える。**
+**上流が dither を 0 にしているのは、TR-ALN-29 のために切った判断の裏づけ**（EVID-ALN-001）。
+
+**[Risk] ライセンスの重さが変わる。** v3.0.0 は問題のあるコーパスが 42.7時間（17.6%）の少数派だったが、
+v3.3.0 は **LaboroTV（非商用、1,915.43時間）が 91.7% を占め、非商用・再配布不可が合計 94.2%。**
+DEC-ALN-008 の「配布者の表示（CC BY 4.0）を額面どおり受け取る」という判断は変えないが、
+**同じ理屈が支えている重さが違う。** v3.0.0 なら「一部に条件付きが混ざっている」、
+v3.3.0 は「学習データのほぼ全部が非商用のもの」。**この違いを承知の上で採る。**
+
+**Git LFS が必須になる。** 手元・寄稿者・CI の3箇所に `git-lfs` が要る。
+初期化の失敗の仕方が1つ増える（`git-lfs filter-process: command not found` で clone が途中で死ぬ。
+**実際に踏んだ**）。CONTRIBUTING と CI に手順を足す。
+
+**ビルド時の取得は採らない。** DEC-PLT-016 が Kaldi について同じ形を退けたのと同じ理由——
+ビルドがネットワーク依存になり、供給鎖の検証が難しくなる。
+'''
+review_triggers = [
+  '**LaboroTV の権利者、または MFA の著者から異議が示されたとき。** そのときは v3.0.0 へ戻すか Julius（DEC-ALN-004）へ落とす',
+  '学習コーパスの条件が派生モデルへ及ぶという法的見解が定まったとき。**94.2% が非商用なので、v3.0.0 のときより影響が大きい**',
+  'git-lfs の初期化忘れによる問い合わせが繰り返し起きたとき',
+  '上流が HF のリポジトリを消したとき。**submodule が解決できなくなる**',
+  'v3.3.0 の境界精度が v3.0.0 より悪いと実測で分かったとき（M6 の評価ハーネス）',
+]
+supersedes = []
+affects_requirements = [
+  'TR-ALN-02',
+  'TR-ALN-05',
+  'TR-ALN-29',
+  'TR-ALN-31',
+  'TR-PLT-19',
+]
+affects_decisions = [
+  'DEC-ALN-008',
+  'DEC-PLT-016',
+]
+affects_evidence = [
+  'EVID-ALN-001',
+  'EVID-LIC-001',
+]
+affects_components = [
+  'CMP-003',
+  'CMP-004',
+]
+affects_targets = [
+  'TGT-ALN-003',
+  'TGT-PLT-003',
+]

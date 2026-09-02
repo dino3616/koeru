@@ -4,3 +4,6 @@
 [submodule "crates/koeru-align/vendor/kaldi"]
 	path = crates/koeru-align/vendor/kaldi
 	url = https://github.com/kaldi-asr/kaldi
+[submodule "crates/koeru-align/models/japanese_mfa"]
+	path = crates/koeru-align/models/japanese_mfa
+	url = https://huggingface.co/MontrealCorpusTools/japanese_mfa

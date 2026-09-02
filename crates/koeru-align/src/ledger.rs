@@ -251,7 +251,7 @@ mod tests {
             .expect("ある");
         assert_eq!(mfa.corpus_status, CorpusStatus::Restricted);
         assert!(mfa.needs_judgement());
-        assert_eq!(mfa.judgement, "DEC-ALN-008");
+        assert_eq!(mfa.judgement, "DEC-ALN-012");
     }
 
     /// **未確認を空欄にしない**（`TR-ALN-31`）。
@@ -303,7 +303,7 @@ mod tests {
         let n = notice(&models().expect("読める"));
         assert!(n.contains("CC-BY-4.0"));
         assert!(n.contains("Montreal Forced Aligner"));
-        assert!(n.contains("DEC-ALN-008"));
+        assert!(n.contains("DEC-ALN-012"));
         assert!(n.contains("再配布禁止・非商用限定が含まれる"));
     }
 

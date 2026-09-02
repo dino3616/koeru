@@ -14,13 +14,14 @@
 //!
 //! # モデルの置き場所
 //!
-//! **同梱の方法はまだ決めていない。** いまは探す場所を2つ持っている。
+//! **リポジトリに submodule で同梱している**（`DEC-ALN-012`）。探す順は3つ。
 //!
-//! 1. 環境変数 `KOERU_MFA_MODEL_DIR`
-//! 2. 実行ファイルの隣の `models/japanese_mfa`
+//! 1. 環境変数 `KOERU_MFA_MODEL_DIR`（開発中の差し替え用）
+//! 2. 実行ファイルの隣の `models/japanese_mfa`（配布物の形）
+//! 3. **リポジトリの `crates/koeru-align/models/japanese_mfa/acoustic`**（`cargo run` のとき）
 //!
-//! どちらにも無ければ退避経路。**配布物へどう入れるかを決めたら、
-//! ここに3つ目を足す**（`TR-PLT-19` の「初回起動後の追加ダウンロードをゼロにする」）。
+//! どこにも無ければ退避経路。**実行時に取りに行かない**
+//! （`TR-PLT-19` の「初回起動後の追加ダウンロードをゼロにする」）。
 
 use std::path::PathBuf;
 
@@ -31,8 +32,14 @@ use koeru_align::segment::HeuristicAligner;
 /// MFA のモデルを探す環境変数。
 const MODEL_DIR_ENV: &str = "KOERU_MFA_MODEL_DIR";
 
-/// 実行ファイルからの相対の置き場所。
+/// 実行ファイルからの相対の置き場所（配布物の形）。
 const MODEL_DIR_RELATIVE: &str = "models/japanese_mfa";
+
+/// リポジトリの中の置き場所（`cargo run` のとき）。
+///
+/// **submodule の中を直接指す。** `CARGO_MANIFEST_DIR` はビルドしたときの
+/// `koeru-app` の場所なので、そこから `koeru-align` の submodule へ辿る。
+const MODEL_DIR_IN_REPO: &str = "../koeru-align/models/japanese_mfa/acoustic";
 
 /// 選んだアライナ。
 #[derive(Debug)]
@@ -106,17 +113,27 @@ impl Chosen {
     }
 }
 
-/// モデルの置き場所を探す。
+/// モデルの置き場所を探す。**先に見つかったものを使う。**
 fn model_dir() -> Option<PathBuf> {
+    let has_model = |p: &PathBuf| p.join("final.mdl").is_file();
+
     if let Ok(p) = std::env::var(MODEL_DIR_ENV) {
         let p = PathBuf::from(p);
-        if p.join("final.mdl").is_file() {
+        if has_model(&p) {
             return Some(p);
         }
     }
-    let exe = std::env::current_exe().ok()?;
-    let p = exe.parent()?.join(MODEL_DIR_RELATIVE);
-    p.join("final.mdl").is_file().then_some(p)
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let p = dir.join(MODEL_DIR_RELATIVE);
+        if has_model(&p) {
+            return Some(p);
+        }
+    }
+    // **`cargo run` のとき。** submodule を初期化していれば、ここで見つかる。
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(MODEL_DIR_IN_REPO);
+    has_model(&p).then_some(p)
 }
 
 #[cfg(test)]
@@ -137,5 +154,20 @@ mod tests {
     fn 検出は必ず何かを返す() {
         let c = Chosen::detect();
         assert!(!c.as_aligner().identity().is_empty());
+    }
+
+    /// **submodule を初期化していれば、環境変数なしで MFA が選ばれる**（`DEC-ALN-012`）。
+    ///
+    /// 初期化していない環境では退避経路で通る。**どちらでも落ちない**ことを見ている。
+    #[test]
+    fn リポジトリの中のモデルを見つけられる() {
+        let in_repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(MODEL_DIR_IN_REPO)
+            .join("final.mdl");
+        if !in_repo.is_file() {
+            return; // submodule 未初期化
+        }
+        // **環境変数を使わずに見つかること。**
+        assert!(model_dir().is_some());
     }
 }

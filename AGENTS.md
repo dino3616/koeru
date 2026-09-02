@@ -75,10 +75,13 @@
 
 ## 検証
 
-**最初に submodule を取る。** WORLD と Kaldi は submodule で調達している（`DEC-PLT-016`）。
-取っていないと `build.rs` が手順を出して止まる。
+**最初に git-lfs を入れてから submodule を取る。** WORLD と Kaldi は submodule で調達しており
+（`DEC-PLT-016`）、**MFA の音響モデルは HuggingFace のリポジトリを submodule にしている**
+（`DEC-ALN-012`）。モデルの実体は LFS なので、`git-lfs` が無いと
+`git-lfs filter-process: command not found` で clone が途中で死ぬ。**一度やった。**
 
 ```bash
+brew install git-lfs && git lfs install
 git submodule update --init --recursive
 ```
 
@@ -167,6 +170,7 @@ crates/koeru-audio/ 音声 I/O。各 OS の API を直接叩く。状態機械�
 crates/koeru-synth/ 合成。submodule の WORLD への FFI、resampler
 crates/koeru-align/ 自動原音設定。MFA のモデルを Kaldi 経由で叩き、5値を導く
 crates/koeru-align/vendor/kaldi/  submodule。**推論に要る8モジュールだけ cc で組む**
+crates/koeru-align/models/japanese_mfa/  submodule（HuggingFace、LFS）。MFA の音響モデルと辞書
 crates/koeru-app/   アプリケーション層。**Rust も WebView 側もここ1つに入っている**
 crates/koeru-app/src/   Tauri のコマンドと、縦切りの組み立て
 crates/koeru-app/ui/    WebView 側。React + TanStack Start（SPA）+ Tailwind + Radix
