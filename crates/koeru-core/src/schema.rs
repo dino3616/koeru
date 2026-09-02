@@ -72,8 +72,9 @@ diesel::table! {
 
 diesel::table! {
     /// oto の5値と確認状態。
-    oto_values (take_id) {
+    oto_values (take_id, alias) {
         take_id -> Integer,
+        alias -> Text,
         offset_ms -> Double,
         consonant_ms -> Double,
         cutoff_ms -> Double,

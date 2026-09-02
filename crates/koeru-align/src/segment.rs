@@ -35,7 +35,58 @@ pub struct Boundaries {
 }
 
 impl Boundaries {
+    /// アライメントの結果から、**モーラごとの3境界**を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
+    ///
+    /// **単独音でも1ファイルに複数モーラが入る**（`TR-RCL-03` が1行あたり最大N単位で
+    /// グルーピングする）。`readings` はその行のモーラの並びで、
+    /// **返るのは同じ長さの境界の列。** 同じ WAV を複数のエイリアスが別の位置で指す。
+    ///
+    /// 並びは `[sil, (C V)+, sil]`。各モーラは `[C, V]` か `[V]`。
+    /// **区間の数が読みから期待される数と合わなければ `None`**——
+    /// 黙って先頭から詰めない。
+    ///
+    /// # Errors
+    ///
+    /// 読みが辞書に無い、区間の数が合わない。
+    pub fn per_mora(a: &crate::aligner::Alignment, readings: &[&str]) -> Option<Vec<Self>> {
+        if readings.is_empty() {
+            return None;
+        }
+        // 各モーラが何音素か。**辞書が正本**（`TR-ALN-07`）。
+        let widths: Vec<usize> = readings
+            .iter()
+            .map(|r| crate::phoneme::phonemes_for(r).map(<[_]>::len))
+            .collect::<Result<_, _>>()
+            .ok()?;
+        let want: usize = widths.iter().sum::<usize>() + 2; // 前後の sil
+        if a.segments.len() != want {
+            return None;
+        }
+
+        let mut out = Vec::with_capacity(readings.len());
+        let mut at = 1; // 先頭の sil を飛ばす
+        for w in widths {
+            let seg = a.segments.get(at..at + w)?;
+            let (voice_start_ms, vowel_start_ms) = match w {
+                // [C, V]
+                2 => (seg[0].start_ms, seg[1].start_ms),
+                // [V]。**母音始まりは発声開始と母音開始が同じ。**
+                1 => (seg[0].start_ms, seg[0].start_ms),
+                _ => return None,
+            };
+            out.push(Self {
+                voice_start_ms,
+                vowel_start_ms,
+                vowel_end_ms: seg[w - 1].end_ms,
+            });
+            at += w;
+        }
+        Some(out)
+    }
+
     /// アライメントの結果から、単独音の3境界を取り出す（`TR-ALN-11`）。
+    ///
+    /// **1モーラの行だけ。** 複数モーラなら [`Self::per_mora`] を使うこと。
     ///
     /// **どのアライナが出したものでも同じ形で受ける**（`TR-ALN-03` の trait 経由）。
     /// 並びは `[sil, C, V, sil]` か `[sil, V, sil]`。
@@ -370,6 +421,98 @@ impl crate::aligner::Aligner for HeuristicAligner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// **複数モーラの行から、モーラごとの境界が取れる**（`DEC-ALN-013`）。
+    ///
+    /// **画面で「発声を見つけられませんでした」と出た形。** `from_alignment` が
+    /// 4区間しか受けず、`に にゃ にゅ にょ`（10区間）で `None` を返していた。
+    #[test]
+    fn 複数モーラの行から境界を取れる() {
+        use crate::aligner::{Alignment, Segment};
+        let sil = crate::phoneme::Phoneme::new(crate::phoneme::SILENCE).expect("ある");
+        let readings = ["に", "にゃ", "にゅ", "にょ"];
+        // に=[ɲ i] にゃ=[ɲ a] にゅ=[ɲ ɯ] にょ=[ɲ o] → 8 音素 ＋ 前後 sil = 10 区間
+        let segments: Vec<Segment> = (0..10)
+            .map(|i| Segment {
+                phoneme: sil,
+                start_ms: f64::from(i) * 100.0,
+                end_ms: f64::from(i + 1) * 100.0,
+            })
+            .collect();
+        let a = Alignment {
+            segments,
+            posteriors: None,
+            log_likelihood: None,
+            grid_divergence: None,
+        };
+
+        // **1モーラ用は受けない。**
+        assert!(Boundaries::from_alignment(&a).is_none());
+
+        let per = Boundaries::per_mora(&a, &readings).expect("モーラごとに取れる");
+        assert_eq!(per.len(), 4);
+        // 1つめの「に」は区間 1（子音）と 2（母音）。
+        assert!((per[0].voice_start_ms - 100.0).abs() < 1e-9);
+        assert!((per[0].vowel_start_ms - 200.0).abs() < 1e-9);
+        assert!((per[0].vowel_end_ms - 300.0).abs() < 1e-9);
+        // 4つめの「にょ」は区間 7 と 8。
+        assert!((per[3].voice_start_ms - 700.0).abs() < 1e-9);
+        assert!((per[3].vowel_end_ms - 900.0).abs() < 1e-9);
+        // **境界が単調。**
+        for w in per.windows(2) {
+            assert!(w[1].voice_start_ms >= w[0].vowel_end_ms);
+        }
+    }
+
+    /// **母音始まりのモーラが混ざっても取れる。**
+    #[test]
+    fn 母音始まりが混ざっても取れる() {
+        use crate::aligner::{Alignment, Segment};
+        let sil = crate::phoneme::Phoneme::new(crate::phoneme::SILENCE).expect("ある");
+        // あ=[a]（1音素） か=[k a]（2音素） → 3 音素 ＋ 前後 sil = 5 区間
+        let a = Alignment {
+            segments: (0..5)
+                .map(|i| Segment {
+                    phoneme: sil,
+                    start_ms: f64::from(i) * 100.0,
+                    end_ms: f64::from(i + 1) * 100.0,
+                })
+                .collect(),
+            posteriors: None,
+            log_likelihood: None,
+            grid_divergence: None,
+        };
+        let per = Boundaries::per_mora(&a, &["あ", "か"]).expect("取れる");
+        assert_eq!(per.len(), 2);
+        // 「あ」は母音始まりなので、発声開始と母音開始が同じ。
+        assert!((per[0].voice_start_ms - per[0].vowel_start_ms).abs() < 1e-9);
+        // 「か」は子音があるのでずれる。
+        assert!(per[1].vowel_start_ms > per[1].voice_start_ms);
+    }
+
+    /// **区間の数が合わなければ、黙って先頭から詰めない。**
+    #[test]
+    fn 区間の数が合わなければ拒む() {
+        use crate::aligner::{Alignment, Segment};
+        let sil = crate::phoneme::Phoneme::new(crate::phoneme::SILENCE).expect("ある");
+        let a = Alignment {
+            segments: (0..4)
+                .map(|i| Segment {
+                    phoneme: sil,
+                    start_ms: f64::from(i) * 100.0,
+                    end_ms: f64::from(i + 1) * 100.0,
+                })
+                .collect(),
+            posteriors: None,
+            log_likelihood: None,
+            grid_divergence: None,
+        };
+        // 2モーラなら 6 区間のはずなのに 4 しかない。
+        assert!(Boundaries::per_mora(&a, &["か", "き"]).is_none());
+        assert!(Boundaries::per_mora(&a, &[]).is_none());
+        // 辞書に無い読み。
+        assert!(Boundaries::per_mora(&a, &["ぢゃ"]).is_none());
+    }
+
     /// **アライメントの結果から単独音の境界を取り出せる**（`TR-ALN-03` 経由）。
     #[test]
     fn アライメントから境界を取り出せる() {

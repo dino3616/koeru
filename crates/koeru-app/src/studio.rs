@@ -1121,7 +1121,21 @@ impl Studio {
         let cfg = SegmentConfig::default();
         // **アライナを通す**（`TR-ALN-03`）。MFA が使えなければ退避経路が同じ口で答える。
         let alignment = self.align_take(&f64s, rate, &row_id);
-        let boundaries = alignment.as_ref().and_then(Boundaries::from_alignment);
+        // **1ファイルに複数モーラが入る**（`TR-RCL-03`、`DEC-ALN-013`）。
+        // モーラごとに境界を取り出し、oto もモーラごとに作る。
+        let kana = self.opened_mut()?.ledger.units_of(&row_id)?;
+        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
+        let per_mora = alignment
+            .as_ref()
+            .and_then(|a| Boundaries::per_mora(a, &readings));
+        // 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）はファイル全体で見る。
+        let boundaries = per_mora.as_ref().and_then(|v| {
+            Some(Boundaries {
+                voice_start_ms: v.first()?.voice_start_ms,
+                vowel_start_ms: v.first()?.vowel_start_ms,
+                vowel_end_ms: v.last()?.vowel_end_ms,
+            })
+        });
 
         // ── 計測（TR-REC-16）と無音マージン（TR-REC-38）──
         // **測るだけ。判定も指摘もしない。**
@@ -1139,40 +1153,52 @@ impl Studio {
             guide_offset,
         )?;
 
-        let (oto, conf) = match boundaries {
+        let (oto, conf) = match per_mora {
             None => (None, None),
-            Some(b) => {
-                // **事後確率があればそこから組み立てる**（`TR-ALN-24` の成分 (1)(2)）。
-                // 無ければ退避経路の計算へ落ちる。**MFA が動いたのに
-                // パワー比で境界鋭さを測ると、要件の定義と違うものを記録することになる。**
+            Some(ref v) => {
+                // **確信度はテイク全体で1つ。** 事後確率があればそこから組み立てる
+                // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
+                // **MFA が動いたのにパワー比で境界鋭さを測ると、
+                // 要件の定義と違うものを記録することになる。**
                 let c = alignment
                     .as_ref()
                     .and_then(|a| Confidence::from_alignment(a, &f64s))
-                    .unwrap_or_else(|| confidence(&f64s, rate, &b, &cfg))
-                    .score();
-                let o = derive_cv(
-                    b.voice_start_ms,
-                    b.vowel_start_ms,
-                    b.vowel_end_ms,
-                    duration_ms,
-                    &Preset::default_for(koeru_core::alias::Method::Single)
-                        .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?,
-                    // **子音クラスは行から引く**（`TR-ALN-17` の子音クラス別係数）。
-                    self.consonant_class(&row_id)?,
-                );
-                self.opened_mut()?.ledger.put_oto(
-                    take_id,
-                    &koeru_oto::Oto {
-                        offset_ms: o.offset_ms,
-                        consonant_ms: o.consonant_ms,
-                        cutoff_ms: o.cutoff_ms,
-                        preutterance_ms: o.preutterance_ms,
-                        overlap_ms: o.overlap_ms,
-                    },
-                    c,
-                    false,
-                )?;
-                (Some(o), Some(c))
+                    .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)))
+                    .map_or(0.0, |x| x.score());
+
+                let preset = Preset::default_for(koeru_core::alias::Method::Single)
+                    .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+
+                // **モーラごとに1つ。** 同じ WAV を別のエイリアスが別の位置で指す。
+                let mut first = None;
+                for (b, reading) in v.iter().zip(&kana) {
+                    let o = derive_cv(
+                        b.voice_start_ms,
+                        b.vowel_start_ms,
+                        b.vowel_end_ms,
+                        duration_ms,
+                        &preset,
+                        // **子音クラスはそのモーラから引く**（`TR-ALN-17`）。
+                        Self::consonant_class_of(reading),
+                    );
+                    self.opened_mut()?.ledger.put_oto(
+                        take_id,
+                        reading,
+                        &koeru_oto::Oto {
+                            offset_ms: o.offset_ms,
+                            consonant_ms: o.consonant_ms,
+                            cutoff_ms: o.cutoff_ms,
+                            preutterance_ms: o.preutterance_ms,
+                            overlap_ms: o.overlap_ms,
+                        },
+                        c,
+                        false,
+                    )?;
+                    if first.is_none() {
+                        first = Some(o);
+                    }
+                }
+                (first, Some(c))
             }
         };
 
@@ -1273,10 +1299,15 @@ impl Studio {
             .ledger
             .take(take_id)?
             .ok_or_else(|| AppError::new("app.unknown_take", "そのテイクが台帳に無い"))?;
+        // **1テイクに複数のエントリがある**（`DEC-ALN-013`）。試聴は先頭の1つで鳴らす。
+        // 並びはエイリアス順で常に同じ（`TR-ALN-29`）。
         let oto = self
             .opened_mut()?
             .ledger
-            .oto_of(take_id)?
+            .otos_of(take_id)?
+            .into_iter()
+            .next()
+            .map(|(_, o)| o)
             .ok_or_else(|| AppError::new("app.no_oto", "そのテイクにまだ原音設定が無い"))?;
         let analysis = self.opened_mut()?.ledger.analysis_of(take_id)?;
 
@@ -1645,7 +1676,9 @@ impl Studio {
             let Some(take) = self.opened_mut()?.ledger.take_for_unit(&unit)? else {
                 continue;
             };
-            let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id)? else {
+            // **単位がそのままエイリアス。** 1テイクに複数のエントリがあるので、
+            // 欲しい単位のものを名前で引く（`DEC-ALN-013`）。
+            let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id, &unit)? else {
                 continue;
             };
             paths.insert(unit.clone(), root.join(&take.rel_path));
@@ -1765,18 +1798,16 @@ impl Studio {
         }
     }
 
-    /// 行の子音クラス（`TR-ALN-17` の子音クラス別係数）。
+    /// そのモーラの子音クラス（`TR-ALN-17` の子音クラス別係数）。
     ///
-    /// **単独音は1行1モーラ**なので、最初に見つかった単位の子音で決まる。
+    /// **1行に複数モーラが入る**ので（`DEC-ALN-013`）、行ではなくモーラから引く。
     /// 引けなければ母音始まり扱い——**推測で無声破裂音にしない。**
     /// 取り違えると、重ねてはいけない音を重ねる。
-    fn consonant_class(&mut self, row_id: &str) -> Result<ConsonantClass> {
-        let kana = self.opened_mut()?.ledger.units_of(row_id)?;
-        let all = koeru_core::inventory::units(UnitSet::Extended);
-        Ok(kana
+    fn consonant_class_of(kana: &str) -> ConsonantClass {
+        koeru_core::inventory::units(UnitSet::Extended)
             .iter()
-            .find_map(|k| all.iter().find(|u| u.kana == *k))
-            .map_or(ConsonantClass::None, |u| ConsonantClass::of(u.consonant)))
+            .find(|u| u.kana == kana)
+            .map_or(ConsonantClass::None, |u| ConsonantClass::of(u.consonant))
     }
 
     fn opened(&self) -> Result<&Open> {

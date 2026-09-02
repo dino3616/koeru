@@ -446,10 +446,15 @@ impl Ledger {
             .collect())
     }
 
-    /// oto の5値を保存する。
+    /// oto の5値を保存する（`TR-ALN-13`）。
+    ///
+    /// **エイリアス単位。** 単独音でも1ファイルに複数モーラが入るので
+    /// （`TR-RCL-03`、`DEC-ALN-013`）、1テイクに複数のエントリがぶら下がる。
+    /// 同じ WAV を複数のエイリアスが別の位置で指す。
     pub fn put_oto(
         &mut self,
         take_id: i32,
+        alias: &str,
         o: &koeru_oto::Oto,
         confidence: f64,
         hand_edited: bool,
@@ -457,6 +462,7 @@ impl Ledger {
         diesel::insert_into(oto_values::table)
             .values((
                 oto_values::take_id.eq(take_id),
+                oto_values::alias.eq(alias),
                 oto_values::offset_ms.eq(o.offset_ms),
                 oto_values::consonant_ms.eq(o.consonant_ms),
                 oto_values::cutoff_ms.eq(o.cutoff_ms),
@@ -465,7 +471,7 @@ impl Ledger {
                 oto_values::confidence.eq(confidence),
                 oto_values::hand_edited.eq(i32::from(hand_edited)),
             ))
-            .on_conflict(oto_values::take_id)
+            .on_conflict((oto_values::take_id, oto_values::alias))
             .do_update()
             .set((
                 oto_values::offset_ms.eq(o.offset_ms),
@@ -998,9 +1004,11 @@ impl Ledger {
 
     /// テイクに紐づく oto の5値を引く。**まだ無ければ `None`。**
     #[tracing::instrument(skip(self), fields(take_id), err)]
-    pub fn oto_of(&mut self, take_id: i32) -> Result<Option<koeru_oto::Oto>> {
+    /// そのテイクのエイリアスに対する oto（`DEC-ALN-013`）。
+    pub fn oto_of(&mut self, take_id: i32, alias: &str) -> Result<Option<koeru_oto::Oto>> {
         oto_values::table
             .filter(oto_values::take_id.eq(take_id))
+            .filter(oto_values::alias.eq(alias))
             .select((
                 oto_values::offset_ms,
                 oto_values::consonant_ms,
@@ -1026,7 +1034,50 @@ impl Ledger {
             })
     }
 
-    /// 行が生む単位を引く。
+    /// そのテイクに紐づく oto を全部（`DEC-ALN-013`）。
+    ///
+    /// **並びはエイリアス順で常に同じ**（`TR-ALN-29` の決定性）。
+    pub fn otos_of(&mut self, take_id: i32) -> Result<Vec<(String, koeru_oto::Oto)>> {
+        oto_values::table
+            .filter(oto_values::take_id.eq(take_id))
+            .order(oto_values::alias.asc())
+            .select((
+                oto_values::alias,
+                oto_values::offset_ms,
+                oto_values::consonant_ms,
+                oto_values::cutoff_ms,
+                oto_values::preutterance_ms,
+                oto_values::overlap_ms,
+            ))
+            .load::<(String, f64, f64, f64, f64, f64)>(&mut self.conn)
+            .map_err(db("otos_of"))
+            .map(|v| {
+                v.into_iter()
+                    .map(
+                        |(
+                            alias,
+                            offset_ms,
+                            consonant_ms,
+                            cutoff_ms,
+                            preutterance_ms,
+                            overlap_ms,
+                        )| {
+                            (
+                                alias,
+                                koeru_oto::Oto {
+                                    offset_ms,
+                                    consonant_ms,
+                                    cutoff_ms,
+                                    preutterance_ms,
+                                    overlap_ms,
+                                },
+                            )
+                        },
+                    )
+                    .collect()
+            })
+    }
+
     pub fn units_of(&mut self, row_id: &str) -> Result<Vec<String>> {
         row_units::table
             .filter(row_units::row_id.eq(row_id))
@@ -1229,8 +1280,28 @@ mod tests {
             preutterance_ms: 70.0,
             overlap_ms: 23.0,
         };
-        l.put_oto(id, &o, 0.9, false).expect("保存できる");
-        l.put_oto(id, &o, 0.5, true).expect("上書きできる");
+        l.put_oto(id, "か", &o, 0.9, false).expect("保存できる");
+        l.put_oto(id, "か", &o, 0.5, true).expect("上書きできる");
+
+        // **1テイクに複数のエントリを持てる**（`DEC-ALN-013`）。
+        // 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03`）。
+        let mut o2 = o;
+        o2.offset_ms = 500.0;
+        l.put_oto(id, "き", &o2, 0.8, false)
+            .expect("2つ目も保存できる");
+
+        let all = l.otos_of(id).expect("引ける");
+        assert_eq!(all.len(), 2, "1テイクに2つ入っている");
+        // **並びはエイリアス順で常に同じ**（`TR-ALN-29`）。
+        assert_eq!(all[0].0, "か");
+        assert_eq!(all[1].0, "き");
+        assert!((all[1].1.offset_ms - 500.0).abs() < 1e-9);
+
+        // **名前で引ける。**
+        assert!(
+            (l.oto_of(id, "き").expect("引ける").expect("ある").offset_ms - 500.0).abs() < 1e-9
+        );
+        assert!(l.oto_of(id, "く").expect("引ける").is_none());
     }
 
     #[test]
