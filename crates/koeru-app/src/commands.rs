@@ -100,6 +100,18 @@ impl From<Progress> for ProgressView {
     }
 }
 
+/// 画面へ返す原音設定の1件（`TR-ALN-33`）。**5値をそのまま渡す。**
+#[derive(Debug, Clone, Serialize)]
+pub struct OtoView {
+    pub alias: String,
+    pub offset_ms: f64,
+    pub consonant_ms: f64,
+    /// 負なら「offset からの長さ」、正なら「ファイル末尾からの距離」。
+    pub cutoff_ms: f64,
+    pub preutterance_ms: f64,
+    pub overlap_ms: f64,
+}
+
 /// 画面へ返す「行と、その行のテイク」（`TR-REC-21`, `TR-RCL-25`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct RowTakesView {
@@ -645,6 +657,23 @@ pub fn rows_with_takes(state: State<'_, AppState>) -> Result<Vec<RowTakesView>> 
 #[tauri::command]
 pub fn adopt_take(state: State<'_, AppState>, row_id: String, take_id: i32) -> Result<()> {
     lock(&state)?.adopt_take(&row_id, take_id)
+}
+
+/// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
+#[tauri::command]
+pub fn otos_of_take(state: State<'_, AppState>, take_id: i32) -> Result<Vec<OtoView>> {
+    Ok(lock(&state)?
+        .otos_of_take(take_id)?
+        .into_iter()
+        .map(|(alias, o)| OtoView {
+            alias,
+            offset_ms: o.offset_ms,
+            consonant_ms: o.consonant_ms,
+            cutoff_ms: o.cutoff_ms,
+            preutterance_ms: o.preutterance_ms,
+            overlap_ms: o.overlap_ms,
+        })
+        .collect())
 }
 
 /// 録れたものをそのまま鳴らす（`TR-REC-43`）。**合成を通さない。**

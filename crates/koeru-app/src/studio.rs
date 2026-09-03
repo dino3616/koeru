@@ -1536,6 +1536,20 @@ impl Studio {
             .unwrap_or_default()
     }
 
+    /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
+    ///
+    /// **自動原音設定が波形のどこを指したかを見せるための口。**
+    /// 数字だけ出しても、それが発声と重なっているかは分からない
+    /// ——4モーラが 100ms に潰れていても「確信度 30%」としか出なかった。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn otos_of_take(&mut self, take_id: i32) -> Result<Vec<(String, koeru_oto::Oto)>> {
+        Ok(self.opened_mut()?.ledger.otos_of(take_id)?)
+    }
+
     /// 録れたものを**そのまま**鳴らす（`TR-REC-43`）。
     ///
     /// **合成を通さない。** `preview` は oto で切り出して目標音高へ寄せた音で、

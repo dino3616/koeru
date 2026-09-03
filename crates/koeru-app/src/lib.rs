@@ -66,6 +66,7 @@ pub fn run() {
             commands::start_retake,
             commands::rows_with_takes,
             commands::adopt_take,
+            commands::otos_of_take,
             commands::play_take,
             commands::live_envelope,
             commands::finish_take,

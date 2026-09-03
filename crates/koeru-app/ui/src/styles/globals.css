@@ -21,6 +21,8 @@
 @import "@radix-ui/colors/red-dark.css";
 @import "@radix-ui/colors/jade.css";
 @import "@radix-ui/colors/jade-dark.css";
+@import "@radix-ui/colors/amber.css";
+@import "@radix-ui/colors/amber-dark.css";
 
 @theme {
   --font-sans:
@@ -73,6 +75,14 @@
    */
   --wave: var(--cyan-11);
   --wave-clip: var(--red-11);
+
+  /*
+   * 自動原音設定が指した位置（TR-ALN-33）。**波形と別の色相にする。**
+   * 線なので **面2 と切り出し域のどちらに乗っても 3:1**（TR-PLT-28）。
+   */
+  --boundary: var(--amber-11);
+  /* 切り出して使う区間の下地。**この上に波形が乗るので、波形との比も見る。** */
+  --boundary-surface: var(--amber-3);
 }
 
 @theme inline {
@@ -87,6 +97,8 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-ink: var(--accent-ink);
+  --color-boundary: var(--boundary);
+  --color-boundary-surface: var(--boundary-surface);
   --color-danger: var(--danger);
   --color-danger-ink: var(--danger-ink);
   --color-danger-text: var(--danger-text);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/cn";
-import { api, errorMessage } from "~/lib/ipc";
+import { type OtoView, api, errorMessage } from "~/lib/ipc";
 
 type TakeInspectorProps = {
   takeId: number;
@@ -18,6 +18,17 @@ const CLIP_THRESHOLD = 0.999;
 const SPECTRO_ROWS = 96;
 /** 引いたときの1画面の最短（ミリ秒）。**これ以上は寄れない。** */
 const MIN_SPAN_MS = 20;
+
+/**
+ * 切り出して使う区間（ミリ秒）。
+ *
+ * **cutoff は負なら「offset からの長さ」、正なら「ファイル末尾からの距離」。**
+ * UTAU の慣例で、符号で意味が変わる。
+ */
+const usableSpan = (o: OtoView, fileMs: number): [number, number] => {
+  const usable = o.cutoff_ms <= 0 ? -o.cutoff_ms : Math.max(0, fileMs - o.offset_ms - o.cutoff_ms);
+  return [o.offset_ms, o.offset_ms + usable];
+};
 
 /**
  * 録れたテイクの波形とスペクトログラム（TR-PLT-04）。
@@ -36,7 +47,16 @@ export const TakeInspector = ({ takeId, durationMs, peak, className }: TakeInspe
   const spectroRef = useRef<HTMLCanvasElement>(null);
   const [span, setSpan] = useState<[number, number]>([0, durationMs]);
   const [showSpectro, setShowSpectro] = useState(false);
+  const [otos, setOtos] = useState<OtoView[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // **自動原音設定が指した位置**（TR-ALN-33）。テイクが変わったら引き直す。
+  useEffect(() => {
+    api
+      .otosOfTake(takeId)
+      .then(setOtos)
+      .catch(() => setOtos([]));
+  }, [takeId]);
 
   // テイクが変わったら全体へ戻す。
   useEffect(() => {
@@ -63,10 +83,26 @@ export const TakeInspector = ({ takeId, durationMs, peak, className }: TakeInspe
     const clipped = peak >= CLIP_THRESHOLD;
     const wave = styles.getPropertyValue(clipped ? "--wave-clip" : "--wave").trim();
 
+    const boundary = styles.getPropertyValue("--boundary").trim();
+    const band = styles.getPropertyValue("--boundary-surface").trim();
+    /** ミリ秒を画素へ。 */
+    const at = (ms: number) => ((ms - span[0]) / (span[1] - span[0])) * w;
+
     api
       .waveformWindow(takeId, span[0], span[1], w)
       .then((points) => {
         ctx.clearRect(0, 0, w, h);
+
+        // ── 1. 切り出して使う区間を下地に敷く（TR-ALN-33）──
+        //
+        // **波形より先に描く。** 上に乗せると波形が隠れる。
+        ctx.fillStyle = band;
+        for (const o of otos) {
+          const [from, to] = usableSpan(o, durationMs);
+          ctx.fillRect(at(from), 0, Math.max(dpr, at(to) - at(from)), h);
+        }
+
+        // ── 2. 波形 ──
         ctx.fillStyle = wave;
         const mid = h / 2;
         points.forEach(([lo, hi], i) => {
@@ -75,9 +111,31 @@ export const TakeInspector = ({ takeId, durationMs, peak, className }: TakeInspe
           const bottom = mid - lo * mid;
           ctx.fillRect(i, top, 1, Math.max(dpr, bottom - top));
         });
+
+        // ── 3. 境界と、その意味（TR-ALN-33）──
+        //
+        // **数字だけでは、発声と重なっているかが分からない。**
+        // 4モーラが 100ms に潰れていても「確信度 30%」としか出なかった。
+        ctx.font = `${Math.round(11 * dpr)}px ui-monospace, monospace`;
+        ctx.textBaseline = "top";
+        for (const o of otos) {
+          const [from, to] = usableSpan(o, durationMs);
+          ctx.fillStyle = boundary;
+          // 切り出しの両端。**太い線。**
+          ctx.fillRect(at(from), 0, Math.max(dpr, dpr * 1.5), h);
+          ctx.fillRect(at(to) - dpr, 0, Math.max(dpr, dpr * 1.5), h);
+          // 子音の終わり＝母音の始まり。**破線にして端と区別する。**
+          const c = at(o.offset_ms + o.consonant_ms);
+          for (let y = 0; y < h; y += dpr * 6) {
+            ctx.fillRect(c, y, Math.max(1, dpr), dpr * 3);
+          }
+          // 先行発声。**下半分だけの短い線。**
+          ctx.fillRect(at(o.offset_ms + o.preutterance_ms), h * 0.6, Math.max(1, dpr), h * 0.4);
+          ctx.fillText(o.alias, at(from) + dpr * 3, dpr * 2);
+        }
       })
       .catch((e: unknown) => setError(errorMessage(e)));
-  }, [takeId, span, peak]);
+  }, [takeId, span, peak, otos, durationMs]);
 
   const drawSpectro = useCallback(() => {
     const canvas = spectroRef.current;
@@ -147,6 +205,54 @@ export const TakeInspector = ({ takeId, durationMs, peak, className }: TakeInspe
           className="h-32 w-full rounded-lg bg-surface-2"
           style={{ imageRendering: "pixelated" }}
         />
+      )}
+
+      {/*
+        **見なくても判断できる代替を持たせる**（TR-PLT-32）。
+        canvas は読み上げに何も出さないので、同じことを表で出す。
+        **絵の説明ではなく、同じ判断ができる中身にする。**
+      */}
+      {otos.length > 0 && (
+        <table className="w-full font-mono text-xs tabular-nums">
+          <caption className="pb-1 text-left font-sans text-sm text-text-dim">
+            自動で決めた切り出し（TR-ALN-33）
+          </caption>
+          <thead className="text-text-dim">
+            <tr>
+              <th scope="col" className="text-left font-normal">
+                読み
+              </th>
+              <th scope="col" className="text-right font-normal">
+                始まり
+              </th>
+              <th scope="col" className="text-right font-normal">
+                終わり
+              </th>
+              <th scope="col" className="text-right font-normal">
+                長さ
+              </th>
+              <th scope="col" className="text-right font-normal">
+                子音
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {otos.map((o) => {
+              const [from, to] = usableSpan(o, durationMs);
+              return (
+                <tr key={o.alias}>
+                  <th scope="row" className="text-left font-sans font-normal">
+                    {o.alias}
+                  </th>
+                  <td className="text-right">{from.toFixed(0)} ms</td>
+                  <td className="text-right">{to.toFixed(0)} ms</td>
+                  <td className="text-right">{(to - from).toFixed(0)} ms</td>
+                  <td className="text-right">{o.consonant_ms.toFixed(0)} ms</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
 
       <div className="flex flex-wrap items-center gap-2">

@@ -43,6 +43,7 @@ const SCALES = {
   cyan: readScale("cyan"),
   red: readScale("red"),
   jade: readScale("jade"),
+  amber: readScale("amber"),
 };
 
 /** `"cyan-11"` のような指定を実際の色にする。 */
@@ -87,6 +88,8 @@ const TOKENS = {
   "quiet-fill": "slate-11",
   wave: "cyan-11",
   "wave-clip": "red-11",
+  boundary: "amber-11",
+  "boundary-surface": "amber-3",
 } as const;
 
 type TokenName = keyof typeof TOKENS;
@@ -113,6 +116,11 @@ const PAIRS: Array<{ what: string; fg: TokenName; bg: TokenName; need: number }>
   { what: "メーターの良 / 面2", fg: "ok-fill", bg: "surface-2", need: 3.0 },
   { what: "メーターの割れ / 面2", fg: "danger-solid", bg: "surface-2", need: 3.0 },
   { what: "メーターの弱 / 面2", fg: "quiet-fill", bg: "surface-2", need: 3.0 },
+  // 自動原音設定の境界（TR-ALN-33）。**線と、その線が乗る下地の両方。**
+  { what: "境界線 / 面2", fg: "boundary", bg: "surface-2", need: 3.0 },
+  { what: "境界線 / 切り出し域", fg: "boundary", bg: "boundary-surface", need: 3.0 },
+  // **波形は切り出し域の上にも乗る。** 面2 だけ見ていると、そこで消える。
+  { what: "波形 / 切り出し域", fg: "wave", bg: "boundary-surface", need: 3.0 },
 ];
 
 let failed = 0;

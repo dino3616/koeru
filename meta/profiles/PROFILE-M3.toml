@@ -4,6 +4,7 @@ title = '自動原音設定が成立するか'
 status = 'planned'
 note = 'Julius を統合し、単独音の oto が自動で出るところまでを通す。**到達水準の判定（「単独音なら編集画面を開かずに済む」が成り立つか）は M6 へ回した**（DEC-ALN-007）。M3 は動くものを作るマイルストーンで、合否は出さない。**退避経路は `segment.rs` の1段だけ**（DEC-ALN-010 で Julius を M5 へ送った）。'
 includes_requirements = [
+  'TR-ALN-33',
   'TR-ALN-01',
   'TR-ALN-02',
   'TR-ALN-03',

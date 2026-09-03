@@ -103,6 +103,17 @@ export type TakeSummaryView = {
   invalid: boolean;
 };
 
+/** 原音設定の5値（TR-ALN-33）。 */
+export type OtoView = {
+  alias: string;
+  offset_ms: number;
+  consonant_ms: number;
+  /** 負なら「offset からの長さ」、正なら「ファイル末尾からの距離」。 */
+  cutoff_ms: number;
+  preutterance_ms: number;
+  overlap_ms: number;
+};
+
 export type SpaceView = {
   remaining_rows: number;
   /** その残量で録りきれる件数。「足りません」だけでは判断できない。 */
@@ -160,6 +171,8 @@ export const api = {
   preview: (takeId: number, midi: number, lengthMs: number) =>
     invoke<number>("preview", { takeId, midi, lengthMs }),
   stopPreview: () => invoke<void>("stop_preview"),
+  /** そのテイクの原音設定を、エイリアスごとに引く（TR-ALN-33）。 */
+  otosOfTake: (takeId: number) => invoke<OtoView[]>("otos_of_take", { takeId }),
   /** 録れたものをそのまま鳴らす（TR-REC-43）。**合成を通さない。** */
   playTake: (takeId: number) => invoke<number>("play_take", { takeId }),
   /** いま入ってきている音の包絡（TR-REC-43）。バケットごとの min/max。 */
