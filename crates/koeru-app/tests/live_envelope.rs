@@ -156,3 +156,46 @@ fn 目盛りより細かく流しても通算がずれない() {
         "通算が実時間からずれた: {position}（{want} のはず）"
     );
 }
+
+/// **環をまたいでも、流した量より多く排出しない**（`DEC-REC-007`）。
+///
+/// リングの `head` / `tail` を剰余で持っていたころ、**環をまたいだ瞬間から
+/// 消費側が「余分に読める」と誤認し、読み終えた古い音を読み直していた。**
+/// 実測で **127%**——流した量の 1.27 倍を排出していた。
+///
+/// 波形では「前に流れたものがまた流れる」、
+/// 収録では**実時間より長いテイク**と**7 秒の先頭余白**として出た。
+#[test]
+fn 環をまたいでも余分に排出しない() {
+    let rate = 48_000_u32;
+    // **1秒で環をまたぐ容量。** 3秒流して3回またぐ。
+    let (producer, consumer) = ring::channel(rate as usize);
+    let pump = Pump::start(consumer, rate);
+
+    let feed = std::thread::spawn(move || {
+        let block = vec![0.2_f32; 512];
+        let t = std::time::Instant::now();
+        let mut fed = 0_u64;
+        while t.elapsed() < std::time::Duration::from_secs(3) {
+            producer.push_or_drop(&block);
+            fed += 512;
+            // 512 サンプル = 10.7ms ぶん。**実時間で流す。**
+            std::thread::sleep(std::time::Duration::from_micros(10_666));
+        }
+        fed
+    });
+    let fed = feed.join().expect("流し終える");
+    std::thread::sleep(std::time::Duration::from_millis(400));
+
+    let (_, drained) = pump.envelope();
+    #[allow(clippy::cast_precision_loss)]
+    let want = fed as f64 * 44_100.0 / 48_000.0;
+    #[allow(clippy::cast_precision_loss)]
+    let ratio = drained as f64 / want;
+    println!("  流した {fed} / 排出 {drained}（{:.0}%）", ratio * 100.0);
+    assert!(
+        ratio < 1.05,
+        "流した量より多く排出した: {drained}（{want:.0} のはず）。古い音を読み直している"
+    );
+    assert!(ratio > 0.9, "排出が追いついていない: {drained}");
+}

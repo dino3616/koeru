@@ -23,9 +23,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 struct Shared {
     /// 事前確保済み。**実行中は伸縮しない。**
     buf: Box<[std::cell::UnsafeCell<f32>]>,
-    /// 書き込み位置。生産者だけが進める。
+    /// 書いた総数。生産者だけが進める。**単調に増える。**
+    ///
+    /// **`% cap` した値で持たない。** 剰余で持つと、環をまたいだとき
+    /// `head - tail` が「差」ではなくなる。`wrapping_sub` の結果を
+    /// もう一度 `% cap` して埋め合わせようとしても、
+    /// **`2^64 % cap == 0` のとき、つまり容量が2の冪のときにしか合わない。**
+    /// アプリの容量は 384000 で、`2^64 % 384000 = 111616`。**踏んだ。**
+    ///
+    /// 総数で持てば、差はそのまま溜まっている数になる。
+    /// 添字にするときだけ `% cap` する。
     head: AtomicUsize,
-    /// 読み出し位置。消費者だけが進める。
+    /// 読んだ総数。消費者だけが進める。**単調に増える。**
     tail: AtomicUsize,
     /// 満杯で捨てたサンプル数。生産者だけが進める。
     dropped: AtomicUsize,
@@ -82,8 +91,9 @@ impl Producer {
         let cap = self.shared.buf.len();
         let head = self.shared.head.load(Ordering::Relaxed);
         let tail = self.shared.tail.load(Ordering::Acquire);
-        let used = head.wrapping_sub(tail) % cap;
-        let free = cap - 1 - used;
+        // **総数の差がそのまま溜まっている数。** 剰余は取らない。
+        let used = head.wrapping_sub(tail);
+        let free = (cap - 1).saturating_sub(used);
         let n = samples.len().min(free);
 
         for (i, s) in samples[..n].iter().enumerate() {
@@ -92,7 +102,9 @@ impl Producer {
             // head を Release で公開するまでこの領域を読まない。
             unsafe { *self.shared.buf[at].get() = *s };
         }
-        self.shared.head.store((head + n) % cap, Ordering::Release);
+        self.shared
+            .head
+            .store(head.wrapping_add(n), Ordering::Release);
         n
     }
 
@@ -124,7 +136,7 @@ impl Consumer {
         let cap = self.shared.buf.len();
         let tail = self.shared.tail.load(Ordering::Relaxed);
         let head = self.shared.head.load(Ordering::Acquire);
-        let used = head.wrapping_sub(tail) % cap;
+        let used = head.wrapping_sub(tail);
         let n = out.len().min(used);
 
         for (i, slot) in out[..n].iter_mut().enumerate() {
@@ -132,17 +144,18 @@ impl Consumer {
             // SAFETY: at は生産者が Release で公開済みの領域。
             *slot = unsafe { *self.shared.buf[at].get() };
         }
-        self.shared.tail.store((tail + n) % cap, Ordering::Release);
+        self.shared
+            .tail
+            .store(tail.wrapping_add(n), Ordering::Release);
         n
     }
 
     /// いま読める数。
     #[must_use]
     pub fn len(&self) -> usize {
-        let cap = self.shared.buf.len();
         let tail = self.shared.tail.load(Ordering::Relaxed);
         let head = self.shared.head.load(Ordering::Acquire);
-        head.wrapping_sub(tail) % cap
+        head.wrapping_sub(tail)
     }
 
     #[must_use]
@@ -206,6 +219,107 @@ mod tests {
         assert_eq!(c.dropped(), 0, "残りは呼び出し側が持っている");
     }
 
+    /// **容量が2の冪でなくても、環をまたいで順序が保たれる。**
+    ///
+    /// # なぜここが抜けていたか
+    ///
+    /// 既存の試験は容量を 4 / 8 / 16 / 1024 でしか作っていなかった。
+    /// **どれも2の冪。** `head` と `tail` を `% cap` した値で持ちながら
+    /// 差を `wrapping_sub(...) % cap` で取ると、
+    /// **`2^64 % cap == 0` の場合にだけ**答えが合う——つまり2の冪でだけ合う。
+    ///
+    /// アプリが使う容量は 48000 × 8 = 384000 で、`2^64 % 384000 = 111616`。
+    /// **環をまたいだ瞬間から、消費側が 111616 サンプル余分に読めると誤認し、
+    /// 読み終えたはずの古い音をもう一度読む**（2.3 秒ぶん）。
+    /// 波形に「前に流れたものがまた流れる」と出た。**踏んだ。**
+    #[test]
+    fn 容量が2の冪でなくても環をまたげる() {
+        let cap = 300; // **2の冪ではない。**
+        let (p, c) = channel(cap);
+        let mut out = vec![0.0_f32; 64];
+        let mut next_written = 0_u32;
+        let mut next_read = 0_u32;
+
+        // 環を何周もさせる。**書いた順にしか出てこないこと。**
+        for _ in 0..200 {
+            let block: Vec<f32> = (0..50).map(|i| (next_written + i) as f32).collect();
+            let wrote = p.push(&block);
+            assert_eq!(
+                wrote,
+                50,
+                "実効容量 {} に対して書けないのはおかしい",
+                cap - 1
+            );
+            next_written += 50;
+
+            let got = c.pop(&mut out);
+            for v in &out[..got] {
+                assert!(
+                    (*v - next_read as f32).abs() < f32::EPSILON,
+                    "順序が壊れた: {v} が来たが {next_read} のはず"
+                );
+                next_read += 1;
+            }
+        }
+        assert!(next_read > 0);
+    }
+
+    /// **読めると答えた数だけ、実際に読める。**
+    ///
+    /// 環をまたいだあとに過大な数を返すと、消費側は古い領域を読み直す。
+    #[test]
+    fn 読める数は実際に読める数を超えない() {
+        let cap = 300;
+        let (p, c) = channel(cap);
+        let mut sink = vec![0.0_f32; 8];
+
+        for round in 0..200 {
+            p.push(&[round as f32; 7]);
+            let claimed = c.len();
+            assert!(
+                claimed < cap,
+                "{round} 周目: 実効容量 {} を超える数を返した: {claimed}",
+                cap - 1
+            );
+            let got = c.pop(&mut sink);
+            assert!(got <= claimed, "答えた数より多く読めた: {got} > {claimed}");
+        }
+    }
+
+    /// **アプリが実際に使う容量で、環をまたいでも壊れない。**
+    ///
+    /// 48000 Hz × 8 秒 = 384000。**8 秒ごとに環をまたぐ。**
+    /// 収録では、またいだ先で消費側が古い領域を読み直し、
+    /// **実時間より長いテイク**（12 秒）や**7 秒の先頭余白**として現れていた。
+    #[test]
+    fn 実際の容量で何周しても順序が保たれる() {
+        let cap = 48_000 * 8;
+        let (p, c) = channel(cap);
+        let mut out = vec![0.0_f32; 4096];
+        let mut written = 0_u64;
+        let mut read = 0_u64;
+
+        // 3周ぶん。**またぐ瞬間を必ず含む。**
+        while written < (cap as u64) * 3 {
+            let block: Vec<f32> = (0..2048)
+                .map(|i| ((written + i) % 1_000_000) as f32)
+                .collect();
+            let wrote = p.push(&block);
+            written += wrote as u64;
+
+            let got = c.pop(&mut out);
+            for v in &out[..got] {
+                let want = (read % 1_000_000) as f32;
+                assert!(
+                    (*v - want).abs() < f32::EPSILON,
+                    "{read} サンプル目で順序が壊れた: {v} が来たが {want} のはず"
+                );
+                read += 1;
+            }
+        }
+        assert_eq!(read, written, "書いた数と読んだ数が合わない");
+    }
+
     #[test]
     fn 空なら何も読めない() {
         let (_p, c) = channel(8);
@@ -218,7 +332,8 @@ mod tests {
     #[test]
     fn 別スレッドとの受け渡しで取りこぼさない() {
         const N: usize = 100_000;
-        let (p, c) = channel(1024);
+        // **2の冪でない容量にする。** 冪だと剰余の誤りが隠れる。
+        let (p, c) = channel(1000);
         let writer = std::thread::spawn(move || {
             let mut sent = 0_usize;
             while sent < N {
