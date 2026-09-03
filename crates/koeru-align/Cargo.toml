@@ -11,6 +11,9 @@ description = "KOERU の自動原音設定。MFA の音響モデルを Kaldi 経
 [build-dependencies]
 cc.workspace = true
 
+[dev-dependencies]
+koeru-audio = { path = "../koeru-audio" }
+
 [lints]
 workspace = true
 

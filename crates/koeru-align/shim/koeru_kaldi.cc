@@ -119,13 +119,23 @@ int ComputeFeatures(KoeruKaldi* h, const float* samples, int n_samples,
   h->mfcc.ComputeFeatures(wave, kSampleRateHz, 1.0f, &mfcc);
   if (mfcc.NumRows() == 0) return KOERU_ERR_TOO_SHORT;
 
-  // CMVN。**発話単位で平均と分散を揃える**（meta.json の `uses_cmvn: true`）。
+  // CMVN。**平均だけを揃える。分散は触らない。**
+  //
+  // `meta.json` は `uses_cmvn: true` としか書いていないが、
+  // **Kaldi の `apply-cmvn` は既定で平均のみ**（`--norm-vars=false`）で、
+  // モデルもその前提で学習されている。
+  //
+  // **分散まで正規化すると、アライメントが壊れる。** 実測した——
+  // 6.3秒の録音（発声は 1590〜2630ms）で、8音素が 2025〜2105ms に
+  // 各10ms で潰れた。**次元ごとに分散を1へ揃えると特徴の尺度が変わり、
+  // 広い分散を持つ無音モデルがどのフレームでも勝つ。**
+  // 平均のみに直したら、境界が発声の範囲とほぼ一致した。**踏んだ。**
   kaldi::Matrix<double> stats;
   kaldi::InitCmvnStats(mfcc.NumCols(), &stats);
   for (int32 r = 0; r < mfcc.NumRows(); ++r) {
     kaldi::AccCmvnStats(mfcc.Row(r), 1.0, &stats);
   }
-  kaldi::ApplyCmvn(stats, /*var_norm=*/true, &mfcc);
+  kaldi::ApplyCmvn(stats, /*var_norm=*/false, &mfcc);
 
   // splice(±3)。**端はフレームを複製して埋める**（Kaldi の既定と同じ）。
   const int32 dim = mfcc.NumCols();

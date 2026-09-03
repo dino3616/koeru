@@ -107,6 +107,17 @@ RUSTFLAGS="$F" RUSTDOCFLAGS="$F" cargo test --workspace --all-features
 doctest だけが本物と違う設定でコンパイルされ、**存在しないはずの差分で落ちる。**
 （クロスコンパイルには C のツールチェーンが要り、手元では通せない。これが代わり。）
 
+**アライメントは実音声で見る。** 合成音の試験は構造しか見ておらず、
+**位置が全部ずれていても1つも落ちない**（CMVN の分散正規化で踏んだ。`EVID-ALN-001`）。
+録音を1つ通して、パワーで見た発声区間と重なるかを確かめる。**回帰テストではない**ので、
+環境変数が無ければ静かに戻る。
+
+```bash
+KOERU_ALIGN_SAMPLE_WAV=/path/to/take.wav \
+KOERU_ALIGN_SAMPLE_READING='ぎ ぎゃ ぎゅ ぎょ' \
+  cargo test --package koeru-align --test alignment_on_real_audio -- --nocapture
+```
+
 WebView 側は別に検証する。**すべて `crates/koeru-app/ui` の中で完結する。**
 モノレポにしていないので、ワークスペースを跨ぐ設定は無い。
 

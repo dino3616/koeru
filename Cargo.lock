@@ -1805,6 +1805,7 @@ name = "koeru-align"
 version = "0.0.0"
 dependencies = [
  "cc",
+ "koeru-audio",
  "koeru-core",
  "sha2",
  "thiserror 2.0.20",
