@@ -1521,6 +1521,51 @@ impl Studio {
         Ok((w.samples, w.rate_hz))
     }
 
+    /// いま入ってきている音の包絡（`TR-REC-43`）。
+    ///
+    /// **録る前から出る。** ストリームは収録画面に入った時点で開いていて
+    /// （`TR-REC-19`）、「マイクが拾っているか」は録る前に知りたい。
+    ///
+    /// **評価はしない**（`TR-REC-16`）。出すのは観測だけで、
+    /// 「小さすぎます」も「歪んでいます」も言わない。
+    #[must_use]
+    pub fn live_envelope(&self, buckets: usize) -> Vec<(f32, f32)> {
+        self.pump
+            .as_ref()
+            .map(|p| p.envelope(buckets))
+            .unwrap_or_default()
+    }
+
+    /// 録れたものを**そのまま**鳴らす（`TR-REC-43`）。
+    ///
+    /// **合成を通さない。** `preview` は oto で切り出して目標音高へ寄せた音で、
+    /// **「録れているか」を確かめるための音ではない。**
+    /// 声が入っていないテイクを、合成の失敗と区別できるようにする。
+    ///
+    /// # Errors
+    ///
+    /// そのテイクが台帳に無い、素材を読めない、出力を開けない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn play_take(&mut self, take_id: i32) -> Result<f64> {
+        let root = self.opened()?.dir.root().to_path_buf();
+        let take = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .ok_or_else(|| AppError::new("app.unknown_take", "そのテイクが台帳に無い"))?;
+        let w = wav::read(root.join(&take.rel_path))?;
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "テイクの長さは表示用。桁は十分に収まる"
+        )]
+        let ms = w.samples.len() as f64 * 1000.0 / f64::from(w.rate_hz);
+
+        // **前の再生は止める。** 重ねると何を聴いているか分からなくなる。
+        self.playback = None;
+        self.playback = Some(mac::play(w.samples, w.rate_hz)?);
+        Ok(ms)
+    }
+
     /// 鳴らしている音を止める（`TR-SYN-27`）。
     ///
     /// **進行中の合成も止める。** 200ms 以内に抜ける。

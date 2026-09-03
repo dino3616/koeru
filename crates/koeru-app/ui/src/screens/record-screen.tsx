@@ -7,6 +7,7 @@ import { SongList } from "~/components/song-list";
 import { TakeList } from "~/components/take-list";
 import { TakeInspector } from "~/components/take-inspector";
 import { LevelMeter } from "~/components/level-meter";
+import { LiveWaveform } from "~/components/live-waveform";
 import { Button } from "~/components/ui/button";
 import { Card, CardTitle } from "~/components/ui/card";
 import {
@@ -118,6 +119,12 @@ export const RecordScreen = () => {
       })
       .then(setSpace)
       .catch(fail);
+  };
+
+  /** 録れたものをそのまま鳴らす（TR-REC-43）。 */
+  const playRaw = (takeId: number) => {
+    setError(null);
+    api.playTake(takeId).catch(fail);
   };
 
   /**
@@ -319,6 +326,14 @@ export const RecordScreen = () => {
           {ready && <LevelMeter peak={level} />}
 
           {/*
+            **いま入っている音の波形**（TR-REC-43）。録る前から動く——
+            ストリームは収録画面に入った時点で開いている（TR-REC-19）。
+            **声が入っていないテイクが「歌える」まで達した実例がある。**
+            出ていれば、録った本人がその場で気づける。
+          */}
+          {ready && <LiveWaveform className="mt-3" />}
+
+          {/*
             **残量が足りないときは「その残量で何件録れるか」を出す**（TR-REC-41）。
             「足りません」だけでは、何を削れば足りるのか分からない。
           */}
@@ -477,6 +492,21 @@ export const RecordScreen = () => {
                 <dd className="inline">{Math.round(take.trailing_margin_ms)} ms</dd>
               </div>
             </dl>
+
+            {/*
+              **そのまま聴く**（TR-REC-43）。試唱は代わりにならない——
+              試唱は oto で切り出して目標音高へ寄せた音なので、
+              **素材が無音なのか合成が失敗したのかを区別できない。**
+            */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-text-dim">録れた音:</span>
+              <Button variant="secondary" onClick={() => playRaw(take.take_id)}>
+                そのまま聴く
+              </Button>
+              <Button variant="ghost" onClick={() => api.stopPreview().catch(fail)}>
+                止める
+              </Button>
+            </div>
 
             {take.has_oto ? (
               <div className="flex flex-wrap items-center gap-2">

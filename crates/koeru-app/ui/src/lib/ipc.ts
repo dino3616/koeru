@@ -160,6 +160,10 @@ export const api = {
   preview: (takeId: number, midi: number, lengthMs: number) =>
     invoke<number>("preview", { takeId, midi, lengthMs }),
   stopPreview: () => invoke<void>("stop_preview"),
+  /** 録れたものをそのまま鳴らす（TR-REC-43）。**合成を通さない。** */
+  playTake: (takeId: number) => invoke<number>("play_take", { takeId }),
+  /** いま入ってきている音の包絡（TR-REC-43）。バケットごとの min/max。 */
+  liveEnvelope: (buckets: number) => invoke<[number, number][]>("live_envelope", { buckets }),
   prerollMs: () => invoke<number>("preroll_ms"),
   estimateSpace: () => invoke<SpaceView>("estimate_space"),
   calibrate: (seconds: number) => invoke<CalibrationView>("calibrate", { seconds }),

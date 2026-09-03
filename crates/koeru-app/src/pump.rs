@@ -84,6 +84,8 @@ pub struct Pump {
     handle: Option<JoinHandle<()>>,
     /// いま何サンプル保持しているか。**待っているだけの状態を見分けるのに使う。**
     held: Arc<Mutex<usize>>,
+    /// 直近の音そのもの。**波形を出すために持つ**（`TR-REC-43`）。
+    held_samples: Arc<Mutex<VecDeque<f32>>>,
     /// 直近に流れてきた音のピーク。**入力が届いているかの判定に使う**（`TR-REC-17`）。
     /// 読むたびに 0 へ戻すので、「前回見てから今までの最大」になる。
     recent_peak: Arc<Mutex<f32>>,
@@ -135,25 +137,19 @@ impl Pump {
         let (cmd_tx, cmd_rx) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let held = Arc::new(Mutex::new(0_usize));
+        let held_samples = Arc::new(Mutex::new(VecDeque::new()));
         let recent_peak = Arc::new(Mutex::new(0.0_f32));
         let probe = Arc::new(Mutex::new(None));
 
         let handle = std::thread::spawn({
             let stop = Arc::clone(&stop);
-            let held = Arc::clone(&held);
-            let peak = Arc::clone(&recent_peak);
-            let probe = Arc::clone(&probe);
-            move || {
-                run(
-                    consumer,
-                    device_rate_hz,
-                    &cmd_rx,
-                    &stop,
-                    &held,
-                    &peak,
-                    &probe,
-                )
-            }
+            let shared = Shared {
+                held: Arc::clone(&held),
+                samples: Arc::clone(&held_samples),
+                peak: Arc::clone(&recent_peak),
+                probe: Arc::clone(&probe),
+            };
+            move || run(consumer, device_rate_hz, &cmd_rx, &stop, &shared)
         });
 
         Self {
@@ -161,6 +157,7 @@ impl Pump {
             stop,
             handle: Some(handle),
             held,
+            held_samples,
             recent_peak,
             probe,
             // **保持しているのは変換後のフレーム。** デバイスのレートで割ると狂う。
@@ -176,6 +173,33 @@ impl Pump {
     pub fn preroll_ms(&self) -> u64 {
         let held = self.held.lock().map(|g| *g).unwrap_or(0);
         held as u64 * 1000 / u64::from(self.rate_hz).max(1)
+    }
+
+    /// いま流れている音の包絡（`TR-REC-43`）。
+    ///
+    /// 直近 [`PREROLL_CAPACITY_MS`] を `buckets` 個の min/max に畳んで返す。
+    ///
+    /// **録音していなくても出る。** 収録画面に入った時点からリングは回っていて
+    /// （`TR-REC-19`）、「マイクが拾っているか」は録る前に知りたい。
+    ///
+    /// **読んでも消えない。** ピーク（`TR-REC-17`）と違って、
+    /// これは今の状態であって、区間の集計ではない。
+    #[must_use]
+    pub fn envelope(&self, buckets: usize) -> Vec<(f32, f32)> {
+        let Ok(g) = self.held_samples.lock() else {
+            return Vec::new();
+        };
+        if buckets == 0 || g.is_empty() {
+            return Vec::new();
+        }
+        (0..buckets)
+            .map(|b| {
+                let lo = b * g.len() / buckets;
+                let hi = ((b + 1) * g.len() / buckets).max(lo + 1).min(g.len());
+                g.range(lo..hi)
+                    .fold((0.0_f32, 0.0_f32), |(mn, mx), v| (mn.min(*v), mx.max(*v)))
+            })
+            .collect()
     }
 
     /// 前回見てから今までの入力ピーク。**読むと 0 へ戻る**（`TR-REC-17`）。
@@ -250,14 +274,26 @@ struct Recording {
     reply: Option<Sender<Result<Finished, wav::WavError>>>,
 }
 
+/// 排出スレッドと外側で分け合うもの。
+///
+/// **引数を並べると取り違える。** まとめて渡す。
+struct Shared {
+    /// 保持しているプリロールのフレーム数。
+    held: Arc<Mutex<usize>>,
+    /// 直近の音そのもの（`TR-REC-43` の波形）。
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    /// 前回見てから今までの入力ピーク（`TR-REC-17`）。
+    peak: Arc<Mutex<f32>>,
+    /// 検査のための収集（`TR-REC-24`）。
+    probe: Arc<Mutex<Option<Vec<f32>>>>,
+}
+
 fn run(
     consumer: ring::Consumer,
     device_rate_hz: u32,
     cmd: &Receiver<Cmd>,
     stop: &AtomicBool,
-    held: &Mutex<usize>,
-    recent_peak: &Mutex<f32>,
-    probe: &Mutex<Option<Vec<f32>>>,
+    shared: &Shared,
 ) {
     // **長さはすべてマスターの時間軸で数える。**
     let cap = (u64::from(MASTER_RATE_HZ) * PREROLL_CAPACITY_MS / 1000) as usize;
@@ -359,13 +395,18 @@ fn run(
         while ring_buf.len() > cap {
             ring_buf.pop_front();
         }
-        if let Ok(mut g) = held.lock() {
+        if let Ok(mut g) = shared.held.lock() {
             *g = ring_buf.len();
         }
-        if let Ok(mut g) = recent_peak.lock() {
+        // **波形のために、中身も共有する**（`TR-REC-43`）。
+        // 丸ごと写すのは 1.5 秒ぶん（44100 × 1.5 で 66150 サンプル、265 KB）。
+        if let Ok(mut g) = shared.samples.lock() {
+            g.clone_from(&ring_buf);
+        }
+        if let Ok(mut g) = shared.peak.lock() {
             *g = got.iter().fold(*g, |m, v| m.max(v.abs()));
         }
-        if let Ok(mut g) = probe.lock()
+        if let Ok(mut g) = shared.probe.lock()
             && let Some(buf) = g.as_mut()
         {
             buf.extend_from_slice(got);

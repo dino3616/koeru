@@ -647,6 +647,20 @@ pub fn adopt_take(state: State<'_, AppState>, row_id: String, take_id: i32) -> R
     lock(&state)?.adopt_take(&row_id, take_id)
 }
 
+/// 録れたものをそのまま鳴らす（`TR-REC-43`）。**合成を通さない。**
+///
+/// 返すのは長さ（ミリ秒）。
+#[tauri::command]
+pub fn play_take(state: State<'_, AppState>, take_id: i32) -> Result<f64> {
+    lock(&state)?.play_take(take_id)
+}
+
+/// いま入ってきている音の包絡（`TR-REC-43`）。**バケットごとの min/max。**
+#[tauri::command]
+pub fn live_envelope(state: State<'_, AppState>, buckets: usize) -> Result<Vec<(f32, f32)>> {
+    Ok(lock(&state)?.live_envelope(buckets))
+}
+
 /// 収録を止めて、テイクを確定させる。
 #[tauri::command]
 pub fn finish_take(state: State<'_, AppState>) -> Result<TakeView> {
