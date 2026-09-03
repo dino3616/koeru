@@ -123,8 +123,10 @@ impl From<Progress> for ProgressView {
 /// 画面へ返す、いま流れている音の包絡（`TR-REC-43`）。
 #[derive(Debug, Clone, Serialize)]
 pub struct EnvelopeView {
-    /// 目盛りごとの min/max。
-    pub buckets: Vec<(f32, f32)>,
+    /// 目盛りごとの min/max。**畳まずにそのまま渡す。**
+    ///
+    /// **割り切れない本数へ畳むと絵が揺れる。** 画面は1本につき1列を描く。
+    pub steps: Vec<(f32, f32)>,
     /// 排出しはじめてからの通算フレーム数。**単調に増える。**
     ///
     /// **画面はこれで古い応答を捨てる。** 問い合わせが重なると
@@ -746,11 +748,7 @@ pub fn otos_of_take(state: State<'_, AppState>, take_id: i32) -> Result<Vec<OtoV
 ///
 /// **進んでいないフレームは送らない。** 同じ絵を描き直させない。
 #[tauri::command]
-pub fn stream_envelope(
-    state: State<'_, AppState>,
-    buckets: usize,
-    on_frame: Channel<EnvelopeView>,
-) {
+pub fn stream_envelope(state: State<'_, AppState>, on_frame: Channel<EnvelopeView>) -> u64 {
     // **世代を1つ進める。** 前の流れは次の目覚めで自分から止まる。
     let generation = state.stream.fetch_add(1, Ordering::SeqCst) + 1;
     let envelope = Arc::clone(&state.envelope);
@@ -761,12 +759,13 @@ pub fn stream_envelope(
         while stream.load(Ordering::SeqCst) == generation {
             let handle = envelope.lock().ok().and_then(|g| g.clone());
             if let Some(e) = handle {
-                let (buckets, position) = e
-                    .lock()
-                    .map_or_else(|_| (Vec::new(), 0), |g| g.sample(buckets));
-                if position > last {
+                let (steps, position) = e.lock().map_or_else(|_| (Vec::new(), 0), |g| g.sample());
+                // **「進んだか」ではなく「変わったか」で見る。**
+                // マイクを選び直すと `Pump` が作り直され、通算は 0 へ戻る。
+                // 進んだかだけで見ていると、**そこから二度と送らなくなる。**
+                if position != last {
                     last = position;
-                    if on_frame.send(EnvelopeView { buckets, position }).is_err() {
+                    if on_frame.send(EnvelopeView { steps, position }).is_err() {
                         // 画面が居なくなった。**騒がずに畳む。**
                         break;
                     }
@@ -775,12 +774,23 @@ pub fn stream_envelope(
             std::thread::sleep(std::time::Duration::from_millis(ENVELOPE_FRAME_MS));
         }
     });
+    generation
 }
 
 /// 波形を送るのをやめる（`TR-REC-43`）。
+///
+/// **止める相手を名指しする。** ただ世代を進めるだけにすると、
+/// 画面が作り直されたときに**新しい流れを殺してしまう**——
+/// 「古いのを止める」と「新しいのを始める」は非同期に飛ぶので、
+/// 後者が先に着くことがある。そのときに数を進めると、生きているほうが止まる。
 #[tauri::command]
-pub fn stop_envelope_stream(state: State<'_, AppState>) {
-    state.stream.fetch_add(1, Ordering::SeqCst);
+pub fn stop_envelope_stream(state: State<'_, AppState>, generation: u64) {
+    let _ = state.stream.compare_exchange(
+        generation,
+        generation + 1,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
 }
 
 /// 録れたものをそのまま鳴らす（`TR-REC-43`）。**合成を通さない。**
@@ -789,27 +799,6 @@ pub fn stop_envelope_stream(state: State<'_, AppState>) {
 #[tauri::command]
 pub fn play_take(state: State<'_, AppState>, take_id: i32) -> Result<f64> {
     lock(&state)?.play_take(take_id)
-}
-
-/// いま入ってきている音の包絡（`TR-REC-43`）。
-///
-/// **`studio` のロックを取らない。** 取ると、テイクの確定（アライメントを含む）
-/// のあいだ詰まって、解けた瞬間に溜まった応答が一気に返る。
-#[tauri::command]
-pub fn live_envelope(state: State<'_, AppState>, buckets: usize) -> Result<EnvelopeView> {
-    let handle = state
-        .envelope
-        .lock()
-        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))?
-        .clone();
-    let (buckets, position) = handle.map_or_else(
-        || (Vec::new(), 0),
-        |e| {
-            e.lock()
-                .map_or_else(|_| (Vec::new(), 0), |g| g.sample(buckets))
-        },
-    );
-    Ok(EnvelopeView { buckets, position })
 }
 
 /// 収録を止めて、テイクを確定させる。

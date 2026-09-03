@@ -84,26 +84,20 @@ pub struct Envelope {
 }
 
 impl Envelope {
-    /// `buckets` 個の min/max へ畳んで、通算フレーム数と一緒に返す。
+    /// 目盛りをそのまま、通算フレーム数と一緒に返す。
+    ///
+    /// # 畳まない
+    ///
+    /// **好きな本数へ畳ませない。** 目盛りは 1.5 秒ぶんで 300 本あり、
+    /// 50ms ごとに 10 本ずつ入れ替わる。**300 を 240 のような割り切れない数へ畳むと、
+    /// 入れ替わるたびに目盛りと枠の対応がずれ、絵が揺れる**
+    /// ——「速度が一定じゃない」に見える。
+    ///
+    /// 画面は**1本につき1列**を描く。10 本ずれれば 10 列ずれるだけで、
+    /// 位置の対応が毎回同じになる。
     #[must_use]
-    pub fn sample(&self, buckets: usize) -> (Vec<(f32, f32)>, u64) {
-        if buckets == 0 || self.steps.is_empty() {
-            return (Vec::new(), self.position);
-        }
-        let out = (0..buckets)
-            .map(|b| {
-                let lo = b * self.steps.len() / buckets;
-                let hi = ((b + 1) * self.steps.len() / buckets)
-                    .max(lo + 1)
-                    .min(self.steps.len());
-                self.steps
-                    .range(lo..hi)
-                    .fold((0.0_f32, 0.0_f32), |(mn, mx), (l, h)| {
-                        (mn.min(*l), mx.max(*h))
-                    })
-            })
-            .collect();
-        (out, self.position)
+    pub fn sample(&self) -> (Vec<(f32, f32)>, u64) {
+        (self.steps.iter().copied().collect(), self.position)
     }
 }
 
@@ -238,10 +232,10 @@ impl Pump {
     /// **読んでも消えない。** ピーク（`TR-REC-17`）と違って、
     /// これは今の状態であって、区間の集計ではない。
     #[must_use]
-    pub fn envelope(&self, buckets: usize) -> (Vec<(f32, f32)>, u64) {
+    pub fn envelope(&self) -> (Vec<(f32, f32)>, u64) {
         self.envelope
             .lock()
-            .map_or_else(|_| (Vec::new(), 0), |g| g.sample(buckets))
+            .map_or_else(|_| (Vec::new(), 0), |g| g.sample())
     }
 
     /// 包絡そのものの持ち手（`TR-REC-43`）。
@@ -379,6 +373,9 @@ fn run(
     let mut step = (0.0_f32, 0.0_f32);
     let mut step_filled = 0_usize;
     let mut done_steps: Vec<(f32, f32)> = Vec::new();
+    // **まだ公開していないフレーム数。** 目盛りが揃った回にまとめて足す。
+    // 揃わなかった回のぶんを落とすと、通算が実時間から少しずつずれる。
+    let mut carried = 0_u64;
     let mut rec: Option<Recording> = None;
 
     while !stop.load(Ordering::Acquire) {
@@ -458,6 +455,7 @@ fn run(
         }
         // **波形の目盛りを積む**（`TR-REC-43`）。
         // **写すのは目盛りだけ。** 生の音を写すと、排出が実時間に追いつかない。
+        carried += got.len() as u64;
         for v in got {
             step.0 = step.0.min(*v);
             step.1 = step.1.max(*v);
@@ -477,9 +475,10 @@ fn run(
             while g.steps.len() > ENVELOPE_STEPS {
                 g.steps.pop_front();
             }
-            // **数えるのは変換後のフレーム。** `n` は入力のぶんで、
-            // 48000 から落とすと 8.8% 多い（`TR-REC-02`）。
-            g.position += got.len() as u64;
+            // **数えるのは変換後のフレーム**（`n` は入力のぶんで 8.8% 多い、`TR-REC-02`）。
+            // **持ち越したぶんも足す。** 目盛りが揃わなかった回を落とさない。
+            g.position += carried;
+            carried = 0;
         }
         if let Ok(mut g) = shared.peak.lock() {
             *g = got.iter().fold(*g, |m, v| m.max(v.abs()));

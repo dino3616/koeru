@@ -45,7 +45,7 @@ fn 通算フレーム数が流した量と一致する() {
     // 排出が追いつくのを待つ。
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    let (_, position) = pump.envelope(120);
+    let (_, position) = pump.envelope();
     // 44100 へ落としたぶん。**端は目盛りの区切りで丸まる。**
     let want = u64::from(wav::MASTER_RATE_HZ);
     println!("  流した 1000ms / 通算 {position} フレーム（44100 なら {want}）");
@@ -73,7 +73,7 @@ fn 通算フレーム数は巻き戻らない() {
 
     let mut last = 0_u64;
     for _ in 0..60 {
-        let (_, p) = pump.envelope(240);
+        let (_, p) = pump.envelope();
         assert!(p >= last, "巻き戻った: {last} → {p}");
         last = p;
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -104,13 +104,13 @@ fn 引き続けても実時間に追いつく() {
     // 画面と同じ間隔で引き続ける。
     let started = std::time::Instant::now();
     while started.elapsed() < std::time::Duration::from_millis(2000) {
-        let _ = pump.envelope(240);
+        let _ = pump.envelope();
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     feed.join().expect("流し終える");
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    let (_, position) = pump.envelope(240);
+    let (_, position) = pump.envelope();
     let want = u64::from(wav::MASTER_RATE_HZ) * 2;
     #[allow(clippy::cast_precision_loss)]
     let ratio = position as f64 / want as f64;
@@ -121,5 +121,38 @@ fn 引き続けても実時間に追いつく() {
     assert!(
         ratio > 0.9,
         "引きながらだと排出が追いつかない: {position} フレーム（{want} のはず）"
+    );
+}
+
+/// **細かく流しても、通算が実時間からずれない**（`TR-REC-43`）。
+///
+/// 最初の実装は、**目盛りが揃った回にだけ**その回のフレーム数を足していた。
+/// 揃わなかった回のぶんは数えられず、通算が少しずつ足りなくなる。
+/// **目盛り（5ms）より細かく流すと、ずれが目に見える。**
+#[test]
+fn 目盛りより細かく流しても通算がずれない() {
+    let rate = 48_000_u32;
+    let (producer, consumer) = ring::channel(rate as usize * 4);
+    let pump = Pump::start(consumer, rate);
+
+    // 1回 64 サンプル ＝ 1.3ms。**目盛り（5ms）より細かい。**
+    let x = tone(440.0, rate, 1000);
+    for c in x.chunks(64) {
+        producer.push_or_drop(c);
+        std::thread::sleep(std::time::Duration::from_micros(1333));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    let (_, position) = pump.envelope();
+    let want = u64::from(wav::MASTER_RATE_HZ);
+    #[allow(clippy::cast_precision_loss)]
+    let off = (position as f64 - want as f64) / want as f64;
+    println!(
+        "  細かく流した 1000ms / 通算 {position}（ずれ {:+.2}%）",
+        off * 100.0
+    );
+    assert!(
+        off.abs() < 0.01,
+        "通算が実時間からずれた: {position}（{want} のはず）"
     );
 }

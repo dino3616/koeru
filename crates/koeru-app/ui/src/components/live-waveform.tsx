@@ -4,8 +4,6 @@ import { cn } from "~/lib/cn";
 import { Channel, type EnvelopeView, api } from "~/lib/ipc";
 
 type LiveWaveformProps = {
-  /** 描く本数。**画素より多く取らない**（TR-PLT-04）。 */
-  buckets?: number;
   className?: string;
 };
 
@@ -31,7 +29,7 @@ type LiveWaveformProps = {
  *
  * 間隔は Rust 側が刻む。**画面の都合や IPC の混み具合で速度が変わらない。**
  */
-export const LiveWaveform = ({ buckets = 240, className }: LiveWaveformProps) => {
+export const LiveWaveform = ({ className }: LiveWaveformProps) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const data = useRef<[number, number][]>([]);
   const [peak, setPeak] = useState(0);
@@ -68,42 +66,51 @@ export const LiveWaveform = ({ buckets = 240, className }: LiveWaveformProps) =>
       ctx.globalAlpha = 1;
       if (v.length === 0) return;
 
-      // **可視域の画素数に比例した計算量に収める**（TR-PLT-04）。
-      const cols = Math.min(w, v.length);
-      const barW = w / cols;
-      for (let i = 0; i < cols; i += 1) {
-        const from = Math.floor((i * v.length) / cols);
-        const to = Math.max(from + 1, Math.floor(((i + 1) * v.length) / cols));
-        let lo = 0;
-        let hi = 0;
-        for (let j = from; j < to; j += 1) {
-          const b = v[j];
-          if (b === undefined) continue;
-          lo = Math.min(lo, b[0]);
-          hi = Math.max(hi, b[1]);
-        }
-        const top = mid - hi * mid;
-        const bottom = mid - lo * mid;
-        ctx.fillRect(i * barW, top, Math.max(1, barW - dpr * 0.5), Math.max(dpr, bottom - top));
+      /*
+       * **1本につき1列。畳まない。**
+       *
+       * 目盛りは 50ms ごとに 10 本ずつ入れ替わる。割り切れない本数へ畳むと、
+       * 入れ替わるたびに目盛りと列の対応がずれて**絵が揺れる**——
+       * 「速度が一定じゃない」に見える。1本1列なら、10 本ずれれば 10 列ずれるだけ。
+       *
+       * 計算量は目盛りの本数（300 本、1.5 秒ぶんで固定）に比例する（TR-PLT-04）。
+       */
+      const barW = w / v.length;
+      for (let i = 0; i < v.length; i += 1) {
+        const b = v[i];
+        if (b === undefined) continue;
+        const top = mid - b[1] * mid;
+        const bottom = mid - b[0] * mid;
+        ctx.fillRect(i * barW, top, Math.max(1, barW), Math.max(dpr, bottom - top));
       }
     };
 
     const channel = new Channel<EnvelopeView>();
     channel.onmessage = (frame) => {
       if (!alive) return;
-      data.current = frame.buckets;
-      setPeak(frame.buckets.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0));
+      data.current = frame.steps;
+      setPeak(frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0));
       draw();
     };
 
     // **開く前は空で正しい。** 騒がない。
-    api.streamEnvelope(buckets, channel).catch(() => {});
+    // **番号で名指しして止める。** 作り直しのときに、
+    // 「古いのを止める」より「新しいのを始める」が先に着くことがある。
+    let generation: number | null = null;
+    api
+      .streamEnvelope(channel)
+      .then((g) => {
+        generation = g;
+        // 番号が返る前に外されていたら、ここで止める。
+        if (!alive) api.stopEnvelopeStream(g).catch(() => {});
+      })
+      .catch(() => {});
 
     return () => {
       alive = false;
-      api.stopEnvelopeStream().catch(() => {});
+      if (generation !== null) api.stopEnvelopeStream(generation).catch(() => {});
     };
-  }, [buckets]);
+  }, []);
 
   const level = Math.round(peak * 100);
   return (

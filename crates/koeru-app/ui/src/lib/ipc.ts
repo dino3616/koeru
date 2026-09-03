@@ -107,8 +107,12 @@ export type TakeSummaryView = {
 
 /** いま流れている音の包絡（TR-REC-43）。 */
 export type EnvelopeView = {
-  /** 目盛りごとの min/max。 */
-  buckets: [number, number][];
+  /**
+   * 目盛りごとの min/max。**畳まずにそのまま来る。**
+   *
+   * **割り切れない本数へ畳むと絵が揺れる。** 1本につき1列を描く。
+   */
+  steps: [number, number][];
   /**
    * 排出しはじめてからの通算フレーム数。**単調に増える。**
    *
@@ -198,9 +202,10 @@ export const api = {
    * `invoke` で引きに行くと**応答が投げた順に返る保証が無く**、
    * 遅れて届いた古い包絡を描くと波形が巻き戻ってループして見える。
    */
-  streamEnvelope: (buckets: number, onFrame: Channel<EnvelopeView>) =>
-    invoke<void>("stream_envelope", { buckets, onFrame }),
-  stopEnvelopeStream: () => invoke<void>("stop_envelope_stream"),
+  streamEnvelope: (onFrame: Channel<EnvelopeView>) =>
+    invoke<number>("stream_envelope", { onFrame }),
+  /** **止める相手を名指しする。** 番号を渡さないと、新しい流れを殺しうる。 */
+  stopEnvelopeStream: (generation: number) => invoke<void>("stop_envelope_stream", { generation }),
   prerollMs: () => invoke<number>("preroll_ms"),
   estimateSpace: () => invoke<SpaceView>("estimate_space"),
   calibrate: (seconds: number) => invoke<CalibrationView>("calibrate", { seconds }),
