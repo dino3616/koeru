@@ -110,7 +110,9 @@ pub enum RowState {
 }
 
 impl RowState {
-    const fn as_str(self) -> &'static str {
+    /// 台帳での表記。**送信してよい固定語彙。**
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Unrecorded => "unrecorded",
             Self::Recorded => "recorded",
@@ -180,6 +182,22 @@ pub struct Take {
     pub frames: i64,
     pub invalid: bool,
     pub generation: i32,
+}
+
+/// 行と、その行に積んだテイク（`TR-REC-21`, `TR-RCL-25`）。
+///
+/// **録り直しは上書きしない。** 世代として積み、採用テイクだけが
+/// 配布パッケージのファイル名（＝行テキスト）を持つ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowTakes {
+    pub row_id: String,
+    /// 読み上げる文字列。
+    pub text: String,
+    pub state: RowState,
+    /// 世代順。**非採用も含む**——いつでも採用を戻せる（`TR-REC-21`）。
+    pub takes: Vec<Take>,
+    /// いま採用しているテイク。**無ければ未収録。**
+    pub adopted: Option<i32>,
 }
 
 /// プロジェクトの台帳。
@@ -442,6 +460,67 @@ impl Ledger {
             .first::<(String, String)>(&mut self.conn)
             .optional()
             .map_err(db("next_row"))
+    }
+
+    /// 全部の行と、それぞれのテイク（`TR-REC-21`, `TR-RCL-25`）。
+    ///
+    /// **録り直しの入口。** `next_row` は未収録しか返さないので、
+    /// これが無いと**一度録った行を二度と選べない。**
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    #[tracing::instrument(skip(self), err)]
+    pub fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
+        // **3クエリで済ませる。** 行ごとに引くと、行数ぶん往復する。
+        let rows = rows::table
+            .order(rows::ordinal.asc())
+            .select((rows::id, rows::text, rows::state))
+            .load::<(String, String, String)>(&mut self.conn)
+            .map_err(db("rows_with_takes.rows"))?;
+
+        let takes = takes::table
+            .order((takes::row_id.asc(), takes::generation.asc()))
+            .select((
+                takes::id,
+                takes::row_id,
+                takes::rel_path,
+                takes::frames,
+                takes::invalid,
+                takes::generation,
+            ))
+            .load::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .map_err(db("rows_with_takes.takes"))?;
+
+        let adopted = adopted_takes::table
+            .select((adopted_takes::row_id, adopted_takes::take_id))
+            .load::<(String, i32)>(&mut self.conn)
+            .map_err(db("rows_with_takes.adopted"))?;
+
+        let mut by_row: std::collections::HashMap<String, Vec<Take>> =
+            std::collections::HashMap::new();
+        for (id, row_id, rel_path, frames, invalid, generation) in takes {
+            by_row.entry(row_id.clone()).or_default().push(Take {
+                id,
+                row_id,
+                rel_path,
+                frames,
+                invalid: invalid != 0,
+                generation,
+            });
+        }
+        let adopted: std::collections::HashMap<String, i32> = adopted.into_iter().collect();
+
+        Ok(rows
+            .into_iter()
+            .map(|(row_id, text, state)| RowTakes {
+                takes: by_row.remove(&row_id).unwrap_or_default(),
+                adopted: adopted.get(&row_id).copied(),
+                state: RowState::parse(&state),
+                row_id,
+                text,
+            })
+            .collect())
     }
 
     /// 台帳が知らない確定済みファイルを見つける（`DEC-REC-004` の孤児）。
@@ -1220,6 +1299,50 @@ mod tests {
         assert_eq!(all[0].generation, 1);
         assert_eq!(all[1].generation, 2);
         assert_ne!(first, second);
+    }
+
+    /// **一度録った行も一覧に出る**（`TR-REC-21`, `TR-RCL-25`）。
+    ///
+    /// `next_row` は未収録しか返さないので、これが無いと
+    /// **録り直しの入口が存在しない。** 実際に無くて困った。
+    #[test]
+    fn 録り直しの一覧に全部の行が出る() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let first = l.commit_take(&take(row, sid, 1)).expect("1回目");
+        let second = l.commit_take(&take(row, sid, 2)).expect("2回目");
+
+        let rows = l.rows_with_takes().expect("引ける");
+        assert_eq!(rows.len(), list.len(), "未収録の行も含めて全部出る");
+
+        let r = rows.iter().find(|r| &r.row_id == row).expect("ある");
+        assert_eq!(r.state, RowState::Recorded);
+        assert_eq!(r.takes.len(), 2, "過去のテイクも出る");
+        assert_eq!(r.takes[0].generation, 1);
+        assert_eq!(r.takes[1].generation, 2);
+        assert_eq!(r.adopted, Some(second), "採用は新しい方（TR-REC-21）");
+
+        // **採用を戻せる。**
+        l.adopt_take(row, first).expect("戻せる");
+        let rows = l.rows_with_takes().expect("引ける");
+        let r = rows.iter().find(|r| &r.row_id == row).expect("ある");
+        assert_eq!(r.adopted, Some(first));
+
+        // 未収録の行は、テイクも採用も無い。
+        let other = rows.iter().find(|r| &r.row_id != row).expect("ある");
+        assert_eq!(other.state, RowState::Unrecorded);
+        assert!(other.takes.is_empty());
+        assert_eq!(other.adopted, None);
+    }
+
+    /// **一覧は並び順で返す。** 画面が並べ直さなくてよい。
+    #[test]
+    fn 録り直しの一覧は並び順() {
+        let (mut l, _, list) = ready();
+        let got = l.rows_with_takes().expect("引ける");
+        let want: Vec<&String> = list.iter().map(|r| &r.id).collect();
+        let ids: Vec<&String> = got.iter().map(|r| &r.row_id).collect();
+        assert_eq!(ids, want);
     }
 
     /// **採用テイクを切り替えてもカバレッジは変わらない**（TR-RCL-25）。

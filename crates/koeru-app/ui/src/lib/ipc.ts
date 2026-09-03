@@ -82,6 +82,27 @@ export type TakeView = {
 };
 
 /** 残量の見積もり（TR-REC-41）。 */
+/** 行と、その行に積んだテイク（TR-REC-21, TR-RCL-25）。 */
+export type RowTakesView = {
+  row_id: string;
+  /** 読み上げる文字列。 */
+  text: string;
+  state: "unrecorded" | "recorded" | "needs_retake" | "excluded";
+  /** 世代順。**非採用も含む**——いつでも採用を戻せる。 */
+  takes: TakeSummaryView[];
+  /** いま採用しているテイクの ID。 */
+  adopted: number | null;
+};
+
+export type TakeSummaryView = {
+  take_id: number;
+  /** 何本目か（1 始まり）。 */
+  generation: number;
+  duration_ms: number;
+  /** 取りこぼしで自動的に無効にした（TR-REC-07）。 */
+  invalid: boolean;
+};
+
 export type SpaceView = {
   remaining_rows: number;
   /** その残量で録りきれる件数。「足りません」だけでは判断できない。 */
@@ -130,6 +151,11 @@ export const api = {
   armDevice: (deviceId: string) => invoke<string>("arm_device", { deviceId }),
   probeInput: (ms: number) => invoke<number>("probe_input", { ms }),
   startTake: () => invoke<string>("start_take"),
+  /** 行を指定して録り直す（TR-REC-21）。**既存のテイクは消えない。** */
+  startRetake: (rowId: string) => invoke<string>("start_retake", { rowId }),
+  rowsWithTakes: () => invoke<RowTakesView[]>("rows_with_takes"),
+  /** 採用テイクを切り替える（TR-RCL-25）。**カバレッジは変わらない。** */
+  adoptTake: (rowId: string, takeId: number) => invoke<void>("adopt_take", { rowId, takeId }),
   finishTake: () => invoke<TakeView>("finish_take"),
   preview: (takeId: number, midi: number, lengthMs: number) =>
     invoke<number>("preview", { takeId, midi, lengthMs }),

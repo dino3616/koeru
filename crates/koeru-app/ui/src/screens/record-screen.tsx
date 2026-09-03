@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CalibrationCard } from "~/components/calibration-card";
 import { LeakCard } from "~/components/leak-card";
 import { SongList } from "~/components/song-list";
+import { TakeList } from "~/components/take-list";
 import { TakeInspector } from "~/components/take-inspector";
 import { LevelMeter } from "~/components/level-meter";
 import { Button } from "~/components/ui/button";
@@ -52,6 +53,14 @@ export const RecordScreen = () => {
   const [micMode, setMicMode] = useState<string | null>(null);
   const [level, setLevel] = useState(0);
   const [progress, setProgress] = useState<ProgressView | null>(null);
+  /**
+   * 台帳が変わるたびに増やす。
+   *
+   * **カバレッジでは代用できない。** 採用テイクを切り替えても、
+   * 録り直しても、**カバレッジは変わらない**（TR-RCL-25）。
+   * それを鍵にすると、一覧が更新されない。
+   */
+  const [revision, setRevision] = useState(0);
   const [take, setTake] = useState<TakeView | null>(null);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,12 +135,34 @@ export const RecordScreen = () => {
           : "録れましたが、発声を見つけられませんでした",
     );
     setProgress(await api.progress());
+    setRevision((n) => n + 1);
     return t;
   };
 
   const start = () => {
     setError(null);
     recordOnce(advanceMs).catch(fail);
+  };
+
+  /**
+   * 行を指定して録り直す（TR-REC-21、TR-RCL-25、TR-ALN-27）。
+   *
+   * **固定長で切らない。** 本人が「止める」を押すまで録る。
+   * 連続収録の固定長（TR-REC-20）は自動送りの条件であって、
+   * **録り直しは自動で送らない**ので、そこに合わせる理由が無い。
+   */
+  const retake = (rowId: string) => {
+    setError(null);
+    setTake(null);
+    api
+      .startRetake(rowId)
+      .then(() => {
+        startedAt.current = performance.now();
+        setElapsed(0);
+        setRecording(true);
+        setStatus(`${rowId} を録り直しています。終わったら「止める」`);
+      })
+      .catch(fail);
   };
 
   const stop = () => {
@@ -149,7 +180,10 @@ export const RecordScreen = () => {
         );
         return api.progress();
       })
-      .then(setProgress)
+      .then((p) => {
+        setProgress(p);
+        setRevision((n) => n + 1);
+      })
       .catch(fail);
   };
 
@@ -450,6 +484,12 @@ export const RecordScreen = () => {
           </div>
         </Card>
       )}
+
+      <TakeList
+        revision={revision}
+        busy={recording || continuous}
+        onRetake={retake}
+      />
 
       <SongList revision={progress?.covered ?? 0} />
 

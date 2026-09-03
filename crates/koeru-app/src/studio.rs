@@ -957,6 +957,56 @@ impl Studio {
     /// 人は「録音」を押してから息を吸わない。指示の時点から書くと語頭が欠ける。
     #[tracing::instrument(skip(self), err)]
     pub fn start_take(&mut self) -> Result<String> {
+        let row_id = self
+            .opened_mut()?
+            .ledger
+            .next_row()?
+            .ok_or_else(|| AppError::new("app.nothing_to_record", "録るべき行がもう無い"))?
+            .0;
+        self.start_take_for(&row_id)
+    }
+
+    /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
+    ///
+    /// **録り直しの一覧。** 採用を戻すのにも使う。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn rows_with_takes(&mut self) -> Result<Vec<koeru_core::db::RowTakes>> {
+        Ok(self.opened_mut()?.ledger.rows_with_takes()?)
+    }
+
+    /// 採用テイクを切り替える（`TR-RCL-25`）。
+    ///
+    /// **カバレッジは変わらない。** 行が生む単位は行が持っていて、テイクに依らない。
+    /// 変わるのは原音設定の値だけ。**だから再アライメントも要らない**——
+    /// oto はテイクごとに導出済みで、切り替えれば付いてくる。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、その行にそのテイクが無い。
+    #[tracing::instrument(skip(self), err)]
+    pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
+        self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
+        // **試唱のキャッシュは消さなくてよい。** 鍵に素材の内容ハッシュが
+        // 入っているので、テイクが変われば別の鍵になり、古い結果は使われない。
+        self.prerender_songs();
+        Ok(())
+    }
+
+    /// 行を指定して録る。**録り直しの入口**（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
+    ///
+    /// **既存のテイクを消さない。** 世代を1つ足して積み、
+    /// `finish_take` が採用を新しい方へ切り替える。過去のテイクは非採用として残り、
+    /// [`Self::adopt_take`] でいつでも戻せる。
+    ///
+    /// # Errors
+    ///
+    /// 収録中、ストリームが開いていない、その行が無い、残量が足りない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn start_take_for(&mut self, row_id: &str) -> Result<String> {
         if self.recording.is_some() {
             return Err(AppError::new("app.already_recording", "すでに収録中"));
         }
@@ -964,12 +1014,10 @@ impl Studio {
         // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let audio_dir = self.opened()?.dir.audio_dir();
-        let row_id = self
-            .opened_mut()?
-            .ledger
-            .next_row()?
-            .ok_or_else(|| AppError::new("app.nothing_to_record", "録るべき行がもう無い"))?
-            .0;
+        let row_id = row_id.to_owned();
+        // **知らない行では始めない。** 名前を打ち間違えたまま録ると、
+        // 台帳に載らないファイルができる。
+        self.opened_mut()?.ledger.row_state(&row_id)?;
 
         // **世代を名前に入れる。** 録り直しても既存の WAV を上書きしない（TR-PKG-39）。
         let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;

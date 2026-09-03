@@ -100,6 +100,57 @@ impl From<Progress> for ProgressView {
     }
 }
 
+/// 画面へ返す「行と、その行のテイク」（`TR-REC-21`, `TR-RCL-25`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct RowTakesView {
+    pub row_id: String,
+    /// 読み上げる文字列。
+    pub text: String,
+    /// `unrecorded` / `recorded` / `needs_retake` / `excluded`。
+    pub state: String,
+    /// 世代順。**非採用も含む**——いつでも採用を戻せる（`TR-REC-21`）。
+    pub takes: Vec<TakeSummaryView>,
+    /// いま採用しているテイクの ID。
+    pub adopted: Option<i32>,
+}
+
+/// 一覧に出すテイク1件。
+#[derive(Debug, Clone, Serialize)]
+pub struct TakeSummaryView {
+    pub take_id: i32,
+    /// 何本目か（1 始まり）。
+    pub generation: i32,
+    pub duration_ms: f64,
+    /// 取りこぼしで自動的に無効にした（`TR-REC-07`）。
+    pub invalid: bool,
+}
+
+impl From<koeru_core::db::RowTakes> for RowTakesView {
+    fn from(r: koeru_core::db::RowTakes) -> Self {
+        Self {
+            row_id: r.row_id,
+            text: r.text,
+            state: r.state.as_str().to_owned(),
+            takes: r
+                .takes
+                .into_iter()
+                .map(|t| TakeSummaryView {
+                    take_id: t.id,
+                    generation: t.generation,
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "テイクの長さは表示用。桁は十分に収まる"
+                    )]
+                    duration_ms: t.frames as f64 * 1000.0
+                        / f64::from(koeru_audio::wav::MASTER_RATE_HZ),
+                    invalid: t.invalid,
+                })
+                .collect(),
+            adopted: r.adopted,
+        }
+    }
+}
+
 /// 画面へ返すテイク。
 #[derive(Debug, Clone, Serialize)]
 pub struct TakeView {
@@ -568,6 +619,32 @@ pub fn probe_input(state: State<'_, AppState>, ms: u64) -> Result<f32> {
 #[tauri::command]
 pub fn start_take(state: State<'_, AppState>) -> Result<String> {
     lock(&state)?.start_take()
+}
+
+/// 行を指定して録り直す（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
+///
+/// **既存のテイクを消さない。** 世代を1つ足して積み、採用を新しい方へ切り替える。
+#[tauri::command]
+pub fn start_retake(state: State<'_, AppState>, row_id: String) -> Result<String> {
+    lock(&state)?.start_take_for(&row_id)
+}
+
+/// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
+#[tauri::command]
+pub fn rows_with_takes(state: State<'_, AppState>) -> Result<Vec<RowTakesView>> {
+    Ok(lock(&state)?
+        .rows_with_takes()?
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+/// 採用テイクを切り替える（`TR-RCL-25`）。
+///
+/// **カバレッジは変わらない。** 変わるのは原音設定の値だけ。
+#[tauri::command]
+pub fn adopt_take(state: State<'_, AppState>, row_id: String, take_id: i32) -> Result<()> {
+    lock(&state)?.adopt_take(&row_id, take_id)
 }
 
 /// 収録を止めて、テイクを確定させる。
