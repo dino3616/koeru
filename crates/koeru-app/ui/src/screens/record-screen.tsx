@@ -61,6 +61,13 @@ export const RecordScreen = () => {
    * それを鍵にすると、一覧が更新されない。
    */
   const [revision, setRevision] = useState(0);
+  /**
+   * いま録っているテイクの番号。
+   *
+   * **自動終了と手動終了が同時に走らないための札**（TR-REC-42）。
+   * 止めるたびに進めるので、待っている自動終了は自分の番号でなくなる。
+   */
+  const takeSeq = useRef(0);
   const [take, setTake] = useState<TakeView | null>(null);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,17 +120,25 @@ export const RecordScreen = () => {
       .catch(fail);
   };
 
-  /** 1フレーズ録って確定させる。**連続収録もここを繰り返す。** */
-  const recordOnce = async (holdMs: number) => {
+  /**
+   * テイクを1つ始める。
+   *
+   * **番号を1つ進めて返す。** 待っている自動終了が、
+   * 自分の番号でなくなったら確定させない——**二重に確定させない**（TR-REC-42）。
+   */
+  const beginTake = async (starter: () => Promise<string>) => {
     setTake(null);
-    await api.startTake();
+    await starter();
+    takeSeq.current += 1;
     startedAt.current = performance.now();
     setElapsed(0);
     setRecording(true);
-    setStatus("収録中");
+    setStatus("収録中。終わったら「止める」");
+    return takeSeq.current;
+  };
 
-    await new Promise((r) => setTimeout(r, holdMs));
-
+  /** テイクを確定させて、画面を進める。 */
+  const settle = async () => {
     setRecording(false);
     const t = await api.finishTake();
     setTake(t);
@@ -139,52 +154,51 @@ export const RecordScreen = () => {
     return t;
   };
 
+  /**
+   * 単発の収録（TR-REC-42）。**本人が止めるまで録る。**
+   *
+   * TR-REC-20 の固定長は**連続収録の自動送りの条件**であって、
+   * 単発の終了条件ではない。発話の長さは項目で倍以上違う——
+   * 「あ い う え お」と「ん」を同じ長さで切る理由が無い。
+   */
   const start = () => {
     setError(null);
-    recordOnce(advanceMs).catch(fail);
+    beginTake(() => api.startTake()).catch(fail);
   };
 
   /**
    * 行を指定して録り直す（TR-REC-21、TR-RCL-25、TR-ALN-27）。
    *
-   * **固定長で切らない。** 本人が「止める」を押すまで録る。
-   * 連続収録の固定長（TR-REC-20）は自動送りの条件であって、
-   * **録り直しは自動で送らない**ので、そこに合わせる理由が無い。
+   * **単発の収録として扱う**（TR-REC-42）。自動で次へ送らない。
    */
   const retake = (rowId: string) => {
     setError(null);
-    setTake(null);
-    api
-      .startRetake(rowId)
-      .then(() => {
-        startedAt.current = performance.now();
-        setElapsed(0);
-        setRecording(true);
-        setStatus(`${rowId} を録り直しています。終わったら「止める」`);
-      })
+    beginTake(() => api.startRetake(rowId))
+      .then(() => setStatus(`${rowId} を録り直しています。終わったら「止める」`))
       .catch(fail);
   };
 
+  /**
+   * 止める。
+   *
+   * **番号を進めてから確定させる。** 進めておかないと、
+   * 連続収録で待っている自動終了が、確定済みのテイクをもう一度確定させにいく
+   * ——収録していない状態への確定要求になってエラーが出る（TR-REC-42）。
+   */
   const stop = () => {
-    setRecording(false);
-    api
-      .finishTake()
-      .then((t) => {
-        setTake(t);
-        setStatus(
-          t.invalidated
-            ? "取りこぼしがあったので、もう一度録ります"
-            : t.has_oto
-              ? "録れました。音高を選ぶと歌います"
-              : "録れましたが、発声を見つけられませんでした",
-        );
-        return api.progress();
-      })
-      .then((p) => {
-        setProgress(p);
-        setRevision((n) => n + 1);
-      })
-      .catch(fail);
+    takeSeq.current += 1;
+    settle().catch(fail);
+  };
+
+  /** 連続収録の1フレーズ。**固定長で自動的に終わる**（TR-REC-20）。 */
+  const recordOnce = async (holdMs: number) => {
+    const mine = await beginTake(() => api.startTake());
+    await new Promise((r) => setTimeout(r, holdMs));
+    // **本人が先に止めたなら、ここでは確定させない。**
+    if (takeSeq.current !== mine) {
+      return null;
+    }
+    return settle();
   };
 
   /**
@@ -404,10 +418,16 @@ export const RecordScreen = () => {
           {!ready && <span className="text-sm text-text-dim">先にマイクを選んでください</span>}
         </div>
 
-        {continuous && (
+        {continuous ? (
           <p className="mt-3 text-sm text-text-dim">
             1フレーズ {(advanceMs / 1000).toFixed(1)} 秒で自動的に次へ進みます。
             やめたフレーズは未収録のまま残ります。
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-text-dim">
+            {recording
+              ? "言い終えたら「止める」を押してください。押した 0.5 秒あとまで録ります。"
+              : "「録る」は止めるまで録り続けます。押した 0.5 秒前から録れています。"}
           </p>
         )}
       </Card>
@@ -485,11 +505,7 @@ export const RecordScreen = () => {
         </Card>
       )}
 
-      <TakeList
-        revision={revision}
-        busy={recording || continuous}
-        onRetake={retake}
-      />
+      <TakeList revision={revision} busy={recording || continuous} onRetake={retake} />
 
       <SongList revision={progress?.covered ?? 0} />
 
