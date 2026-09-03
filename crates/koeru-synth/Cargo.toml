@@ -16,5 +16,8 @@ koeru-core = { path = "../koeru-core" }
 thiserror.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+koeru-audio = { path = "../koeru-audio" }
+
 [build-dependencies]
 cc.workspace = true

@@ -49,9 +49,30 @@ pub struct RenderRequest<'a> {
     pub tempo: f64,
     /// ピッチベンド列（セント）。**目標音高からの差分。**
     pub pitch_bend_cents: &'a [f64],
-    /// 周波数表。**長さ 0 で「無し」を表す**（`TR-SYN-08`）。
+    /// 素材の周波数表。**無ければ `None`**（`TR-SYN-08`）。
     /// 無い場合は合成コア側が F0 を推定する。
-    pub frequency_table: &'a [f64],
+    pub frequency_table: Option<FrequencyTable<'a>>,
+}
+
+/// 素材の周波数表（`.frq`）。
+///
+/// # 何が入っているかを型に言わせる
+///
+/// **素材ファイル全体を、`.frq` の格子で持つ。** 合成器が見るのは
+/// oto で切り出した区間を 5ms の格子で並べたものなので、**どちらも合わない。**
+/// 切り出しと載せ替えは [`render`] が行う。**呼び出し側で切らないこと。**
+///
+/// 以前ここは `&[f64]` 1つで、上の2つがどちらも書かれていなかった。
+/// **`.frq` をそのまま渡す実装が2箇所あり、声が雑音になって音高も乗らなかった**
+/// （`tests/frequency_table_grid.rs`）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrequencyTable<'a> {
+    /// F0（Hz）。**無声は 0。**
+    ///
+    /// **先頭は素材ファイルの先頭。** oto の offset ではない。
+    pub f0: &'a [f64],
+    /// 格子の間隔（サンプル）。`.frq` は 256（`TR-PKG-05`）。
+    pub hop_samples: u32,
 }
 
 /// 合成の失敗。
@@ -149,20 +170,18 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     // ——それを別の音高で鳴らすのが resampler の役目なので、目標から範囲を引くと
     // 素材の基本周波数が範囲外に落ちる。**実際に踏んだ。**
     // 歌声の音域を広く取る。**周波数表があれば、そもそも推定しない**（TR-SYN-08）。
-    let (src_f0, time_axis) = if req.frequency_table.is_empty() {
-        world::estimate_f0(
+    let (src_f0, time_axis) = match req.frequency_table {
+        None => world::estimate_f0(
             region,
             fs,
             world::F0Method::DioStoneMask,
             SOURCE_F0_FLOOR_HZ,
             SOURCE_F0_CEIL_HZ,
             frame_ms,
-        )
-    } else {
+        ),
         // **周波数表があれば推定を省く**（TR-SYN-08）。録音時に作ってある（TR-SYN-21）。
-        let n = req.frequency_table.len();
-        let t: Vec<f64> = (0..n).map(|i| i as f64 * frame_ms / 1000.0).collect();
-        (req.frequency_table.to_vec(), t)
+        // **ただし格子も範囲も違うので、載せ替える**（下の `resample_table`）。
+        Some(t) => resample_table(&t, req.oto.offset_ms, region.len(), fs, frame_ms),
     };
     let analysis = world::analyze_with_f0(region, fs, &src_f0, &time_axis, frame_ms);
 
@@ -233,6 +252,53 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
         }
     }
     Ok(y)
+}
+
+/// 周波数表を、切り出した区間の 5ms 格子へ載せ替える（`TR-SYN-08`, `TR-PKG-05`）。
+///
+/// # なぜ要るか
+///
+/// `.frq` は **ファイル全体**を **hop=256 サンプル**の格子で持つ（`TR-PKG-05`）。
+/// 44100 Hz では 5.805ms なので、**5ms の格子とは1フレームあたり 16% ずれる。**
+/// さらに先頭が違う——表はファイルの先頭から、区間は `offset_ms` から始まる。
+///
+/// **そのまま渡すと、offset 手前の無音（F0=0）が発声の先頭に当たる。**
+/// F0=0 のフレームを WORLD は無声として合成するので、**声が雑音になり、
+/// 目標音高も乗らない。** 実測で1オクターブ下・周期性 0.31 になった。
+///
+/// # 補間しない
+///
+/// **0 は「無声」であって「0 Hz」ではない。** 有声と無声の間を線形に混ぜると、
+/// どちらでもない値ができる。**いちばん近い格子点をそのまま採る。**
+fn resample_table(
+    table: &FrequencyTable<'_>,
+    offset_ms: f64,
+    region_samples: usize,
+    sample_rate_hz: u32,
+    frame_ms: f64,
+) -> (Vec<f64>, Vec<f64>) {
+    let per_ms = f64::from(sample_rate_hz) / 1000.0;
+    // WORLD がこの長さの波形に対して作るフレーム数と揃える。
+    #[allow(clippy::cast_precision_loss)]
+    let region_ms = region_samples as f64 / per_ms;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let frames = (region_ms / frame_ms) as usize + 1;
+    let hop = f64::from(table.hop_samples.max(1));
+
+    let mut f0 = Vec::with_capacity(frames);
+    let mut axis = Vec::with_capacity(frames);
+    for i in 0..frames {
+        #[allow(clippy::cast_precision_loss)]
+        let into_region_ms = i as f64 * frame_ms;
+        // **表の索引はファイルの先頭から数える。**
+        let at_sample = (offset_ms + into_region_ms) * per_ms;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let idx = (at_sample / hop).round() as usize;
+        // 表の外は無声として扱う。
+        f0.push(table.f0.get(idx).copied().unwrap_or(0.0));
+        axis.push(into_region_ms / 1000.0);
+    }
+    (f0, axis)
 }
 
 /// 伸縮した分析結果。**フレームを付け替えるだけで、包絡そのものは作り直さない。**
@@ -333,7 +399,7 @@ mod tests {
             modulation: 0.0,
             tempo: 120.0,
             pitch_bend_cents: bend,
-            frequency_table: &[],
+            frequency_table: None,
         }
     }
 
@@ -485,11 +551,13 @@ mod tests {
     fn 周波数表を渡すと推定を省く() {
         let src = voiced(220.0, 0.5, 44_100);
         let o = oto(20.0, 480.0);
-        // 使う区間ぶんの F0 を一定値で渡す
-        let frames = (480.0 / 5.0) as usize;
-        let table = vec![220.0_f64; frames];
+        // **`.frq` と同じ形で渡す**——ファイル全体を hop=256 の格子で。
+        let table = vec![220.0_f64; src.len().div_ceil(256)];
         let mut r = req(&src, o, 300.0, &[]);
-        r.frequency_table = &table;
+        r.frequency_table = Some(FrequencyTable {
+            f0: &table,
+            hop_samples: 256,
+        });
         let y = render(&r).expect("合成できる");
         assert!(!y.is_empty());
         let hz = analyze_hz(&y);

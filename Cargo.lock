@@ -1866,6 +1866,7 @@ name = "koeru-synth"
 version = "0.0.0"
 dependencies = [
  "cc",
+ "koeru-audio",
  "koeru-core",
  "thiserror 2.0.20",
  "tracing",

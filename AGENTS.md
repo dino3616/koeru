@@ -118,6 +118,17 @@ KOERU_ALIGN_SAMPLE_READING='ぎ ぎゃ ぎゅ ぎょ' \
   cargo test --package koeru-align --test alignment_on_real_audio -- --nocapture
 ```
 
+**歌わせるところも実音声で見る。** 周波数表の当て方を間違えると、
+**単体試験は全部通ったままアプリだけが雑音を出す**（`DEC-SYN-008`）。
+録音を1つ通して、指定した音高で鳴るかと、雑音になっていないかを見る。
+これも**回帰テストではない**。
+
+```bash
+KOERU_SYNTH_SAMPLE_WAV=/path/to/take.wav \
+KOERU_SYNTH_SAMPLE_OFFSET_MS=1235 KOERU_SYNTH_SAMPLE_LENGTH_MS=550 \
+  cargo test --package koeru-synth --test preview_on_real_audio -- --nocapture
+```
+
 WebView 側は別に検証する。**すべて `crates/koeru-app/ui` の中で完結する。**
 モノレポにしていないので、ワークスペースを跨ぐ設定は無い。
 
@@ -209,6 +220,7 @@ deny.toml           AGPL 互換ライセンスの許可リスト
 - **合成は WORLD ベース。** ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - **フロントは shadcn に依存しない。** レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - **配色は Radix Colors の段の意味を守る。** 1=地、2=面、…11=低コントラストの字、12=高コントラストの字。**塗りは段 9 ではなく段 11**（段 9 は明暗で同じ値になる色があり、字を載せると 4.5:1 に届かない）。検査は `crates/koeru-app/ui/scripts/check-contrast.ts`
+- **周波数表は素材ファイル全体を `.frq` の格子（hop=256）で渡す。切り出さない**（`DEC-SYN-008`）。oto での切り出しと 5ms 格子への載せ替えは合成器がする。**切り出し済みのつもりで渡すと、offset 手前の無声フレームが発声の先頭に当たり、声が雑音になって音高も乗らない**（踏んだ）
 - **`koeru-synth` の `RenderRequest.tone` は「鳴らしたい音高」。収録音高ではない。** ここに収録音高を渡すと、どの音高を選んでも同じ高さで鳴る（**踏んだ**）
 - **未解決の設計課題が2件ある**（`meta/questions/Q-PLT-001` と `Q-EDT-001`）。いずれもメモリ予算の破綻で、実装着手前に数値を積み直す必要がある
 - **FSL 化してあるのは縦切り1本だけ**（録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し）。技術要件を一度に FSL へ移さないこと。形式化できない文章まで入れると、FSL が新しい巨大文書になる

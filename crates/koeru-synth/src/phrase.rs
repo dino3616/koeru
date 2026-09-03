@@ -15,7 +15,7 @@
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use crate::resampler::{PreviewFlags, RenderError, RenderRequest, render};
+use crate::resampler::{FrequencyTable, PreviewFlags, RenderError, RenderRequest, render};
 use koeru_core::oto::Oto;
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
@@ -120,6 +120,9 @@ pub trait Samples {
     fn load(&self, note: &NoteSpec) -> Result<(Vec<f64>, u32), RenderError>;
 
     /// この音符の周波数表。**無ければ空**（`TR-SYN-08`）。
+    ///
+    /// **素材ファイル全体を、`.frq` の格子（hop=256）で返す**（`TR-PKG-05`）。
+    /// 切り出しと格子の載せ替えは合成器がする。**ここで切らないこと。**
     fn frequency_table(&self, note: &NoteSpec) -> Vec<f64> {
         let _ = note;
         Vec::new()
@@ -163,7 +166,11 @@ pub fn render_phrase(
             modulation: flags.modulation,
             tempo: 120.0,
             pitch_bend_cents: &[],
-            frequency_table: &table,
+            // **表はファイル全体・hop=256。** 切り出しは合成器がする。
+            frequency_table: (!table.is_empty()).then_some(FrequencyTable {
+                f0: &table,
+                hop_samples: koeru_core::frq::HOP_SIZE,
+            }),
         })?;
 
         if out.is_empty() {

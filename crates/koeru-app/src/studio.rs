@@ -39,7 +39,7 @@ use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::ust;
 use koeru_core::waveform;
 use koeru_synth::f0;
-use koeru_synth::resampler::{RenderRequest, render};
+use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 
 use uuid::Uuid;
 
@@ -1334,7 +1334,12 @@ impl Studio {
             modulation: 0.0,
             tempo: 120.0,
             pitch_bend_cents: &[],
-            frequency_table: &table,
+            // **表はファイル全体・hop=256 の `.frq`**（`TR-PKG-05`）。
+            // 切り出しと 5ms 格子への載せ替えは合成器がする。
+            frequency_table: (!table.is_empty()).then_some(FrequencyTable {
+                f0: &table,
+                hop_samples: koeru_core::frq::HOP_SIZE,
+            }),
         })?;
 
         #[allow(
