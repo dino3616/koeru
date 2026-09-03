@@ -144,36 +144,111 @@ fn vowel_of<'a>(table: &'a [Unit], kana: &str) -> Option<&'a str> {
     table.iter().find(|u| u.kana == kana).map(|u| u.vowel)
 }
 
+/// フレーズの1拍（`TR-SYN-18`）。
+///
+/// **モーラと1対1で並ぶ。** 呼び出し側は結果の添字で音符を引くので、
+/// **拍を落とすと、それ以降の音符の音高と長さが1つずつずれる。**
+/// 長音と促音を落としていて、実際にずれた（`DEC-SYN-009`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhraseUnit {
+    /// 素材を鳴らす。
+    Sound(Resolved),
+    /// **鳴らさない拍。** 促音は閉鎖であって、素材を持たない
+    /// （`MoraKind::Geminate`。子音部は次のモーラのエイリアスが持っている）。
+    Rest,
+    /// 素材が無い。
+    Missing(Missing),
+}
+
+impl PhraseUnit {
+    /// 鳴らせるか。**休符も「鳴らせる」に数える**——素材の不足ではない。
+    #[must_use]
+    pub const fn is_playable(&self) -> bool {
+        !matches!(self, Self::Missing(_))
+    }
+}
+
 /// フレーズ全体を解決する。
 ///
 /// **解決できた音符と、できなかった音符の両方を返す。**
 /// できなかったものを黙って飛ばすと、短縮版（`TR-SYN-18`）が作れない。
+///
+/// # モーラの数だけ返す
+///
+/// **長音も促音も、拍として1つ返す。** 呼び出し側は結果の添字で音符を引くので、
+/// ここで詰めると音高と長さがずれる。
+///
+/// - 長音（`ー`）は **直前モーラの末尾母音の継続**（`MoraKind::LongVowel`）。
+///   その母音の単独単位（あ/い/う/え/お）へ解決する。**母音を伸ばすのが長音。**
+/// - 促音（`っ`）は [`PhraseUnit::Rest`]。**閉鎖なので素材が無い。**
 #[must_use]
 pub fn resolve_phrase(
     method: Method,
     moras: &[Mora],
     available: &BTreeSet<String>,
     set: UnitSet,
-) -> Vec<Result<Resolved, Missing>> {
+) -> Vec<PhraseUnit> {
     let table = units(set);
     let mut out = Vec::new();
     let mut prev_vowel: Option<String> = None;
 
     for m in moras {
         match m.kind {
-            MoraKind::LongVowel | MoraKind::Geminate => continue,
+            // **直前母音の継続。** 母音の単独単位で伸ばす。
+            // **prev_vowel は据え置く**——長音のあとも、母音は変わらない。
+            MoraKind::LongVowel => {
+                let unit = prev_vowel
+                    .as_deref()
+                    .and_then(|v| vowel_unit(&table, v))
+                    .map(|kana| {
+                        let req = Request {
+                            lyric: kana,
+                            previous_vowel: prev_vowel.as_deref(),
+                        };
+                        resolve(method, &req, available)
+                    });
+                out.push(match unit {
+                    Some(Ok(r)) => PhraseUnit::Sound(r),
+                    Some(Err(e)) => PhraseUnit::Missing(e),
+                    // 直前に母音が無い（曲の頭が長音など）。**黙って飛ばさない。**
+                    None => PhraseUnit::Missing(Missing {
+                        lyric: "ー".to_owned(),
+                        tried: Vec::new(),
+                    }),
+                });
+                continue;
+            }
+            // **素材を持たない拍。** 落とすと、以降の音符がずれる。
+            MoraKind::Geminate => {
+                out.push(PhraseUnit::Rest);
+                continue;
+            }
             MoraKind::Syllable | MoraKind::Moraic => {}
         }
-        let Some(unit) = m.unit else { continue };
+        let Some(unit) = m.unit else {
+            out.push(PhraseUnit::Rest);
+            continue;
+        };
 
         let req = Request {
             lyric: unit,
             previous_vowel: prev_vowel.as_deref(),
         };
-        out.push(resolve(method, &req, available));
+        out.push(match resolve(method, &req, available) {
+            Ok(r) => PhraseUnit::Sound(r),
+            Err(e) => PhraseUnit::Missing(e),
+        });
         prev_vowel = vowel_of(&table, unit).map(str::to_owned);
     }
     out
+}
+
+/// その母音クラスの単独母音（あ/い/う/え/お）。
+fn vowel_unit<'a>(table: &'a [Unit], vowel: &str) -> Option<&'a str> {
+    table
+        .iter()
+        .find(|u| u.consonant.is_empty() && u.vowel == vowel)
+        .map(|u| u.kana)
 }
 
 #[cfg(test)]
@@ -291,13 +366,104 @@ mod tests {
         let m = parse("さくら", UnitSet::Core).expect("読める");
         let got = resolve_phrase(Method::Single, &m, &have(&["さ", "ら"]), UnitSet::Core);
         assert_eq!(got.len(), 3);
-        assert!(got[0].is_ok());
-        assert!(got[1].is_err(), "く が無い");
-        assert!(got[2].is_ok());
+        assert!(got[0].is_playable());
+        assert!(!got[1].is_playable(), "く が無い");
+        assert!(got[2].is_playable());
 
-        let Err(missing) = &got[1] else { panic!() };
+        let PhraseUnit::Missing(missing) = &got[1] else {
+            panic!()
+        };
         assert_eq!(missing.lyric, "く");
         assert_eq!(missing.tried, ["く"]);
+    }
+
+    /// **長音は直前母音を伸ばす。落とさない**（`DEC-SYN-009`）。
+    ///
+    /// 落とすと、呼び出し側が結果の添字で音符を引くので、
+    /// **それ以降の音高と長さが1つずつずれる。**
+    #[test]
+    fn 長音は直前母音として鳴る() {
+        let m = parse("かーさ", UnitSet::Core).expect("読める");
+        let got = resolve_phrase(
+            Method::Single,
+            &m,
+            &have(&["か", "あ", "さ"]),
+            UnitSet::Core,
+        );
+        assert_eq!(got.len(), 3, "音符の数と揃うこと");
+        assert_eq!(
+            got[0],
+            PhraseUnit::Sound(Resolved {
+                alias: "か".to_owned(),
+                rank: 0
+            })
+        );
+        assert_eq!(
+            got[1],
+            PhraseUnit::Sound(Resolved {
+                alias: "あ".to_owned(),
+                rank: 0
+            }),
+            "ー は直前母音 a の単独単位で伸ばす"
+        );
+        assert_eq!(
+            got[2],
+            PhraseUnit::Sound(Resolved {
+                alias: "さ".to_owned(),
+                rank: 0
+            })
+        );
+    }
+
+    /// **長音のあとも母音は変わらない。** 連続音の前母音がずれないこと。
+    #[test]
+    fn 長音のあとも直前母音は変わらない() {
+        let m = parse("きーい", UnitSet::Core).expect("読める");
+        let got = resolve_phrase(Method::Single, &m, &have(&["き", "い"]), UnitSet::Core);
+        assert_eq!(got.len(), 3);
+        assert_eq!(
+            got[1],
+            PhraseUnit::Sound(Resolved {
+                alias: "い".to_owned(),
+                rank: 0
+            })
+        );
+    }
+
+    /// **促音は鳴らさない拍として残る**（`MoraKind::Geminate`）。
+    /// 素材の不足ではないので、鳴らせないとは数えない。
+    #[test]
+    fn 促音は休符として残る() {
+        let m = parse("きって", UnitSet::Core).expect("読める");
+        let got = resolve_phrase(Method::Single, &m, &have(&["き", "て"]), UnitSet::Core);
+        assert_eq!(got.len(), 3, "っ も1拍として並ぶこと");
+        assert_eq!(got[1], PhraseUnit::Rest);
+        assert!(got.iter().all(PhraseUnit::is_playable));
+    }
+
+    /// **伸ばす母音が無い長音は、欠損として返す。黙って飛ばさない。**
+    ///
+    /// `parse` は先頭の長音を `DanglingModifier` で弾くので、
+    /// この経路は通常は通らない。**それでも落とさない**——
+    /// 落とすと、以降の音符が1つずれる形に戻る。
+    #[test]
+    fn 伸ばす母音が無ければ欠損として返す() {
+        let m = vec![
+            Mora {
+                text: "ー".to_owned(),
+                unit: None,
+                kind: MoraKind::LongVowel,
+            },
+            Mora {
+                text: "あ".to_owned(),
+                unit: Some("あ"),
+                kind: MoraKind::Syllable,
+            },
+        ];
+        let got = resolve_phrase(Method::Single, &m, &have(&["あ"]), UnitSet::Core);
+        assert_eq!(got.len(), 2, "拍の数は減らさない");
+        assert!(!got[0].is_playable());
+        assert!(got[1].is_playable());
     }
 
     /// **カバレッジ判定と試唱が同じコードパスを通る**（TR-SYN-12, TR-RCL-20）。
@@ -308,7 +474,7 @@ mod tests {
             let need = required_aliases(method, &m, UnitSet::Core);
             let got = resolve_phrase(method, &m, &need, UnitSet::Core);
             assert!(
-                got.iter().all(Result::is_ok),
+                got.iter().all(PhraseUnit::is_playable),
                 "{method:?}: 必要集合を持てば全部解決すること"
             );
         }

@@ -1543,7 +1543,7 @@ impl Studio {
             let duration_ms = f64::from(ticks) / 480.0 * 500.0;
 
             match r {
-                Ok(res) => {
+                koeru_core::alias::PhraseUnit::Sound(res) => {
                     let Some(oto) = otos.get(&res.alias) else {
                         playable = false;
                         continue;
@@ -1557,7 +1557,17 @@ impl Studio {
                         duration_ms,
                     });
                 }
-                Err(_) => {
+                // **促音は鳴らさない拍。** ここでフレーズを切るが、
+                // **素材が足りないわけではない**ので `playable` は倒さない。
+                koeru_core::alias::PhraseUnit::Rest => {
+                    if !current.is_empty() {
+                        phrases.push((
+                            koeru_synth::phrase::Phrase::new(std::mem::take(&mut current)),
+                            playable,
+                        ));
+                    }
+                }
+                koeru_core::alias::PhraseUnit::Missing(_) => {
                     // **鳴らせない音符が出たら、そこでフレーズを切る**（TR-SYN-18）。
                     if !current.is_empty() {
                         phrases.push((

@@ -163,7 +163,7 @@ pub fn status_of(
                 let resolvable = song.moras(set).is_some_and(|m| {
                     alias::resolve_phrase(method, &m, recorded, set)
                         .iter()
-                        .all(Result::is_ok)
+                        .all(alias::PhraseUnit::is_playable)
                 });
                 if resolvable {
                     Singability::WithFallback
