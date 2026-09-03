@@ -84,6 +84,18 @@ pub enum RenderError {
     /// 出したい長さが 0 以下。
     #[error("required_length が正でない")]
     EmptyOutput,
+
+    /// 素材が見つからない、または読めない。
+    #[error("素材を読めない")]
+    SourceUnavailable,
+
+    /// **素材がマスターの形式で無い**（`TR-SYN-31`）。
+    ///
+    /// 試唱のために変換して通さないので、ここで止まる。
+    /// **`RegionOutOfRange` に畳まないこと**——畳むと「oto の切り出し範囲が
+    /// 素材に収まらない」と出て、**oto を疑うことになる**（踏んだ）。
+    #[error("素材のサンプルレートがマスターと違う")]
+    SampleRateMismatch,
 }
 
 impl RenderError {
@@ -93,6 +105,8 @@ impl RenderError {
         match self {
             Self::RegionOutOfRange => "synth.region_out_of_range",
             Self::EmptyOutput => "synth.empty_output",
+            Self::SourceUnavailable => "synth.source_unavailable",
+            Self::SampleRateMismatch => "synth.sample_rate_mismatch",
         }
     }
 }

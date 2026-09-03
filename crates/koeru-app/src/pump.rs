@@ -17,6 +17,17 @@
 //!
 //! 末尾の延長は**フレーム数で数える**。壁時計で測ると、排出が詰まったときに
 //! 実際より短く切れる。**音の時間軸で数えれば、詰まっても長さは変わらない。**
+//!
+//! # 44100 へ落とすのはここ
+//!
+//! キャプチャはデバイスのネイティブレートで受ける（`TR-REC-02`、`TR-REC-05`）。
+//! **リングから出した直後に1回だけ 44100 へ変換し、以降はすべてマスターの時間軸で扱う。**
+//! プリロールもピークも検査用の収集も、書き出すテイクも、全部 44100。
+//!
+//! **ここより下流でレートを持ち回らない。** 持ち回ると、どこかで取り違える——
+//! 実際、変換そのものが抜けていて 48000 Hz のマスターが書かれていた（`DEC-REC-006`）。
+//! `write_distribution` はヘッダに 44100 と書くだけなので、**そのまま配ると
+//! 44100 と名乗る 48000 の音**になる。
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -25,6 +36,8 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
+use koeru_audio::resample::Resampler;
+use koeru_audio::wav::MASTER_RATE_HZ;
 use koeru_audio::{ring, wav};
 
 /// 常時保持する長さ（ミリ秒）。**`TR-REC-19` の下限は 1000ms。**
@@ -57,7 +70,6 @@ pub struct Finished {
 enum Cmd {
     Start {
         path: PathBuf,
-        rate_hz: u32,
         reply: Sender<Result<(), wav::WavError>>,
     },
     Finish {
@@ -114,8 +126,12 @@ impl PumpError {
 
 impl Pump {
     /// 排出を始める。**この時点からプリロールが溜まりはじめる。**
+    ///
+    /// `device_rate_hz` はキャプチャが実際に開けたレート。
+    /// **ここで 44100 へ落とすので、外へ出るものはすべてマスターの時間軸**
+    /// （`TR-REC-02`）。
     #[must_use]
-    pub fn start(consumer: ring::Consumer, rate_hz: u32) -> Self {
+    pub fn start(consumer: ring::Consumer, device_rate_hz: u32) -> Self {
         let (cmd_tx, cmd_rx) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let held = Arc::new(Mutex::new(0_usize));
@@ -127,7 +143,17 @@ impl Pump {
             let held = Arc::clone(&held);
             let peak = Arc::clone(&recent_peak);
             let probe = Arc::clone(&probe);
-            move || run(consumer, rate_hz, &cmd_rx, &stop, &held, &peak, &probe)
+            move || {
+                run(
+                    consumer,
+                    device_rate_hz,
+                    &cmd_rx,
+                    &stop,
+                    &held,
+                    &peak,
+                    &probe,
+                )
+            }
         });
 
         Self {
@@ -137,7 +163,8 @@ impl Pump {
             held,
             recent_peak,
             probe,
-            rate_hz,
+            // **保持しているのは変換後のフレーム。** デバイスのレートで割ると狂う。
+            rate_hz: MASTER_RATE_HZ,
         }
     }
 
@@ -181,14 +208,13 @@ impl Pump {
     }
 
     /// テイクを始める。**プリロールぶんを先に書き込む。**
-    pub fn start_take(&self, path: PathBuf, rate_hz: u32) -> Result<(), PumpError> {
+    ///
+    /// **レートは受け取らない。** マスターは常に 44100（`TR-REC-01`, `TR-REC-02`）で、
+    /// **呼び出し側が別の値を渡せると、そこが壊れる口になる。**
+    pub fn start_take(&self, path: PathBuf) -> Result<(), PumpError> {
         let (tx, rx) = channel();
         self.cmd
-            .send(Cmd::Start {
-                path,
-                rate_hz,
-                reply: tx,
-            })
+            .send(Cmd::Start { path, reply: tx })
             .map_err(|_| PumpError::Gone)?;
         rx.recv().map_err(|_| PumpError::Gone)??;
         Ok(())
@@ -226,30 +252,46 @@ struct Recording {
 
 fn run(
     consumer: ring::Consumer,
-    rate_hz: u32,
+    device_rate_hz: u32,
     cmd: &Receiver<Cmd>,
     stop: &AtomicBool,
     held: &Mutex<usize>,
     recent_peak: &Mutex<f32>,
     probe: &Mutex<Option<Vec<f32>>>,
 ) {
-    let cap = (u64::from(rate_hz) * PREROLL_CAPACITY_MS / 1000) as usize;
-    let preroll_want = (u64::from(rate_hz) * PREROLL_MS / 1000) as usize;
-    let tail_want = (u64::from(rate_hz) * TAIL_MS / 1000) as usize;
+    // **長さはすべてマスターの時間軸で数える。**
+    let cap = (u64::from(MASTER_RATE_HZ) * PREROLL_CAPACITY_MS / 1000) as usize;
+    let preroll_want = (u64::from(MASTER_RATE_HZ) * PREROLL_MS / 1000) as usize;
+    let tail_want = (u64::from(MASTER_RATE_HZ) * TAIL_MS / 1000) as usize;
+
+    // **キャプチャからマスターまでの、ただ1回の変換**（`TR-REC-02`）。
+    // **テイクごとに作り直さない。** 収録中ストリームは開きっぱなしなので
+    // （`REQ-REC-102`）、位相を持ち回さないとテイクの継ぎ目に段差が出る。
+    let mut conv = match Resampler::to_master(device_rate_hz) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(kind = e.kind(), "変換器を作れないので排出を始めない");
+            return;
+        }
+    };
+    tracing::info!(
+        device_rate_hz,
+        master_rate_hz = MASTER_RATE_HZ,
+        resampler = koeru_audio::resample::IDENTIFIER,
+        converting = !conv.is_passthrough(),
+        "排出を始める"
+    );
 
     let mut ring_buf: VecDeque<f32> = VecDeque::with_capacity(cap + CHUNK);
     let mut buf = vec![0.0_f32; CHUNK];
+    let mut converted: Vec<f32> = Vec::with_capacity(CHUNK);
     let mut rec: Option<Recording> = None;
 
     while !stop.load(Ordering::Acquire) {
         // ── 指示 ──
         match cmd.try_recv() {
-            Ok(Cmd::Start {
-                path,
-                rate_hz: r,
-                reply,
-            }) => {
-                match wav::PartialTake::create(&path, r) {
+            Ok(Cmd::Start { path, reply }) => {
+                match wav::PartialTake::create(&path, MASTER_RATE_HZ) {
                     Ok(mut part) => {
                         // **押した瞬間より前の音を先に書く**（TR-REC-19）。
                         let n = preroll_want.min(ring_buf.len());
@@ -302,7 +344,15 @@ fn run(
             std::thread::sleep(std::time::Duration::from_millis(IDLE_SLEEP_MS));
             continue;
         }
-        let got = &buf[..n];
+        // **ここで 1 回だけ 44100 へ落とす**（`TR-REC-02`）。
+        // 以降はすべてマスターの時間軸。**塊の切れ目で段差は出ない。**
+        converted.clear();
+        conv.push(&buf[..n], &mut converted);
+        if converted.is_empty() {
+            // 変換の窓に足りなかった。**次の塊で出る。**
+            continue;
+        }
+        let got: &[f32] = &converted;
 
         // プリロールは常に回す。**録音中も止めない**（次のテイクが続けて来る）。
         ring_buf.extend(got.iter().copied());
@@ -323,6 +373,7 @@ fn run(
 
         if let Some(r) = rec.as_mut() {
             // 末尾を延ばしている最中なら、必要なぶんだけ取る。
+            let n = got.len();
             let take_n = r.tail_left.map_or(n, |left| left.min(n));
             if take_n > 0 {
                 if let Err(e) = r.part.write(&got[..take_n]) {

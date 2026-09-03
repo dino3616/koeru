@@ -17,6 +17,7 @@
 pub mod backend;
 pub mod device;
 pub mod error;
+pub mod resample;
 pub mod ring;
 pub mod session;
 pub mod wav;

@@ -23,6 +23,9 @@ diesel::table! {
         effects_state -> Text,
         route -> Text,
         source_channel -> Integer,
+        master_rate_hz -> Integer,
+        resampler -> Text,
+        upstream_conversion -> Text,
     }
 }
 

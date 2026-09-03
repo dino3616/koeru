@@ -143,6 +143,18 @@ pub struct SessionSnapshot {
     pub route: String,
     /// モノラルの元にしたチャンネル（`TR-REC-06`）。**-1 は混ぜた。**
     pub source_channel: i32,
+    /// マスターとして保存したレート。**常に 44100**（`TR-REC-01`, `TR-REC-02`）。
+    ///
+    /// [`Self::sample_rate_hz`] はネイティブレート。**両方持って初めて、
+    /// 一致／不一致が後から分かる**（`TR-REC-02` が記録を要求している）。
+    pub master_rate_hz: i32,
+    /// 使用したリサンプラの識別子と版（`TR-REC-02`）。
+    pub resampler: String,
+    /// 上流（ドライバ・APO）の変換の有無。
+    ///
+    /// **`unknown` と明記する**（`TR-REC-02`）。`MATCH_FORMAT` は
+    /// ドライバと APO が対応する場合にのみ有効で、**アプリからは確かめられない。**
+    pub upstream_conversion: String,
 }
 
 /// 確定したテイクの記録。
@@ -256,6 +268,11 @@ impl Ledger {
                         sessions::channels.eq(s.channels),
                         sessions::effects_state.eq(&s.effects_state),
                         sessions::route.eq(&s.route),
+                        sessions::source_channel.eq(s.source_channel),
+                        // **変換の記録**（`TR-REC-02`）。
+                        sessions::master_rate_hz.eq(s.master_rate_hz),
+                        sessions::resampler.eq(&s.resampler),
+                        sessions::upstream_conversion.eq(&s.upstream_conversion),
                     ))
                     .execute(c)?;
                 sessions::table
@@ -1133,6 +1150,9 @@ mod tests {
             effects_state: "clean".into(),
             route: "coreaudio".into(),
             source_channel: 0,
+            master_rate_hz: 44_100,
+            resampler: "test".into(),
+            upstream_conversion: "unknown".into(),
         }
     }
 

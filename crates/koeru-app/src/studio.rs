@@ -23,6 +23,7 @@ use koeru_align::derive::derive_cv;
 use koeru_align::preset::{ConsonantClass, Preset};
 use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
 use koeru_audio::backend::current as mac;
+use koeru_audio::wav::MASTER_RATE_HZ;
 use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};
@@ -542,6 +543,14 @@ impl Studio {
             route: "coreaudio-halinput".to_owned(),
             // **前に選んだチャンネルがあれば引き継ぐ**（TR-REC-06 の「プロジェクトに固定」）。
             source_channel: saved_channel,
+            // **キャプチャからマスターまでの変換を残す**（`TR-REC-02`）。
+            // `sample_rate_hz` はネイティブレート。**両方あって初めて、
+            // 変換したかどうかが後から分かる。**
+            master_rate_hz: i32::try_from(wav::MASTER_RATE_HZ).unwrap_or(0),
+            resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
+            // **上流の変換は確かめられない**（`TR-REC-02` の [Unknown]）。
+            // ドライバと APO が何をしたかは、アプリからは見えない。
+            upstream_conversion: "unknown".to_owned(),
         })?;
         open.session_id = session_id;
 
@@ -591,12 +600,9 @@ impl Studio {
     /// 残量が読めないことを止めるものではない）。
     #[tracing::instrument(skip(self), err)]
     pub fn estimate_space(&mut self) -> Result<SpaceEstimate> {
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
         let remaining = self.opened_mut()?.ledger.remaining_rows()?;
 
@@ -621,12 +627,9 @@ impl Studio {
     /// **進行中のテイクは最後まで録りきる。** 止めるのは次を始めるところだけ。
     #[tracing::instrument(skip(self), err)]
     pub fn has_room_for_one_more(&mut self) -> Result<bool> {
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
         // 引けない環境では止めない。
         let Some(available) = storage::available_bytes(&root) else {
@@ -688,12 +691,9 @@ impl Studio {
     /// （`TR-REC-17` と同じ性質の静的な経路検査）。
     #[tracing::instrument(skip(self), err)]
     pub fn check_guide_leak(&mut self, midi: i32) -> Result<LeakCheck> {
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        let rate = MASTER_RATE_HZ;
 
         // スピーカと分かっているなら、鳴らすまでもなく漏れる。
         if Self::output_kind().definitely_speakers() {
@@ -750,12 +750,9 @@ impl Studio {
             }
             Some(_) => {}
         }
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        let rate = MASTER_RATE_HZ;
         let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
         self.playback = None;
         self.playback = Some(mac::play(pcm, rate)?);
@@ -963,12 +960,9 @@ impl Studio {
         if self.recording.is_some() {
             return Err(AppError::new("app.already_recording", "すでに収録中"));
         }
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **ストリームが開いていることだけ確かめる。** レートは持ち回さない——
+        // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
         let audio_dir = self.opened()?.dir.audio_dir();
         let row_id = self
             .opened_mut()?
@@ -1012,7 +1006,7 @@ impl Studio {
         self.pump
             .as_ref()
             .ok_or_else(no_stream)?
-            .start_take(path, rate)
+            .start_take(path)
             .map_err(|e| AppError::new(e.kind(), e))?;
 
         self.recording = Some(row_id.clone());
@@ -1036,12 +1030,9 @@ impl Studio {
             .take()
             .ok_or_else(|| AppError::new("app.not_recording", "収録していない"))?;
 
-        let rate = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream)?
-            .format()
-            .sample_rate_hz;
+        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        let rate = MASTER_RATE_HZ;
         let guide_offset = self.guide_offset_at_start.take();
 
         // **指示のあとも `TAIL_MS` ぶん書く**（TR-REC-19）。ここで待つ。
@@ -1725,6 +1716,9 @@ impl Studio {
                     effects_state: "clean".to_owned(),
                     route: "test".to_owned(),
                     source_channel: 0,
+                    master_rate_hz: 44_100,
+                    resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
+                    upstream_conversion: "unknown".to_owned(),
                 })?;
             }
             open.session_id

@@ -116,8 +116,8 @@ impl Samples for WavSamples {
         let path = self
             .paths
             .get(&note.alias)
-            .ok_or(RenderError::RegionOutOfRange)?;
-        let w = koeru_audio::wav::read(path).map_err(|_| RenderError::RegionOutOfRange)?;
+            .ok_or(RenderError::SourceUnavailable)?;
+        let w = koeru_audio::wav::read(path).map_err(|_| RenderError::SourceUnavailable)?;
         // **変換して通さない**（TR-SYN-31）。
         if w.rate_hz != REQUIRED_RATE_HZ {
             tracing::warn!(
@@ -125,7 +125,7 @@ impl Samples for WavSamples {
                 want = REQUIRED_RATE_HZ,
                 "素材のサンプルレートが合わない。録音側の設定不備として扱う"
             );
-            return Err(RenderError::RegionOutOfRange);
+            return Err(RenderError::SampleRateMismatch);
         }
         Ok((w.samples.iter().map(|s| f64::from(*s)).collect(), w.rate_hz))
     }
