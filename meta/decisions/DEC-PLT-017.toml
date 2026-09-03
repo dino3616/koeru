@@ -1,0 +1,63 @@
+schema = 'decision'
+id = 'DEC-PLT-017'
+constraint_label = '画面へ流し続けるものの経路'
+constraint = '継続して届けるデータが、順序どおりに、一定の間隔で画面に届くこと'
+title = '流し続けるものは Channel で送る。画面から引きに行かせない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Tauri の Channel で Rust から送る',
+  'invoke で画面から定期的に引きに行く',
+  'emit / listen のイベントで送る',
+]
+selected = 'Tauri の Channel で Rust から送る'
+rationale = '''
+**波形を `invoke` で 50ms ごとに引きに行っていた。** 速度が一定にならず、
+ときどき巻き戻って「ループする」と報告された。
+
+# 公式が名指しで別のものを勧めている
+
+Tauri の *Calling the Frontend from Rust* は、
+
+- Channel: 「**Channels are designed to be fast and deliver ordered data.**
+  They are used internally for streaming operations such as download progress,
+  child process output and WebSocket messages」
+- event: 「**The event system is not designed for low latency or high throughput
+  situations**」「event payloads are always JSON strings making them not suitable
+  for bigger messages」
+
+**`invoke` を定期的に叩く形は、そもそも選択肢として挙がっていない。**
+`invoke` は非同期のメッセージ受け渡しで、**応答が投げた順に返る保証はどこにも無い。**
+
+# 実際に3つ重なっていた
+
+1. **`setInterval` で問い合わせが重なる。** 1回が間隔より長くかかると次が始まる。
+   遅れて届いた古い包絡を描くと、**波形が巻き戻る。**
+2. **`studio` のロックを通していた。** テイクの確定はアライメントを含めて数秒
+   かかり、その間ずっと詰まる。**解けた瞬間に溜まった応答が一気に返る。**
+3. 排出のたびにリング（1.5秒ぶん、265 KB）を丸ごと写していた。
+   **1回 461 µs。** これは測って**原因ではないと分かった**（排出は余裕があった）
+   が、要らない仕事なので目盛りを積む形に替えた。
+
+# 決めたこと
+
+**継続して届けるものは Channel で送る。** 間隔は Rust 側が刻むので、
+画面の都合や IPC の混み具合で速度が変わらない。**進んでいないフレームは送らない。**
+
+**流し続けるものは、アプリの状態ロックの外から読む。** 待ち数（`TR-SYN-33`）も
+同じ理由で外へ出した——**いちばん動くのがテイクの確定中で、そこがロックを握っている。**
+
+**残った定期的な問い合わせは、返ってきてから次を予約する。** `setInterval` は
+使わない。重ならなければ、順序が入れ替わりようがない。
+'''
+review_triggers = [
+  '新しく「流し続けるもの」を足すとき。**引きに行く形にしない**',
+  'Tauri を上げるとき。Channel の推奨が変わっていないかを見る',
+  'アプリの状態ロックを握る処理が長くなるとき。**その間に止まっては困るものが無いか**',
+]
+affects_requirements = [
+  'TR-REC-43',
+  'TR-SYN-33',
+  'TR-PLT-04',
+]
+affects_decisions = []

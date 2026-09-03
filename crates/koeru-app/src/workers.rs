@@ -65,10 +65,30 @@ impl PartialOrd for Job {
     }
 }
 
+/// 待っている仕事の列の持ち手（`TR-SYN-33`）。
+pub type PendingHandle = Arc<(Mutex<Queue>, Condvar)>;
+
+/// 待っている仕事の数を、持ち手から読む（`TR-SYN-33`）。
+#[must_use]
+pub fn pending_of(queue: &(Mutex<Queue>, Condvar)) -> usize {
+    let (lock, _) = queue;
+    lock.lock().map_or(0, |q| q.jobs.len())
+}
+
 #[derive(Default)]
-struct Queue {
+pub struct Queue {
     jobs: BinaryHeap<Job>,
     stopped: bool,
+}
+
+// `Job` は閉包を持つので Debug を実装しない。**中身は出さず、数だけ出す。**
+impl std::fmt::Debug for Queue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Queue")
+            .field("jobs", &self.jobs.len())
+            .field("stopped", &self.stopped)
+            .finish()
+    }
 }
 
 /// 背後で仕事を回す（`TR-SYN-34`）。
@@ -146,8 +166,17 @@ impl Workers {
     /// まだ回していない仕事の数。
     #[must_use]
     pub fn pending(&self) -> usize {
-        let (lock, _) = &*self.queue;
-        lock.lock().map_or(0, |q| q.jobs.len())
+        pending_of(&self.queue)
+    }
+
+    /// 待ち数だけを読むための持ち手（`TR-SYN-33`）。
+    ///
+    /// **アプリの状態ロックの外から読むために出す。** 画面は「背後で待っている仕事」を
+    /// 定期的に出すが、テイクの確定はアライメントを含めて数秒かかる。
+    /// **同じロックを通すと、待ち数がいちばん動くはずの時間に止まる。**
+    #[must_use]
+    pub fn pending_handle(&self) -> PendingHandle {
+        Arc::clone(&self.queue)
     }
 
     /// 積んである仕事を捨てる（`TR-SYN-27`）。

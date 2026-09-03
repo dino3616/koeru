@@ -1521,19 +1521,18 @@ impl Studio {
         Ok((w.samples, w.rate_hz))
     }
 
-    /// いま入ってきている音の包絡（`TR-REC-43`）。
-    ///
-    /// **録る前から出る。** ストリームは収録画面に入った時点で開いていて
-    /// （`TR-REC-19`）、「マイクが拾っているか」は録る前に知りたい。
-    ///
-    /// **評価はしない**（`TR-REC-16`）。出すのは観測だけで、
-    /// 「小さすぎます」も「歪んでいます」も言わない。
+    /// 待っている仕事の持ち手（`TR-SYN-33`）。**状態ロックの外から読むために出す。**
     #[must_use]
-    pub fn live_envelope(&self, buckets: usize) -> Vec<(f32, f32)> {
-        self.pump
-            .as_ref()
-            .map(|p| p.envelope(buckets))
-            .unwrap_or_default()
+    pub fn pending_handle(&self) -> crate::workers::PendingHandle {
+        self.workers.pending_handle()
+    }
+
+    /// 包絡の持ち手（`TR-REC-43`）。**状態ロックの外から読むために出す。**
+    ///
+    /// マイクを選ぶ前は無い。
+    #[must_use]
+    pub fn envelope_handle(&self) -> Option<Arc<Mutex<crate::pump::Envelope>>> {
+        self.pump.as_ref().map(Pump::envelope_handle)
     }
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。

@@ -3,10 +3,12 @@
 //! [`crate::studio::Studio`] を呼んで、結果を画面へ渡す形へ直すだけ。
 //! **筋を足すときは `studio` 側に足す**（GUI 無しで検査できる場所に置く）。
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::State;
+use tauri::ipc::Channel;
 
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
@@ -18,17 +20,35 @@ use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 #[derive(Debug)]
 pub struct AppState {
     studio: Mutex<Studio>,
+    /// 波形の包絡（`TR-REC-43`）。**あえて `studio` の外に置く。**
+    ///
+    /// テイクの確定はアライメントを含めて数秒かかる。**同じロックを通すと、
+    /// その間ずっと波形が止まる。**
+    envelope: Arc<Mutex<Option<Arc<Mutex<crate::pump::Envelope>>>>>,
+    /// 待っている仕事（`TR-SYN-33`）。**これも `studio` の外。**
+    ///
+    /// 待ち数がいちばん動くのはテイクの確定中で、**そこが `studio` を握っている。**
+    /// 同じロックを通すと、出したい時間だけ止まる。
+    pending: Arc<Mutex<Option<crate::workers::PendingHandle>>>,
+    /// 送っている流れの世代。**新しく始めると、古いものが自分で止まる。**
+    stream: Arc<AtomicU64>,
 }
 
 impl AppState {
     /// 状態を作る。
     #[must_use]
-    pub const fn new(studio: Studio) -> Self {
+    pub fn new(studio: Studio) -> Self {
         Self {
             studio: Mutex::new(studio),
+            envelope: Arc::new(Mutex::new(None)),
+            pending: Arc::new(Mutex::new(None)),
+            stream: Arc::new(AtomicU64::new(0)),
         }
     }
 }
+
+/// 波形を送る間隔（ミリ秒、`TR-REC-43`）。
+const ENVELOPE_FRAME_MS: u64 = 50;
 
 /// `Mutex` が毒されたときの失敗。
 ///
@@ -98,6 +118,18 @@ impl From<Progress> for ProgressView {
             songs_in_bank: p.songs_in_bank,
         }
     }
+}
+
+/// 画面へ返す、いま流れている音の包絡（`TR-REC-43`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct EnvelopeView {
+    /// 目盛りごとの min/max。
+    pub buckets: Vec<(f32, f32)>,
+    /// 排出しはじめてからの通算フレーム数。**単調に増える。**
+    ///
+    /// **画面はこれで古い応答を捨てる。** 問い合わせが重なると
+    /// 順序が入れ替わって届くことがあり、そのまま描くと波形が巻き戻る。
+    pub position: u64,
 }
 
 /// 画面へ返す原音設定の1件（`TR-ALN-33`）。**5値をそのまま渡す。**
@@ -258,12 +290,19 @@ pub fn create_project(state: State<'_, AppState>, display_name: String) -> Resul
 /// プロジェクトを開く。
 #[tauri::command]
 pub fn open_project(state: State<'_, AppState>, id: String) -> Result<ProgressView> {
-    let mut s = lock(&state)?;
-    let uuid = id
-        .parse()
-        .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
-    s.open_project(uuid)?;
-    Ok(s.progress()?.into())
+    let (view, pending) = {
+        let mut s = lock(&state)?;
+        let uuid = id
+            .parse()
+            .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
+        s.open_project(uuid)?;
+        (ProgressView::from(s.progress()?), s.pending_handle())
+    };
+    // **待ち数の持ち手を、状態ロックの外へ出しておく**（`TR-SYN-33`）。
+    if let Ok(mut g) = state.pending.lock() {
+        *g = Some(pending);
+    }
+    Ok(view)
 }
 
 /// いまの進み具合。
@@ -277,7 +316,15 @@ pub fn progress(state: State<'_, AppState>) -> Result<ProgressView> {
 /// 返るのは、**OS 側の音声加工が残っているかどうか**（`TR-REC-11`）。
 #[tauri::command]
 pub fn arm_device(state: State<'_, AppState>, device_id: String) -> Result<String> {
-    let mode = lock(&state)?.arm_device(&koeru_audio::DeviceId::new(device_id))?;
+    let (mode, handle) = {
+        let mut s = lock(&state)?;
+        let mode = s.arm_device(&koeru_audio::DeviceId::new(device_id))?;
+        (mode, s.envelope_handle())
+    };
+    // **包絡の持ち手を、状態ロックの外へ出しておく**（`TR-REC-43`）。
+    if let Ok(mut g) = state.envelope.lock() {
+        *g = handle;
+    }
     Ok(format!("{mode:?}"))
 }
 
@@ -382,7 +429,14 @@ impl From<Preflight> for PreflightView {
 /// 画面はこれを見て、進んでいることを出す。
 #[tauri::command]
 pub fn pending_work(state: State<'_, AppState>) -> Result<usize> {
-    Ok(lock(&state)?.pending_work())
+    // **`studio` のロックを取らない**（`TR-SYN-33`）。
+    // 待ち数がいちばん動くのはテイクの確定中で、そこが `studio` を握っている。
+    let handle = state
+        .pending
+        .lock()
+        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))?
+        .clone();
+    Ok(handle.map_or(0, |q| crate::workers::pending_of(&q)))
 }
 
 /// 試唱の待ち時間の実測（`TR-SYN-33`）。
@@ -676,6 +730,59 @@ pub fn otos_of_take(state: State<'_, AppState>, take_id: i32) -> Result<Vec<OtoV
         .collect())
 }
 
+/// いま入ってきている音の包絡を送り続ける（`TR-REC-43`）。
+///
+/// # なぜ引かせずに送るのか
+///
+/// **Tauri は streaming に Channel を使えと言っている**——
+/// 「Channels are designed to be fast and deliver ordered data」。
+/// `invoke` で引きに行くと、**応答が投げた順に返る保証が無い。**
+/// 遅れて届いた古い包絡を描くと、波形が巻き戻って**ループして見える。**
+/// event（`emit`/`listen`）も「not designed for low latency or high throughput」
+/// と明記されていて、これも違う。
+///
+/// **`studio` のロックも取らない。** 取ると、テイクの確定（アライメントを含む）
+/// のあいだ波形が止まる。
+///
+/// **進んでいないフレームは送らない。** 同じ絵を描き直させない。
+#[tauri::command]
+pub fn stream_envelope(
+    state: State<'_, AppState>,
+    buckets: usize,
+    on_frame: Channel<EnvelopeView>,
+) {
+    // **世代を1つ進める。** 前の流れは次の目覚めで自分から止まる。
+    let generation = state.stream.fetch_add(1, Ordering::SeqCst) + 1;
+    let envelope = Arc::clone(&state.envelope);
+    let stream = Arc::clone(&state.stream);
+
+    std::thread::spawn(move || {
+        let mut last = 0_u64;
+        while stream.load(Ordering::SeqCst) == generation {
+            let handle = envelope.lock().ok().and_then(|g| g.clone());
+            if let Some(e) = handle {
+                let (buckets, position) = e
+                    .lock()
+                    .map_or_else(|_| (Vec::new(), 0), |g| g.sample(buckets));
+                if position > last {
+                    last = position;
+                    if on_frame.send(EnvelopeView { buckets, position }).is_err() {
+                        // 画面が居なくなった。**騒がずに畳む。**
+                        break;
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(ENVELOPE_FRAME_MS));
+        }
+    });
+}
+
+/// 波形を送るのをやめる（`TR-REC-43`）。
+#[tauri::command]
+pub fn stop_envelope_stream(state: State<'_, AppState>) {
+    state.stream.fetch_add(1, Ordering::SeqCst);
+}
+
 /// 録れたものをそのまま鳴らす（`TR-REC-43`）。**合成を通さない。**
 ///
 /// 返すのは長さ（ミリ秒）。
@@ -684,10 +791,25 @@ pub fn play_take(state: State<'_, AppState>, take_id: i32) -> Result<f64> {
     lock(&state)?.play_take(take_id)
 }
 
-/// いま入ってきている音の包絡（`TR-REC-43`）。**バケットごとの min/max。**
+/// いま入ってきている音の包絡（`TR-REC-43`）。
+///
+/// **`studio` のロックを取らない。** 取ると、テイクの確定（アライメントを含む）
+/// のあいだ詰まって、解けた瞬間に溜まった応答が一気に返る。
 #[tauri::command]
-pub fn live_envelope(state: State<'_, AppState>, buckets: usize) -> Result<Vec<(f32, f32)>> {
-    Ok(lock(&state)?.live_envelope(buckets))
+pub fn live_envelope(state: State<'_, AppState>, buckets: usize) -> Result<EnvelopeView> {
+    let handle = state
+        .envelope
+        .lock()
+        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))?
+        .clone();
+    let (buckets, position) = handle.map_or_else(
+        || (Vec::new(), 0),
+        |e| {
+            e.lock()
+                .map_or_else(|_| (Vec::new(), 0), |g| g.sample(buckets))
+        },
+    );
+    Ok(EnvelopeView { buckets, position })
 }
 
 /// 収録を止めて、テイクを確定させる。

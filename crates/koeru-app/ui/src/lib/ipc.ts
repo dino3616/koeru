@@ -1,4 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
+
+export { Channel };
 
 /**
  * Rust 側の失敗。
@@ -103,6 +105,19 @@ export type TakeSummaryView = {
   invalid: boolean;
 };
 
+/** いま流れている音の包絡（TR-REC-43）。 */
+export type EnvelopeView = {
+  /** 目盛りごとの min/max。 */
+  buckets: [number, number][];
+  /**
+   * 排出しはじめてからの通算フレーム数。**単調に増える。**
+   *
+   * **これで古い応答を捨てる。** 問い合わせが重なると順序が入れ替わって届き、
+   * そのまま描くと波形が巻き戻る。
+   */
+  position: number;
+};
+
 /** 原音設定の5値（TR-ALN-33）。 */
 export type OtoView = {
   alias: string;
@@ -175,8 +190,17 @@ export const api = {
   otosOfTake: (takeId: number) => invoke<OtoView[]>("otos_of_take", { takeId }),
   /** 録れたものをそのまま鳴らす（TR-REC-43）。**合成を通さない。** */
   playTake: (takeId: number) => invoke<number>("play_take", { takeId }),
-  /** いま入ってきている音の包絡（TR-REC-43）。バケットごとの min/max。 */
-  liveEnvelope: (buckets: number) => invoke<[number, number][]>("live_envelope", { buckets }),
+  /**
+   * いま入ってきている音の包絡を送らせる（TR-REC-43）。
+   *
+   * **Channel を使う。** Tauri は streaming に Channel を使えと言っている
+   * ——「Channels are designed to be fast and deliver ordered data」。
+   * `invoke` で引きに行くと**応答が投げた順に返る保証が無く**、
+   * 遅れて届いた古い包絡を描くと波形が巻き戻ってループして見える。
+   */
+  streamEnvelope: (buckets: number, onFrame: Channel<EnvelopeView>) =>
+    invoke<void>("stream_envelope", { buckets, onFrame }),
+  stopEnvelopeStream: () => invoke<void>("stop_envelope_stream"),
   prerollMs: () => invoke<number>("preroll_ms"),
   estimateSpace: () => invoke<SpaceView>("estimate_space"),
   calibrate: (seconds: number) => invoke<CalibrationView>("calibrate", { seconds }),

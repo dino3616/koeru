@@ -31,13 +31,32 @@ export const SongList = ({ revision }: SongListProps) => {
    * 何も出ないまま6秒待たされると、壊れたと思われる。
    */
   useEffect(() => {
-    const t = window.setInterval(() => {
+    let alive = true;
+    let timer = 0;
+    /**
+     * **返ってきてから次を予約する。**
+     *
+     * `setInterval` だと、1回が間隔より長くかかったときに問い合わせが重なる。
+     * 待ち数がいちばん動くのはテイクの確定中で、そこがいちばん詰まる時間でもある。
+     */
+    const tick = () => {
       api
         .pendingWork()
-        .then(setPending)
-        .catch(() => setPending(0));
-    }, 400);
-    return () => window.clearInterval(t);
+        .then((n) => {
+          if (alive) setPending(n);
+        })
+        .catch(() => {
+          if (alive) setPending(0);
+        })
+        .finally(() => {
+          if (alive) timer = window.setTimeout(tick, 400);
+        });
+    };
+    tick();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   const sing = (index: number) => {
