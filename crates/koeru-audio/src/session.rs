@@ -9,6 +9,21 @@
 //!
 //! **加工を無効化できない場合の扱いは、指摘ではなく一度きりの提示に限る**
 //! （`TR-REC-10`）。何度も出すと、録音そのものの邪魔になる。
+//!
+//! # 写してはいけないものがある
+//!
+//! FSL の `MAX_TAKES` は**写さない。** あれは `ASSUME-3`——
+//! 「テイク数は検証用に有限へ閉じる（表現上の仮定）」であって、製品の規則ではない。
+//! **設計層の `project-storage.fsl` では同じ定数が 2 になっている。**
+//! 値が食い違うこと自体が、任意の有界化である証拠。
+//!
+//! **製品側の規則は逆。** `TR-REC-21` が「録音リスト項目1つあたりのテイク保持数は
+//! **上限を設けず**、プロジェクトの総容量が閾値（既定 4 GB）を超えたときに、
+//! 非採用テイクの古い順から削除候補として本人に提示する」と定めている。
+//!
+//! **一度写して踏んだ。** `Session::new(3)` としてアプリに入り、
+//! 3テイク録ると以降どの項目も録れなくなっていた（`DEC-REC-005`）。
+//! ここで効く上限は**残量だけ**（`space_sufficient` / `TR-REC-41`）。
 
 use crate::device::DeviceId;
 use crate::error::SessionError;
@@ -70,14 +85,21 @@ pub struct Session {
     space_sufficient: bool,
     recording: bool,
     takes: u32,
-    max_takes: u32,
     exited: bool,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Session {
     /// FSL の `init` と同じ初期状態。
+    ///
+    /// **テイク数の上限は取らない**（`TR-REC-21`）。冒頭の「写してはいけないもの」を参照。
     #[must_use]
-    pub fn new(max_takes: u32) -> Self {
+    pub fn new() -> Self {
         Self {
             device: Device::NotSelected,
             device_id: None,
@@ -94,7 +116,6 @@ impl Session {
             space_sufficient: false,
             recording: false,
             takes: 0,
-            max_takes,
             exited: false,
         }
     }
@@ -306,9 +327,7 @@ impl Session {
             return Err(SessionError::NotEnoughSpace);
         }
         self.expect_not_recording()?;
-        if self.takes >= self.max_takes {
-            return Err(SessionError::TakeLimitReached);
-        }
+        // **テイク数では止めない**（`TR-REC-21`）。止めるのは残量（上の `NotEnoughSpace`）。
         self.recording = true;
         self.settled()
     }
@@ -419,10 +438,6 @@ impl Session {
         debug_assert!(
             self.prompts_shown <= 1,
             "INV-REC-108 手順の提示は多くとも一度"
-        );
-        debug_assert!(
-            !self.recording || self.takes < self.max_takes,
-            "MODEL-REC-101 収録中ならテイク数の上限に達していない"
         );
         debug_assert!(
             self.device == Device::Selected || !self.recording,

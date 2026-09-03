@@ -40,7 +40,7 @@ mod contract_tests {
 
     /// 収録開始まで到達させる共通の手順。
     fn ready() -> Session {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_all_disabled().expect("効果を無効化できる");
@@ -48,6 +48,25 @@ mod contract_tests {
         s.input_is_alive().expect("入力が届いている");
         s.estimate_space(100, 1000).expect("残量を見積もれる");
         s
+    }
+
+    /// **テイク数では止まらない**（`TR-REC-21`）。
+    ///
+    /// FSL の `MAX_TAKES = 3` は `ASSUME-3`（検証用の有界化）であって、
+    /// 製品の規則ではない。**写して踏んだ**（`DEC-REC-005`）——
+    /// 3テイク録ると以降どの項目も録れなくなっていた。
+    /// 収録は 21 行前後あるので、**3 で止まると製品が成立しない。**
+    #[test]
+    fn テイク数では止まらない() {
+        let mut s = ready();
+        // 中核 102 単位を1行5モーラで割ると 21 行。**その倍を通す。**
+        for i in 0..42 {
+            s.start_take()
+                .unwrap_or_else(|e| panic!("{i} 本目を録れる: {e}"));
+            s.finish_take()
+                .unwrap_or_else(|e| panic!("{i} 本目を確定できる: {e}"));
+        }
+        assert_eq!(s.takes(), 42);
     }
 
     /// AC-REC-101 選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る
@@ -71,7 +90,7 @@ mod contract_tests {
     /// FB-REC-102 入力が届いていないまま収録を始められない
     #[test]
     fn fb_rec_102_入力が死んでいると収録を始められない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_all_disabled().expect("効果を無効化できる");
@@ -85,7 +104,7 @@ mod contract_tests {
     /// FB-REC-103 校正しないまま収録を始められない
     #[test]
     fn fb_rec_103_校正していないと収録を始められない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_all_disabled().expect("効果を無効化できる");
@@ -100,7 +119,7 @@ mod contract_tests {
     /// FB-REC-104 収録中に手順の提示を出せない
     #[test]
     fn fb_rec_104_収録中は手順を提示できない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_some_remain().expect("効果が残ることを記録できる");
@@ -117,7 +136,7 @@ mod contract_tests {
     /// FB-REC-105 回り込みを確認しないままガイドを鳴らせない
     #[test]
     fn fb_rec_105_回り込み未確認ではガイドを鳴らせない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         assert!(matches!(
@@ -129,7 +148,7 @@ mod contract_tests {
     /// FB-REC-106 残量が足りないまま収録を始められない
     #[test]
     fn fb_rec_106_残量不足では収録を始められない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_all_disabled().expect("効果を無効化できる");
@@ -142,7 +161,7 @@ mod contract_tests {
     /// FB-REC-107 残量を見積もらないまま収録を始められない
     #[test]
     fn fb_rec_107_未見積もりでは収録を始められない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_all_disabled().expect("効果を無効化できる");
@@ -154,7 +173,7 @@ mod contract_tests {
     /// INV-REC-108 手順の提示は多くとも一度しか出ない
     #[test]
     fn inv_rec_108_手順は二度提示できない() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_some_remain().expect("効果が残ることを記録できる");
@@ -201,7 +220,7 @@ mod contract_tests {
     /// RecordsWithRemainingEffects 無効化できない効果が残ったまま、それでも収録へ進める
     #[test]
     fn 到達性_効果が残ったままでも収録へ進める() {
-        let mut s = Session::new(3);
+        let mut s = Session::new();
         s.select_device(dev()).expect("デバイスを選べる");
         s.open_stream().expect("ストリームを開ける");
         s.effects_some_remain().expect("効果が残ることを記録できる");

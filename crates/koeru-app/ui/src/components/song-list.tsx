@@ -53,7 +53,12 @@ export const SongList = ({ revision }: SongListProps) => {
   useEffect(() => {
     api
       .songStatus()
-      .then(setSongs)
+      .then((v) => {
+        setSongs(v);
+        // **成功したらエラーを消す。** 消さないと、プロジェクトを開く前に
+        // 一度失敗しただけで、開いたあとも赤字が出たままになる。**踏んだ。**
+        setError(null);
+      })
       .catch((e: unknown) => setError(errorMessage(e)));
   }, [revision]);
 

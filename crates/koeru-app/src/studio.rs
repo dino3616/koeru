@@ -333,8 +333,7 @@ impl Studio {
             open: None,
             capture: None,
             pump: None,
-            // 3件までの提示上限は `recording-input.fsl` と揃える。
-            session: Session::new(3),
+            session: Session::new(),
             recording: None,
             xrun_baseline: 0,
             guide_offset_at_start: None,
@@ -514,7 +513,7 @@ impl Studio {
         // 未選択からしか進めない（`proved`）。マイクの選び直しは、その機械から見れば
         // 「収録画面を出て入り直す」ことなので、機械ごと新しくするのが忠実な読み。
         // **既存の機械を無理に巻き戻さない。** 巻き戻す遷移は仕様に無い。
-        self.session = Session::new(3);
+        self.session = Session::new();
 
         let open = self.opened_mut()?;
         // **前に決めたチャンネルを引き継ぐ**（TR-REC-06）。テイクごとに違う経路から

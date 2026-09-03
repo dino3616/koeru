@@ -57,10 +57,6 @@ pub enum SessionError {
     /// 残量を見積もっていない、または足りない（TR-REC-41）。
     #[error("保存先の残量が確かめられていない、または足りない")]
     NotEnoughSpace,
-
-    /// 保持できるテイク数の上限に達した。
-    #[error("テイク数が上限に達している")]
-    TakeLimitReached,
 }
 
 impl SessionError {
@@ -82,7 +78,6 @@ impl SessionError {
             Self::LeakNotChecked => "recording.leak_not_checked",
             Self::GuideAlreadyEnabled => "recording.guide_already_enabled",
             Self::NotEnoughSpace => "recording.not_enough_space",
-            Self::TakeLimitReached => "recording.take_limit_reached",
         }
     }
 }

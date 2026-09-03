@@ -49,7 +49,7 @@ fn 録音してテイクのファイルを作る() {
     };
 
     // ── 状態機械の手順どおりに進める（AC-REC-101）──
-    let mut s = Session::new(3);
+    let mut s = Session::new();
     s.select_device(dev.id.clone()).expect("デバイスを選ぶ");
 
     let (cap, consumer) = mac::open(&dev.id, 48_000 * 4).expect("ストリームを開く");
