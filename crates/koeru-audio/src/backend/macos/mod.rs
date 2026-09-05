@@ -1,6 +1,6 @@
 //! macOS の入力デバイス列挙。
 //!
-//! **`TR-REC-03` が要求するのは表示名ではなく永続識別子。** macOS では
+//! `TR-REC-03` が要求するのは表示名ではなく永続識別子。 macOS では
 //! `kAudioDevicePropertyDeviceUID` がそれにあたる。表示名は一覧に出すためだけに取り、
 //! 同一性の判定には使わない。
 //!
@@ -40,7 +40,7 @@ pub enum CoreAudioError {
 }
 
 impl CoreAudioError {
-    /// 送信層へ載せてよい固定文字列。**`Display` を送らない。**
+    /// 送信層へ載せてよい固定文字列。`Display` を送らない。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -157,9 +157,9 @@ unsafe fn input_channels(device: sys::AudioObjectID) -> Result<u16> {
             .read_unaligned()
     };
     let mut total: u32 = 0;
-    // **`AudioBufferList` は `{ UInt32 mNumberBuffers; AudioBuffer mBuffers[1]; }`。**
+    // `AudioBufferList` は `{ UInt32 mNumberBuffers; AudioBuffer mBuffers[1]; }`。
     // `AudioBuffer` はポインタを含むので8バイト境界に揃い、`mNumberBuffers` の後ろに
-    // 4バイトの詰め物が入る。**ヘッダのサイズ（4）を配列の開始位置にすると全件ずれる。**
+    // 4バイトの詰め物が入る。ヘッダのサイズ（4）を配列の開始位置にすると全件ずれる。
     let base =
         size_of::<sys::AudioBufferListHeader>().next_multiple_of(align_of::<sys::AudioBuffer>());
     for i in 0..header.mNumberBuffers as usize {
@@ -180,9 +180,9 @@ unsafe fn input_channels(device: sys::AudioObjectID) -> Result<u16> {
     Ok(u16::try_from(total).unwrap_or(u16::MAX))
 }
 
-/// 入力デバイスを列挙する（TR-REC-03）。
+/// 入力デバイスを列挙する（`TR-REC-03`）。
 ///
-/// **表示名は同一性に使わない。** 返す `DeviceId` は `kAudioDevicePropertyDeviceUID`。
+/// 表示名は同一性に使わない。 返す `DeviceId` は `kAudioDevicePropertyDeviceUID`。
 #[tracing::instrument(err)]
 pub fn enumerate_input_devices() -> Result<Vec<DeviceInfo>> {
     let addr = sys::AudioObjectPropertyAddress::global(sys::kAudioHardwarePropertyDevices);
@@ -246,7 +246,7 @@ pub fn enumerate_input_devices() -> Result<Vec<DeviceInfo>> {
     Ok(out)
 }
 
-/// デバイスが生きているか（TR-REC-04 の消失検知）。
+/// デバイスが生きているか（`TR-REC-04` の消失検知）。
 #[tracing::instrument(skip(id), err)]
 pub fn is_alive(id: &DeviceId) -> Result<bool> {
     let Some(object) = object_id_for(id)? else {
@@ -260,7 +260,7 @@ pub fn is_alive(id: &DeviceId) -> Result<bool> {
 
 /// 永続識別子から、いまの `AudioObjectID` を引く。
 ///
-/// **`AudioObjectID` は再起動や抜き差しで変わる。** 固定してよいのは UID だけ。
+/// `AudioObjectID` は再起動や抜き差しで変わる。 固定してよいのは UID だけ。
 fn object_id_for(id: &DeviceId) -> Result<Option<sys::AudioObjectID>> {
     let addr = sys::AudioObjectPropertyAddress::global(sys::kAudioHardwarePropertyDevices);
     // SAFETY: システムオブジェクトは常に存在する。
@@ -295,7 +295,7 @@ pub(crate) fn object_id_for_public(id: &DeviceId) -> Option<u32> {
 mod tests {
     use super::*;
 
-    /// **実機のデバイスを列挙する。** 入力デバイスが無い環境もあるので、
+    /// 実機のデバイスを列挙する。 入力デバイスが無い環境もあるので、
     /// 「落ちないこと」と「取れたものの形が正しいこと」を見る。
     #[test]
     fn 入力デバイスを列挙できる() {
@@ -319,14 +319,14 @@ mod tests {
         }
     }
 
-    /// 存在しない識別子は「生きていない」になる。**別のデバイスへ倒れない。**
+    /// 存在しない識別子は「生きていない」になる。別のデバイスへ倒れない。
     #[test]
     fn 知らない識別子は生きていない() {
         let unknown = DeviceId::new("存在しないデバイスの UID");
         assert!(!is_alive(&unknown).expect("引けること自体は成功する"));
     }
 
-    /// **回帰: `AudioBufferList` の配列は詰め物のぶんだけ後ろから始まる。**
+    /// 回帰: `AudioBufferList` の配列は詰め物のぶんだけ後ろから始まる。
     ///
     /// ヘッダのサイズ（4）を配列の開始位置にすると全デバイスの入力チャンネルが 0 になり、
     /// **入力デバイスが1件も見つからない**。実機で踏んだ。

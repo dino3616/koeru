@@ -1,19 +1,19 @@
 //! 同梱するモデルの台帳（`TR-ALN-31`）。
 //!
 //! > 出所 URL、ライセンス、学習データの出所とそのライセンス、必要な帰属表示、
-//! > 商用配布の可否を台帳として持ち**ライセンス表記に反映する**。
+//! > 商用配布の可否を台帳として持ちライセンス表記に反映する。
 //!
 //! # 空欄を作らない
 //!
-//! `TR-ALN-31` が「**未確認の項目を空欄にせず未確認と書く**」と定めている。
+//! `TR-ALN-31` が「未確認の項目を空欄にせず未確認と書く」と定めている。
 //! [`CorpusStatus::Unverified`] と [`Commercial::Unverified`] がその「未確認」で、
-//! **黙って通さないための型。**
+//! 黙って通さないための型。
 //!
 //! # 判断で通したものには判断記録の ID が要る
 //!
 //! ライセンスまたは学習データの出所が確認できないモデルは、原則として同梱しない。
-//! **例外は判断記録に書いて通したものに限り、台帳にその ID を併記する。**
-//! [`check`] がこれを検査していて、**ID の無い `restricted` / `unverified` は落ちる。**
+//! 例外は判断記録に書いて通したものに限り、台帳にその ID を併記する。
+//! [`check`] がこれを検査していて、ID の無い `restricted` / `unverified` は落ちる。
 //!
 //! # CC BY 系はアプリ内に出す
 //!
@@ -28,9 +28,9 @@ const MODELS_TOML: &str = include_str!("../resources/models.toml");
 pub enum CorpusStatus {
     /// 条件に問題がない。
     Ok,
-    /// 再配布禁止・非商用限定などが含まれる。**判断記録が要る。**
+    /// 再配布禁止・非商用限定などが含まれる。判断記録が要る。
     Restricted,
-    /// 出所またはライセンスが未確認。**判断記録が要る。**
+    /// 出所またはライセンスが未確認。判断記録が要る。
     Unverified,
 }
 
@@ -41,24 +41,20 @@ pub enum Commercial {
     Yes,
     /// 不可。
     No,
-    /// **未確認。空欄にしない**（`TR-ALN-31`）。
+    /// 未確認。空欄にしない（`TR-ALN-31`）。
     Unverified,
 }
 
 /// 台帳の1件。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelEntry {
-    /// 識別子。
     pub id: String,
-    /// 表示名。
     pub name: String,
-    /// 何に使うか。
     pub purpose: String,
-    /// 出所 URL。
     pub source_url: String,
     /// ライセンス（SPDX 識別子または原文）。
     pub license: String,
-    /// 必要な帰属表示。**CC BY 系では必須。**
+    /// 必要な帰属表示。CC BY 系では必須。
     pub attribution: String,
     /// 学習コーパスの状態。
     pub corpus_status: CorpusStatus,
@@ -66,9 +62,8 @@ pub struct ModelEntry {
     pub corpus: String,
     /// 商用配布の可否。
     pub commercial_ok: Commercial,
-    /// 判断で通した場合の判断記録 ID。**通していなければ空。**
+    /// 判断で通した場合の判断記録 ID。通していなければ空。
     pub judgement: String,
-    /// 補足。
     pub note: String,
 }
 
@@ -82,7 +77,7 @@ impl ModelEntry {
         )
     }
 
-    /// 帰属表示が要るか。**CC BY 系は義務**（`DEC-ALN-008`）。
+    /// 帰属表示が要るか。CC BY 系は義務（`DEC-ALN-008`）。
     #[must_use]
     pub fn needs_attribution(&self) -> bool {
         self.license.starts_with("CC-BY")
@@ -100,11 +95,11 @@ pub enum LedgerError {
     #[error("台帳に必要な欄が無い")]
     MissingField,
 
-    /// **判断記録の ID が無いまま、確認できていないモデルを載せている。**
+    /// 判断記録の ID が無いまま、確認できていないモデルを載せている。
     #[error("判断記録の無いモデルが台帳にある")]
     UnjudgedModel,
 
-    /// **CC BY 系なのに帰属表示が空。**
+    /// CC BY 系なのに帰属表示が空。
     #[error("帰属表示が要るのに空になっている")]
     MissingAttribution,
 }
@@ -172,7 +167,7 @@ fn entry(t: &toml_edit::Table) -> Result<ModelEntry> {
 
 /// 台帳の規律を検査する（`TR-ALN-31`）。
 ///
-/// **判断記録の無い未確認モデルと、帰属表示の抜けを落とす。**
+/// 判断記録の無い未確認モデルと、帰属表示の抜けを落とす。
 /// 試験から呼ぶことで、台帳へ行を足すときに規律が効く。
 ///
 /// # Errors
@@ -192,7 +187,7 @@ pub fn check(models: &[ModelEntry]) -> Result<()> {
 
 /// アプリ内のライセンス表記の本文（`TR-ALN-31`, `DEC-ALN-008`）。
 ///
-/// **CC BY 系は帰属表示・ライセンス・変更の明示を必ず含める。**
+/// CC BY 系は帰属表示・ライセンス・変更の明示を必ず含める。
 #[must_use]
 pub fn notice(models: &[ModelEntry]) -> String {
     let mut s = String::from("# 同梱しているモデルと辞書\n");
@@ -234,14 +229,14 @@ mod tests {
         assert!(m.iter().any(|e| e.id == "mfa-japanese-acoustic"));
     }
 
-    /// **判断記録の無い未確認モデルを載せられない**（`TR-ALN-31`）。
+    /// 判断記録の無い未確認モデルを載せられない（`TR-ALN-31`）。
     /// 台帳へ行を足すときに、この試験が規律になる。
     #[test]
     fn 台帳の規律を満たしている() {
         check(&models().expect("読める")).expect("規律を満たす");
     }
 
-    /// **MFA は判断で通したもの。** 判断記録の ID が併記されている。
+    /// MFA は判断で通したもの。 判断記録の ID が併記されている。
     #[test]
     fn 判断で通したモデルには判断記録がある() {
         let m = models().expect("読める");
@@ -254,7 +249,7 @@ mod tests {
         assert_eq!(mfa.judgement, "DEC-ALN-012");
     }
 
-    /// **未確認を空欄にしない**（`TR-ALN-31`）。
+    /// 未確認を空欄にしない（`TR-ALN-31`）。
     #[test]
     fn 未確認は未確認と書いてある() {
         let m = models().expect("読める");
@@ -267,7 +262,7 @@ mod tests {
         assert_eq!(julius.commercial_ok, Commercial::Unverified);
     }
 
-    /// **CC BY 系は帰属表示が要る**（`DEC-ALN-008`）。
+    /// CC BY 系は帰属表示が要る（`DEC-ALN-008`）。
     #[test]
     fn cc_by_のモデルは帰属表示を持つ() {
         for m in models().expect("読める") {
@@ -277,7 +272,7 @@ mod tests {
         }
     }
 
-    /// **判断記録が無ければ検査が落ちる。**
+    /// 判断記録が無ければ検査が落ちる。
     #[test]
     fn 判断記録の無い未確認モデルは落ちる() {
         let mut m = models().expect("読める");
@@ -297,7 +292,7 @@ mod tests {
         assert_eq!(check(&m), Err(LedgerError::MissingAttribution));
     }
 
-    /// **ライセンス表記に帰属表示と学習データの条件が出る**（`TR-ALN-31`）。
+    /// ライセンス表記に帰属表示と学習データの条件が出る（`TR-ALN-31`）。
     #[test]
     fn ライセンス表記に必要なものが出る() {
         let n = notice(&models().expect("読める"));

@@ -4,7 +4,7 @@
 -- （TR-RCL-03 が1行あたり最大N単位でグルーピングする）、5モーラの行には5つ要る。
 -- 同じ WAV を複数のエイリアスが別の位置で指すのが UTAU の単独音の形。
 --
--- **既存の行は残す。** エイリアスが分からないので、行の最初の単位を当てる。
+-- 既存の行は残す。 エイリアスが分からないので、行の最初の単位を当てる。
 -- 分からなければテイクの行 ID をそのまま入れる——**捨てるより、
 -- 後から見て「移行で入れた値だ」と分かるほうがよい。**
 
@@ -17,11 +17,11 @@ CREATE TABLE oto_values_new (
     cutoff_ms       REAL    NOT NULL,
     preutterance_ms REAL    NOT NULL,
     overlap_ms      REAL    NOT NULL,
-    -- 確信度（TR-ALN-24）。**機械導出群にのみ付与する。**
+    -- 確信度（TR-ALN-24）。機械導出群にのみ付与する。
     confidence      REAL    NOT NULL,
-    -- 人が確認したか。**違反が残っているエントリは確認済みにしない**（DEC-EDT-003）。
+    -- 人が確認したか。違反が残っているエントリは確認済みにしない（DEC-EDT-003）。
     confirmed       INTEGER NOT NULL DEFAULT 0,
-    -- 人が手で編集したか。**再自動推定から守る**（TR-EDT-46）。
+    -- 人が手で編集したか。再自動推定から守る（TR-EDT-46）。
     hand_edited     INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (take_id, alias)
 ) STRICT;

@@ -1,20 +1,20 @@
 //! 外へ出す経路（`TR-PKG-45`, `TR-PKG-47`）。
 //!
-//! **利用者にフォルダ操作を「要求」しない。だが到達経路は必ず残す**（`TR-PKG-45`）。
+//! 利用者にフォルダ操作を「要求」しない。だが到達経路は必ず残す（`TR-PKG-45`）。
 //! 現役の制作者は vLabeler や OpenUtau と併用したい。WAV に外から届かないと、
 //! 部分的な併用すら成立しない。
 //!
 //! ここが持つのは3つのうちの2つ。
 //!
 //! 1. プロジェクトのフォルダを OS のファイルマネージャで開く（アプリ層）
-//! 2. **録音済み WAV 一式を任意のフォルダへ非破壊で書き出す**（[`export_for_external_tools`]）
+//! 2. 録音済み WAV 一式を任意のフォルダへ非破壊で書き出す（[`export_for_external_tools`]）
 //! 3. その書き出し先を再取り込みする（[`scan_external_folder`] ＋ [`crate::release::detect_drift`]）
 //!
-//! **どれも UUID ディレクトリの不変性を損なわない。** 書き出しは複製で、
+//! どれも UUID ディレクトリの不変性を損なわない。 書き出しは複製で、
 //! 元のプロジェクトには触れない。
 //!
 //! ライブラリ全体の持ち出し（`TR-PKG-47`）は [`archive_library`] と [`restore_library`]。
-//! **拡張子を配布パッケージと分ける。** 同じ `.zip` にすると、配る相手に
+//! 拡張子を配布パッケージと分ける。 同じ `.zip` にすると、配る相手に
 //! ライブラリごと渡してしまう事故が起きる。
 
 use std::fs;
@@ -25,7 +25,7 @@ use crate::project::{Library, ProjectDir};
 
 /// ライブラリ書き出しの拡張子（`TR-PKG-47`）。
 ///
-/// **配布パッケージ（`.zip`）と分ける。** 取り違えを字面で止める。
+/// 配布パッケージ（`.zip`）と分ける。 取り違えを字面で止める。
 pub const LIBRARY_ARCHIVE_EXT: &str = "koerulib";
 
 /// 外へ出すときの失敗。
@@ -37,7 +37,7 @@ pub enum HandoffError {
     #[error("アーカイブの操作に失敗した")]
     Zip(#[from] zip::result::ZipError),
 
-    /// 書き出し先に既にものがある。**黙って上書きしない。**
+    /// 書き出し先に既にものがある。黙って上書きしない。
     #[error("書き出し先が空でない")]
     DestinationNotEmpty,
 
@@ -47,7 +47,7 @@ pub enum HandoffError {
 }
 
 impl HandoffError {
-    /// 送信してよい種別文字列。**`Display` は送らない。**
+    /// 送信してよい種別文字列。`Display` は送らない。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -64,7 +64,6 @@ type Result<T> = std::result::Result<T, HandoffError>;
 /// 外部ツール向けに書き出した内容。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalExport {
-    /// 書き出し先。
     pub dest: PathBuf,
     /// 置いた WAV の名前（書き出し順）。
     pub wavs: Vec<String>,
@@ -73,12 +72,12 @@ pub struct ExternalExport {
 /// 録音済み WAV 一式を任意のフォルダへ非破壊で書き出す（`TR-PKG-45`）。
 ///
 /// `wavs` はプロジェクト相対のパス（台帳の `rel_path`）。`oto_ini` を渡すと
-/// `oto.ini` として一緒に置く。**書式と符号化は呼び出し側が確定させてから渡す。**
+/// `oto.ini` として一緒に置く。書式と符号化は呼び出し側が確定させてから渡す。
 ///
-/// **元のプロジェクトには一切触れない。** 複製するだけ。
+/// 元のプロジェクトには一切触れない。 複製するだけ。
 ///
-/// 書き出し先が空でなければ拒む。**上書きすると、そこにあった他人の作業が消える。**
-#[tracing::instrument(skip(project, wavs, oto_ini), fields(count = wavs.len()), err)]
+/// 書き出し先が空でなければ拒む。上書きすると、そこにあった他人の作業が消える。
+#[tracing::instrument(skip(project, dest, wavs, oto_ini), fields(count = wavs.len()), err)]
 pub fn export_for_external_tools(
     project: &ProjectDir,
     dest: &Path,
@@ -112,11 +111,11 @@ pub fn export_for_external_tools(
 
 /// 外部で編集されたフォルダを見に行く（`TR-PKG-48`）。
 ///
-/// 返るのは `oto.ini` の中身（あれば）。**符号化の判定と正規化は呼び出し側が行う。**
+/// 返るのは `oto.ini` の中身（あれば）。符号化の判定と正規化は呼び出し側が行う。
 /// ここは生のバイト列だけを渡す。
 ///
 /// 差分を取り込むか捨てるかは [`crate::release::detect_drift`] の結果を
-/// **本人に見せてから**決める。**自動で取り込まない。**
+/// 本人に見せてから決める。自動で取り込まない。
 #[tracing::instrument(skip(folder), err)]
 pub fn scan_external_folder(folder: &Path) -> Result<Option<Vec<u8>>> {
     let p = folder.join("oto.ini");
@@ -128,10 +127,10 @@ pub fn scan_external_folder(folder: &Path) -> Result<Option<Vec<u8>>> {
 
 /// ライブラリ全体を1つのアーカイブへ書き出す（`TR-PKG-47`）。
 ///
-/// **拡張子は `.koerulib`。配布パッケージと取り違えられない。**
+/// 拡張子は `.koerulib`。配布パッケージと取り違えられない。
 ///
-/// `renders/`（試唱キャッシュ）は入れない。**再生成できるものを運ばない。**
-#[tracing::instrument(skip(lib), err)]
+/// `renders/`（試唱キャッシュ）は入れない。再生成できるものを運ばない。
+#[tracing::instrument(skip(lib, dest), err)]
 pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
     let file = fs::File::create(dest)?;
     let mut zip = zip::ZipWriter::new(file);
@@ -155,7 +154,7 @@ pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
             }
         }
     }
-    // **並びを決めておく。** 同じライブラリからは同じアーカイブが出るほうが、
+    // 並びを決めておく。 同じライブラリからは同じアーカイブが出るほうが、
     // 移行が通ったかを突き合わせやすい。
     files.sort();
 
@@ -177,9 +176,9 @@ pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
 
 /// 別の PC で取り込む（`TR-PKG-47`）。
 ///
-/// 取り込み先が空でなければ拒む。**既にあるライブラリへ混ぜない。**
+/// 取り込み先が空でなければ拒む。既にあるライブラリへ混ぜない。
 /// 同じ UUID のプロジェクトが両方にあると、どちらが本物か決められなくなる。
-#[tracing::instrument(skip(archive), err)]
+#[tracing::instrument(skip(archive, dest), err)]
 pub fn restore_library(archive: &Path, dest: &Path) -> Result<Library> {
     if dest.exists() && fs::read_dir(dest)?.next().is_some() {
         return Err(HandoffError::DestinationNotEmpty);
@@ -189,7 +188,7 @@ pub fn restore_library(archive: &Path, dest: &Path) -> Result<Library> {
     let mut zip = zip::ZipArchive::new(fs::File::open(archive)?)?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i)?;
-        // **アーカイブの中の名前を信用しない。** `../` で外へ出られては困る。
+        // アーカイブの中の名前を信用しない。 `../` で外へ出られては困る。
         let rel = entry.enclosed_name().ok_or(HandoffError::UnsafePath)?;
         let out = dest.join(&rel);
         if !out.starts_with(dest) {
@@ -248,7 +247,7 @@ mod tests {
         (lib, p)
     }
 
-    /// **書き出しは非破壊。元のプロジェクトに触れない**（TR-PKG-45）。
+    /// 書き出しは非破壊。元のプロジェクトに触れない（`TR-PKG-45`）。
     #[test]
     fn external_export_does_not_touch_the_project() {
         let (_lib, p) = project_with_audio("ext");
@@ -271,7 +270,7 @@ mod tests {
         assert!(p.manifest_path().is_file());
     }
 
-    /// **書き出し先が空でなければ拒む。** 上書きすると他人の作業が消える。
+    /// 書き出し先が空でなければ拒む。 上書きすると他人の作業が消える。
     #[test]
     fn external_export_refuses_a_non_empty_destination() {
         let (_lib, p) = project_with_audio("ext2");
@@ -299,7 +298,7 @@ mod tests {
         );
     }
 
-    /// **ライブラリごと持ち出して、別の場所へ戻せる**（TR-PKG-47）。
+    /// ライブラリごと持ち出して、別の場所へ戻せる（`TR-PKG-47`）。
     #[test]
     fn library_round_trips_through_an_archive() {
         let (lib, p) = project_with_audio("arc");
@@ -324,7 +323,7 @@ mod tests {
         );
     }
 
-    /// **再生成できるものは運ばない。**
+    /// 再生成できるものは運ばない。
     #[test]
     fn archive_leaves_out_the_render_cache() {
         let (lib, _p) = project_with_audio("arc2");
@@ -340,7 +339,7 @@ mod tests {
         );
     }
 
-    /// **既にあるライブラリへ混ぜない**（同じ UUID が2つになる）。
+    /// 既にあるライブラリへ混ぜない（同じ UUID が2つになる）。
     #[test]
     fn restore_refuses_a_non_empty_destination() {
         let (lib, _p) = project_with_audio("arc3");
@@ -353,7 +352,7 @@ mod tests {
         assert_eq!(e.kind(), "handoff.destination_not_empty");
     }
 
-    /// **アーカイブの中の名前を信用しない。**
+    /// アーカイブの中の名前を信用しない。
     #[test]
     fn restore_refuses_paths_that_escape_the_destination() {
         let archive = tmp("evil").join("evil.koerulib");
@@ -370,7 +369,7 @@ mod tests {
         assert_eq!(e.kind(), "handoff.unsafe_path");
     }
 
-    /// **配布パッケージと拡張子が違う**（TR-PKG-47）。
+    /// 配布パッケージと拡張子が違う（`TR-PKG-47`）。
     #[test]
     fn the_library_archive_is_not_a_zip_by_name() {
         assert_ne!(LIBRARY_ARCHIVE_EXT, "zip");

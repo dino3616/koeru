@@ -1,19 +1,19 @@
 //! 曲の試唱（`TR-SYN-01`〜`04`, `TR-SYN-18`, `TR-SYN-25`〜`27`, `TR-SYN-33`）。
 //!
-//! **押してから最初の音が鳴るまでを、曲全体の合成時間から切り離す**（`TR-SYN-03`）。
+//! 押してから最初の音が鳴るまでを、曲全体の合成時間から切り離す（`TR-SYN-03`）。
 //! 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。
 //!
 //! # 何をキャッシュするか
 //!
-//! **永続化するのは周波数表だけ**（`TR-SYN-25`）。スペクトル包絡と非周期性指標は
+//! 永続化するのは周波数表だけ（`TR-SYN-25`）。スペクトル包絡と非周期性指標は
 //! 持たない——音符ごとに必要な区間だけ算出する。フレーズ単位の合成済み波形は
 //! メモリの LRU に置く。
 //!
 //! # いつ捨てるか
 //!
 //! 素材・oto・音符列・合成コアの版のどれかが変わったフレーズだけ（`TR-SYN-26`）。
-//! **鍵にそれらが入っている**ので、変われば別の鍵になり、古い結果は自然に使われない。
-//! **捨てるが、作り直すのは次に試唱されたとき。**
+//! 鍵にそれらが入っているので、変われば別の鍵になり、古い結果は自然に使われない。
+//! 捨てるが、作り直すのは次に試唱されたとき。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -25,29 +25,29 @@ use koeru_synth::resampler::RenderError;
 
 /// メモリに置くフレーズの上限（`TR-SYN-25`）。
 ///
-/// **上限を置かないと、長い曲を何度も試唱したときに際限なく伸びる。**
+/// 上限を置かないと、長い曲を何度も試唱したときに際限なく伸びる。
 const CACHE_CAPACITY: usize = 64;
 
 /// 鳴らしはじめる前に確保しておく長さ（ミリ秒、`TR-SYN-03`）。
 ///
-/// **先行を保てない見込みのときは、途中で途切れさせるのではなく再生開始を遅らせる。**
+/// 先行を保てない見込みのときは、途中で途切れさせるのではなく再生開始を遅らせる。
 /// 途切れる音は「自分の声だ」と認識する邪魔になる。
 pub const LEAD_MS: f64 = 2000.0;
 
 /// 連続して鳴らせる長さがこれに満たない曲は、試唱の選択肢に出さない（`TR-SYN-18` (3)）。
 ///
-/// **[Unknown] この値に根拠はない**（`Q-SYN-001`）。
+/// [Unknown] この値に根拠はない（`Q-SYN-001`）。
 /// 「自分の声だ」と認識できる最短長は未検証で、ここが動けば
 /// 必要な先頭項目数と課題曲設計が丸ごと変わる。
 pub const MIN_PLAYABLE_MS: f64 = 4000.0;
 
 /// フレーズ単位の合成結果を持つ（`TR-SYN-02`, `TR-SYN-25`）。
 ///
-/// **使った順に古いものから捨てる。**
+/// 使った順に古いものから捨てる。
 #[derive(Debug, Default)]
 pub struct PhraseCache {
     entries: HashMap<u64, Vec<f64>>,
-    /// 使った順。**末尾が最新。**
+    /// 使った順。末尾が最新。
     order: Vec<u64>,
 }
 
@@ -58,7 +58,7 @@ impl PhraseCache {
         Self::default()
     }
 
-    /// 入っていれば返す。**返したものが最新になる。**
+    /// 入っていれば返す。返したものが最新になる。
     pub fn get(&mut self, key: u64) -> Option<&[f64]> {
         if !self.entries.contains_key(&key) {
             return None;
@@ -68,7 +68,7 @@ impl PhraseCache {
         self.entries.get(&key).map(Vec::as_slice)
     }
 
-    /// 入れる。**上限を超えたら、いちばん古いものを捨てる。**
+    /// 入れる。上限を超えたら、いちばん古いものを捨てる。
     pub fn put(&mut self, key: u64, samples: Vec<f64>) {
         if self.entries.insert(key, samples).is_none() {
             self.order.push(key);
@@ -106,7 +106,7 @@ pub struct WavSamples {
 
 /// 合成へ渡す素材のサンプルレート（`TR-SYN-31`）。
 ///
-/// **この条件を満たさない WAV を、試唱のために変換して通さない。**
+/// この条件を満たさない WAV を、試唱のために変換して通さない。
 /// 録音側の設定不備として扱う。ここで黙って変換すると、
 /// 「なぜか音が変」の原因が試唱側に隠れる。
 pub const REQUIRED_RATE_HZ: u32 = 44_100;
@@ -118,7 +118,7 @@ impl Samples for WavSamples {
             .get(&note.alias)
             .ok_or(RenderError::SourceUnavailable)?;
         let w = koeru_audio::wav::read(path).map_err(|_| RenderError::SourceUnavailable)?;
-        // **変換して通さない**（TR-SYN-31）。
+        // 変換して通さない（`TR-SYN-31`）。
         if w.rate_hz != REQUIRED_RATE_HZ {
             tracing::warn!(
                 got = w.rate_hz,
@@ -135,7 +135,7 @@ impl Samples for WavSamples {
     }
 }
 
-/// 進行中の試唱。**落とすと止まる。**
+/// 進行中の試唱。落とすと止まる。
 #[derive(Debug)]
 pub struct Running {
     cancel: Arc<AtomicBool>,
@@ -145,7 +145,7 @@ pub struct Running {
 impl Running {
     /// 中断する（`TR-SYN-27`）。
     ///
-    /// **合図を立てて戻る。** 合成の途中でも、次のフレーズの手前で抜ける。
+    /// 合図を立てて戻る。 合成の途中でも、次のフレーズの手前で抜ける。
     /// 中断済みフレーズの部分結果はキャッシュへ書かない。
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
@@ -171,7 +171,6 @@ impl Drop for Running {
 
 /// 合成した波形を受け取る口。
 pub trait Sink: Send {
-    /// 継ぎ足す。
     fn push(&self, samples: &[f32]);
     /// もう来ないと伝える。
     fn seal(&self);
@@ -179,8 +178,8 @@ pub trait Sink: Send {
 
 /// フレーズを順に合成して流す（`TR-SYN-03`）。
 ///
-/// **先頭フレーズができた時点で呼び出し側が鳴らしはじめられるよう、
-/// 1本目だけは同期で作って返す。** 残りは背後で作る。
+/// 先頭フレーズができた時点で呼び出し側が鳴らしはじめられるよう、
+/// 1本目だけは同期で作って返す。 残りは背後で作る。
 ///
 /// # Errors
 ///
@@ -215,7 +214,7 @@ pub fn start(
         move || {
             for p in rest {
                 if cancel.load(Ordering::Acquire) {
-                    // **部分結果を書かない**（TR-SYN-27）。
+                    // 部分結果を書かない（`TR-SYN-27`）。
                     break;
                 }
                 match render_cached(&p, samples.as_ref(), &cache, rate_hz) {
@@ -286,7 +285,7 @@ mod tests {
         );
     }
 
-    /// **取り出したものが最新になる。**
+    /// 取り出したものが最新になる。
     #[test]
     fn 取り出すと最新になる() {
         let mut c = PhraseCache::new();
@@ -308,7 +307,7 @@ mod tests {
         assert!(c.get(1).is_none());
     }
 
-    /// **閾値に根拠がないことを、値として固定しておく**（Q-SYN-001）。
+    /// 閾値に根拠がないことを、値として固定しておく（`Q-SYN-001`）。
     #[test]
     fn 最短長は要件どおりの暫定値() {
         assert!((MIN_PLAYABLE_MS - 4000.0).abs() < f64::EPSILON);

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Card, CardTitle } from "~/components/ui/card";
+import { Card } from "~/components/ui/card";
 import { type LeakView, api, errorMessage } from "~/lib/ipc";
 
 type LeakCardProps = {
@@ -13,13 +13,13 @@ type LeakCardProps = {
 };
 
 /**
- * ガイドの回り込み検査（TR-REC-24）。
+ * ガイドの回り込み検査（`TR-REC-24`）。
  *
- * **出力の種別だけでは足りない。** ドライバの自己申告で、
+ * 出力の種別だけでは足りない。 ドライバの自己申告で、
  * ヘッドホンと申告していても装着されている保証はない。
- * **回り込みは録音側でしか確認できない。**
+ * 回り込みは録音側でしか確認できない。
  *
- * これを置かないと、**全テイクにガイドが混入した音源が完成に到達しうる。**
+ * これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。
  */
 export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) => {
   const [running, setRunning] = useState(false);
@@ -42,11 +42,9 @@ export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) =>
   };
 
   return (
-    <Card>
-      <CardTitle>音の回り込み</CardTitle>
-
+    <Card title="音の回り込み">
       <div className="mt-3 flex flex-col gap-3">
-        <p className="text-sm text-text-dim">
+        <p className="text-sm text-slate-11">
           音高を鳴らして、それがマイクに入らないか確かめます。
           <br />
           入ってしまうと、録った音すべてに混ざります。
@@ -70,26 +68,20 @@ export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) =>
 
         {result !== null &&
           (result.leaking ? (
-            <p
-              role="alert"
-              className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text"
-            >
+            <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
               スピーカの音がマイクに入っています。
               イヤホンかヘッドホンを使うと、音高を聞きながら録れます。
               <br />
               このまま録ることもできますが、音高は鳴らしません。
             </p>
           ) : (
-            <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-text-dim">
+            <p className="rounded-lg bg-slate-3 px-4 py-3 text-sm text-slate-11">
               入っていません。音高を聞きながら録れます。
             </p>
           ))}
 
         {error !== null && (
-          <p
-            role="alert"
-            className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text"
-          >
+          <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
             {error}
           </p>
         )}

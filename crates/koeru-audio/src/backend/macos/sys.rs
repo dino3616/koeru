@@ -1,16 +1,16 @@
 //! CoreAudio HAL の最小束縛。
 //!
-//! **FFI の境界はここ1枚に閉じる**（`TR-PLT-06`）。ここから外は安全な Rust だけ。
+//! FFI の境界はここ1枚に閉じる（`TR-PLT-06`）。ここから外は安全な Rust だけ。
 //!
-//! **objc2 を通さない。** CoreAudio の HAL（`AudioObjectGetPropertyData` 系）は
+//! objc2 を通さない。 CoreAudio の HAL（`AudioObjectGetPropertyData` 系）は
 //! Objective-C ではなく素の C API なので、`extern "C"` で直接宣言できる。
 //!
 //! 束ねる相手を組織メンテのものに限るという方針（`DEC-REC-001`）に対して、
-//! **Apple の interop で組織がメンテしている crate 族が存在しない。**
+//! Apple の interop で組織がメンテしている crate 族が存在しない。
 //! `coreaudio-rs` は RustAudio org だが中身は個人の `objc2` 族で、依存木に16ノード入る。
 //! ここだけ自前で持つほうが、方針との食い違いが小さい。
 //!
-//! 宣言するのは実際に使うものだけ。**網羅しない。**
+//! 宣言するのは実際に使うものだけ。網羅しない。
 
 #![allow(non_upper_case_globals, non_snake_case)]
 
@@ -38,19 +38,19 @@ const fn fourcc(s: &[u8; 4]) -> u32 {
 pub(super) const kAudioHardwarePropertyDevices: u32 = fourcc(b"dev#");
 pub(super) const kAudioHardwarePropertyDefaultInputDevice: u32 = fourcc(b"dIn ");
 pub(super) const kAudioHardwarePropertyDefaultOutputDevice: u32 = fourcc(b"dOut");
-/// **TR-REC-03 が要求する永続識別子。** 表示名ではなくこれをプロジェクトに固定する。
+/// `TR-REC-03` が要求する永続識別子。 表示名ではなくこれをプロジェクトに固定する。
 pub(super) const kAudioDevicePropertyDeviceUID: u32 = fourcc(b"uid ");
 pub(super) const kAudioObjectPropertyName: u32 = fourcc(b"lnam");
 pub(super) const kAudioDevicePropertyNominalSampleRate: u32 = fourcc(b"nsrt");
 pub(super) const kAudioDevicePropertyStreamConfiguration: u32 = fourcc(b"slay");
-/// TR-REC-04 の消失検知に使う。
+/// `TR-REC-04` の消失検知に使う。
 pub(super) const kAudioDevicePropertyDeviceIsAlive: u32 = fourcc(b"livn");
 
-/// 入力ゲイン（0.0〜1.0）。**TR-REC-14 の校正に使う。**
+/// 入力ゲイン（0.0〜1.0）。`TR-REC-14` の校正に使う。
 pub(super) const kAudioDevicePropertyVolumeScalar: u32 = fourcc(b"volm");
 /// デバイスが仮想（集約・多重出力・ソフトウェア）かどうかの手がかり。
 ///
-/// **ソフトウェア実装のボリュームは校正に使えない**（TR-REC-14）。
+/// ソフトウェア実装のボリュームは校正に使えない（`TR-REC-14`）。
 /// デジタル側で掛けても、A/D の手前のレベルは変わらない。
 pub(super) const kAudioDevicePropertyTransportType: u32 = fourcc(b"tran");
 pub(super) const kAudioDeviceTransportTypeVirtual: u32 = fourcc(b"virt");
@@ -65,7 +65,7 @@ pub(super) const kAudioDeviceTransportTypeAirPlay: u32 = fourcc(b"airp");
 
 /// 出力の経路（内蔵スピーカ / ヘッドホン端子など）。
 ///
-/// **これもドライバの自己申告**（TR-REC-24 の [Fact]）。安全側の根拠にはしない。
+/// これもドライバの自己申告（`TR-REC-24` の [Fact]）。安全側の根拠にはしない。
 pub(super) const kAudioDevicePropertyDataSource: u32 = fourcc(b"ssrc");
 /// 内蔵スピーカ。
 pub(super) const kAudioDataSourceInternalSpeaker: u32 = fourcc(b"ispk");
@@ -181,10 +181,10 @@ unsafe extern "C" {
     ) -> u8;
 }
 
-// ── AudioUnit（AUHAL）─────────────────────────────────────
+// ## AudioUnit（AUHAL）
 //
-// **`kAudioUnitSubType_HALOutput` で開き、`kAudioUnitSubType_VoiceProcessingIO` は
-// 一切使わない**（TR-REC-11）。後者は OS 側の音声処理ユニットを通す。
+// `kAudioUnitSubType_HALOutput` で開き、`kAudioUnitSubType_VoiceProcessingIO` は
+// 一切使わない（`TR-REC-11`）。後者は OS 側の音声処理ユニットを通す。
 
 pub(super) type AudioComponent = *mut c_void;
 pub(super) type AudioComponentInstance = *mut c_void;
@@ -196,10 +196,10 @@ pub(super) type AudioUnitRenderActionFlags = u32;
 
 pub(super) const kAudioUnitType_Output: u32 = fourcc(b"auou");
 pub(super) const kAudioUnitSubType_HALOutput: u32 = fourcc(b"ahal");
-/// 既定の出力デバイスへ流す。**試唱の再生に使う。**
+/// 既定の出力デバイスへ流す。試唱の再生に使う。
 ///
-/// 収録の入力は `HALOutput` でデバイスを名指しするが（TR-REC-08 の経路が要る）、
-/// **再生は OS の既定でよい。** 出す側に音声加工を無効化する要求は無い。
+/// 収録の入力は `HALOutput` でデバイスを名指しするが（`TR-REC-08` の経路が要る）、
+/// 再生は OS の既定でよい。 出す側に音声加工を無効化する要求は無い。
 pub(super) const kAudioUnitSubType_DefaultOutput: u32 = fourcc(b"def ");
 pub(super) const kAudioUnitManufacturer_Apple: u32 = fourcc(b"appl");
 
@@ -264,7 +264,7 @@ pub(super) struct SMPTETime {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub(super) struct AudioTimeStamp {
-    /// **連続性の判定に使う**（xrun の検出、TR-REC-07）。
+    /// 連続性の判定に使う（xrun の検出、`TR-REC-07`）。
     pub(super) mSampleTime: f64,
     pub(super) mHostTime: u64,
     pub(super) mRateScalar: f64,
@@ -337,11 +337,11 @@ unsafe extern "C" {
     ) -> OSStatus;
 }
 
-// ── プロパティリスナ ──────────────────────────────────────
+// ## プロパティリスナ
 //
-// TR-REC-04 の消失検知と、TR-REC-07 の取りこぼし検出に使う。
+// `TR-REC-04` の消失検知と、`TR-REC-07` の取りこぼし検出に使う。
 
-/// **OS が過負荷を通知する。取りこぼしの一次情報**（TR-REC-07）。
+/// OS が過負荷を通知する。取りこぼしの一次情報（`TR-REC-07`）。
 pub(super) const kAudioDeviceProcessorOverload: u32 = fourcc(b"over");
 
 pub(super) type AudioObjectPropertyListenerProc = unsafe extern "C" fn(

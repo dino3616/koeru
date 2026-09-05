@@ -3,23 +3,23 @@
 //! > 5値の規約（マージン、比率、子音クラス別係数、方式別分岐）をコードから分離した
 //! > 宣言的なプリセットデータとして保持する。既定プリセットを方式ごとに1つ用意し、
 //! > 上級モードで編集・保存・プロジェクトへ適用できる。
-//! > **プリセットの変更は再計算だけで反映され、再アライメントを要求しない**
+//! > プリセットの変更は再計算だけで反映され、再アライメントを要求しない
 //!
 //! # 再アライメントを要求しない、が効いている
 //!
-//! 導出（[`crate::derive`]）はアライナが出した境界だけを入力に取る。**プリセットは
-//! 境界から5値を作る式のパラメータでしかない。** だからマージンを 20ms から 25ms へ
+//! 導出（[`crate::derive`]）はアライナが出した境界だけを入力に取る。プリセットは
+//! 境界から5値を作る式のパラメータでしかない。 だからマージンを 20ms から 25ms へ
 //! 変えても、推論はやり直さなくてよい（`TR-ALN-13` の三分法がこれを可能にしている）。
 //!
 //! # 既定は方式ごとに1つ
 //!
-//! [`resources/presets.toml`] に置いてある。**コードに定数を書かない**のが
+//! [`resources/presets.toml`] に置いてある。コードに定数を書かないのが
 //! `TR-ALN-23` の要求で、[`Preset::default_for`] はそこから読む。
 //!
 //! # 版を持つ
 //!
 //! [`Preset::version`] が変わったら再計算の対象になる（`TR-ALN-29` の決定性）。
-//! **上級モードで編集したプリセットも版を持つ**——持たないと、
+//! 上級モードで編集したプリセットも版を持つ——持たないと、
 //! 「値が変わったのに再計算されない」が起きる。
 //!
 //! [`resources/presets.toml`]: https://github.com/dino3616/koeru/blob/main/crates/koeru-align/resources/presets.toml
@@ -33,12 +33,12 @@ const PRESETS_TOML: &str = include_str!("../resources/presets.toml");
 
 /// 子音のクラス（`TR-ALN-17` の子音クラス別係数）。
 ///
-/// **オーバーラップと子音部の扱いがクラスで分かれる。**
+/// オーバーラップと子音部の扱いがクラスで分かれる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ConsonantClass {
     /// 母音始まり。子音を持たない。
     None,
-    /// 無声破裂音（k / t / p 系）。**オーバーラップを 0 にする**（`TR-ALN-16`）。
+    /// 無声破裂音（k / t / p 系）。オーバーラップを 0 にする（`TR-ALN-16`）。
     UnvoicedPlosive,
     /// 破擦音（ts / ch 系）。閉鎖を持つが破裂音そのものではない。
     Affricate,
@@ -46,7 +46,7 @@ pub enum ConsonantClass {
     Fricative,
     /// 鼻音（m / n 系）。
     Nasal,
-    /// はじき音（r 系）。**短いので子音部を詰める。**
+    /// はじき音（r 系）。短いので子音部を詰める。
     Flap,
     /// 上のどれでもない有声子音（b / d / g / w / y / v / z 系）。
     Voiced,
@@ -69,7 +69,7 @@ impl ConsonantClass {
 
     /// UTAU 式の子音記号から引く。
     ///
-    /// **`unvoiced_plosive` の判定は `koeru_core::inventory::Unit` が正本**
+    /// `unvoiced_plosive` の判定は `koeru_core::inventory::Unit` が正本
     /// （`TR-ALN-16` が挙げる k / t / p / ky / ty / py）。ここはそれ以外の
     /// クラス分けを足しているだけ。
     #[must_use]
@@ -89,7 +89,7 @@ impl ConsonantClass {
 /// 子音クラスごとの係数（`TR-ALN-17`, `TR-ALN-23`）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClassCoefficients {
-    /// オーバーラップ比。**オフセットから先行発声までの区間に掛ける**（`TR-ALN-16`）。
+    /// オーバーラップ比。オフセットから先行発声までの区間に掛ける（`TR-ALN-16`）。
     pub overlap_ratio: f64,
     /// 母音定常マージン。子音部の下限に効く（`TR-ALN-17`）。
     pub vowel_steady_margin_ms: f64,
@@ -98,9 +98,9 @@ pub struct ClassCoefficients {
 /// 導出の規約（`TR-ALN-23`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preset {
-    /// 識別子。**再計算の鍵に混ぜる**（`TR-ALN-29`）。
+    /// 識別子。再計算の鍵に混ぜる（`TR-ALN-29`）。
     pub id: String,
-    /// 版。**上げたら再計算の対象になる。**
+    /// 版。上げたら再計算の対象になる。
     pub version: u32,
     /// 対象の方式（`TR-ALN-23` の方式別分岐）。
     pub method: Method,
@@ -211,7 +211,7 @@ impl Preset {
         })
     }
 
-    /// 子音クラスの係数を引く。**無ければ `Voiced` へ落とす。**
+    /// 子音クラスの係数を引く。無ければ `Voiced` へ落とす。
     #[must_use]
     pub fn coefficients(&self, class: ConsonantClass) -> ClassCoefficients {
         self.classes
@@ -261,7 +261,7 @@ impl Preset {
 mod tests {
     use super::*;
 
-    /// **方式ごとに既定がある**（`TR-ALN-23`）。
+    /// 方式ごとに既定がある（`TR-ALN-23`）。
     #[test]
     fn 方式ごとの既定プリセットがある() {
         for m in [Method::Single, Method::Sequential, Method::Cvvc] {
@@ -272,7 +272,7 @@ mod tests {
         }
     }
 
-    /// **定数をコードに書かない**（`TR-ALN-23`）。リソース側の値が使われている。
+    /// 定数をコードに書かない（`TR-ALN-23`）。リソース側の値が使われている。
     #[test]
     fn 既定の値はリソースから来る() {
         let p = Preset::default_for(Method::Single).expect("既定がある");
@@ -281,7 +281,7 @@ mod tests {
         assert!((c.overlap_ratio - 1.0 / 3.0).abs() < 1e-9);
     }
 
-    /// **無声破裂音はオーバーラップを取らない**（`TR-ALN-16`）。
+    /// 無声破裂音はオーバーラップを取らない（`TR-ALN-16`）。
     #[test]
     fn 無声破裂音の係数はゼロ() {
         let p = Preset::default_for(Method::Single).expect("既定がある");
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(ConsonantClass::of("b"), ConsonantClass::Voiced);
     }
 
-    /// **知らないクラスは有声子音へ落とす。** プリセットに欄が増えても落ちない。
+    /// 知らないクラスは有声子音へ落とす。 プリセットに欄が増えても落ちない。
     #[test]
     fn 知らないクラスは有声へ落ちる() {
         let mut p = Preset::default_for(Method::Single).expect("既定がある");
@@ -313,7 +313,7 @@ mod tests {
         assert_eq!(p.coefficients(ConsonantClass::Nasal), voiced);
     }
 
-    /// **上級モードで編集して保存し、読み戻せる**（`TR-ALN-23`）。
+    /// 上級モードで編集して保存し、読み戻せる（`TR-ALN-23`）。
     #[test]
     fn 編集して保存して読み戻せる() {
         let mut p = Preset::default_for(Method::Single).expect("既定がある");
@@ -323,7 +323,7 @@ mod tests {
         assert_eq!(back, p);
     }
 
-    /// **版が変われば鍵が変わる**（`TR-ALN-29`）。
+    /// 版が変われば鍵が変わる（`TR-ALN-29`）。
     #[test]
     fn 版が変われば鍵が変わる() {
         let mut p = Preset::default_for(Method::Single).expect("既定がある");

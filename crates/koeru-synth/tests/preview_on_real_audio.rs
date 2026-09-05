@@ -1,6 +1,6 @@
-//! **実際に録った声を、指定した音高で歌わせてみる実機ハーネス。**
+//! 実際に録った声を、指定した音高で歌わせてみる実機ハーネス。
 //!
-//! **これは回帰テストではない。** 音声が無い環境では静かに戻る
+//! これは回帰テストではない。 音声が無い環境では静かに戻る
 //! （`koeru-align` の `alignment_on_real_audio.rs` と同じ形）。
 //!
 //! ```bash
@@ -12,17 +12,20 @@
 //!
 //! # 何を見ているか
 //!
-//! **音色の良し悪しは測らない。** 見るのは2つだけ——
+//! 音色の良し悪しは測らない。 見るのは2つだけ——
 //!
-//! 1. **指定した音高で鳴るか**（`TR-SYN-02`）
-//! 2. **有声のまま合成されるか**——雑音になっていないか
+//! 1. 指定した音高で鳴るか（`TR-SYN-02`）
+//! 2. 有声のまま合成されるか——雑音になっていないか
 //!
 //! どちらも「本人の声が歌になる」の最低線で、正解データが要らない。
 //!
-//! **合成音の試験では両方すり抜けた。** 周波数表をファイル全体・hop=256 のまま
+//! 合成音の試験では両方すり抜けた。 周波数表をファイル全体・hop=256 のまま
 //! 渡していたとき、単体試験は表を区間ぶん・5ms 格子で作っていたので通り、
-//! **アプリだけが雑音を出していた**（`tests/frequency_table_grid.rs` で閉じた）。
+//! アプリだけが雑音を出していた（`tests/frequency_table_grid.rs` で閉じた）。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
 
 use koeru_core::analysis::TakeAnalysis;
@@ -34,7 +37,7 @@ fn env_f64(key: &str) -> Option<f64> {
     std::env::var(key).ok()?.parse().ok()
 }
 
-/// パワーで発声区間を粗く出す。**ピークに対する比で切る。**
+/// パワーで発声区間を粗く出す。ピークに対する比で切る。
 fn voiced_span_ms(samples: &[f64], rate_hz: u32) -> Option<(f64, f64)> {
     let win = (rate_hz as usize / 100).max(1); // 10ms
     let peak = samples.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
@@ -82,7 +85,7 @@ fn measure(y: &[f64], rate_hz: u32) -> (f64, f64) {
     (f64::from(rate_hz) / lag, r)
 }
 
-/// **実際の声が、指定した音高で、雑音にならずに鳴る。**
+/// 実際の声が、指定した音高で、雑音にならずに鳴る。
 #[test]
 fn 実音声を指定した音高で歌わせられる() {
     let Ok(path) = std::env::var("KOERU_SYNTH_SAMPLE_WAV") else {
@@ -91,13 +94,13 @@ fn 実音声を指定した音高で歌わせられる() {
     let w = koeru_audio::wav::read(std::path::Path::new(&path)).expect("wav を読める");
     let s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
 
-    // 切り出し。**指定が無ければパワーで見た発声区間を使う。**
+    // 切り出し。指定が無ければパワーで見た発声区間を使う。
     let (lo, hi) = voiced_span_ms(&s, w.rate_hz).expect("発声がある");
     let offset_ms = env_f64("KOERU_SYNTH_SAMPLE_OFFSET_MS").unwrap_or(lo);
     let length_ms = env_f64("KOERU_SYNTH_SAMPLE_LENGTH_MS").unwrap_or(hi - lo);
     println!("  切り出し {offset_ms:.0}ms から {length_ms:.0}ms");
 
-    // **アプリと同じ手順で `.frq` を作る**——ファイル全体を hop=256 の格子で。
+    // アプリと同じ手順で `.frq` を作る——ファイル全体を hop=256 の格子で。
     let frame_ms = world::DEFAULT_FRAME_PERIOD_MS;
     let (f0, _) = world::estimate_f0(
         &s,
@@ -142,7 +145,7 @@ fn 実音声を指定した音高で歌わせられる() {
         let cents = 1200.0 * (hz / want).log2();
         println!("  MIDI {midi} 目標 {want:6.1}Hz / 実測 {hz:6.1}Hz ({cents:+5.0}c) 周期性 {r:.2}");
 
-        // **オクターブを外していないこと。** 音色は測らない。
+        // オクターブを外していないこと。 音色は測らない。
         assert!(
             cents.abs() < 100.0,
             "指定した音高で鳴っていない: {hz:.1}Hz（目標 {want:.1}Hz、{cents:+.0}セント）"

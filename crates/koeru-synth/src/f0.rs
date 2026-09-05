@@ -1,21 +1,21 @@
 //! F0 推定の経路（`TR-SYN-22`）。
 //!
-//! **退避経路（Harvest）は二段構えにする**（`TR-SYN-22`）。
+//! 退避経路（Harvest）は二段構えにする（`TR-SYN-22`）。
 //!
-//! 1. 最初の数テイクは **DIO + StoneMask** で即座に `.frq` を確定する
-//! 2. 話者音域が判明して下限が引き上がったあと、**Harvest で静かに引き直す**
+//! 1. 最初の数テイクは DIO + StoneMask で即座に `.frq` を確定する
+//! 2. 話者音域が判明して下限が引き上がったあと、Harvest で静かに引き直す
 //!
 //! `.frq` が要求するのは F0 と平均振幅だけなので、初期テイクの試唱には DIO の精度で足りる。
-//! **待たせないことのほうが効く。**
+//! 待たせないことのほうが効く。
 //!
 //! # 試唱と配布で条件を分ける
 //!
-//! **試唱は速度優先、`.frq` とパッケージ書き出しは品質優先**（`TR-SYN-22`）。
+//! 試唱は速度優先、`.frq` とパッケージ書き出しは品質優先（`TR-SYN-22`）。
 //! 同じ条件で回すと、試唱が遅いか、配布物が粗いかのどちらかになる。
 
 use crate::world::{self, F0Method};
 
-/// 話者音域が分かる前の探索下限（Hz）。**歌声の音域を広く取る。**
+/// 話者音域が分かる前の探索下限（Hz）。歌声の音域を広く取る。
 ///
 /// 目標音高から範囲を作ってはいけない。素材は別の音高で録られている。
 pub const WIDE_FLOOR_HZ: f64 = 55.0;
@@ -25,20 +25,20 @@ pub const CEIL_HZ: f64 = 1100.0;
 
 /// 引き直しの前に集める最小のテイク数（`TR-SYN-22`）。
 ///
-/// **これだけ録れば、その人の音域がだいたい見える。**
+/// これだけ録れば、その人の音域がだいたい見える。
 pub const RANGE_SAMPLE_TAKES: usize = 5;
 
 /// 話者音域から下限を引き上げるときの余裕（半音）。
 ///
-/// **狭く取りすぎると、低い音を録ったときに範囲外へ落ちる。**
+/// 狭く取りすぎると、低い音を録ったときに範囲外へ落ちる。
 const FLOOR_MARGIN_SEMITONES: f64 = 5.0;
 
 /// どちらの条件で解析するか（`TR-SYN-22`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
-    /// 試唱。**速度優先。** 待たせないことのほうが効く。
+    /// 試唱。速度優先。 待たせないことのほうが効く。
     Preview,
-    /// `.frq` と配布パッケージ。**品質優先。**
+    /// `.frq` と配布パッケージ。品質優先。
     Distribution,
 }
 
@@ -57,19 +57,19 @@ pub struct Conditions {
 
 /// 条件を決める（`TR-SYN-22`）。
 ///
-/// `known_floor_hz` は話者音域から分かった下限。**まだ分からなければ `None`。**
+/// `known_floor_hz` は話者音域から分かった下限。まだ分からなければ `None`。
 #[must_use]
 pub fn conditions(purpose: Purpose, known_floor_hz: Option<f64>) -> Conditions {
     let floor_hz = known_floor_hz.unwrap_or(WIDE_FLOOR_HZ).max(WIDE_FLOOR_HZ);
     match purpose {
-        // **速度優先。** DIO は Harvest より速く、試唱には足りる。
+        // 速度優先。 DIO は Harvest より速く、試唱には足りる。
         Purpose::Preview => Conditions {
             method: F0Method::DioStoneMask,
             floor_hz,
             ceil_hz: CEIL_HZ,
             frame_period_ms: world::DEFAULT_FRAME_PERIOD_MS,
         },
-        // **品質優先。** 配るものはここで決まる。
+        // 品質優先。 配るものはここで決まる。
         Purpose::Distribution => Conditions {
             method: F0Method::Harvest,
             floor_hz,
@@ -94,7 +94,7 @@ pub fn estimate(samples: &[f64], rate_hz: u32, c: &Conditions) -> (Vec<f64>, Vec
 
 /// 集まったテイクの F0 から、探索の下限を引き上げる（`TR-SYN-22`）。
 ///
-/// **テイクが足りないうちは引き上げない。** 1本や2本では音域は見えない。
+/// テイクが足りないうちは引き上げない。 1本や2本では音域は見えない。
 ///
 /// 返るのは新しい下限。引き上げられなければ `None`。
 #[must_use]
@@ -113,7 +113,7 @@ pub fn tighten_floor(observed_f0: &[Vec<f64>]) -> Option<f64> {
         })
         .fold(None::<f64>, |m, v| Some(m.map_or(v, |x| x.min(v))))?;
 
-    // **余裕を持って下げる。** ぴったりに取ると、次に低い音を出したときに外れる。
+    // 余裕を持って下げる。 ぴったりに取ると、次に低い音を出したときに外れる。
     let floor = lowest * 2.0_f64.powf(-FLOOR_MARGIN_SEMITONES / 12.0);
     (floor > WIDE_FLOOR_HZ).then_some(floor)
 }
@@ -122,7 +122,7 @@ pub fn tighten_floor(observed_f0: &[Vec<f64>]) -> Option<f64> {
 mod tests {
     use super::*;
 
-    /// **試唱は速度優先、配布は品質優先**（TR-SYN-22）。
+    /// 試唱は速度優先、配布は品質優先（`TR-SYN-22`）。
     #[test]
     fn 試唱と配布で手法が違う() {
         assert_eq!(
@@ -137,7 +137,7 @@ mod tests {
         );
     }
 
-    /// **目標音高から範囲を作らない。** 素材は別の音高で録られている。
+    /// 目標音高から範囲を作らない。 素材は別の音高で録られている。
     #[test]
     fn 音域が分かる前は広く取る() {
         let c = conditions(Purpose::Preview, None);
@@ -151,14 +151,14 @@ mod tests {
         assert!((c.floor_hz - 120.0).abs() < f64::EPSILON);
     }
 
-    /// **広い下限より下へは行かない。** 下げても得は無い。
+    /// 広い下限より下へは行かない。 下げても得は無い。
     #[test]
     fn 下限は広い値より下がらない() {
         let c = conditions(Purpose::Preview, Some(20.0));
         assert!((c.floor_hz - WIDE_FLOOR_HZ).abs() < f64::EPSILON);
     }
 
-    /// **テイクが足りないうちは引き上げない**（TR-SYN-22）。
+    /// テイクが足りないうちは引き上げない（`TR-SYN-22`）。
     #[test]
     fn テイクが少ないうちは音域を決めない() {
         let few: Vec<Vec<f64>> = (0..RANGE_SAMPLE_TAKES - 1)
@@ -179,7 +179,7 @@ mod tests {
         assert!(floor > 120.0, "下げすぎないこと: {floor}");
     }
 
-    /// **有声フレームが無いテイクは無視する。**
+    /// 有声フレームが無いテイクは無視する。
     #[test]
     fn 無声だけのテイクは音域に効かない() {
         let mut takes: Vec<Vec<f64>> = (0..RANGE_SAMPLE_TAKES).map(|_| vec![220.0]).collect();
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn 低い声でも広い下限を割らない() {
         let takes: Vec<Vec<f64>> = (0..RANGE_SAMPLE_TAKES).map(|_| vec![60.0]).collect();
-        // 60Hz から5半音下げると 45Hz。**広い下限を割るので引き上げない。**
+        // 60Hz から5半音下げると 45Hz。広い下限を割るので引き上げない。
         assert_eq!(tighten_floor(&takes), None);
     }
 }

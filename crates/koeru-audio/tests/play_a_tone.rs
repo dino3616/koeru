@@ -1,10 +1,13 @@
-//! **再生の実機ハーネス。** レンダーコールバックが実際に呼ばれることを確かめる。
+//! 再生の実機ハーネス。 レンダーコールバックが実際に呼ばれることを確かめる。
 //!
-//! 出力デバイスが無い環境では途中で戻る。**これは回帰テストではない。**
+//! 出力デバイスが無い環境では途中で戻る。これは回帰テストではない。
 //! 何が起きたかを読むために標準出力を使う。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
-// **macOS 専用。** 他 OS のバックエンドはまだ無い。
+// macOS 専用。 他 OS のバックエンドはまだ無い。
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_audio::backend::macos as mac;
@@ -14,7 +17,7 @@ fn 短い音を鳴らしてコールバックが進むことを確かめる() {
     const RATE: u32 = 44_100;
     const MS: usize = 250;
 
-    // **小さい音にする。** テストが人の耳を殴らない。
+    // 小さい音にする。 テストが人の耳を殴らない。
     let frames = RATE as usize * MS / 1000;
     let samples: Vec<f32> = (0..frames)
         .map(|i| {
@@ -30,7 +33,7 @@ fn 短い音を鳴らしてコールバックが進むことを確かめる() {
         return;
     };
 
-    // 鳴り終わるまで待つ。**余裕を持たせる**（バッファのぶん遅れる）。
+    // 鳴り終わるまで待つ。余裕を持たせる（バッファのぶん遅れる）。
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
     while !p.is_finished() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -46,7 +49,7 @@ fn 短い音を鳴らしてコールバックが進むことを確かめる() {
     assert_eq!(pos, frames, "全フレームを流し切ること");
 }
 
-/// **鳴らしながら継ぎ足せる**（`TR-SYN-03`）。
+/// 鳴らしながら継ぎ足せる（`TR-SYN-03`）。
 ///
 /// 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。
 #[test]
@@ -70,7 +73,7 @@ fn 鳴らしながら継ぎ足せる() {
         return;
     };
 
-    // **先行を保ちながら足す。** 足し終わるまで終わらない。
+    // 先行を保ちながら足す。 足し終わるまで終わらない。
     for hz in [523.0, 659.0, 784.0] {
         std::thread::sleep(std::time::Duration::from_millis(80));
         p.push(&chunk(hz));

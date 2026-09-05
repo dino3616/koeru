@@ -1,8 +1,11 @@
-//! **ゲイン校正の実機ハーネス**（`TR-REC-14`, `TR-REC-15`）。
+//! ゲイン校正の実機ハーネス（`TR-REC-14`, `TR-REC-15`）。
 //!
 //! CoreAudio の入力ボリュームを実際に読み書きできるかを確かめる。
-//! **触ったら必ず元へ戻す。** 利用者のマイク設定を変えたままにしない。
+//! 触ったら必ず元へ戻す。 利用者のマイク設定を変えたままにしない。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
@@ -23,7 +26,7 @@ fn 入力ゲインを読み書きして元へ戻す() {
         println!("{:?}: {:?} / ゲイン {now:?}", d.id, control);
 
         if !control.is_usable() {
-            // **ソフトウェアのボリュームは校正に使えない**（TR-REC-14）。
+            // ソフトウェアのボリュームは校正に使えない（`TR-REC-14`）。
             // 読めても書かない。
             assert!(
                 mac::write_gain(&d.id, 0.5).is_err(),
@@ -36,7 +39,7 @@ fn 入力ゲインを読み書きして元へ戻す() {
             continue;
         };
 
-        // **必ず戻せる値で試す。**
+        // 必ず戻せる値で試す。
         let probe = if before > 0.5 {
             before - 0.1
         } else {
@@ -50,7 +53,7 @@ fn 入力ゲインを読み書きして元へ戻す() {
             "書いた値の近くが読めること（OS 側の丸めは許す）"
         );
 
-        // 元へ戻す。**ここが本体。**
+        // 元へ戻す。ここが本体。
         mac::write_gain(&d.id, before).expect("戻せること");
         let restored = mac::read_gain(&d.id).expect("読めること");
         assert!((restored - before).abs() < 0.05, "元の値へ戻ること");
@@ -64,7 +67,7 @@ fn 入力ゲインを読み書きして元へ戻す() {
 fn 校正の判定は要件どおりの範囲() {
     use koeru_core::calibration::{Outcome, TARGET_MAX_DBFS, TARGET_MIN_DBFS, step};
 
-    // 範囲の内と外。**-12 〜 -6 dBFS**（TR-REC-14）。
+    // 範囲の内と外。-12 〜 -6 dBFS（`TR-REC-14`）。
     assert_eq!(step(-9.0, Some(0.5), 1), Outcome::Settled);
     assert!(matches!(
         step(TARGET_MIN_DBFS - 0.1, Some(0.5), 1),

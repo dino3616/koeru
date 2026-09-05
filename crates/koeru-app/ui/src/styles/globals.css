@@ -1,16 +1,55 @@
 @import "tailwindcss";
 
 /*
- * 配色は Radix Colors から取る。
+ * 配色は Radix Colors を画面側で直接使う。
  *
- * **段の意味を守る。** 1=地、2=面、3=部品、4=hover、5=active、
- * 6=薄い境界、7=境界、8=強い境界とフォーカス、9=塗り、10=塗りの hover、
- * 11=低コントラストの文字、12=高コントラストの文字。
- * この対応を崩すと、明暗どちらかで WCAG 2.2 AA（TR-PLT-25、TR-PLT-28）を割る。
+ * # 段の意味（Radix の定義。これを守る）
  *
- * `.dark` / `.light` は public/theme.js が付ける。
+ * | 段 | 用途 |
+ * |----|------|
+ * | 1  | 地（app background） |
+ * | 2  | 面（subtle background） |
+ * | 3  | 部品の背景 |
+ * | 4  | 部品の hover |
+ * | 5  | 部品の active |
+ * | 6  | 薄い境界（区切り線） |
+ * | 7  | 境界（部品の輪郭） |
+ * | 8  | 強い境界・フォーカス環 |
+ * | 9  | 塗り |
+ * | 10 | 塗りの hover |
+ * | 11 | 低コントラストの文字 |
+ * | 12 | 高コントラストの文字 |
  *
- * **相対単位を既定にする**（TR-PLT-34）。文字を拡大しても行間を広げても、
+ * # KOERU が段 9 / 10 を塗りに使わない理由
+ *
+ * 段 9・10 は「字が載る塗り」としては使えない（`TR-PLT-25`、`TR-PLT-28`）。
+ * `slate-1` を字に載せたときの比を実測すると:
+ *
+ * |         | 明るい面 | 暗い面 |
+ * |---------|---------|-------|
+ * | cyan-9  | 2.93    | 6.28  |
+ * | cyan-10 | 3.34    | 7.29  |
+ * | cyan-11 | 4.65    | 9.96  |
+ * | cyan-12 | 11.66   | 14.67 |
+ *
+ * 明るい面で 4.5:1 に届くのは段 11 以上だけ。 だから塗りは段 11、
+ * その hover は段 12（暗くなる＝字とのコントラストが上がる）。
+ * `brightness()` フィルタで作らない——塗りと字の両方が明るくなり、
+ * 字は 255 で頭打ちになるので比が下がる（明るい面で 4.65 → 4.05）。
+ *
+ * # 明暗の切り替え
+ *
+ * Radix は light を `:root, .light`、dark を `.dark` に定義する。
+ * `public/theme.js` が `<html>` へ `.dark` / `.light` を付けるので、
+ * `bg-slate-2` のようなユーティリティは自動で追従する（写し替えの層が要らない）。
+ *
+ * CSS 側に `prefers-color-scheme` の退避を置かない。 段の値は Radix が `.dark` に
+ * 持っているので、CSS だけで差し替えるには60個の値を手で写すことになる——
+ * 写しは必ず片方だけ古くなる（禁止事項6）。切り替えは `theme.js` 1箇所に集める。
+ *
+ * # 相対単位
+ *
+ * 相対単位を既定にする（`TR-PLT-34`）。文字を拡大しても行間を広げても、
  * 内容が消えたり重なったりしない。
  */
 @import "@radix-ui/colors/slate.css";
@@ -31,80 +70,77 @@
 }
 
 /*
- * 意味のある名前に写す。**画面側は Radix の段を直接使わない。**
- * 段の選び直しがここ1箇所で済む。
+ * Radix の段を Tailwind のユーティリティへ出す。
+ *
+ * `inline` にする。 そうしないと Tailwind が値を焼き込んでしまい、
+ * `.dark` での差し替えが効かなくなる。`inline` なら `bg-slate-2` は
+ * `background-color: var(--slate-2)` に展開され、段の解決は実行時になる。
  */
-:root {
-  --bg: var(--slate-1);
-  --surface: var(--slate-2);
-  --surface-2: var(--slate-3);
-  --surface-3: var(--slate-4);
-  /* **飾りの区切り。** 意味を持たない線はここ。 */
-  --border: var(--slate-6);
-  /*
-   * **部品の輪郭。** 入力欄や選択肢のように「そこが操作対象だ」と示す線は
-   * 面に対して 3:1 が要る（TR-PLT-28）。段 8 では届かないので 11 を使う。
-   */
-  --border-strong: var(--slate-11);
-  --text: var(--slate-12);
-  --text-dim: var(--slate-11);
-
-  /*
-   * **塗りは段 9 ではなく段 11。**
-   * 段 9（#00a2c7）は明暗どちらでも同じ値で、白を載せると 3.0:1、
-   * 段 12 を載せても 4.0:1 で、どちらも 4.5:1 に届かない（scripts/check-contrast.ts）。
-   * 段 11 は明暗で反転するので、字に段 1 を載せれば両方で 4.6:1 以上になる。
-   */
-  --accent: var(--cyan-11);
-  --accent-hover: var(--cyan-10);
-  --accent-ink: var(--slate-1);
-
-  /* フォーカス環。**面 1〜3 のどれに乗っても 4:1 以上。** */
-  --focus: var(--cyan-11);
-
-  --danger: var(--red-11);
-  --danger-ink: var(--slate-1);
-  --danger-text: var(--red-11);
-  --danger-surface: var(--red-3);
-  /* メーターの塗り。**図形なので 3:1**（TR-PLT-28）。段 9 では明るい面で届かない。 */
-  --ok: var(--jade-11);
-
-  /*
-   * 波形。**面（surface-2）に対して 3:1 以上**（TR-PLT-28 は波形と境界線も対象）。
-   * 段 11 は「面の上で読める字の色」なので、この条件を満たす。
-   */
-  --wave: var(--cyan-11);
-  --wave-clip: var(--red-11);
-
-  /*
-   * 自動原音設定が指した位置（TR-ALN-33）。**波形と別の色相にする。**
-   * 線なので **面2 と切り出し域のどちらに乗っても 3:1**（TR-PLT-28）。
-   */
-  --boundary: var(--amber-11);
-  /* 切り出して使う区間の下地。**この上に波形が乗るので、波形との比も見る。** */
-  --boundary-surface: var(--amber-3);
-}
-
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-text: var(--text);
-  --color-text-dim: var(--text-dim);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-ink: var(--accent-ink);
-  --color-boundary: var(--boundary);
-  --color-boundary-surface: var(--boundary-surface);
-  --color-danger: var(--danger);
-  --color-danger-ink: var(--danger-ink);
-  --color-danger-text: var(--danger-text);
-  --color-danger-surface: var(--danger-surface);
-  --color-ok: var(--ok);
-  --color-focus: var(--focus);
+  --color-slate-1: var(--slate-1);
+  --color-slate-2: var(--slate-2);
+  --color-slate-3: var(--slate-3);
+  --color-slate-4: var(--slate-4);
+  --color-slate-5: var(--slate-5);
+  --color-slate-6: var(--slate-6);
+  --color-slate-7: var(--slate-7);
+  --color-slate-8: var(--slate-8);
+  --color-slate-9: var(--slate-9);
+  --color-slate-10: var(--slate-10);
+  --color-slate-11: var(--slate-11);
+  --color-slate-12: var(--slate-12);
+
+  --color-cyan-1: var(--cyan-1);
+  --color-cyan-2: var(--cyan-2);
+  --color-cyan-3: var(--cyan-3);
+  --color-cyan-4: var(--cyan-4);
+  --color-cyan-5: var(--cyan-5);
+  --color-cyan-6: var(--cyan-6);
+  --color-cyan-7: var(--cyan-7);
+  --color-cyan-8: var(--cyan-8);
+  --color-cyan-9: var(--cyan-9);
+  --color-cyan-10: var(--cyan-10);
+  --color-cyan-11: var(--cyan-11);
+  --color-cyan-12: var(--cyan-12);
+
+  --color-red-1: var(--red-1);
+  --color-red-2: var(--red-2);
+  --color-red-3: var(--red-3);
+  --color-red-4: var(--red-4);
+  --color-red-5: var(--red-5);
+  --color-red-6: var(--red-6);
+  --color-red-7: var(--red-7);
+  --color-red-8: var(--red-8);
+  --color-red-9: var(--red-9);
+  --color-red-10: var(--red-10);
+  --color-red-11: var(--red-11);
+  --color-red-12: var(--red-12);
+
+  --color-jade-1: var(--jade-1);
+  --color-jade-2: var(--jade-2);
+  --color-jade-3: var(--jade-3);
+  --color-jade-4: var(--jade-4);
+  --color-jade-5: var(--jade-5);
+  --color-jade-6: var(--jade-6);
+  --color-jade-7: var(--jade-7);
+  --color-jade-8: var(--jade-8);
+  --color-jade-9: var(--jade-9);
+  --color-jade-10: var(--jade-10);
+  --color-jade-11: var(--jade-11);
+  --color-jade-12: var(--jade-12);
+
+  --color-amber-1: var(--amber-1);
+  --color-amber-2: var(--amber-2);
+  --color-amber-3: var(--amber-3);
+  --color-amber-4: var(--amber-4);
+  --color-amber-5: var(--amber-5);
+  --color-amber-6: var(--amber-6);
+  --color-amber-7: var(--amber-7);
+  --color-amber-8: var(--amber-8);
+  --color-amber-9: var(--amber-9);
+  --color-amber-10: var(--amber-10);
+  --color-amber-11: var(--amber-11);
+  --color-amber-12: var(--amber-12);
 }
 
 html,
@@ -114,56 +150,66 @@ body,
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
+  background: var(--slate-1);
+  color: var(--slate-12);
   font-family: var(--font-sans);
-  /* **選べないほうが誤操作が減る。** 読ませたい文章は個別に許す。 */
+  /* 選べないほうが誤操作が減る。 読ませたい文章と、写して使う数値は個別に許す。 */
   user-select: none;
   overflow: hidden;
 }
 
 /*
- * **フォーカスは常に見える**（TR-PLT-27）。
- * 既定の outline を消さない。消すならもっと見えるものを足す。
+ * フォーカスは常に見える（`TR-PLT-27`）。既定の outline を消さない。
+ *
+ * 段 11 を使う。段 8 は Radix が「フォーカス環」に充てている段だが、
+ * 面 1〜3 のどれに乗っても 3:1 を満たすのは 11 のほう（`TR-PLT-28`）。
+ *
+ * `border-radius` をここで指定しない。 指定すると `rounded-lg` などの
+ * ユーティリティを上書きして、フォーカスした瞬間に要素の角丸が変わる。
+ * outline は要素自身の角丸に沿うので、指定しないのが正しい。
+ *
+ * `@layer base` に入れる。レイヤの外に書くと utilities より強くなり、
+ * 部品側が `focus-visible:outline-*` で上書きできなくなる。
  */
-:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: 4px;
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--cyan-11);
+    outline-offset: 2px;
+  }
 }
 
 /*
- * 入力レベル（<meter>）。
+ * 入力レベル（`<meter>`）。
  *
- * **判断は HTML 側の low / high / optimum が持つ。**
+ * 判断は HTML 側の `low` / `high` / `optimum` が持つ。
  * ここは色を当てるだけで、閾値を二重に書かない。
  */
 .koeru-meter {
   appearance: none;
   border: none;
   border-radius: 9999px;
-  background: var(--surface-2);
+  background: var(--slate-3);
   overflow: hidden;
 }
 
 .koeru-meter::-webkit-meter-bar {
-  background: var(--surface-2);
+  background: var(--slate-3);
   border: none;
   border-radius: 9999px;
 }
 
 .koeru-meter::-webkit-meter-optimum-value {
-  background: var(--ok);
+  background: var(--jade-11);
 }
 
-/* 小さすぎる（low を下回る）。**目立たせない。** */
+/* 小さすぎる（`low` を下回る）。目立たせない。 */
 .koeru-meter::-webkit-meter-suboptimum-value {
-  background: var(--border-strong);
+  background: var(--slate-11);
 }
 
-/* 割れている（high を超える）。 */
+/* 割れている（`high` を超える）。 */
 .koeru-meter::-webkit-meter-even-less-good-value {
-  background: var(--danger);
+  background: var(--red-11);
 }
 
 .koeru-meter::-moz-meter-bar {
@@ -171,21 +217,21 @@ body {
 }
 
 .koeru-meter:-moz-meter-optimum::-moz-meter-bar {
-  background: var(--ok);
+  background: var(--jade-11);
 }
 
 .koeru-meter:-moz-meter-sub-optimum::-moz-meter-bar {
-  background: var(--border-strong);
+  background: var(--slate-11);
 }
 
 .koeru-meter:-moz-meter-sub-sub-optimum::-moz-meter-bar {
-  background: var(--danger);
+  background: var(--red-11);
 }
 
 /*
- * **動きで妨げない**（TR-PLT-33）。
+ * 動きで妨げない（`TR-PLT-33`）。
  *
- * ここの `!important` は意図的。**利用者の設定が、どの宣言よりも強い**
+ * ここの `!important` は意図的。利用者の設定が、どの宣言よりも強い
  * べき場所なので、詳細度で負ける余地を残さない。
  */
 @media (prefers-reduced-motion: reduce) {
@@ -195,5 +241,27 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * 強制カラーモード（Windows のハイコントラスト）。
+ *
+ * canvas は取り残される。 OS が色を差し替えるのは CSS の色だけで、
+ * `<canvas>` へ描いたピクセルには触らない——波形と原音設定の線が、
+ * 差し替わった背景の上に元の色のまま残る。
+ *
+ * 輪郭を付けて、少なくとも「そこに図がある」ことと範囲を伝える。
+ * 図の中身は数値で併記してあるので（`TR-PLT-28`）、読む手段は残る。
+ */
+@media (forced-colors: active) {
+  canvas {
+    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+  }
+
+  /* メーターは OS の色に任せる。段の値より、利用者の設定が強い。 */
+  .koeru-meter {
+    forced-color-adjust: auto;
   }
 }

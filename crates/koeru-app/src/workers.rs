@@ -1,19 +1,19 @@
 //! 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`）。
 //!
-//! **録音入力より低い優先度で動かす**（`TR-SYN-34`）。
+//! 録音入力より低い優先度で動かす（`TR-SYN-34`）。
 //! 録音のオーディオコールバックを妨げない。
 //!
 //! # 優先順位
 //!
-//! **録音直後の前処理 > 試唱の要求 > 全件再推定 > チャート事前計算**（`TR-SYN-34`）。
+//! 録音直後の前処理 > 試唱の要求 > 全件再推定 > チャート事前計算（`TR-SYN-34`）。
 //!
-//! この順にする理由は、**待っている人がいるかどうか**。
+//! この順にする理由は、待っている人がいるかどうか。
 //! 録音直後の前処理は「次に試唱を押す人」を待たせる。試唱の要求は「いま押した人」。
 //! 全件再推定とチャートは誰も待っていない。
 //!
 //! # 完了期限
 //!
-//! **「次の録音項目まで」ではなく「試唱押下まで」**（`TR-SYN-34`）。
+//! 「次の録音項目まで」ではなく「試唱押下まで」（`TR-SYN-34`）。
 //! 3時間の収録の途中で、次のフレーズを出すのを待たせない。
 //! キューに積んで、録音セッション全体または休止中に消化する。
 
@@ -24,23 +24,23 @@ use std::thread::JoinHandle;
 
 /// 仕事の優先度（`TR-SYN-34`）。
 ///
-/// **数が大きいほど先に回る。**
+/// 数が大きいほど先に回る。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Priority {
-    /// チャートの事前計算。**誰も待っていない。**
+    /// チャートの事前計算。誰も待っていない。
     ChartPrecompute = 0,
-    /// 全件再推定。**誰も待っていない。**
+    /// 全件再推定。誰も待っていない。
     Reestimate = 1,
-    /// 試唱の要求。**いま押した人が待っている。**
+    /// 試唱の要求。いま押した人が待っている。
     PreviewRequest = 2,
-    /// 録音直後の前処理。**次に試唱を押す人を待たせる。**
+    /// 録音直後の前処理。次に試唱を押す人を待たせる。
     PostRecording = 3,
 }
 
 /// 積んだ仕事。
 struct Job {
     priority: Priority,
-    /// 積んだ順。**同じ優先度なら先に積んだものから。**
+    /// 積んだ順。同じ優先度なら先に積んだものから。
     seq: u64,
     run: Box<dyn FnOnce() + Send>,
 }
@@ -81,7 +81,7 @@ pub struct Queue {
     stopped: bool,
 }
 
-// `Job` は閉包を持つので Debug を実装しない。**中身は出さず、数だけ出す。**
+// `Job` は閉包を持つので Debug を実装しない。中身は出さず、数だけ出す。
 impl std::fmt::Debug for Queue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Queue")
@@ -93,7 +93,7 @@ impl std::fmt::Debug for Queue {
 
 /// 背後で仕事を回す（`TR-SYN-34`）。
 ///
-/// **録音入力とは別のスレッドで動かす。** Rust には GC が無いので、
+/// 録音入力とは別のスレッドで動かす。 Rust には GC が無いので、
 /// 停止要因は確保・解放とロックに限られる——それを録音の側から遠ざける。
 pub struct Workers {
     queue: Arc<(Mutex<Queue>, Condvar)>,
@@ -149,7 +149,6 @@ impl Workers {
         }
     }
 
-    /// 仕事を積む。
     pub fn submit(&self, priority: Priority, run: impl FnOnce() + Send + 'static) {
         let seq = self.seq.fetch_add(1, Ordering::Relaxed) as u64;
         let (lock, cv) = &*self.queue;
@@ -171,9 +170,9 @@ impl Workers {
 
     /// 待ち数だけを読むための持ち手（`TR-SYN-33`）。
     ///
-    /// **アプリの状態ロックの外から読むために出す。** 画面は「背後で待っている仕事」を
+    /// アプリの状態ロックの外から読むために出す。 画面は「背後で待っている仕事」を
     /// 定期的に出すが、テイクの確定はアライメントを含めて数秒かかる。
-    /// **同じロックを通すと、待ち数がいちばん動くはずの時間に止まる。**
+    /// 同じロックを通すと、待ち数がいちばん動くはずの時間に止まる。
     #[must_use]
     pub fn pending_handle(&self) -> PendingHandle {
         Arc::clone(&self.queue)
@@ -181,7 +180,7 @@ impl Workers {
 
     /// 積んである仕事を捨てる（`TR-SYN-27`）。
     ///
-    /// **走っている仕事は止めない。** 止めるのはそれぞれの仕事の中の合図で行う。
+    /// 走っている仕事は止めない。 止めるのはそれぞれの仕事の中の合図で行う。
     pub fn clear(&self) {
         let (lock, _) = &*self.queue;
         if let Ok(mut q) = lock.lock() {
@@ -218,13 +217,13 @@ mod tests {
     use super::*;
     use std::sync::mpsc::channel;
 
-    /// **優先度の高いものから回る**（TR-SYN-34）。
+    /// 優先度の高いものから回る（`TR-SYN-34`）。
     #[test]
     fn 優先度の高い順に回る() {
         let (tx, rx) = channel();
         let w = Workers::start();
 
-        // **先に低いものを積む。** 順序が優先度で決まることを見る。
+        // 先に低いものを積む。 順序が優先度で決まることを見る。
         // 最初の1本が走り出す前に全部積みたいので、詰まらせておく。
         let (gate_tx, gate_rx) = channel::<()>();
         w.submit(Priority::PostRecording, move || {
@@ -253,7 +252,7 @@ mod tests {
         assert_eq!(got, ["post", "preview", "reestimate", "chart"]);
     }
 
-    /// **同じ優先度なら積んだ順。**
+    /// 同じ優先度なら積んだ順。
     #[test]
     fn 同じ優先度なら先に積んだ順() {
         let (tx, rx) = channel();
@@ -291,7 +290,7 @@ mod tests {
         let _ = gate_tx.send(());
     }
 
-    /// **落とすと止まる。** 積み残しがあっても抜ける。
+    /// 落とすと止まる。 積み残しがあっても抜ける。
     #[test]
     fn 落とすと止まる() {
         let w = Workers::start();
@@ -309,7 +308,7 @@ mod tests {
         );
     }
 
-    /// **優先度は要件どおりの並び**（TR-SYN-34）。
+    /// 優先度は要件どおりの並び（`TR-SYN-34`）。
     #[test]
     fn 優先度の並びが要件どおり() {
         assert!(Priority::PostRecording > Priority::PreviewRequest);
