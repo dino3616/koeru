@@ -6,6 +6,18 @@
 //! 生成し直すのはここ。`cargo test -p koeru-app --test bindings` を走らせると
 //! 書き出し、`--check`（CI）では差分があれば落ちる。
 
+// Windows では走らせない。
+//
+// この試験は `koeru_app_lib::builder()` を呼ぶので、実行ファイルが Tauri の
+// Windows ランタイムへリンクする。 それが読み込みの時点で解決できず、
+// 試験の中身に入る前に STATUS_ENTRYPOINT_NOT_FOUND で落ちる。
+//
+// 生成物は OS で変わらない。 境界の enum はバックエンドから写さず
+// `commands.rs` に定義してあり、書いていない OS 向けの構成でも同じものが出る
+// （`RUSTFLAGS="--cfg koeru_force_unsupported_backend"` で確認できる）。
+// macOS と Linux で走れば、drift は捕まる。
+#![cfg(not(windows))]
+
 use std::path::{Path, PathBuf};
 
 fn bindings_path() -> PathBuf {

@@ -41,8 +41,9 @@ allow-wildcard-paths = true
 
 [advisories]
 # すべて unmaintained で、脆弱性は1件も無い（`cargo deny check advisories` で確認）。
-# 出どころは Tauri の Linux バックエンド（GTK3 系）と、その手続きマクロ。
-# Tauri を採ると決めた以上（TR-PLT-03）、ここは差し替えられない。
+# 出どころは Tauri の Linux バックエンド（GTK3 系）と、手続きマクロ。
+# Tauri と specta を採ると決めた以上（`TR-PLT-03`、`DEC-PLT-019`）、
+# ここは差し替えられない。
 # Tauri 側は Servo / CEF での置き換えを進めており、そこが動けばこの一覧は消える
 # （DEC-PLT-014 の review_triggers）。
 #
@@ -67,6 +68,9 @@ ignore = [
   "RUSTSEC-2025-0081",
   "RUSTSEC-2025-0098",
   "RUSTSEC-2025-0100",
+  # paste（specta 経由）。識別子を繋ぐだけの手続きマクロで、
+  # 展開結果に paste 自身のコードは残らない。配布物には入らない。
+  "RUSTSEC-2024-0436",
 ]
 yanked = "deny"
 

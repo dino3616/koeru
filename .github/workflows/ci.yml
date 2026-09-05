@@ -161,8 +161,8 @@ jobs:
       - name: Install Playwright（ライブラリだけ）
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: bunx playwright install-deps chromium
-      # 整形・lint・型 ＋ story の axe と play。--fix を付けない。
-      # CI は直す場所ではない。
+      # 整形・lint・型 ＋ story の網羅 ＋ story の axe と play。
+      # --fix を付けない。CI は直す場所ではない。
       - name: vp check
         run: bun run check:ci
       # ビルドと型と npm のライセンス。

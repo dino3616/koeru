@@ -39,6 +39,26 @@ const config: StorybookConfig = {
    */
   viteFinal: (config) => ({
     ...config,
+    /*
+     * Rust 境界を story 用のものへ差し替える。
+     *
+     * Storybook に Tauri は無いので、`invoke` は必ず失敗する。
+     * `~/lib/ipc.mock.ts` が代わりに読まれ、story が返り値を決める。
+     *
+     * `sb.mock` は使わない。 あれは対象のモジュールを変換して包むので、
+     * `ipc.ts` の `export type … from` が値の再輸出として解決され、
+     * 「`AppError` という輸出は無い」で落ちる。別名なら変換を通らない。
+     *
+     * `ipc.mock.ts` の中の `./ipc` は相対なので、この別名に当たらない。
+     * だから本物を読める——循環しない。
+     */
+    resolve: {
+      ...config.resolve,
+      alias: {
+        ...(config.resolve?.alias as Record<string, string> | undefined),
+        "~/lib/ipc": new URL("../src/lib/ipc.mock.ts", import.meta.url).pathname,
+      },
+    },
     plugins: (config.plugins ?? []).flat(9).filter((p) => {
       const name =
         p !== null && typeof p === "object" && "name" in p

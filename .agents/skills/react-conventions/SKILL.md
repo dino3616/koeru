@@ -121,19 +121,51 @@ bun run test           # 名前・役割・値とフォーカス順序（`TR-PLT
 bun run build          # ビルド + tsc + コントラスト + npm のライセンス
 ```
 
-### 部品には story を書く
+### すべての部品に story を書く
 
-story が検査範囲を決める（`DEC-PLT-022`）。 `src/__tests__/stories.test.tsx` が
-`composeStories` で全 story を組み立てて axe を当てるので、story を書けば
-その部品が自動で対象へ入る。書かなければ一度も検査されない。
+例外なし。 `check:stories` が、大文字で始まる名前を輸出している `.tsx` に
+隣の `.stories.tsx` があるかを見る。無ければ落ちる。描かないものは
+`EXEMPT` へ理由つきで足す（いまはルータの殻と経路の宣言だけ）。
+
+story が検査範囲を決める（`DEC-PLT-022`）。 書き忘れた部品は axe に
+一度も当たらないまま通るので、「検査が緑」と「検査した」が食い違う。
 
 variant は全部出す。 `Button` の `primary` だけ出して `danger` を出さないと、
 `danger` の配色は測られない。押せない状態（`opacity-45` が掛かる）も出す。
 
 ```bash
-bun run storybook   # 立てて目で見る
-bun run test        # 実ブラウザで axe と play を走らせる（CI と同じ）
+bun run storybook       # 立てて目で見る
+bun run check:stories   # story の無い部品を探す
+bun run test            # 実ブラウザで axe と play を走らせる
+bun run check:ci        # 上の3つぶんをまとめて（CI と同じ）
 ```
+
+### Rust の呼び出しはモックで差し替える
+
+Storybook に Tauri は無い。 `~/lib/ipc` は `.storybook/main.ts` の別名で
+`~/lib/ipc.mock.ts` へ向いていて、story が `mocked(api).progress` で
+返り値を決める。
+
+```tsx
+beforeEach: () => {
+  mocked(api.songStatus).mockResolvedValue([...]);
+},
+```
+
+既定は「呼ばれたら待ち続ける」。 明示しないものは解決しないので、
+読み込み中の見た目もそのまま story になる。
+
+`Channel` も差し替えてある。 本物は `transformCallback` を呼ぶので、
+Tauri の無いところで `new Channel()` すると即落ちる。
+
+`sb.mock` は使わない。 対象のモジュールを変換して包むので、
+`ipc.ts` の `export type … から` が値の再輸出として解決されて落ちる。
+
+### ルータが要る部品は `withRouter` で包む
+
+`useNavigate` / `useSearch` / `useRouterState` を使う部品は、ルータの外では
+落ちる。`~/lib/story-router` が記憶上の履歴で最小のルータを組む。
+本物の `routeTree` は使わない——`__root` から `theme.js` まで引き連れてくる。
 
 実ブラウザで走らせる。 `color-contrast` は計算済みの色が要るので、擬似 DOM では
 「判定不能」になり違反として上がらない。以前あった `check-contrast.ts`

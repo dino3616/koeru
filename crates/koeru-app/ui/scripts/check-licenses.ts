@@ -40,15 +40,20 @@ const ALLOWED = new Set([
 ]);
 
 /**
- * ライセンス欄を持たないことを承知で通すもの。
+ * ライセンス欄を持たないことを承知で通す、親パッケージの一族。
  *
- * どちらも親パッケージの OS 別バイナリで、条件は親が名乗っている。
- * 名前を書いて通す。 欄が無いものを一律に通すと、素性の分からないものが混ざる。
+ * OS 別のバイナリは欄を持たないことがあり、条件は親が名乗っている。
+ * 前置きで許す。 `@yuku-parser/binding-darwin-arm64` のように1つずつ挙げると、
+ * 走らせた OS のぶんだけ通って他が落ちる——手元は darwin、CI は linux なので、
+ * 手元で通ったものが CI で落ちる。一度そうなった。
+ *
+ * 親の名前で許す。 `@yuku-*` を丸ごと通すのではなく、
+ * `binding-` が付いたものだけに限る。
  */
-const NO_FIELD_OK = new Map([
-  ["@yuku-codegen/binding-darwin-arm64", "@yuku-codegen（MIT）の darwin-arm64 バイナリ"],
-  ["@yuku-parser/binding-darwin-arm64", "@yuku-parser（MIT）の darwin-arm64 バイナリ"],
-]);
+const NO_FIELD_OK: readonly { prefix: string; why: string }[] = [
+  { prefix: "@yuku-codegen/binding-", why: "@yuku-codegen（MIT）の OS 別バイナリ" },
+  { prefix: "@yuku-parser/binding-", why: "@yuku-parser（MIT）の OS 別バイナリ" },
+];
 
 const ROOT = new URL("../node_modules", import.meta.url).pathname;
 
@@ -87,7 +92,9 @@ for (const path of manifests) {
 const bad: string[] = [];
 for (const p of packages) {
   if (p.license === null) {
-    if (!NO_FIELD_OK.has(p.name)) bad.push(`${p.name}: ライセンス欄が無い`);
+    if (!NO_FIELD_OK.some(({ prefix }) => p.name.startsWith(prefix))) {
+      bad.push(`${p.name}: ライセンス欄が無い`);
+    }
     continue;
   }
   if (!ALLOWED.has(p.license)) bad.push(`${p.name}: ${p.license}`);
