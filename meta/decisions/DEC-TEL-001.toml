@@ -1,12 +1,12 @@
 schema = 'decision'
-id = "DEC-TEL-001"
-title = "利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する"
+id = 'DEC-TEL-001'
+title = '利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する'
 constraint_label = '利用計測'
 constraint = 'オプトイン。自前サーバーを持たず SaaS 経由。送信フィールドはホワイトリスト方式'
-status = "accepted"
-owner = "dino3616"
+status = 'accepted'
+owner = 'dino3616'
 options = ["実装しない", "ローカルに留める", "明示的オプトインで送信"]
-selected = "明示的オプトインで送信"
+selected = '明示的オプトインで送信'
 rationale = """
 KOERU は「非公開のまま完成できる」ことを担保している製品なので、送信経路を持つこと自体が
 前提を脅かす。したがって既定オフ、ホワイトリスト方式、自前サーバーなしの3点を同時に課す。

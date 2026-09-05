@@ -1,0 +1,49 @@
+schema = 'decision'
+id = 'DEC-PLT-019'
+constraint_label = '画面と Rust の型の一致'
+constraint = 'コマンドを1つ足したときに、画面側の型が黙って古いまま通らないこと'
+title = 'tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'tauri-specta で生成する',
+  'rspc + tauri-plugin-rspc',
+  'ts-rs で型だけ生成する',
+  '手書きし、Rust の識別子と TS の union が一致する試験で守る',
+]
+selected = 'tauri-specta で生成する'
+rationale = '''
+手書きは二重定義になる。 型が合っているように見えて実際は合っていない状態は、
+`invoke` が実行時に失敗するまで分からない。以前は「Rust の識別子と TS の union が
+一致する」試験で守っていたが、守れるのは列挙の変種だけで、欄の増減も型の変更も見ていない。
+
+rspc は採らない。 作者が「メンテナンスしていない」と明言しており
+（specta-rs/rspc の discussions/351）、引き継ぎも成立していない。
+最終コミットは 2025-11 で 2026 年は 0 件。 作者自身が「Tauri 統合は壊れている」
+「Tauri なら Tauri Specta で十分」「rspc の利点が効くのは異常に大きなアプリだけ」と書いている。
+なお `rspc-tauri` は crates.io 上で `compile_error!` の墓石になっていて、
+サイトに載っている手順（v0.3.0）はそのまま動かない。
+
+ts-rs も採らない。 型だけを生成するので、`api` オブジェクトの手書きが残る。
+tauri-specta はコマンドの呼び出し口ごと出すので、そこも消える。
+
+版はいずれも rc（`specta` / `tauri-specta` が 2.0.0-rc.25）。 rspc と違い、
+specta は 2026-09、tauri-specta は 2026-07 まで更新されている。 rc を承知で採る。
+
+生成物は `crates/koeru-app/ui/src/lib/bindings.gen.ts`。 リポジトリに置くのは
+型検査に要るため。古くなっていないかは `cargo test -p koeru-app --test bindings` が見る。
+
+小数には `Finite` を1枚被せる。 specta は `f32` / `f64` を `number | null` に写す。
+JSON に NaN も無限も無く serde がどちらも `null` にするので、これは正しい。
+標本数と固定レートから作る値は有限だと分かっているので、そこだけ `number` にする
+——起きない `null` を画面で 20 箇所ぶん扱わせない。
+'''
+review_triggers = [
+  'specta / tauri-specta が rc のまま更新されなくなったとき（rspc と同じ経路に入る）',
+  'Tauri の版が上がって tauri-specta が追随しないとき',
+  '生成した bindings が、ビルドした OS で変わるようになったとき（境界にバックエンド固有の型が漏れた合図）',
+]
+affects_requirements = [
+  'TR-PLT-03',
+]
+supersedes = []

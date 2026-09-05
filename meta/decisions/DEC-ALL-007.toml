@@ -1,30 +1,34 @@
 schema = 'decision'
 id = 'DEC-ALL-007'
-constraint_label = '配布形態との両立'
-constraint = '署名済みバイナリ配布と Flatpak の両方で同じ部品構成が使えること'
-title = '署名配布と両立しない動的リンク前提の部品は、実行時 dlopen 経由でのみ到達する'
+constraint_label = 'ライセンスの示し方'
+constraint = '再配布する人に、条件が伝わること'
+title = 'ファイル単位の SPDX ヘッダは置かない。示すのは LICENSE と Cargo.toml だけ'
 status = 'accepted'
 owner = 'dino3616'
 options = [
-  '実行時 dlopen 経由でのみ到達する',
-  '静的リンクする',
-  'Linux だけ別構成にする',
+  '置かない（LICENSE と Cargo.toml の license 欄だけ）',
+  '全ファイルに置く（REUSE 準拠）',
+  '各 crate の入口だけに置く',
 ]
-selected = '実行時 dlopen 経由でのみ到達する'
+selected = '置かない（LICENSE と Cargo.toml の license 欄だけ）'
 rationale = '''
-alsa-lib は LGPL-2.1。**LGPL は動的リンクなら取り込めるが、署名済みの単一バイナリ配布と
-Store 配布では、その動的リンクの前提自体が崩れる。**
+AGPL-3.0-or-later は強いコピーレフトで、切り出して再配布される単位はファイルではなく
+成果物全体になる。 断片だけを持ち出して別の条件で配ることが、そもそもライセンス上できない。
 
-miniaudio が実行時に dlopen で ALSA へ到達する経路を使う。**KOERU 側は alsa-lib を
-直接リンクしない。** 台帳の status「不適」は、直接の依存として採らないという意味。
+置くと 93 の `.rs` と TS・CSS すべてに3行が乗り、REUSE 準拠の検査も要る。
+守る対象が「ファイル単位で切り出される可能性」であるのに、その可能性が閉じている。
 
-Linux は Flatpak 1形態と決めており（DEC-PLT-007）、ランタイム側が ALSA / PipeWire を
-持つため、この経路で足りる。
+代わりに、リポジトリ直下の `LICENSE`、各 `Cargo.toml` の `license` 欄、
+`README.md` の「ライセンス」節で示す。 npm 側は `check-licenses.ts` が、
+Rust 側は `cargo deny check` が、取り込めるものだけに限っていることを検査する。
+
+この判断を記録に残すこと自体が指摘だった。 「置かない」と決めた形跡が無いと、
+次に見た人が「忘れているのか、決めたのか」を判別できない。
 '''
 review_triggers = [
-  'Flatpak 以外の Linux 配布形態を採ることにしたとき',
-  'miniaudio の dlopen 経路が使えない環境が出たとき',
+  '一部の crate を別ライセンスで切り出して配ることになったとき',
+  'AGPL 以外のライセンスを併記することになったとき（デュアルライセンス）',
+  '配布物にファイル単位で取り込まれる形の成果物を出すとき',
 ]
-affects_components = [
-  'CMP-081',
-]
+affects_requirements = []
+supersedes = []
