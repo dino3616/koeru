@@ -1,255 +1,107 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { CalibrationCard } from "~/components/calibration-card";
-import { LeakCard } from "~/components/leak-card";
 import { SongList } from "~/components/song-list";
 import { TakeList } from "~/components/take-list";
 import { TakeInspector } from "~/components/take-inspector";
-import { LevelMeter } from "~/components/level-meter";
-import { LiveWaveform } from "~/components/live-waveform";
 import { Button } from "~/components/ui/button";
-import { Card, CardTitle } from "~/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import { cn } from "~/lib/cn";
-import {
-  api,
-  type DeviceView,
-  errorMessage,
-  type ProgressView,
-  type SpaceView,
-  type TakeView,
-} from "~/lib/ipc";
+import { Card } from "~/components/ui/card";
+import { Elapsed } from "~/components/elapsed";
+import { Spinner } from "~/components/spinner";
+import { InputSetup } from "~/components/input-setup";
+import { cx } from "~/lib/tv";
+import { useScreenFocus } from "~/lib/use-screen-focus";
+import { useRecorder } from "~/lib/use-recorder";
+import { api, errorMessage, type ProgressView } from "~/lib/ipc";
+
+/** 試唱の基準音（MIDI）。C4。フォールバックもここを参照する。 */
+const BASE_MIDI = 60;
 
 /** 試唱の音高（MIDI）。C4 = 60。 */
 const PREVIEW_PITCHES = [
   { midi: 55, label: "G3" },
-  { midi: 60, label: "C4" },
+  { midi: BASE_MIDI, label: "C4" },
   { midi: 64, label: "E4" },
   { midi: 67, label: "G4" },
   { midi: 72, label: "C5" },
-];
+] as const;
 
 /** 試唱の長さ（ミリ秒）。 */
 const PREVIEW_LENGTH_MS = 800;
 
 /**
- * 収録画面。**縦切りの本体。**
+ * 収録画面。縦切りの本体。
  *
  * 録る → 波形が出る → その場で歌わせて聴く、までをここで完結させる。
- * **パスを画面に出さない**（TR-PKG-45）。保存先も、ファイル名も見せない。
+ * パスを画面に出さない（`TR-PKG-45`）。保存先も、ファイル名も見せない。
  */
 export const RecordScreen = () => {
   const navigate = useNavigate();
+  const heading = useScreenFocus();
   const { id } = useSearch({ from: "/record" });
 
-  const [devices, setDevices] = useState<DeviceView[]>([]);
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
-  const [micMode, setMicMode] = useState<string | null>(null);
-  const [level, setLevel] = useState(0);
   const [progress, setProgress] = useState<ProgressView | null>(null);
   /**
    * 台帳が変わるたびに増やす。
    *
-   * **カバレッジでは代用できない。** 採用テイクを切り替えても、
-   * 録り直しても、**カバレッジは変わらない**（TR-RCL-25）。
+   * カバレッジでは代用できない。 採用テイクを切り替えても、
+   * 録り直しても、カバレッジは変わらない（`TR-RCL-25`）。
    * それを鍵にすると、一覧が更新されない。
    */
   const [revision, setRevision] = useState(0);
-  /**
-   * いま録っているテイクの番号。
-   *
-   * **自動終了と手動終了が同時に走らないための札**（TR-REC-42）。
-   * 止めるたびに進めるので、待っている自動終了は自分の番号でなくなる。
-   */
-  const takeSeq = useRef(0);
-  const [take, setTake] = useState<TakeView | null>(null);
-  const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [space, setSpace] = useState<SpaceView | null>(null);
   const [status, setStatus] = useState("");
-  // 連続収録（TR-REC-20）。**発話の検出結果を条件にしない。固定長で進む。**
-  const [continuous, setContinuous] = useState(false);
-  const [advanceMs, setAdvanceMs] = useState(3000);
-  const continuing = useRef(false);
+  /** 回り込みの確認結果。音高提示を鳴らしてよいかを決める（`TR-REC-24`）。 */
   const [leaking, setLeaking] = useState<boolean | null>(null);
-  const startedAt = useRef<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
 
   const fail = useCallback((e: unknown) => setError(errorMessage(e)), []);
+
+  /** 確定したら、進み具合と一覧を同時に進める。片方だけ動くと数が合わない。 */
+  const onSettled = useCallback(({ progress: p }: { progress: ProgressView }) => {
+    setProgress(p);
+    setRevision((n) => n + 1);
+  }, []);
+
+  const {
+    take,
+    recording,
+    settling,
+    continuous,
+    advanceMs,
+    start,
+    stop,
+    retake,
+    runContinuous,
+    pauseContinuous,
+  } = useRecorder({ onSettled, onStatus: setStatus, onError: fail });
+
+  /** デバイスを選べているか。選ぶまでは録らせない。 */
+  const ready = deviceId !== undefined;
 
   useEffect(() => {
     if (id === undefined) return;
     api.openProject(id).then(setProgress).catch(fail);
-    api.listDevices().then(setDevices).catch(fail);
-    api.autoAdvanceMs().then(setAdvanceMs).catch(fail);
   }, [id, fail]);
 
-  // 収録中の経過時間。**1秒ごとに読み上げへは流さない**（うるさい）。
-  useEffect(() => {
-    if (!recording) return;
-    const t = window.setInterval(() => {
-      if (startedAt.current !== null) {
-        setElapsed(Math.floor((performance.now() - startedAt.current) / 1000));
-      }
-    }, 200);
-    return () => window.clearInterval(t);
-  }, [recording]);
-
-  const chooseDevice = (next: string) => {
-    setDeviceId(next);
-    setError(null);
-    setStatus("入力を確かめています");
-    api
-      .armDevice(next)
-      .then((mode) => {
-        setMicMode(mode);
-        return api.probeInput(400);
-      })
-      .then((peak) => {
-        setLevel(peak);
-        setStatus(peak > 0.000_001 ? "入力が届いています" : "入力が届いていません");
-        return api.estimateSpace();
-      })
-      .then(setSpace)
-      .catch(fail);
-  };
-
-  /** 録れたものをそのまま鳴らす（TR-REC-43）。 */
+  /** 録れたものをそのまま鳴らす（`TR-REC-43`）。 */
   const playRaw = (takeId: number) => {
     setError(null);
     api.playTake(takeId).catch(fail);
   };
 
-  /**
-   * テイクを1つ始める。
-   *
-   * **番号を1つ進めて返す。** 待っている自動終了が、
-   * 自分の番号でなくなったら確定させない——**二重に確定させない**（TR-REC-42）。
-   */
-  const beginTake = async (starter: () => Promise<string>) => {
-    setTake(null);
-    await starter();
-    takeSeq.current += 1;
-    startedAt.current = performance.now();
-    setElapsed(0);
-    setRecording(true);
-    setStatus("収録中。終わったら「止める」");
-    return takeSeq.current;
-  };
-
-  /** テイクを確定させて、画面を進める。 */
-  const settle = async () => {
-    setRecording(false);
-    const t = await api.finishTake();
-    setTake(t);
-    setStatus(
-      t.invalidated
-        ? "取りこぼしがあったので、もう一度録ります"
-        : t.has_oto
-          ? "録れました。音高を選ぶと歌います"
-          : "録れましたが、発声を見つけられませんでした",
-    );
-    setProgress(await api.progress());
-    setRevision((n) => n + 1);
-    return t;
-  };
-
-  /**
-   * 単発の収録（TR-REC-42）。**本人が止めるまで録る。**
-   *
-   * TR-REC-20 の固定長は**連続収録の自動送りの条件**であって、
-   * 単発の終了条件ではない。発話の長さは項目で倍以上違う——
-   * 「あ い う え お」と「ん」を同じ長さで切る理由が無い。
-   */
-  const start = () => {
-    setError(null);
-    beginTake(() => api.startTake()).catch(fail);
-  };
-
-  /**
-   * 行を指定して録り直す（TR-REC-21、TR-RCL-25、TR-ALN-27）。
-   *
-   * **単発の収録として扱う**（TR-REC-42）。自動で次へ送らない。
-   */
-  const retake = (rowId: string) => {
-    setError(null);
-    beginTake(() => api.startRetake(rowId))
-      .then(() => setStatus(`${rowId} を録り直しています。終わったら「止める」`))
-      .catch(fail);
-  };
-
-  /**
-   * 止める。
-   *
-   * **番号を進めてから確定させる。** 進めておかないと、
-   * 連続収録で待っている自動終了が、確定済みのテイクをもう一度確定させにいく
-   * ——収録していない状態への確定要求になってエラーが出る（TR-REC-42）。
-   */
-  const stop = () => {
-    takeSeq.current += 1;
-    settle().catch(fail);
-  };
-
-  /** 連続収録の1フレーズ。**固定長で自動的に終わる**（TR-REC-20）。 */
-  const recordOnce = async (holdMs: number) => {
-    const mine = await beginTake(() => api.startTake());
-    await new Promise((r) => setTimeout(r, holdMs));
-    // **本人が先に止めたなら、ここでは確定させない。**
-    if (takeSeq.current !== mine) {
-      return null;
-    }
-    return settle();
-  };
-
-  /**
-   * 連続収録（TR-REC-20）。
-   *
-   * **止めたフレーズは未収録のまま残る。** 途中で抜けても、続きから再開できる。
-   * フレーズの間もストリームは止めないので、プリロールは保たれる（TR-REC-19）。
-   */
-  const runContinuous = async () => {
-    continuing.current = true;
-    setContinuous(true);
-    try {
-      while (continuing.current) {
-        const p = await api.progress();
-        if (p.next_row_id === null) break;
-        await recordOnce(advanceMs);
-        // フレーズ間の間。**声を出し終える時間を残す。**
-        await new Promise((r) => setTimeout(r, 400));
-      }
-    } catch (e) {
-      fail(e);
-    } finally {
-      continuing.current = false;
-      setContinuous(false);
-      setStatus("連続収録を止めました");
-    }
-  };
-
-  const pauseContinuous = () => {
-    continuing.current = false;
-  };
-
   const sing = (midi: number) => {
     if (take === null) return;
     setError(null);
-    api.preview(take.take_id, midi, PREVIEW_LENGTH_MS).catch(fail);
+    api.preview({ takeId: take.take_id, midi, lengthMs: PREVIEW_LENGTH_MS }).catch(fail);
   };
 
-  // **識別子が無いまま開かれることがある**（殻だけを先に出したときや、
+  // 識別子が無いまま開かれることがある（殻だけを先に出したときや、
   // 履歴から直接来たとき）。落とさず、戻る道を出す。
   if (id === undefined) {
     return (
       <main className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-4 p-8">
-        <p className="text-text-dim">音源が選ばれていません。</p>
+        <p className="text-slate-11">音源が選ばれていません。</p>
         <Button variant="primary" onClick={() => navigate({ to: "/" })}>
           一覧へ戻る
         </Button>
@@ -257,9 +109,7 @@ export const RecordScreen = () => {
     );
   }
 
-  const ready = deviceId !== undefined;
-
-  // **まだ読めていないことと、全部録れたことを混ぜない。**
+  // まだ読めていないことと、全部録れたことを混ぜない。
   // 混ぜると、開いた直後に「全部録れました」と出る。
   const loaded = progress !== null;
   const allDone = loaded && progress.next_row_id === null;
@@ -270,14 +120,16 @@ export const RecordScreen = () => {
     <main className="mx-auto flex h-full max-w-4xl flex-col gap-5 overflow-y-auto p-8">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">収録</h1>
-          {/* **分母に書き出し・公開・作者を含めない**（TR-PKG-35）。 */}
+          <h1 ref={heading} tabIndex={-1} className="text-xl font-semibold outline-none">
+            収録
+          </h1>
+          {/* 分母に書き出し・公開・作者を含めない（`TR-PKG-35`）。 */}
           {/*
-            **カバレッジと「いま歌える曲の数」を常時両方出す。どちらかを隠さない**
+            カバレッジと「いま歌える曲の数」を常時両方出す。どちらかを隠さない
             （TR-RCL-19）。カバレッジは単位の被覆率で、行の消化率ではない——
             行数は本人の作業量、単位の被覆は音源の到達度で、意味が違う。
           */}
-          <p className="mt-1 font-mono text-sm text-text-dim tabular-nums">
+          <p className="mt-1 font-mono text-sm text-slate-11 tabular-nums">
             {loaded ? (
               <>
                 {progress.covered} / {progress.required} 音（{pct}%）
@@ -298,92 +150,56 @@ export const RecordScreen = () => {
         </Button>
       </header>
 
-      {/* **状態の変化を支援技術へ通知する**（TR-PLT-29）。 */}
-      <p aria-live="polite" className="sr-only">
+      {/* 状態の変化を支援技術へ通知する（`TR-PLT-29`）。 */}
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
         {status}
       </p>
 
-      <Card>
-        <CardTitle>マイク</CardTitle>
-        <div className="mt-3 flex flex-col gap-3">
-          {/* **`exactOptionalPropertyTypes` なので、未選択は `value` を渡さない。** */}
-          <Select
-            {...(deviceId === undefined ? {} : { value: deviceId })}
-            onValueChange={chooseDevice}
-          >
-            <SelectTrigger aria-label="入力デバイス">
-              <SelectValue placeholder="入力デバイスを選ぶ" />
-            </SelectTrigger>
-            <SelectContent>
-              {devices.map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {ready && <LevelMeter peak={level} />}
-
-          {/*
-            **いま入っている音の波形**（TR-REC-43）。録る前から動く——
-            ストリームは収録画面に入った時点で開いている（TR-REC-19）。
-            **声が入っていないテイクが「歌える」まで達した実例がある。**
-            出ていれば、録った本人がその場で気づける。
-          */}
-          {ready && <LiveWaveform className="mt-3" />}
-
-          {/*
-            **残量が足りないときは「その残量で何件録れるか」を出す**（TR-REC-41）。
-            「足りません」だけでは、何を削れば足りるのか分からない。
-          */}
-          {space !== null && !space.sufficient && (
-            <p
-              role="alert"
-              className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text"
-            >
-              保存先の残量では、残り {space.remaining_rows} 件のうち {space.rows_that_fit}{" "}
-              件までしか録れません。
-            </p>
-          )}
-
-          {micMode !== null && micMode !== "Standard" && (
-            <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-text-dim">
-              OS 側の音声処理が入っています（{micMode}）。
-              システム設定のマイクモードを「標準」にすると、録った音がそのまま残ります。
-            </p>
-          )}
-        </div>
-      </Card>
-
-      <CalibrationCard ready={ready} onStatus={setStatus} />
-
-      <LeakCard
-        ready={ready}
-        midi={PREVIEW_PITCHES[1]?.midi ?? 60}
+      <InputSetup
+        deviceId={deviceId}
+        onDeviceChange={(next) => {
+          setDeviceId(next);
+          setError(null);
+        }}
+        guideMidi={PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI}
         onStatus={setStatus}
-        onChecked={setLeaking}
+        onError={fail}
+        onLeakChecked={setLeaking}
       />
 
-      <Card>
-        <CardTitle>いま録るところ</CardTitle>
+      <Card title="いま録るところ">
         {loaded ? (
           <p
-            className={cn(
+            className={cx(
               "mt-3 select-text text-5xl font-semibold tracking-widest",
-              allDone && "text-text-dim",
+              allDone && "text-slate-11",
             )}
           >
             {progress.next_row_text ?? "全部録れました"}
           </p>
         ) : (
-          <p className="mt-3 text-5xl font-semibold tracking-widest text-text-dim">…</p>
+          <p className="mt-3 text-5xl font-semibold tracking-widest text-slate-11">…</p>
         )}
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           {recording ? (
-            <Button variant="danger" size="lg" onClick={stop}>
-              止める（{elapsed} 秒）
+            <Button variant="danger" size="lg" onClick={stop} aria-label="止める">
+              {/*
+                経過秒は名前に入れない。入れるとフォーカス中の要素の
+                accessible name が毎秒書き換わり、読み上げが追えなくなる。
+              */}
+              止める
+              <Elapsed />
+            </Button>
+          ) : settling ? (
+            /*
+              確定の間（`finish_take`）。解析とアライメントを含むので数秒かかる。
+              押せる的を出さない。 ここで「録る」を出すと、確定の途中で
+              次を始めさせてしまう。
+            */
+            <Button variant="primary" size="lg" disabled>
+              <Spinner />
+              確かめています
             </Button>
           ) : (
             <Button
@@ -397,7 +213,7 @@ export const RecordScreen = () => {
           )}
 
           {/*
-            **連続収録**（TR-REC-20）。1フレーズ {advanceMs}ms の固定長で進む。
+            連続収録（TR-REC-20）。1フレーズ {advanceMs}ms の固定長で進む。
             発話の検出結果を条件にしない。
           */}
           {continuous ? (
@@ -417,12 +233,12 @@ export const RecordScreen = () => {
             </Button>
           )}
 
-          {/* **音高提示は回り込みが無いときだけ**（TR-REC-24）。 */}
+          {/* 音高提示は回り込みが無いときだけ（`TR-REC-24`）。 */}
           {leaking === false && (
             <Button
               variant="ghost"
               onClick={() => {
-                api.playPitch(PREVIEW_PITCHES[1]?.midi ?? 60).catch(fail);
+                api.playPitch(PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI).catch(fail);
               }}
               disabled={recording || continuous}
             >
@@ -430,16 +246,16 @@ export const RecordScreen = () => {
             </Button>
           )}
 
-          {!ready && <span className="text-sm text-text-dim">先にマイクを選んでください</span>}
+          {!ready && <span className="text-sm text-slate-11">先にマイクを選んでください</span>}
         </div>
 
         {continuous ? (
-          <p className="mt-3 text-sm text-text-dim">
+          <p className="mt-3 text-sm text-slate-11">
             1フレーズ {(advanceMs / 1000).toFixed(1)} 秒で自動的に次へ進みます。
             やめたフレーズは未収録のまま残ります。
           </p>
         ) : (
-          <p className="mt-3 text-sm text-text-dim">
+          <p className="mt-3 text-sm text-slate-11">
             {recording
               ? "言い終えたら「止める」を押してください。押した 0.5 秒あとまで録ります。"
               : "「録る」は止めるまで録り続けます。押した 0.5 秒前から録れています。"}
@@ -448,31 +264,36 @@ export const RecordScreen = () => {
       </Card>
 
       {take !== null && (
-        <Card>
-          <CardTitle>録れたもの</CardTitle>
+        <Card title={recording || continuous ? "ひとつ前に録れたもの" : "録れたもの"}>
           <div className="mt-3 flex flex-col gap-4">
             {/*
-              **アプリが所有する単一の描画面へ直接描く**（TR-PLT-04）。
+              アプリが所有する単一の描画面へ直接描く（TR-PLT-04）。
               可視域のみ計算し、可視域のみ描く。
             */}
-            <TakeInspector takeId={take.take_id} durationMs={take.duration_ms} peak={take.peak} />
+            <TakeInspector
+              // テイクが変わったら作り直す。範囲や描画の途中経過を持ち越さない。
+              key={take.take_id}
+              takeId={take.take_id}
+              durationMs={take.duration_ms}
+              peak={take.peak}
+            />
 
             {/*
-              **取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。
+              取りこぼしたテイクは自動的に無効になる（TR-REC-07）。
               勧めるのではなく、もう一度同じフレーズが出てくる。
             */}
             {take.invalidated && (
-              <p role="alert" className="text-sm text-danger-text">
+              <p role="alert" className="text-sm text-red-11">
                 取りこぼしが {take.discontinuities} 回ありました。
                 このテイクは使わず、同じフレーズをもう一度録ります。
               </p>
             )}
 
             {/*
-              **測った値を出すだけ。評価も警告もしない**（TR-REC-16）。
+              測った値を出すだけ。評価も警告もしない（TR-REC-16）。
               「小さすぎます」「歪んでいます」は出さない。
             */}
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs text-text-dim tabular-nums sm:grid-cols-4">
+            <dl className="grid select-text grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs text-slate-11 tabular-nums sm:grid-cols-4">
               <div>
                 <dt className="inline">ピーク </dt>
                 <dd className="inline">
@@ -494,12 +315,12 @@ export const RecordScreen = () => {
             </dl>
 
             {/*
-              **そのまま聴く**（TR-REC-43）。試唱は代わりにならない——
+              そのまま聴く（TR-REC-43）。試唱は代わりにならない——
               試唱は oto で切り出して目標音高へ寄せた音なので、
-              **素材が無音なのか合成が失敗したのかを区別できない。**
+              素材が無音なのか合成が失敗したのかを区別できない。
             */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-text-dim">録れた音:</span>
+              <span className="text-sm text-slate-11">録れた音:</span>
               <Button variant="secondary" onClick={() => playRaw(take.take_id)}>
                 そのまま聴く
               </Button>
@@ -510,7 +331,7 @@ export const RecordScreen = () => {
 
             {take.has_oto ? (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-text-dim">歌わせる:</span>
+                <span className="text-sm text-slate-11">歌わせる:</span>
                 {PREVIEW_PITCHES.map((p) => (
                   <Button key={p.midi} onClick={() => sing(p.midi)}>
                     {p.label}
@@ -521,13 +342,13 @@ export const RecordScreen = () => {
                 </Button>
               </div>
             ) : (
-              <p className="text-sm text-text-dim">
+              <p className="text-sm text-slate-11">
                 発声を見つけられませんでした。もう一度録ってみてください。
               </p>
             )}
 
             {take.confidence !== null && (
-              <p className="font-mono text-xs text-text-dim tabular-nums">
+              <p className="font-mono text-xs text-slate-11 tabular-nums">
                 境界の確信度 {(take.confidence * 100).toFixed(0)}%
               </p>
             )}
@@ -535,12 +356,27 @@ export const RecordScreen = () => {
         </Card>
       )}
 
-      <TakeList revision={revision} busy={recording || continuous} onRetake={retake} />
+      {/*
+        プロジェクトが開くまで、台帳を読む子を出さない。
+        React は Effect を子から先に流すので、出しておくと `open_project` より先に
+        問い合わせて `app.no_project` を受ける。`revision` は最初のテイクまで
+        増えないので、そのエラーはそれまで消えない。
+      */}
+      {loaded && (
+        <>
+          <TakeList
+            revision={revision}
+            busy={recording || continuous}
+            onRetake={retake}
+            onPlay={playRaw}
+          />
 
-      <SongList revision={progress?.covered ?? 0} />
+          <SongList revision={revision} />
+        </>
+      )}
 
       {error !== null && (
-        <p role="alert" className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text">
+        <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
           {error}
         </p>
       )}

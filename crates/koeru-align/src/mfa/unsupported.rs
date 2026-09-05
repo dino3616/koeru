@@ -1,11 +1,11 @@
 //! まだ Kaldi を組んでいない OS の MFA 経路。
 //!
-//! **黙って何もしないのではなく、書いていないことを言う。**
+//! 黙って何もしないのではなく、書いていないことを言う。
 //! ここが返すのは常に [`MfaError::Unsupported`] で、呼び出し側は
 //! 「この OS ではまだ自動原音設定ができない」と表示できる。
 //!
 //! Windows と Linux は BLAS の引き方（`HAVE_OPENBLAS` など）を書けば通る見込み。
-//! 必要な Kaldi のモジュールは OS に依らない（`EVID-ALN-001`）。**ここはその席。**
+//! 必要な Kaldi のモジュールは OS に依らない（`EVID-ALN-001`）。ここはその席。
 
 use std::path::Path;
 
@@ -31,14 +31,14 @@ impl MfaError {
     }
 }
 
-/// 読み込んだ MFA モデル。**この OS では作れない。**
+/// 読み込んだ MFA モデル。この OS では作れない。
 #[derive(Debug)]
 pub struct MfaAligner {
     _never: std::convert::Infallible,
 }
 
 impl MfaAligner {
-    /// モデルを開く。**この OS では常に失敗する。**
+    /// モデルを開く。この OS では常に失敗する。
     ///
     /// # Errors
     ///

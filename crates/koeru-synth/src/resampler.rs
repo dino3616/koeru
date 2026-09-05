@@ -1,39 +1,39 @@
 //! UTAU 互換 resampler。
 //!
-//! **`worldline` が OpenUtau のコードで取れないため、自前で書く**（`DEC-SYN-005`）。
-//! 仕様は `TR-SYN-08` が引数一式として定義済みで、**同梱コアと外部エンジンが
-//! 同じ引数で呼ばれることが、試唱と配布の音を一致させる前提**（`TR-SYN-35`）。
+//! `worldline` が OpenUtau のコードで取れないため、自前で書く（`DEC-SYN-005`）。
+//! 仕様は `TR-SYN-08` が引数一式として定義済みで、同梱コアと外部エンジンが
+//! 同じ引数で呼ばれることが、試唱と配布の音を一致させる前提（`TR-SYN-35`）。
 //!
 //! ## 工程
 //!
 //! 1. oto の5値で切り出す（`offset` から `cutoff` まで）
 //! 2. WORLD で分析（F0 / スペクトル包絡 / 非周期性指標）
-//! 3. **子音部は伸縮させず、母音部だけを伸縮させて `required_length` に合わせる**
+//! 3. 子音部は伸縮させず、母音部だけを伸縮させて `required_length` に合わせる
 //! 4. ピッチベンドと収録音高から目標 F0 を作る
 //! 5. WORLD で合成する
 //!
 //! ## 子音部を伸ばさない理由
 //!
-//! 子音は長さを変えると別の音に聞こえる。**母音は伸ばしても母音のまま。**
+//! 子音は長さを変えると別の音に聞こえる。母音は伸ばしても母音のまま。
 //! UTAU の `consonant`（固定範囲）はこのための値で、
-//! **ここを伸ばすと「あー」が「あ゛ー」のように濁る。**
+//! ここを伸ばすと「あー」が「あ゛ー」のように濁る。
 
 use crate::world;
 use koeru_core::oto::Oto;
 
 /// resampler の入力（`TR-SYN-08` の引数一式）。
 ///
-/// **外部 resampler の呼び出し規約でもある。** 同梱コアと同じ引数で呼ぶ。
+/// 外部 resampler の呼び出し規約でもある。 同梱コアと同じ引数で呼ぶ。
 #[derive(Debug, Clone)]
 pub struct RenderRequest<'a> {
-    /// 素材。**44100 Hz の倍精度配列**（`TR-SYN-08`）。
+    /// 素材。44100 Hz の倍精度配列（`TR-SYN-08`）。
     pub samples: &'a [f64],
     pub sample_rate_hz: u32,
-    /// **鳴らしたい音高**（MIDI ノート番号）。収録音高ではない。
+    /// 鳴らしたい音高（MIDI ノート番号）。収録音高ではない。
     ///
     /// 素材が何の高さで録られていたかは、ここには要らない。
     /// WORLD が F0 を直に置き換えるので、収録音高はスペクトル包絡の中に暗黙に残る。
-    /// **`modulation` が 0 なら、出力の F0 はちょうどこの音高になる。**
+    /// `modulation` が 0 なら、出力の F0 はちょうどこの音高になる。
     pub tone: i32,
     /// oto の5値。
     pub oto: Oto,
@@ -43,13 +43,13 @@ pub struct RenderRequest<'a> {
     pub consonant_velocity: f64,
     /// 音量（%）。100 が等倍。
     pub volume: f64,
-    /// モジュレーション（%）。**素材の F0 変化をどれだけ残すか。**
+    /// モジュレーション（%）。素材の F0 変化をどれだけ残すか。
     /// 0 なら完全に目標 F0 へ倒す。
     pub modulation: f64,
     pub tempo: f64,
-    /// ピッチベンド列（セント）。**目標音高からの差分。**
+    /// ピッチベンド列（セント）。目標音高からの差分。
     pub pitch_bend_cents: &'a [f64],
-    /// 素材の周波数表。**無ければ `None`**（`TR-SYN-08`）。
+    /// 素材の周波数表。無ければ `None`（`TR-SYN-08`）。
     /// 無い場合は合成コア側が F0 を推定する。
     pub frequency_table: Option<FrequencyTable<'a>>,
 }
@@ -58,18 +58,18 @@ pub struct RenderRequest<'a> {
 ///
 /// # 何が入っているかを型に言わせる
 ///
-/// **素材ファイル全体を、`.frq` の格子で持つ。** 合成器が見るのは
-/// oto で切り出した区間を 5ms の格子で並べたものなので、**どちらも合わない。**
-/// 切り出しと載せ替えは [`render`] が行う。**呼び出し側で切らないこと。**
+/// 素材ファイル全体を、`.frq` の格子で持つ。 合成器が見るのは
+/// oto で切り出した区間を 5ms の格子で並べたものなので、どちらも合わない。
+/// 切り出しと載せ替えは [`render`] が行う。呼び出し側で切らないこと。
 ///
 /// 以前ここは `&[f64]` 1つで、上の2つがどちらも書かれていなかった。
-/// **`.frq` をそのまま渡す実装が2箇所あり、声が雑音になって音高も乗らなかった**
+/// `.frq` をそのまま渡す実装が2箇所あり、声が雑音になって音高も乗らなかった
 /// （`tests/frequency_table_grid.rs`）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FrequencyTable<'a> {
-    /// F0（Hz）。**無声は 0。**
+    /// F0（Hz）。無声は 0。
     ///
-    /// **先頭は素材ファイルの先頭。** oto の offset ではない。
+    /// 先頭は素材ファイルの先頭。 oto の offset ではない。
     pub f0: &'a [f64],
     /// 格子の間隔（サンプル）。`.frq` は 256（`TR-PKG-05`）。
     pub hop_samples: u32,
@@ -89,11 +89,11 @@ pub enum RenderError {
     #[error("素材を読めない")]
     SourceUnavailable,
 
-    /// **素材がマスターの形式で無い**（`TR-SYN-31`）。
+    /// 素材がマスターの形式で無い（`TR-SYN-31`）。
     ///
     /// 試唱のために変換して通さないので、ここで止まる。
-    /// **`RegionOutOfRange` に畳まないこと**——畳むと「oto の切り出し範囲が
-    /// 素材に収まらない」と出て、**oto を疑うことになる**（踏んだ）。
+    /// `RegionOutOfRange` に畳まないこと——畳むと「oto の切り出し範囲が
+    /// 素材に収まらない」と出て、oto を疑うことになる（踏んだ）。
     #[error("素材のサンプルレートがマスターと違う")]
     SampleRateMismatch,
 }
@@ -113,7 +113,7 @@ impl RenderError {
 
 type Result<T> = std::result::Result<T, RenderError>;
 
-/// 素材の F0 を探す下限（Hz）。**歌声の音域を広く取る。**
+/// 素材の F0 を探す下限（Hz）。歌声の音域を広く取る。
 ///
 /// 目標音高から範囲を作ってはいけない。素材は別の音高で録られている。
 const SOURCE_F0_FLOOR_HZ: f64 = 55.0;
@@ -122,18 +122,18 @@ const SOURCE_F0_CEIL_HZ: f64 = 1100.0;
 
 /// 試唱で固定する音色フラグ（`TR-SYN-09`）。
 ///
-/// **UI に出さない。** 試唱は「自分の声が歌になる」を確かめる場であって、
+/// UI に出さない。 試唱は「自分の声が歌になる」を確かめる場であって、
 /// 音を作り込む場ではない。ここを触れるようにすると、
-/// **本人の声そのものではないものを聴いて判断することになる。**
+/// 本人の声そのものではないものを聴いて判断することになる。
 ///
-/// **試唱の設定値を oto や配布パッケージへ書き込むこともしない**（`TR-SYN-09`）。
+/// 試唱の設定値を oto や配布パッケージへ書き込むこともしない（`TR-SYN-09`）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PreviewFlags {
     /// 子音速度。100 が等倍。
     pub consonant_velocity: f64,
-    /// 音量（%）。**試唱では既定に固定する**（`TR-SYN-29`）。
+    /// 音量（%）。試唱では既定に固定する（`TR-SYN-29`）。
     pub volume: f64,
-    /// モジュレーション（%）。**0 は目標 F0 へ完全に倒す。**
+    /// モジュレーション（%）。0 は目標 F0 へ完全に倒す。
     pub modulation: f64,
 }
 
@@ -163,7 +163,7 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     let per_ms = f64::from(fs) / 1000.0;
     let file_len_ms = req.samples.len() as f64 / per_ms;
 
-    // ── 1. oto の5値で切り出す ──────────────────────────
+    // ## 1. oto の5値で切り出す
     let usable_ms = req.oto.usable_ms(file_len_ms);
     if usable_ms <= 0.0 {
         return Err(RenderError::RegionOutOfRange);
@@ -177,13 +177,13 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     }
     let region = &req.samples[start..end];
 
-    // ── 2. 分析 ─────────────────────────────────────────
+    // ## 2. 分析
     let frame_ms = world::DEFAULT_FRAME_PERIOD_MS;
     let base_hz = midi_to_hz(req.tone);
-    // **探索範囲は目標音高から作らない。** 素材は別の音高で録られている
+    // 探索範囲は目標音高から作らない。 素材は別の音高で録られている
     // ——それを別の音高で鳴らすのが resampler の役目なので、目標から範囲を引くと
-    // 素材の基本周波数が範囲外に落ちる。**実際に踏んだ。**
-    // 歌声の音域を広く取る。**周波数表があれば、そもそも推定しない**（TR-SYN-08）。
+    // 素材の基本周波数が範囲外に落ちる。実際に踏んだ。
+    // 歌声の音域を広く取る。周波数表があれば、そもそも推定しない（`TR-SYN-08`）。
     let (src_f0, time_axis) = match req.frequency_table {
         None => world::estimate_f0(
             region,
@@ -193,14 +193,14 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
             SOURCE_F0_CEIL_HZ,
             frame_ms,
         ),
-        // **周波数表があれば推定を省く**（TR-SYN-08）。録音時に作ってある（TR-SYN-21）。
-        // **ただし格子も範囲も違うので、載せ替える**（下の `resample_table`）。
+        // 周波数表があれば推定を省く（`TR-SYN-08`）。録音時に作ってある（`TR-SYN-21`）。
+        // ただし格子も範囲も違うので、載せ替える（下の `resample_table`）。
         Some(t) => resample_table(&t, req.oto.offset_ms, region.len(), fs, frame_ms),
     };
     let analysis = world::analyze_with_f0(region, fs, &src_f0, &time_axis, frame_ms);
 
-    // ── 3. 子音部は伸縮させず、母音部だけを伸ばす ────────
-    // 子音速度は 100 が等倍。**大きいほど子音が短くなる**（UTAU の慣例）。
+    // ## 3. 子音部は伸縮させず、母音部だけを伸ばす
+    // 子音速度は 100 が等倍。大きいほど子音が短くなる（UTAU の慣例）。
     let consonant_scale = 100.0 / req.consonant_velocity.max(1.0);
     let consonant_src_ms = req.oto.consonant_ms.clamp(0.0, usable_ms);
     let consonant_out_ms = consonant_src_ms * consonant_scale;
@@ -218,10 +218,10 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     for i in 0..out_frames {
         let out_ms = i as f64 * frame_ms;
         let src_ms = if out_ms < consonant_out_ms {
-            // 子音部。**伸縮率だけを掛ける。**
+            // 子音部。伸縮率だけを掛ける。
             out_ms / consonant_scale
         } else if vowel_out_ms > 0.0 && vowel_src_ms > 0.0 {
-            // 母音部。**required_length に合わせて伸ばす。**
+            // 母音部。required_length に合わせて伸ばす。
             let t = (out_ms - consonant_out_ms) / vowel_out_ms;
             consonant_src_ms + t * vowel_src_ms
         } else {
@@ -233,7 +233,7 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
 
     let stretched = Stretched::new(&analysis, &map);
 
-    // ── 4. 目標 F0 を作る ───────────────────────────────
+    // ## 4. 目標 F0 を作る
     // 素材の F0 と目標音高の比を取り、モジュレーションで混ぜる。
     let src_mean = mean_voiced(&analysis.f0).unwrap_or(base_hz);
     let mod_ratio = (req.modulation / 100.0).clamp(0.0, 1.0);
@@ -250,7 +250,7 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
         target.push(shaped * 2.0_f64.powf(cents / 1200.0));
     }
 
-    // ── 5. 合成 ─────────────────────────────────────────
+    // ## 5. 合成
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let out_len = (req.required_length_ms * per_ms) as usize;
     if out_len == 0 {
@@ -272,18 +272,18 @@ pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
 ///
 /// # なぜ要るか
 ///
-/// `.frq` は **ファイル全体**を **hop=256 サンプル**の格子で持つ（`TR-PKG-05`）。
-/// 44100 Hz では 5.805ms なので、**5ms の格子とは1フレームあたり 16% ずれる。**
+/// `.frq` は ファイル全体を hop=256 サンプルの格子で持つ（`TR-PKG-05`）。
+/// 44100 Hz では 5.805ms なので、5ms の格子とは1フレームあたり 16% ずれる。
 /// さらに先頭が違う——表はファイルの先頭から、区間は `offset_ms` から始まる。
 ///
-/// **そのまま渡すと、offset 手前の無音（F0=0）が発声の先頭に当たる。**
-/// F0=0 のフレームを WORLD は無声として合成するので、**声が雑音になり、
-/// 目標音高も乗らない。** 実測で1オクターブ下・周期性 0.31 になった。
+/// そのまま渡すと、offset 手前の無音（F0=0）が発声の先頭に当たる。
+/// F0=0 のフレームを WORLD は無声として合成するので、声が雑音になり、
+/// 目標音高も乗らない。 実測で1オクターブ下・周期性 0.31 になった。
 ///
 /// # 補間しない
 ///
-/// **0 は「無声」であって「0 Hz」ではない。** 有声と無声の間を線形に混ぜると、
-/// どちらでもない値ができる。**いちばん近い格子点をそのまま採る。**
+/// 0 は「無声」であって「0 Hz」ではない。 有声と無声の間を線形に混ぜると、
+/// どちらでもない値ができる。いちばん近い格子点をそのまま採る。
 fn resample_table(
     table: &FrequencyTable<'_>,
     offset_ms: f64,
@@ -304,7 +304,7 @@ fn resample_table(
     for i in 0..frames {
         #[allow(clippy::cast_precision_loss)]
         let into_region_ms = i as f64 * frame_ms;
-        // **表の索引はファイルの先頭から数える。**
+        // 表の索引はファイルの先頭から数える。
         let at_sample = (offset_ms + into_region_ms) * per_ms;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let idx = (at_sample / hop).round() as usize;
@@ -315,7 +315,7 @@ fn resample_table(
     (f0, axis)
 }
 
-/// 伸縮した分析結果。**フレームを付け替えるだけで、包絡そのものは作り直さない。**
+/// 伸縮した分析結果。フレームを付け替えるだけで、包絡そのものは作り直さない。
 struct Stretched {
     analysis: world::Analysis,
 }
@@ -352,7 +352,7 @@ fn mean_voiced(f0: &[f64]) -> Option<f64> {
 
 /// ピッチベンド列から、出力フレーム `i` にあたるセント値を引く。
 ///
-/// **列の長さは出力フレーム数と一致しないので、線形に対応させる。**
+/// 列の長さは出力フレーム数と一致しないので、線形に対応させる。
 fn pitch_bend_at(bend: &[f64], i: usize, out_frames: usize) -> f64 {
     if bend.is_empty() || out_frames == 0 {
         return 0.0;
@@ -374,9 +374,9 @@ mod tests {
 
     /// 素材の切り出し位置を、導出規約を通さずに直に置く。
     ///
-    /// **`koeru-align` の `derive_cv` を呼ばない**（`DEC-ALN-009` で crate が分かれた）。
+    /// `koeru-align` の `derive_cv` を呼ばない（`DEC-ALN-009` で crate が分かれた）。
     /// resampler の試験は「この5値ならこう鳴る」を見るもので、
-    /// **規約が変わるたびに落ちてはいけない。**
+    /// 規約が変わるたびに落ちてはいけない。
     const fn oto(preutterance_ms: f64, usable_ms: f64) -> Oto {
         Oto {
             offset_ms: 0.0,
@@ -434,7 +434,7 @@ mod tests {
         assert!((midi_to_hz(60) - 261.6256).abs() < 0.001, "C4");
     }
 
-    /// **収録音高と違う音高で鳴らせる。** resampler の中核。
+    /// 収録音高と違う音高で鳴らせる。 resampler の中核。
     #[test]
     fn 目標音高で鳴る() {
         let src = voiced(220.0, 0.5, 44_100);
@@ -449,7 +449,7 @@ mod tests {
         );
     }
 
-    /// **別の音高を頼めば、別の音が返る。**
+    /// 別の音高を頼めば、別の音が返る。
     ///
     /// `tone` は「鳴らしたい音高」であって収録音高ではない。ここに収録音高を渡すと、
     /// **どの音高を選んでも同じ高さで鳴る。** アプリ側で実際にそう書いて、
@@ -457,7 +457,7 @@ mod tests {
     ///
     /// 実機ハーネスでは検出できない。素材に有声フレームが無いと目標 F0 が全部 0 になり、
     /// どの音高でも同じ波形が返るので、静かな部屋では毎回すり抜ける。
-    /// **だからここに置く。**
+    /// だからここに置く。
     #[test]
     fn 別の音高を頼めば別の音が返る() {
         let src = voiced(220.0, 0.5, 44_100);
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(lo.len(), hi.len(), "長さは音高で変わらない");
         assert!(
             lo.iter().zip(&hi).any(|(a, b)| (a - b).abs() > 1e-9),
-            "**同じ波形が返っている。tone が使われていない**"
+            "同じ波形が返っている。tone が使われていない"
         );
 
         let (lo_hz, hi_hz) = (analyze_hz(&lo), analyze_hz(&hi));
@@ -489,7 +489,7 @@ mod tests {
         assert!(hi_hz > lo_hz * 1.8, "1オクターブぶん離れていること");
     }
 
-    /// **試唱のフラグは既定に固定する**（TR-SYN-09）。
+    /// 試唱のフラグは既定に固定する（`TR-SYN-09`）。
     ///
     /// ここが動くと、聴いているのが本人の声そのものではなくなる。
     #[test]
@@ -503,7 +503,7 @@ mod tests {
         );
     }
 
-    /// **required_length のとおりの長さが返る。**
+    /// required_length のとおりの長さが返る。
     #[test]
     fn 指定した長さで返る() {
         let src = voiced(220.0, 0.5, 44_100);
@@ -518,7 +518,7 @@ mod tests {
         }
     }
 
-    /// **素材より長く伸ばせる。** 母音部だけが伸びる。
+    /// 素材より長く伸ばせる。 母音部だけが伸びる。
     #[test]
     fn 素材より長く伸ばせる() {
         let src = voiced(220.0, 0.2, 44_100); // 200ms
@@ -533,7 +533,7 @@ mod tests {
         );
     }
 
-    /// **ピッチベンドが効く。** +1200 セント = 1オクターブ上。
+    /// ピッチベンドが効く。 +1200 セント = 1オクターブ上。
     #[test]
     fn ピッチベンドで音高が動く() {
         let src = voiced(220.0, 0.5, 44_100);
@@ -546,7 +546,7 @@ mod tests {
         );
     }
 
-    /// **音量が掛かる。**
+    /// 音量が掛かる。
     #[test]
     fn 音量が効く() {
         let src = voiced(220.0, 0.5, 44_100);
@@ -560,12 +560,12 @@ mod tests {
         assert!((ph / pf - 0.5).abs() < 0.01, "半分になる: {:.3}", ph / pf);
     }
 
-    /// **周波数表があれば推定を省く**（TR-SYN-08）。
+    /// 周波数表があれば推定を省く（`TR-SYN-08`）。
     #[test]
     fn 周波数表を渡すと推定を省く() {
         let src = voiced(220.0, 0.5, 44_100);
         let o = oto(20.0, 480.0);
-        // **`.frq` と同じ形で渡す**——ファイル全体を hop=256 の格子で。
+        // `.frq` と同じ形で渡す——ファイル全体を hop=256 の格子で。
         let table = vec![220.0_f64; src.len().div_ceil(256)];
         let mut r = req(&src, o, 300.0, &[]);
         r.frequency_table = Some(FrequencyTable {

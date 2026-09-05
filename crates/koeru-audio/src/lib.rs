@@ -1,18 +1,18 @@
 //! KOERU の音声入出力。
 //!
-//! **各 OS の API を直接叩き、抽象レイヤを挟まない**（`DEC-REC-001`, `TR-REC-39`, `TR-PLT-05`）。
-//! **束ねる相手は組織メンテのものに限る**（`TR-REC-39`）。
+//! 各 OS の API を直接叩き、抽象レイヤを挟まない（`DEC-REC-001`, `TR-REC-39`, `TR-PLT-05`）。
+//! 束ねる相手は組織メンテのものに限る（`TR-REC-39`）。
 //! `TR-REC-08`〜`12` が要求する制御（`IAudioEffectsManager`、
 //! `IAudioClient2::SetClientProperties`、`AVCaptureDevice.activeMicrophoneMode`、
 //! PipeWire のノード選択）はどれもバックエンド固有で、抽象が出すものではない。
 //!
 //! このクレートは2層に分かれる。
 //!
-//! - [`session`] — 収録セッションの状態機械。**純粋で、I/O を持たない。**
+//! - [`session`] — 収録セッションの状態機械。純粋で、I/O を持たない。
 //!   `specs/requirements/recording-input.fsl`（`proved`）の写し
 //! - [`backend`] — OS の API を叩き、出来事を [`session::Session`] へ渡す
 //!
-//! **状態機械を純粋にしてあるのは、ハードウェアなしで契約を検査できるようにするため。**
+//! 状態機械を純粋にしてあるのは、ハードウェアなしで契約を検査できるようにするため。
 
 pub mod backend;
 pub mod device;
@@ -30,7 +30,7 @@ pub use session::{Device, Effects, Gain, Liveness, Session};
 mod contract_tests {
     //! `recording-input.fsl` の acceptance / forbidden を、そのまま写したテスト。
     //!
-    //! **FSL 側で検証済みの経路が、Rust でも同じ結果になることを確かめる。**
+    //! FSL 側で検証済みの経路が、Rust でも同じ結果になることを確かめる。
     //! シナリオを足すときは FSL を先に直す。
 
     use super::*;
@@ -51,16 +51,16 @@ mod contract_tests {
         s
     }
 
-    /// **テイク数では止まらない**（`TR-REC-21`）。
+    /// テイク数では止まらない（`TR-REC-21`）。
     ///
     /// FSL の `MAX_TAKES = 3` は `ASSUME-3`（検証用の有界化）であって、
-    /// 製品の規則ではない。**写して踏んだ**（`DEC-REC-005`）——
+    /// 製品の規則ではない。写して踏んだ（`DEC-REC-005`）——
     /// 3テイク録ると以降どの項目も録れなくなっていた。
-    /// 収録は 21 行前後あるので、**3 で止まると製品が成立しない。**
+    /// 収録は 21 行前後あるので、3 で止まると製品が成立しない。
     #[test]
     fn テイク数では止まらない() {
         let mut s = ready();
-        // 中核 102 単位を1行5モーラで割ると 21 行。**その倍を通す。**
+        // 中核 102 単位を1行5モーラで割ると 21 行。その倍を通す。
         for i in 0..42 {
             s.start_take()
                 .unwrap_or_else(|e| panic!("{i} 本目を録れる: {e}"));
@@ -70,7 +70,7 @@ mod contract_tests {
         assert_eq!(s.takes(), 42);
     }
 
-    /// AC-REC-101 選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る
+    /// `AC-REC-101` 選んで、開いて、効果を無効化し、校正し、生死と残量を確かめて録る
     #[test]
     fn ac_rec_101_一連の手順でテイクが1つ確定しストリームは開いたまま() {
         let mut s = ready();
@@ -186,7 +186,7 @@ mod contract_tests {
         assert_eq!(s.prompts_shown(), 1);
     }
 
-    /// REQ-REC-109 復帰は同一識別子のデバイスが戻ったときだけ
+    /// `REQ-REC-109` 復帰は同一識別子のデバイスが戻ったときだけ
     #[test]
     fn req_rec_109_別のデバイスでは復帰しない() {
         let mut s = ready();
@@ -244,7 +244,7 @@ mod contract_tests {
         assert!(s.os_gain_restored());
     }
 
-    /// REQ-REC-105 収録中にゲインを変えない
+    /// `REQ-REC-105` 収録中にゲインを変えない
     #[test]
     fn req_rec_105_収録中は校正できない() {
         let mut s = ready();

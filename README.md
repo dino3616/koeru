@@ -1,20 +1,26 @@
 # KOERU
 
-**声を、誰もが手渡せる創作物にする。**
+声を、誰もが手渡せる創作物にする。
 
-KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音から配布パッケージの生成までを一つのプロジェクトで扱い、**録音の途中でも自分の声で歌を聴けること**を中核に置いています。
+KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音から配布パッケージの生成までを一つのプロジェクトで扱い、録音の途中でも自分の声で歌を聴けることを中核に置いています。
 
-「現代版 OREMO」ではありません。中心にあるのは「録音リストと oto.ini を操作する」ではなく、**声を録ると、途中でも自分の声が歌い始める**という体験です。
+「現代版 OREMO」ではありません。中心にあるのは「録音リストと oto.ini を操作する」ではなく、声を録ると、途中でも自分の声が歌い始めるという体験です。
 
 ## 3つの原則
 
-- **Create before configure** — 設定する前に、まず歌える
-- **Own your voice** — 自分の声は自分のもの
-- **Made to be handed on** — 手渡せる状態まで、つくる
+- Create before configure — 設定する前に、まず歌える
+- Own your voice — 自分の声は自分のもの
+- Made to be handed on — 手渡せる状態まで、つくる
 
 ## 状態
 
-**設計段階です。動くものはまだありません。** 設計文書が `docs/` にあります。
+M2 を実装中です。 録音してテイクを確定し、その場で自分の声に歌わせるところまでが動きます。
+配布パッケージの生成（M4）と原音設定エディタ（M6）はこれからです。
+マイルストーンの区切りは [meta/profiles/](meta/profiles/) にあります。
+
+使う人向けの手引きはまだありません。 M2 の時点で配布できる成果物が無いので、
+導入手順や操作の手引きを書いても対象がありません。下の一覧は背景と方針で、
+使い方ではありません。M4（配布パッケージ生成）で書きはじめます。
 
 | 文書 | 内容 |
 |---|---|
@@ -28,25 +34,36 @@ KOERU は UTAU 向けの歌声ライブラリ制作スタジオです。録音�
 
 ## 実装の方針
 
-- **単一のネイティブアプリケーション**（Rust + Tauri）。PC 前提
-- **処理はローカルで完結する。声をサーバへ送らない**
-- **オフラインで全機能が動く**
-- **まず UTAU エコシステムをサポートする**
-- 原音設定は自動を既定とするが、**setParam / vLabeler と同等の編集機能を必ず持つ**
+- 単一のネイティブアプリケーション（Rust + Tauri）。PC 前提
+- 処理はローカルで完結する。声をサーバへ送らない
+- オフラインで全機能が動く
+- まず UTAU エコシステムをサポートする
+- 原音設定は自動を既定とするが、setParam / vLabeler と同等の編集機能を必ず持つ
 
 ## 開発
+
+先に `git-lfs` を入れてから submodule を取ってください。 WORLD と Kaldi、
+MFA の音響モデルを submodule で調達しており、モデルの実体は LFS にあります。
+入れずに clone すると途中で止まります。手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
 
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+cargo deny check
 ```
 
-`clippy::all` はリポジトリ全体で deny です。エラーハンドリング・トレース・lint の方針は `.agents/skills/rust-conventions/SKILL.md` にあります（Rust の作業をするときに読み込まれる Agent Skill）。
+WebView 側は `crates/koeru-app/ui` で完結します。
+
+```bash
+cd crates/koeru-app/ui && bun install && bun run check && bun run build
+```
+
+`clippy::all` はリポジトリ全体で deny です。コードの規約は [`.agents/skills/`](.agents/skills/) にあります——コメント、Rust、画面、検証の4つ。作業のときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。
 
 ## 貢献
 
-Issue と Pull Request を歓迎します。[CONTRIBUTING.md](CONTRIBUTING.md) を読んでください。**すべてのコミットに DCO の `Signed-off-by` が必要です。**
+Issue と Pull Request を歓迎します。[CONTRIBUTING.md](CONTRIBUTING.md) を読んでください。すべてのコミットに DCO の `Signed-off-by` が必要です。
 
 ## ライセンス
 

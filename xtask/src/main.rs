@@ -1,7 +1,7 @@
 //! KOERU の仕様ゲート。
 //!
 //! FSL は形式的な契約の正本で、Decision / Question / Evidence / Budget / Profile は扱わない。
-//! このツールはその外側だけを担当し、**meta が FSL と技術要件の ID へ実際に繋がっているか**を確かめる。
+//! このツールはその外側だけを担当し、meta が FSL と技術要件の ID へ実際に繋がっているかを確かめる。
 //! 仕様コンパイラではない。FSL のグラフへ外部情報を接続するブリッジとリリースゲートである。
 //!
 //! - `check-meta`     meta の形式と必須項目、参照先 ID の実在を確かめる
@@ -23,7 +23,7 @@ const META_DIR: &str = "meta";
 const SPEC_DIR: &str = "specs";
 const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
 
-/// meta のファイル形式。**ファイル自身が `schema` で名乗る。**
+/// meta のファイル形式。ファイル自身が `schema` で名乗る。
 ///
 /// 名乗らないファイルは落とす。ディレクトリの中身から形を推測すると、
 /// 打ち間違えた収集ファイルが「0件を貢献した」ことに誰も気づけない。
@@ -34,7 +34,7 @@ struct Shape {
     /// 1件1ファイル。ID の接頭辞と必須項目。
     entity: Option<(&'static str, &'static [&'static str])>,
     /// 配列で複数件。配列のキー、項目 ID の接頭辞、各項目の必須項目。
-    /// **項目にも ID を持たせる。** 引けないものは参照できず、参照できないものは検査できない。
+    /// 項目にも ID を持たせる。 引けないものは参照できず、参照できないものは検査できない。
     collection: Option<(&'static str, &'static str, &'static [&'static str])>,
     /// entity が持ってよい表の配列。ここに無い `[[key]]` は打ち間違いとして弾く。
     /// **collection と同じ穴が entity 側にも空いていた。** 一部だけ綴りを間違えると
@@ -210,6 +210,7 @@ fn main() -> ExitCode {
         Some("check-meta") => check_meta(&root, &entries, rep),
         Some("check-budgets") => check_budgets(&entries, rep),
         Some("check-coverage") => check_coverage(&entries, rep),
+        Some("check-references") => check_references(&root, &entries, rep),
         Some("check-profile") => match args.get(1) {
             Some(id) => check_profile(&entries, id, rep),
             None => {
@@ -217,6 +218,7 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("index-decisions") => index_decisions(&root, &entries, rep),
         Some("dump-requirements") => {
             // 移行の照合用。US(0x1f) 区切りのフィールド、RS(0x1e) 区切りのレコード。
             for (id, t) in requirements(&entries).0 {
@@ -236,7 +238,7 @@ fn main() -> ExitCode {
         }
         _ => {
             println!(
-                "使い方: cargo xtask <check-meta|check-budgets|check-coverage|check-profile <ID>|dump-requirements>"
+                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|dump-requirements>"
             );
             ExitCode::FAILURE
         }
@@ -347,7 +349,7 @@ fn check_shape(e: &Entry, rep: &mut Report) {
         }
     }
     // entity 側の表配列にも、collection と同じ網を掛ける。
-    // **`[[allocations]]` を `[[allocatoins]]` と書いても、以前は黙って0件になっていた。**
+    // `[[allocations]]` を `[[allocatoins]]` と書いても、以前は黙って0件になっていた。
     if e.shape.entity.is_some() {
         for (k, v) in &e.table {
             let is_table_array = v
@@ -462,6 +464,323 @@ fn requirements(entries: &[Entry]) -> (BTreeMap<String, toml::Table>, Vec<String
         }
     }
     (out, dups)
+}
+
+/// 手書き文書とソースコメントの ID 参照が、実体に解決できるかを検査する。
+///
+/// `check-meta` は TOML の中の参照しか見ない。しかし ID は Markdown と
+/// ソースコメントにも書かれていて、そちらは誰も検査していなかった。
+/// 参照が 1,600 件を超えた時点で、宙に浮いた ID が3件できていた。
+///
+/// 手書き文書には ID で参照させる、という規律（`AGENTS.md` の禁止事項6）は、
+/// 参照が生きていることを機械が確かめないと成立しない。
+fn check_references(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
+    let mut known = fsl_ids(root);
+    // ID ごとの原文。`ID の「…」` と書かれた引用を突き合わせるために持つ。
+    let mut source: BTreeMap<String, String> = BTreeMap::new();
+    for e in entries {
+        if let Some(id) = str_of(&e.table, "id") {
+            known.insert(id.to_owned());
+            source.insert(id.to_owned(), flatten(&e.table));
+        }
+        for item in e.items() {
+            if let Some(id) = str_of(&item, "id") {
+                known.insert(id.to_owned());
+                source.insert(id.to_owned(), flatten(&item));
+            }
+        }
+    }
+
+    let mut refs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut total = 0usize;
+    let mut stale: Vec<String> = Vec::new();
+    let mut quoted = 0usize;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.filter_map(Result::ok) {
+            let p = e.path();
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if p.is_dir() {
+                // 生成物と調達物は対象外。ここに ID の正本は無い。
+                if matches!(
+                    name.as_ref(),
+                    ".git" | "target" | "node_modules" | "vendor" | "models" | "dist" | "generated"
+                ) {
+                    continue;
+                }
+                stack.push(p);
+                continue;
+            }
+            if !p
+                .extension()
+                .is_some_and(|x| matches!(x.to_string_lossy().as_ref(), "md" | "rs" | "ts" | "tsx"))
+            {
+                continue;
+            }
+            if name.ends_with(".gen.ts") {
+                continue;
+            }
+            // symlink は辿らない。`CLAUDE.md` は `AGENTS.md` を指しているので、
+            // 辿ると同じ行を二度報告することになる。
+            if fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_symlink()) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&p) else {
+                continue;
+            };
+            let rel = p.strip_prefix(root).unwrap_or(&p).display().to_string();
+            for (n, line) in text.lines().enumerate() {
+                for id in id_tokens(line) {
+                    total += 1;
+                    if !known.contains(&id) {
+                        refs.entry(id).or_default().push(format!("{rel}:{}", n + 1));
+                    }
+                }
+                for (id, quote) in citations(line) {
+                    quoted += 1;
+                    let Some(src) = source.get(&id) else { continue };
+                    if !squash(src).contains(&squash(&quote)) {
+                        stale.push(format!(
+                            "{rel}:{}: {id} に「{quote}」という文字列が無い",
+                            n + 1
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    for (id, at) in &refs {
+        rep.error(format!("{id} の実体が無い（{}）", at.join(", ")));
+    }
+    for at in &stale {
+        rep.error(at.clone());
+    }
+    rep.note(format!("ID 参照 {total} 件、実体 {} 種", known.len()));
+    rep.note(format!("引用 {quoted} 件"));
+    rep.finish("check-references")
+}
+
+/// 判断記録の索引を作る。
+///
+/// 手で書くと、記録を足したときに片方だけが古くなる（禁止事項6）。
+/// `--check` を付けると書かずに突き合わせるだけ——CI はこちらを使う。
+fn index_decisions(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
+    let mut rows: Vec<(String, String, String, String)> = Vec::new();
+    for e in with_schema(entries, "decision") {
+        let g = |k: &str| str_of(&e.table, k).unwrap_or_default().to_owned();
+        let id = g("id");
+        if id.is_empty() {
+            continue;
+        }
+        rows.push((id, g("constraint_label"), g("title"), g("status")));
+    }
+    rows.sort();
+
+    let mut out = String::from(
+        "# 判断記録の索引\n\n         `schema = 'decision'` のファイルの一覧。この索引は手で書かない。\n         `cargo xtask index-decisions` が `meta/decisions/*.toml` から作る。\n         中身を直すのは各 TOML 側で、索引は作り直す。\n\n         読み方と規律は [../README.md](../README.md)。置き換えの関係（`supersedes` /\n         `superseded_by` / `status = 'superseded'`）は `cargo xtask check-meta` が双方向で検査する。\n\n         | ID | 何についての判断か | 決めたこと | 状態 |\n         |---|---|---|---|\n",
+    );
+    for (id, label, title, status) in &rows {
+        out.push_str(&format!(
+            "| [{id}]({id}.toml) | {label} | {title} | {status} |\n"
+        ));
+    }
+    out.push_str(&format!("\n{} 件。\n", rows.len()));
+
+    let dest = root.join("meta/decisions/README.md");
+    let current = fs::read_to_string(&dest).unwrap_or_default();
+    if std::env::args().any(|a| a == "--check") {
+        if current != out {
+            rep.error(
+                "meta/decisions/README.md が古い。`cargo xtask index-decisions` で作り直す"
+                    .to_owned(),
+            );
+        }
+        rep.note(format!("判断記録 {} 件", rows.len()));
+        return rep.finish("index-decisions");
+    }
+    if let Err(e) = fs::write(&dest, &out) {
+        rep.error(format!("索引を書けない: {e}"));
+    }
+    rep.note(format!("判断記録 {} 件を索引にした", rows.len()));
+    rep.finish("index-decisions")
+}
+
+/// 置き換えの関係が両側から見えているかを検査する。
+///
+/// `supersedes` は片側にしか書かれない。 置き換えられた側を開いた人には、
+/// `status = 'accepted'` としか見えず、もう使われていないことが分からない。
+/// 片側だけ直すと必ずそうなるので、両方が揃っていることをここで固定する。
+fn check_supersession(entries: &[Entry], rep: &mut Report) {
+    let mut status: BTreeMap<String, String> = BTreeMap::new();
+    let mut by: BTreeMap<String, String> = BTreeMap::new();
+    let mut supersedes: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for e in with_schema(entries, "decision") {
+        let Some(id) = str_of(&e.table, "id") else {
+            continue;
+        };
+        if let Some(st) = str_of(&e.table, "status") {
+            status.insert(id.to_owned(), st.to_owned());
+        }
+        if let Some(b) = str_of(&e.table, "superseded_by") {
+            by.insert(id.to_owned(), b.to_owned());
+        }
+        let old = list_of(&e.table, "supersedes");
+        if !old.is_empty() {
+            supersedes.insert(id.to_owned(), old);
+        }
+    }
+
+    // 名指された側は superseded で、名指した相手を指し返している。
+    for (newer, olds) in &supersedes {
+        for old in olds {
+            match status.get(old) {
+                None => rep.error(format!("{newer} の supersedes が指す {old} が無い")),
+                Some(st) if st != "superseded" => rep.error(format!(
+                    "{newer} が {old} を置き換えているのに、{old} の status が `{st}` のまま"
+                )),
+                Some(_) => {}
+            }
+            match by.get(old) {
+                Some(b) if b == newer => {}
+                Some(b) => rep.error(format!(
+                    "{old} の superseded_by が `{b}` だが、置き換えているのは {newer}"
+                )),
+                None => rep.error(format!("{old} に superseded_by = '{newer}' が無い")),
+            }
+        }
+    }
+
+    // 逆向き。superseded を名乗るなら、置き換えた相手がそう言っている。
+    for (old, st) in &status {
+        if st != "superseded" {
+            continue;
+        }
+        let Some(newer) = by.get(old) else {
+            rep.error(format!("{old} は superseded だが superseded_by が無い"));
+            continue;
+        };
+        if !supersedes.get(newer).is_some_and(|v| v.contains(old)) {
+            rep.error(format!(
+                "{old} は {newer} に置き換えられたと言うが、{newer} の supersedes に無い"
+            ));
+        }
+    }
+}
+
+/// 表の中の文字列を全部つなぐ。引用がどのフィールドに書かれていても拾えるように。
+fn flatten(t: &toml::Table) -> String {
+    fn walk(v: &toml::Value, out: &mut String) {
+        match v {
+            toml::Value::String(s) => {
+                out.push_str(s);
+                out.push('\n');
+            }
+            toml::Value::Array(a) => a.iter().for_each(|v| walk(v, out)),
+            toml::Value::Table(t) => t.values().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = String::new();
+    t.values().for_each(|v| walk(v, &mut out));
+    out
+}
+
+/// 引用として突き合わせる形は `ID の「…」` だけ。
+///
+/// 日本語の「」は引用にも強調にも使う。 どちらも検査すると、例示のつもりの
+/// 「オフセットだけ直した」まで「原文に無い」と言われる。 そこで
+/// 「ID の」を前に置いたときだけ逐語引用とみなす、と決めてある。
+/// 逐語で引けないものは `（`TR-SYN-01`。…）` の形で言い換える。
+fn citations(line: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (id, _, end) in id_spans(line) {
+        // ID の直後の `` ` `` と空白を飛ばして、「の「」が続くかを見る。
+        let rest = line[end..].trim_start_matches(['`', ' ', '\u{3000}']);
+        let Some(rest) = rest.strip_prefix("の") else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let Some(rest) = rest.strip_prefix('「') else {
+            continue;
+        };
+        let Some(close) = rest.find('」') else {
+            continue;
+        };
+        out.push((id, rest[..close].to_owned()));
+    }
+    out
+}
+
+/// 引用の突き合わせ用に、空白と約物を落とす。
+///
+/// 原文は改行やカギ括弧を挟んで書かれていることがあり、
+/// そのまま比べると「一字違う」だけで落ちる。 意味を変えない字だけ落とす。
+fn squash(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            !c.is_whitespace()
+                && !matches!(
+                    c,
+                    '、' | '。' | '，' | '．' | ',' | '.' | '「' | '」' | '`' | '\'' | '"'
+                )
+        })
+        .collect()
+}
+
+/// 行から `DEC-REC-007` の形の ID を拾う。
+///
+/// 前後が英数字・ハイフンでない位置だけを採る。`REQ-REC-005` のような
+/// 別の名前空間も同じ形なので、解決先は呼び側が持つ集合が決める。
+fn id_tokens(line: &str) -> Vec<String> {
+    id_spans(line).into_iter().map(|(id, _, _)| id).collect()
+}
+
+/// [`id_tokens`] と同じものを、行内の位置つきで返す。
+///
+/// 位置が要るのは引用の検査だけ。`ID の「…」` の形かどうかは、
+/// ID がどこで終わるかを知らないと判定できない。
+fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
+    const PREFIX: &[&str] = &[
+        "DEC", "TR", "Q", "EVID", "REQ", "PROFILE", "BUDGET", "SCALE", "INV", "CMP",
+    ];
+    let b = line.as_bytes();
+    let mut out = Vec::new();
+    for (i, _) in line.char_indices() {
+        if i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'-') {
+            continue;
+        }
+        let rest = &line[i..];
+        let Some(p) = PREFIX
+            .iter()
+            .find(|p| rest.starts_with(**p) && rest.as_bytes().get(p.len()) == Some(&b'-'))
+        else {
+            continue;
+        };
+        // <PREFIX>-<英大文字>-<数字>
+        let after = &rest[p.len() + 1..];
+        let area: String = after.chars().take_while(char::is_ascii_uppercase).collect();
+        if area.is_empty() {
+            continue;
+        }
+        let tail = &after[area.len()..];
+        if !tail.starts_with('-') {
+            continue;
+        }
+        let num: String = tail[1..].chars().take_while(char::is_ascii_digit).collect();
+        if num.is_empty() {
+            continue;
+        }
+        let end = i + p.len() + 1 + area.len() + 1 + num.len();
+        if b.get(end).is_some_and(|c| c.is_ascii_alphanumeric()) {
+            continue;
+        }
+        out.push((format!("{p}-{area}-{num}"), i, end));
+    }
+    out
 }
 
 /// FSL 仕様が所有している要求 ID を集める。
@@ -598,9 +917,10 @@ fn check_requirements(
 fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     let fsl = fsl_ids(root);
     let tr = check_requirements(entries, &fsl, &mut rep);
+    check_supersession(entries, &mut rep);
 
-    // 要件はちょうど1つのマイルストーンに属する。**どこにも属さない要件は、
-    // 誰も作らないまま残る。** 二重に属すると、二度作るか、どちらもやらない。
+    // 要件はちょうど1つのマイルストーンに属する。どこにも属さない要件は、
+    // 誰も作らないまま残る。 二重に属すると、二度作るか、どちらもやらない。
     let profiles: Vec<&Entry> = with_schema(entries, "profile").collect();
     if !profiles.is_empty() {
         let mut owner: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -645,7 +965,7 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
                     e.path.display()
                 ));
             }
-            // **決め切った採否には、理由と撤回条件が要る。** それを持つのは判断記録だけ。
+            // 決め切った採否には、理由と撤回条件が要る。 それを持つのは判断記録だけ。
             // 「採用候補」「条件付き」「要調査」はまだ決めていないので対象外。
             if matches!(str_of(&t, "status"), Some("採用" | "不適"))
                 && str_of(&t, "decided_by").is_none()
@@ -686,7 +1006,7 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     for e in entries {
         let file = e.path.display().to_string();
         // 同じ ID が同じ一覧に2度出るのは、たいてい編集の取りこぼし。
-        // **害は薄いが、書き換えを間違えた合図としては確かなので落とす。**
+        // 害は薄いが、書き換えを間違えた合図としては確かなので落とす。
         for (key, _) in &e.table {
             let items = list_of(&e.table, key);
             let mut seen = BTreeSet::new();
@@ -761,7 +1081,7 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
     rep.finish("check-meta")
 }
 
-/// **どの部品にも支えられていない要件を数える。**
+/// どの部品にも支えられていない要件を数える。
 ///
 /// 通常の CI では走らせない。実装前は埋まっていないのが正常で、
 /// 埋まらないまま実装に入るのが異常だという線引きにしている。
@@ -773,7 +1093,7 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
     for e in with_schema(entries, "component-ledger") {
         for t in e.items() {
             // 採らないと決めた部品は支えない。
-            // **`参照のみ` は数える。** 「自前で書くが、仕様の出どころはここ」も答えのうち。
+            // `参照のみ` は数える。 「自前で書くが、仕様の出どころはここ」も答えのうち。
             if matches!(str_of(&t, "status"), Some("不適" | "候補外")) {
                 continue;
             }
@@ -785,7 +1105,7 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
             supported.extend(s);
         }
     }
-    // **外部部品が要らない要件がある。** 導出規約や表示の決まりは、書けば済む。
+    // 外部部品が要らない要件がある。 導出規約や表示の決まりは、書けば済む。
     // `needs_component = false` を宣言したものは数えない。
     let mut self_contained = 0usize;
     let mut uncovered: Vec<&str> = reqs
@@ -808,7 +1128,7 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
         "採る見込みの部品 {components} 件 / うち要件を指しているもの {with_link} 件"
     ));
     rep.note(format!(
-        "要件 {} 件 / 外部部品が要らないと宣言 {} 件 / 支える部品がある {} 件 / **無い {} 件**",
+        "要件 {} 件 / 外部部品が要らないと宣言 {} 件 / 支える部品がある {} 件 / 無い {} 件",
         reqs.len(),
         self_contained,
         supported.len(),
@@ -817,7 +1137,7 @@ fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
     for id in &uncovered {
         rep.error(format!("{id} を支える部品が1つも無い"));
     }
-    // **両方を宣言しているのは、どちらかが間違っている。**
+    // 両方を宣言しているのは、どちらかが間違っている。
     // 部品に支えられているなら「外部部品が要らない」は成り立たない。
     for (id, t) in &reqs {
         let free = t
@@ -849,7 +1169,7 @@ fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
             .map(Vec::as_slice)
             .unwrap_or_default();
 
-        // **同時に常駐しない工程を足し合わせない。** `mode` を持つ行はそのモードでだけ数え、
+        // 同時に常駐しない工程を足し合わせない。 `mode` を持つ行はそのモードでだけ数え、
         // 持たない行はどのモードにも乗る。上限と比べるのはモードごとの合計の最大値。
         let mut common = 0i64;
         let mut per_mode: BTreeMap<String, i64> = BTreeMap::new();

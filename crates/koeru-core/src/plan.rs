@@ -1,13 +1,13 @@
 //! 「あと何行録れば歌えるか」（`TR-RCL-16`, `TR-RCL-17`, `TR-RCL-09`）。
 //!
-//! **曲先行のミニ音源は、フルリストの行の部分集合として選ぶ**（`TR-RCL-16`）。
+//! 曲先行のミニ音源は、フルリストの行の部分集合として選ぶ（`TR-RCL-16`）。
 //! 詰め直し——必要単位専用の行を作り直すこと——は採らない。
 //!
 //! 単独音は1項目＝1モーラなので、部分集合で無条件に最小になる。
 //! 連続音では詰め直し版に対して数分の増加を受け入れる。
-//! **その代わり、フル方式への継続性が定義上保証される。**
+//! その代わり、フル方式への継続性が定義上保証される。
 //! 詰め直すと、「曲のために録った分」がフルリストのどこにも当たらなくなり、
-//! **同じ声をもう一度録り直すことになる。**
+//! 同じ声をもう一度録り直すことになる。
 
 use std::collections::BTreeSet;
 
@@ -15,7 +15,7 @@ use crate::reclist::Row;
 
 /// 1単位あたりの収録サイクル（秒、`TR-RCL-09`）。
 ///
-/// **[Unknown] 自前実測まで暫定値。** OREMO の録音周期に固有の値を一次基準に置いている。
+/// [Unknown] 自前実測まで暫定値。 OREMO の録音周期に固有の値を一次基準に置いている。
 /// KOERU の録音 UI では連続収録でオーバーヘッドが下がるので、実測で確定する。
 pub const SECONDS_PER_UNIT: f64 = 8.3;
 
@@ -35,7 +35,7 @@ pub struct Plan {
     pub rows: Vec<Row>,
     /// これで埋まる単位の数。
     pub covers: usize,
-    /// **どの行にも無くて埋まらない単位。**
+    /// どの行にも無くて埋まらない単位。
     ///
     /// 空でないなら、その方式では歌えない。
     pub unreachable: BTreeSet<String>,
@@ -45,17 +45,17 @@ pub struct Plan {
 
 /// 未収録の単位を埋める行を、フルリストから選ぶ（`TR-RCL-16`, `TR-RCL-17`）。
 ///
-/// **詰め直さない。** 選ぶのはフルリストの行そのもの。
+/// 詰め直さない。 選ぶのはフルリストの行そのもの。
 ///
 /// 貪欲に選ぶ——毎回、いちばん多く埋まる行を採る。
-/// **完全最小ではないが、行の中身が固定されている以上、差は小さい。**
+/// 完全最小ではないが、行の中身が固定されている以上、差は小さい。
 /// それより「選んだ行がフルリストの行と同じであること」のほうが効く。
 #[must_use]
 pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
     let mut left: BTreeSet<String> = missing.clone();
     let mut chosen: Vec<Row> = Vec::new();
 
-    // どの行にも無い単位を先に外す。**選びようが無い。**
+    // どの行にも無い単位を先に外す。選びようが無い。
     let all: BTreeSet<String> = full_list
         .iter()
         .flat_map(|r| r.units.iter().map(|u| u.kana.to_owned()))
@@ -66,7 +66,7 @@ pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
     }
 
     while !left.is_empty() {
-        // いちばん多く埋まる行。**同数なら、リストの並び順で先のもの**（決定的にする）。
+        // いちばん多く埋まる行。同数なら、リストの並び順で先のもの（決定的にする）。
         let best = full_list
             .iter()
             .filter(|r| !chosen.iter().any(|c| c.id == r.id))
@@ -96,7 +96,7 @@ pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
 
 /// 行を録るのに掛かる時間（秒、`TR-RCL-09`）。
 ///
-/// **単独音は「1単位あたり × 単位数」、行読み上げは「1行 12 秒 ＋ 超過分」。**
+/// 単独音は「1単位あたり × 単位数」、行読み上げは「1行 12 秒 ＋ 超過分」。
 /// 式を2本に分けるのは、単独音が1項目＝1モーラで、行読み上げとは周期が違うから。
 #[must_use]
 pub fn estimate_seconds(rows: &[Row]) -> f64 {
@@ -125,7 +125,7 @@ mod tests {
         xs.iter().map(|s| (*s).to_owned()).collect()
     }
 
-    /// **選ぶのはフルリストの行そのもの**（TR-RCL-16）。詰め直さない。
+    /// 選ぶのはフルリストの行そのもの（`TR-RCL-16`）。詰め直さない。
     #[test]
     fn 選ぶ行はフルリストの行と同じ() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -156,7 +156,7 @@ mod tests {
         assert!(plan.unreachable.is_empty());
     }
 
-    /// **貪欲に選ぶので、無駄な行を採らない。**
+    /// 貪欲に選ぶので、無駄な行を採らない。
     #[test]
     fn 要らない行を採らない() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -172,7 +172,7 @@ mod tests {
         assert!((plan.seconds - 0.0).abs() < f64::EPSILON);
     }
 
-    /// **どの行にも無い単位は「届かない」として分ける。**
+    /// どの行にも無い単位は「届かない」として分ける。
     #[test]
     fn 届かない単位を分けて返す() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(plan.covers, 1, "届く分だけ数える");
     }
 
-    /// **同じ入力からは同じ計画が出る**（TR-RCL-27 の決定性）。
+    /// 同じ入力からは同じ計画が出る（`TR-RCL-27` の決定性）。
     #[test]
     fn 決定的に選ぶ() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    /// **式を2本に分ける**（TR-RCL-09）。
+    /// 式を2本に分ける（`TR-RCL-09`）。
     #[test]
     fn 所要時間の式が要件どおり() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -212,10 +212,10 @@ mod tests {
         }
     }
 
-    /// **6モーラを超えたら超過分を足す**（TR-RCL-09）。
+    /// 6モーラを超えたら超過分を足す（`TR-RCL-09`）。
     ///
     /// 単独音の生成器は子音行で割るので8単位の行を作らない。
-    /// **式そのものを確かめたいので、行を組み立てて渡す。**
+    /// 式そのものを確かめたいので、行を組み立てて渡す。
     #[test]
     fn 長い行は超過分を足す() {
         let all = crate::inventory::units(UnitSet::Core);
@@ -229,7 +229,7 @@ mod tests {
         assert!((estimate_seconds(&[long]) - want).abs() < 1e-9);
     }
 
-    /// **被覆の計算が目標の中に収まる**（TGT-RCL-004: 50ms 以内）。
+    /// 被覆の計算が目標の中に収まる（TGT-RCL-004: 50ms 以内）。
     #[test]
     fn 被覆の計算が速い() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");

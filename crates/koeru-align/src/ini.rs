@@ -4,21 +4,21 @@
 //! ファイル名.wav=エイリアス名,オフセット,子音部,ブランク,先行発声,オーバーラップ
 //! ```
 //!
-//! **並びが5値の宣言順と違う。** `oto.ini` は
+//! 並びが5値の宣言順と違う。 `oto.ini` は
 //! `offset, consonant, cutoff, preutterance, overlap` の順で、
-//! **3番目が右ブランク**。ここを取り違えると、音が鳴るのに全部ずれる。
+//! 3番目が右ブランク。ここを取り違えると、音が鳴るのに全部ずれる。
 //!
 //! # 数値は小数第3位まで
 //!
-//! `TR-ALN-21` が定めている。**丸めは書き出しのときだけ行い、内部の値は丸めない**——
+//! `TR-ALN-21` が定めている。丸めは書き出しのときだけ行い、内部の値は丸めない——
 //! 丸めた値を読み戻して再計算すると、再推定のたびに値が動く（`TR-ALN-29` の決定性）。
 //!
 //! # 文字コード
 //!
-//! 既定は Shift-JIS（CP932）。UTF-8（BOM なし）を選べる。**読み込みは両方受け付ける。**
+//! 既定は Shift-JIS（CP932）。UTF-8（BOM なし）を選べる。読み込みは両方受け付ける。
 //! 判定と変換は [`koeru_core::text`] が持っている（`TR-PLT-08`, `DEC-PLT-013`）。
 //!
-//! **`oto.ini` は作業ファイルにしない**（`TR-PKG-40`）。DB を正とし、
+//! `oto.ini` は作業ファイルにしない（`TR-PKG-40`）。DB を正とし、
 //! ここが作るのは書き出し時の派生物。
 
 use koeru_core::oto::Oto;
@@ -30,11 +30,9 @@ pub const DECIMALS: usize = 3;
 /// `oto.ini` の1エントリ。
 #[derive(Debug, Clone, PartialEq)]
 pub struct IniEntry {
-    /// WAV のファイル名。**拡張子を含む。**
+    /// WAV のファイル名。拡張子を含む。
     pub file: String,
-    /// エイリアス名。
     pub alias: String,
-    /// 5値。
     pub oto: Oto,
 }
 
@@ -59,7 +57,7 @@ pub enum IniError {
 }
 
 impl IniError {
-    /// 送信してよい種別文字列。**行の中身は送らない**（AGENTS.md #3）。
+    /// 送信してよい種別文字列。行の中身は送らない（AGENTS.md #3）。
     #[must_use]
     pub fn kind(&self) -> &'static str {
         match self {
@@ -73,10 +71,10 @@ impl IniError {
 
 type Result<T> = std::result::Result<T, IniError>;
 
-/// 小数第3位までに丸めた文字列。**末尾の 0 は落とさない**——
+/// 小数第3位までに丸めた文字列。末尾の 0 は落とさない——
 /// UTAU 側の実装が桁数を見て振る舞いを変えることがあるので、幅を揃える。
 fn num(v: f64) -> String {
-    // **`-0` を出さない。** 読み手によっては符号で基準が変わる欄なので、
+    // `-0` を出さない。 読み手によっては符号で基準が変わる欄なので、
     // `-0` が「オフセットからの相対 0」と読まれると使える区間が消える。
     let v = if v == 0.0 { 0.0 } else { v };
     format!("{v:.DECIMALS$}")
@@ -126,7 +124,7 @@ pub fn read_line(line: &str) -> Result<IniEntry> {
 
 /// エントリ列を `oto.ini` のバイト列にする（`TR-ALN-21`）。
 ///
-/// **改行は CRLF。** UTAU 本体と既存ツールが Windows 育ちで、
+/// 改行は CRLF。 UTAU 本体と既存ツールが Windows 育ちで、
 /// LF だけだと行末にゴミが見える実装がある。
 ///
 /// # Errors
@@ -143,7 +141,7 @@ pub fn write(entries: &[IniEntry], enc: TextEncoding) -> Result<Vec<u8>> {
 
 /// `oto.ini` のバイト列を読む（`TR-ALN-21`）。
 ///
-/// **Shift-JIS と UTF-8 の両方を受け付ける。** 空行と `#` で始まる行は飛ばす。
+/// Shift-JIS と UTF-8 の両方を受け付ける。 空行と `#` で始まる行は飛ばす。
 ///
 /// # Errors
 ///
@@ -175,7 +173,7 @@ mod tests {
         }
     }
 
-    /// **並びは offset, consonant, cutoff, preutterance, overlap。**
+    /// 並びは offset, consonant, cutoff, preutterance, overlap。
     /// 3番目が右ブランクで、宣言順と違う。
     #[test]
     fn 行の並びがotoiniの順序になっている() {
@@ -185,7 +183,7 @@ mod tests {
         );
     }
 
-    /// **小数第3位まで**（`TR-ALN-21`）。
+    /// 小数第3位まで（`TR-ALN-21`）。
     #[test]
     fn 数値は小数第三位まで() {
         let mut e = entry();
@@ -193,7 +191,7 @@ mod tests {
         assert!(write_line(&e).ends_with(",1.235"));
     }
 
-    /// **`-0` を書かない。** 符号で基準が変わる欄なので、
+    /// `-0` を書かない。 符号で基準が変わる欄なので、
     /// `-0.000` が「オフセットからの相対 0」と読まれると使える区間が消える。
     #[test]
     fn 負のゼロを書かない() {
@@ -210,7 +208,7 @@ mod tests {
         assert_eq!(back.alias, e.alias);
         assert!((back.oto.offset_ms - e.oto.offset_ms).abs() < 1e-9);
         assert!((back.oto.cutoff_ms - e.oto.cutoff_ms).abs() < 1e-9);
-        // **丸めたぶんだけずれる。** 内部の値は丸めない（TR-ALN-29）。
+        // 丸めたぶんだけずれる。 内部の値は丸めない（`TR-ALN-29`）。
         assert!((back.oto.overlap_ms - e.oto.overlap_ms).abs() < 1e-3);
     }
 
@@ -230,12 +228,12 @@ mod tests {
         ));
     }
 
-    /// **既定は Shift-JIS**（`TR-ALN-21`, `TR-PLT-08`）。
+    /// 既定は Shift-JIS（`TR-ALN-21`, `TR-PLT-08`）。
     #[test]
     fn 既定の文字コードで往復できる() {
         let v = vec![entry()];
         let bytes = write(&v, TextEncoding::Cp932).expect("書ける");
-        // **日本語が CP932 の2バイトになっている。** UTF-8 なら3バイト。
+        // 日本語が CP932 の2バイトになっている。 UTF-8 なら3バイト。
         assert!(!bytes.is_empty());
         let back = read(&bytes, TextEncoding::Cp932).expect("読める");
         assert_eq!(back.len(), 1);
@@ -251,7 +249,7 @@ mod tests {
         assert_eq!(back[0].alias, "あ");
     }
 
-    /// **行末は CRLF。**
+    /// 行末は CRLF。
     #[test]
     fn 改行はcrlf() {
         let bytes = write(&[entry()], TextEncoding::Utf8).expect("書ける");
@@ -266,7 +264,7 @@ mod tests {
         assert_eq!(v.len(), 1);
     }
 
-    /// **CP932 で表現できない文字は書き出しで落とす**（`TR-PLT-08`）。
+    /// CP932 で表現できない文字は書き出しで落とす（`TR-PLT-08`）。
     /// 黙って `?` に潰すと、配った先で名前が壊れる。
     #[test]
     fn cp932で書けない文字は失敗する() {

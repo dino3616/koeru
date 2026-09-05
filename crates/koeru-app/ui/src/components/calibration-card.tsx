@@ -1,10 +1,10 @@
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
-import { Card, CardTitle } from "~/components/ui/card";
+import { Card } from "~/components/ui/card";
 import { type CalibrationView, api, errorMessage } from "~/lib/ipc";
 
-/** 校正に使う発声の長さ（秒）。**3〜5秒**（TR-REC-14）。 */
+/** 校正に使う発声の長さ（秒）。3〜5秒（`TR-REC-14`）。 */
 const SECONDS = 4;
 
 type CalibrationCardProps = {
@@ -14,12 +14,12 @@ type CalibrationCardProps = {
 };
 
 /**
- * 入力レベルの校正（TR-REC-14、TR-REC-15）。
+ * 入力レベルの校正（`TR-REC-14`、`TR-REC-15`）。
  *
- * **関門にしない。** 収束しなくても収録に進める。
+ * 関門にしない。 収束しなくても収録に進める。
  * 3時間の収録の前に、レベル合わせで止められる方がよほど困る。
  *
- * **「小さすぎます」「歪んでいます」は出さない**（TR-REC-16）。
+ * 「小さすぎます」「歪んでいます」は出さない（`TR-REC-16`）。
  * 出すのは測った値と、次に何をすればよいかだけ。
  */
 export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
@@ -42,7 +42,7 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
       .finally(() => setRunning(false));
   };
 
-  // 前回と違うゲインで開いたか（TR-REC-15）。**勝手に戻さない。**
+  // 前回と違うゲインで開いたか（`TR-REC-15`）。勝手に戻さない。
   const checkDrift = () => {
     api
       .gainDrift()
@@ -51,11 +51,9 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
   };
 
   return (
-    <Card>
-      <CardTitle>入力レベル</CardTitle>
-
+    <Card title="入力レベル">
       <div className="mt-3 flex flex-col gap-3">
-        <p className="text-sm text-text-dim">
+        <p className="text-sm text-slate-11">
           いちばん高い音の全力発声を {SECONDS} 秒録って、初期値を合わせます。
           <br />
           合わなくても収録には進めます。
@@ -72,7 +70,7 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
 
         {result !== null && (
           <div className="flex flex-col gap-2">
-            <dl className="flex flex-wrap gap-x-6 font-mono text-xs text-text-dim tabular-nums">
+            <dl className="flex flex-wrap gap-x-6 font-mono text-xs text-slate-11 tabular-nums">
               <div>
                 <dt className="inline">ピーク </dt>
                 <dd className="inline">
@@ -88,13 +86,13 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
             </dl>
 
             {/*
-              **ハードウェア以外では自動調整しない**（TR-REC-14）。
+              ハードウェア以外では自動調整しない（TR-REC-14）。
               ソフトウェアのボリュームを上げても A/D の手前は変わらない。
             */}
-            {result.control !== "hardware" && (
-              <p className="rounded-lg bg-surface-2 px-4 py-3 text-sm text-text-dim">
+            {result.control !== "Hardware" && (
+              <p className="rounded-lg bg-slate-3 px-4 py-3 text-sm text-slate-11">
                 このマイクのゲインは KOERU からは動かせません。
-                {result.control === "software"
+                {result.control === "Software"
                   ? "音量つまみがソフトウェア側にあるため、上げても録れる音の質は変わりません。"
                   : ""}
                 <br />
@@ -105,8 +103,8 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
         )}
 
         {drift !== null && (
-          <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-2 px-4 py-3 text-sm">
-            <span className="text-text-dim">
+          <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-3 px-4 py-3 text-sm">
+            <span className="text-slate-11">
               前回は {Math.round(drift[0] * 100)}%、いまは {Math.round(drift[1] * 100)}% です。
             </span>
             <Button
@@ -129,10 +127,7 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
         )}
 
         {error !== null && (
-          <p
-            role="alert"
-            className="rounded-lg bg-danger-surface px-4 py-3 text-sm text-danger-text"
-          >
+          <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
             {error}
           </p>
         )}

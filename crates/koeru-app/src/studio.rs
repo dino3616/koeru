@@ -1,6 +1,6 @@
-//! 縦切りの組み立て。**録って、聴けるまでを1本に繋ぐ。**
+//! 縦切りの組み立て。録って、聴けるまでを1本に繋ぐ。
 //!
-//! ここに Tauri は出てこない。**アプリの筋を、GUI 無しで検査できるようにする。**
+//! ここに Tauri は出てこない。アプリの筋を、GUI 無しで検査できるようにする。
 //!
 //! ## 通す順序
 //!
@@ -10,8 +10,14 @@
 //! 4. 境界を見つけて oto の5値を導く
 //! 5. 目標音高で合成して鳴らす
 //!
-//! **3 と 4 を録音停止の直後に済ませるのが要点。** 後回しにすると、
+//! 3 と 4 を録音停止の直後に済ませるのが要点。 後回しにすると、
 //! 試唱のたびに WAV を読み直すことになる（`TR-PKG-42`）。
+//!
+//! ## 時間軸
+//!
+//! このモジュールの秒とサンプル数は、すべてマスターの時間軸で数える
+//! （[`koeru_audio::wav::MASTER_RATE_HZ`]）。 デバイスのネイティブレートは
+//! pump より下流には出てこない。
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -45,26 +51,27 @@ use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 use uuid::Uuid;
 
 use crate::error::{AppError, Result};
+use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
 use crate::workers::{Priority, Workers};
 
-/// 単独音の収録音高。**A3 を既定にする**（`TR-RCL` の音階既定）。
+/// 単独音の収録音高。A3 を既定にする（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
 
 /// これだけ測るまで、レイテンシの目標に収まっているかを言わない（`TR-SYN-33`）。
 ///
-/// **3回では中央値も p95 も意味が無い。**
+/// 3回では中央値も p95 も意味が無い。
 const LATENCY_MIN_SAMPLES: usize = 10;
 
 /// 段を持ち回すテイクの数（`TR-PLT-04`）。
 ///
-/// **上限を置く。** 3時間ぶんの段を全部持つとメモリが尽きる。
+/// 上限を置く。 3時間ぶんの段を全部持つとメモリが尽きる。
 const MIPMAP_CACHE: usize = 8;
 
-/// リングの容量（サンプル）。**8秒ぶん。**
+/// リングの容量（サンプル）。8秒ぶん。
 ///
 /// 描画やディスクが詰まっても、この長さのあいだは取りこぼさない。
 const RING_SECONDS: usize = 8;
@@ -82,24 +89,22 @@ struct Open {
 pub struct TakeResult {
     /// 台帳の ID。
     pub take_id: i32,
-    /// どの行か。
     pub row_id: String,
-    /// 長さ（ミリ秒）。
     pub duration_ms: f64,
-    /// 絶対値の最大。**1.0 に達していたらクリップ。**
+    /// 絶対値の最大。`koeru_core::analysis::CLIP_THRESHOLD` 以上ならクリップ。
     pub peak: f32,
     /// 波形サムネイル（0〜255）。
     pub thumbnail: Vec<u8>,
-    /// 導けた oto。**発声が見つからなければ `None`。**
+    /// 導けた oto。発声が見つからなければ `None`。
     pub oto: Option<Oto>,
     /// 境界の確信度。
     pub confidence: Option<f64>,
     /// 取りこぼしの回数（`TR-REC-07`）。
     pub discontinuities: usize,
-    /// **取りこぼしたので自動的に無効にした**（`TR-REC-07`）。
+    /// 取りこぼしたので自動的に無効にした（`TR-REC-07`）。
     /// 同じフレーズがもう一度出てくる。
     pub invalidated: bool,
-    /// 計測値（`TR-REC-16`）。**測るだけで、判定も指摘もしない。**
+    /// 計測値（`TR-REC-16`）。測るだけで、判定も指摘もしない。
     pub metrics: TakeMetrics,
     /// 押した瞬間より前から何ミリ秒ぶん遡れたか（`TR-REC-19`）。
     pub preroll_ms: f64,
@@ -112,9 +117,9 @@ pub struct SpaceEstimate {
     pub remaining_rows: u64,
     /// 残り全部に要るバイト数。
     pub required_bytes: u64,
-    /// 保存先の空き。**引けなければ `None`。**
+    /// 保存先の空き。引けなければ `None`。
     pub available_bytes: Option<u64>,
-    /// **その残量で録りきれる件数**（`TR-REC-41`）。
+    /// その残量で録りきれる件数（`TR-REC-41`）。
     pub rows_that_fit: u64,
 }
 
@@ -128,12 +133,12 @@ impl SpaceEstimate {
 
 /// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
 ///
-/// **収録中は何も言わない。** ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
+/// 収録中は何も言わない。 ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preflight {
     /// NFC へ直した名前の数（`TR-REC-32`）。
     pub renamed_to_nfc: usize,
-    /// それでも NFC でない名前。**残っていたら書き出さない。**
+    /// それでも NFC でない名前。残っていたら書き出さない。
     pub non_nfc_names: Vec<String>,
     /// フルスケールに達している採用テイク（行 ID と回数、`TR-REC-16`）。
     pub clipped_takes: Vec<(String, u32)>,
@@ -142,7 +147,7 @@ pub struct Preflight {
 impl Preflight {
     /// 書き出してよいか。
     ///
-    /// **割れているテイクは止めない。** 本人が承知のうえで配ることはありうる。
+    /// 割れているテイクは止めない。 本人が承知のうえで配ることはありうる。
     /// 止めるのは、受け手の環境で見つからなくなる名前だけ。
     #[must_use]
     pub fn may_export(&self) -> bool {
@@ -153,7 +158,7 @@ impl Preflight {
 /// プロジェクトの現在地。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
-    /// 次に録る行（`(id, 読み上げる文字列)`）。**全部録れていれば `None`。**
+    /// 次に録る行（`(id, 読み上げる文字列)`）。全部録れていれば `None`。
     pub next_row: Option<(String, String)>,
     /// 収録済み単位の数。
     pub covered: usize,
@@ -161,11 +166,11 @@ pub struct Progress {
     pub required: usize,
     /// 完成状態。
     pub coverage: CoverageState,
-    /// 手渡し状態。**完成判定はこれを見ない**（`TR-PKG-33`）。
+    /// 手渡し状態。完成判定はこれを見ない（`TR-PKG-33`）。
     pub handoff: HandoffState,
-    /// **いま歌える曲の数**（`TR-RCL-19`）。カバレッジと常に両方出す。
+    /// いま歌える曲の数（`TR-RCL-19`）。カバレッジと常に両方出す。
     pub singable_songs: usize,
-    /// バンクに入っている曲の数。**0 でも成立する。**
+    /// バンクに入っている曲の数。0 でも成立する。
     pub songs_in_bank: usize,
 }
 
@@ -175,56 +180,56 @@ pub struct Studio {
     library: Library,
     /// 使うアライナ（`TR-ALN-03`, `DEC-ALN-008`）。
     ///
-    /// **MFA のモデルが読めれば MFA、読めなければ退避経路。**
+    /// MFA のモデルが読めれば MFA、読めなければ退避経路。
     /// 起動時に1度だけ選ぶ——テイクごとに 96MiB を読み直さない（`TGT-ALN-004`）。
     aligner: crate::align::Chosen,
     open: Option<Open>,
     capture: Option<mac::Capture>,
-    /// 排出スレッド。**収録画面にいる間ずっと回っている**（`TR-REC-19`）。
+    /// 排出スレッド。収録画面にいる間ずっと回っている（`TR-REC-19`）。
     pump: Option<Pump>,
     session: Session,
     /// 録音中の行。
     recording: Option<String>,
-    /// 収録開始時点の取りこぼし数。**このテイクの中で増えたぶんだけを見る**（`TR-REC-07`）。
+    /// 収録開始時点の取りこぼし数。このテイクの中で増えたぶんだけを見る（`TR-REC-07`）。
     xrun_baseline: usize,
     /// ガイドのフレーズ開始が、録音の何サンプル目に相当するか（`TR-REC-26`）。
     ///
-    /// **参考値。** 切り出しの根拠にしない。ガイドが鳴っていなければ `None`。
+    /// 参考値。 切り出しの根拠にしない。ガイドが鳴っていなければ `None`。
     guide_offset_at_start: Option<i64>,
     /// 選んでいるデバイス。
     device: Option<DeviceId>,
-    /// アプリが触る前のゲイン。**終了時にここへ戻す**（`TR-REC-15`）。
+    /// アプリが触る前のゲイン。終了時にここへ戻す（`TR-REC-15`）。
     gain_before: Option<(DeviceId, f32)>,
-    /// 回り込みの検査結果（`TR-REC-24`）。**済むまで音高提示を鳴らさない。**
+    /// 回り込みの検査結果（`TR-REC-24`）。済むまで音高提示を鳴らさない。
     leak: Option<LeakCheck>,
-    /// **全チャンネルに有意な信号があるか**（`TR-REC-06`）。
+    /// 全チャンネルに有意な信号があるか（`TR-REC-06`）。
     /// 真のときだけ、本人が「合成する」を選べる。
     may_mix: bool,
     playback: Option<mac::Playback>,
     /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
     ///
-    /// **プロジェクトを開いている間だけ持つ。** 素材が変われば鍵が変わるので、
+    /// プロジェクトを開いている間だけ持つ。 素材が変われば鍵が変わるので、
     /// 明示的に捨てなくても古い結果は使われない（`TR-SYN-26`）。
     song_cache: Arc<Mutex<PhraseCache>>,
-    /// 進行中の曲の合成。**落とすと止まる**（`TR-SYN-27`）。
+    /// 進行中の曲の合成。落とすと止まる（`TR-SYN-27`）。
     singing: Option<Running>,
     /// 継ぎ足しながら鳴らしている再生（`TR-SYN-03`）。
     playback_stream: Option<mac::Playback>,
-    /// 集めた F0 系列。**話者音域を見るため**（`TR-SYN-22`）。
+    /// 集めた F0 系列。話者音域を見るため（`TR-SYN-22`）。
     observed_f0: Vec<Vec<f64>>,
-    /// 話者音域から決めた探索下限。**まだ分からなければ `None`。**
+    /// 話者音域から決めた探索下限。まだ分からなければ `None`。
     f0_floor: Option<f64>,
-    /// テイクごとの波形の段（`TR-PLT-04`）。**上限を置いて持ち回す。**
+    /// テイクごとの波形の段（`TR-PLT-04`）。上限を置いて持ち回す。
     mipmaps: HashMap<i32, (Arc<waveform::Mipmap>, u32)>,
     /// 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`）。
     ///
-    /// **録音入力とは別のスレッド。** 録音のコールバックを妨げない。
+    /// 録音入力とは別のスレッド。 録音のコールバックを妨げない。
     workers: Workers,
     /// 試唱レイテンシの実測（`TR-SYN-33`）。
     ///
-    /// **押してから鳴るまでを場面ごとに溜める。** 目標と比べられるようにする。
+    /// 押してから鳴るまでを場面ごとに溜める。 目標と比べられるようにする。
     observed: HashMap<Case, Observed>,
-    /// この回に試唱を押したことがあるか。**初回かどうかの判定**（`TR-SYN-33`）。
+    /// この回に試唱を押したことがあるか。初回かどうかの判定（`TR-SYN-33`）。
     ever_previewed: bool,
 }
 
@@ -232,7 +237,7 @@ pub struct Studio {
 struct Materials {
     /// エイリアスごとの WAV の場所。
     paths: HashMap<String, PathBuf>,
-    /// エイリアスごとの周波数表（`TR-SYN-25`）。**永続化するのはこれだけ。**
+    /// エイリアスごとの周波数表（`TR-SYN-25`）。永続化するのはこれだけ。
     tables: HashMap<String, Vec<f64>>,
     /// エイリアスごとの oto。
     otos: HashMap<String, koeru_core::oto::Oto>,
@@ -246,21 +251,25 @@ pub struct LatencyRow {
     /// 測った回数。
     pub count: usize,
     /// 中央値（ミリ秒）。
-    pub median_ms: Option<u128>,
+    /// 中央値（ミリ秒）。
+    ///
+    /// `u32` に落としてある。`Duration::as_millis` は `u128` を返すが、
+    /// 試唱の待ち時間に 49 日の幅は要らない。 そのまま画面へ渡すと、
+    /// JS の数値が正確に持てる範囲を超える型を境界に置くことになる。
+    pub median_ms: Option<u32>,
     /// その場面の目標（ミリ秒）。
-    pub budget_ms: u128,
-    /// 収まっているか。**回数が少ないうちは `None`。**
+    /// その場面の目標（ミリ秒）。
+    pub budget_ms: u32,
+    /// 収まっているか。回数が少ないうちは `None`。
     pub meets: Option<bool>,
 }
 
 /// 歌わせた結果（`TR-SYN-18`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SungSong {
-    /// 曲名。
     pub title: String,
-    /// 鳴らすフレーズの数。
     pub phrases: usize,
-    /// **鳴らせないので落としたフレーズの数**（`TR-SYN-18` (2)）。
+    /// 鳴らせないので落としたフレーズの数（`TR-SYN-18` (2)）。
     ///
     /// 落とした位置には何も挿さない。
     pub dropped_phrases: usize,
@@ -270,7 +279,7 @@ pub struct SungSong {
 
 /// 継ぎ足し先。
 ///
-/// **合成スレッドが持つのは `Feed` だけ。** `AudioUnit` には触らない。
+/// 合成スレッドが持つのは `Feed` だけ。 `AudioUnit` には触らない。
 struct StreamSink {
     feed: mac::Feed,
 }
@@ -286,7 +295,7 @@ impl Sink for StreamSink {
 
 /// 退避経路の境界を、アライナと同じ形（`Alignment`）に包む。
 ///
-/// **事後確率は持たない。** 音響モデルを通していないので、
+/// 事後確率は持たない。 音響モデルを通していないので、
 /// `TR-ALN-24` の成分 (1) 経路確信度が出せない（`None` のまま）。
 fn fallback_alignment(samples: &[f64], rate: u32) -> Option<Alignment> {
     let cfg = SegmentConfig::default();
@@ -324,12 +333,12 @@ fn fallback_alignment(samples: &[f64], rate: u32) -> Option<Alignment> {
 }
 
 impl Studio {
-    /// ライブラリを開く。**無ければ作る。**
+    /// ライブラリを開く。無ければ作る。
     #[tracing::instrument(skip(library_root), err)]
     pub fn open(library_root: PathBuf) -> Result<Self> {
         Ok(Self {
             library: Library::open(library_root)?,
-            // **起動時に1度だけ選ぶ**（`TGT-ALN-004`。テイクごとに 96MiB を読み直さない）。
+            // 起動時に1度だけ選ぶ（`TGT-ALN-004`。テイクごとに 96MiB を読み直さない）。
             aligner: crate::align::Chosen::detect(),
             open: None,
             capture: None,
@@ -355,7 +364,7 @@ impl Studio {
         })
     }
 
-    /// ライブラリの中身。**manifest が読めないものも落とさず返す。**
+    /// ライブラリの中身。manifest が読めないものも落とさず返す。
     #[tracing::instrument(skip(self), err)]
     pub fn projects(&self) -> Result<Vec<(Uuid, Option<Manifest>)>> {
         Ok(self
@@ -368,7 +377,7 @@ impl Studio {
 
     /// プロジェクトを作り、録音リストを入れる。
     ///
-    /// **リスト生成まで一度に済ませる。** 空のプロジェクトを作って
+    /// リスト生成まで一度に済ませる。 空のプロジェクトを作って
     /// 別の操作でリストを入れさせると、その間の状態が意味を持たない。
     #[tracing::instrument(skip(self, display_name), err)]
     pub fn create_project(&mut self, display_name: &str) -> Result<Uuid> {
@@ -382,7 +391,7 @@ impl Studio {
         let mut ledger = Ledger::open(dir.db_path())?;
         ledger.install_reclist(&list, DEFAULT_TONE_MIDI)?;
 
-        // **初回のとっかかりに要る最小限だけ入れる**（TR-RCL-12）。
+        // 初回のとっかかりに要る最小限だけ入れる（`TR-RCL-12`）。
         // 曲バンクではない。本人が外せる。
         let at = now_rfc3339();
         for (i, song) in ust::bundled_songs().iter().enumerate() {
@@ -391,7 +400,7 @@ impl Studio {
         Ok(dir.id())
     }
 
-    /// プロジェクトを開く。**収録セッションを1つ始める**（`TR-REC-30`）。
+    /// プロジェクトを開く。収録セッションを1つ始める（`TR-REC-30`）。
     #[tracing::instrument(skip(self), err)]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
         let dir = self.library.open_project(id)?;
@@ -423,10 +432,10 @@ impl Studio {
                 .map(|u| u.kana.to_owned())
                 .collect();
 
-        // **oto の検証はまだ通していない。** 全部録れても AwaitingOto で止まる。
+        // oto の検証はまだ通していない。 全部録れても AwaitingOto で止まる。
         let coverage = koeru_core::project::coverage_state(&required, &covered, false, &name);
 
-        // **いま歌える曲の数**（TR-RCL-19）。曲が1本も無くても進捗は読める。
+        // いま歌える曲の数（`TR-RCL-19`）。曲が1本も無くても進捗は読める。
         let status = self.song_status()?;
 
         Ok(Progress {
@@ -442,19 +451,14 @@ impl Studio {
 
     /// 曲ごとの状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
     ///
-    /// **収録済み単位が増えるたびに再計算する**（`TR-RCL-17`）。
+    /// 収録済み単位が増えるたびに再計算する（`TR-RCL-17`）。
     /// 手が届く順に並ぶ（追加項目が少ない順、同数なら短い順）。
     #[tracing::instrument(skip(self), err)]
     pub fn song_status(&mut self) -> Result<Vec<SongStatus>> {
         let open = self.opened_mut()?;
         let covered = open.ledger.covered_units()?;
-        let songs: Vec<Song> = open
-            .ledger
-            .songs_in_bank()?
-            .into_iter()
-            .map(|(_, s)| s)
-            .collect();
-        // **あと何行かは、フルリストの部分集合として数える**（TR-RCL-16）。
+        let songs: Vec<(String, Song)> = open.ledger.songs_in_bank()?;
+        // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
         // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
         let full_list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
         Ok(song::status_of(
@@ -468,9 +472,9 @@ impl Studio {
 
     /// UST を取り込む（`TR-RCL-12`）。
     ///
-    /// **主経路はこれ。** 曲バンクを持たないので、何を目標にするかは本人が決める。
-    /// **取り込んだ曲データは配布パッケージに含めない。**
-    #[tracing::instrument(skip(self, bytes), fields(len = bytes.len(), title), err)]
+    /// 主経路はこれ。 曲バンクを持たないので、何を目標にするかは本人が決める。
+    /// 取り込んだ曲データは配布パッケージに含めない。
+    #[tracing::instrument(skip(self, bytes, title), fields(len = bytes.len()), err)]
     pub fn import_ust(&mut self, bytes: &[u8], title: &str) -> Result<String> {
         let song = ust::parse_ust(bytes, title).map_err(|e| AppError::new(e.kind(), e))?;
         let id = Uuid::new_v4().to_string();
@@ -479,7 +483,7 @@ impl Studio {
         Ok(id)
     }
 
-    /// 曲をバンクから外す／戻す（`TR-RCL-12`）。**曲そのものは消さない。**
+    /// 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。
     #[tracing::instrument(skip(self), err)]
     pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
         self.opened_mut()?.ledger.set_song_in_bank(id, in_bank)?;
@@ -494,7 +498,7 @@ impl Studio {
 
     /// デバイスを選び、ストリームを開く（`recording-input.fsl` の手順）。
     ///
-    /// **ストリームはテイクごとに開閉しない**（`REQ-REC-102`）。
+    /// ストリームはテイクごとに開閉しない（`REQ-REC-102`）。
     /// 収録画面を離れるまで持ち続ける。
     #[tracing::instrument(skip(self), err)]
     pub fn arm_device(&mut self, device: &DeviceId) -> Result<mac::MicrophoneMode> {
@@ -505,26 +509,26 @@ impl Studio {
             ));
         }
 
-        // **前のストリームを先に落とす。** 2つの AUHAL を同時に回さない。
+        // 前のストリームを先に落とす。 2つの AUHAL を同時に回さない。
         // 排出スレッドが先。Consumer を握ったまま Capture を捨てない。
         self.pump = None;
         self.capture = None;
 
-        // **状態機械を作り直す。** `recording-input.fsl` の `select_device` は
+        // 状態機械を作り直す。 `recording-input.fsl` の `select_device` は
         // 未選択からしか進めない（`proved`）。マイクの選び直しは、その機械から見れば
         // 「収録画面を出て入り直す」ことなので、機械ごと新しくするのが忠実な読み。
-        // **既存の機械を無理に巻き戻さない。** 巻き戻す遷移は仕様に無い。
+        // 既存の機械を無理に巻き戻さない。 巻き戻す遷移は仕様に無い。
         self.session = Session::new();
 
         let open = self.opened_mut()?;
-        // **前に決めたチャンネルを引き継ぐ**（TR-REC-06）。テイクごとに違う経路から
+        // 前に決めたチャンネルを引き継ぐ（`TR-REC-06`）。テイクごとに違う経路から
         // 録った素材が混ざると、合成したときに音色が揃わない。
         let saved_channel = open
             .ledger
             .calibration_of(device.as_str())?
             .map_or(0, |c| c.source_channel);
 
-        // **セッションは録音条件のスナップショット**（TR-REC-30）。
+        // セッションは録音条件のスナップショット（`TR-REC-30`）。
         let (cap, consumer) = mac::open(device, 48_000 * RING_SECONDS)?;
         let format = cap.format();
         let mode = mac::active_microphone_mode();
@@ -541,14 +545,14 @@ impl Studio {
             }
             .to_owned(),
             route: "coreaudio-halinput".to_owned(),
-            // **前に選んだチャンネルがあれば引き継ぐ**（TR-REC-06 の「プロジェクトに固定」）。
+            // 前に選んだチャンネルがあれば引き継ぐ（`TR-REC-06` の「プロジェクトに固定」）。
             source_channel: saved_channel,
-            // **キャプチャからマスターまでの変換を残す**（`TR-REC-02`）。
+            // キャプチャからマスターまでの変換を残す（`TR-REC-02`）。
             // `sample_rate_hz` はネイティブレート。**両方あって初めて、
             // 変換したかどうかが後から分かる。**
             master_rate_hz: i32::try_from(wav::MASTER_RATE_HZ).unwrap_or(0),
             resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
-            // **上流の変換は確かめられない**（`TR-REC-02` の [Unknown]）。
+            // 上流の変換は確かめられない（`TR-REC-02` の [Unknown]）。
             // ドライバと APO が何をしたかは、アプリからは見えない。
             upstream_conversion: "unknown".to_owned(),
         })?;
@@ -561,12 +565,12 @@ impl Studio {
             self.session.effects_all_disabled()?;
         } else {
             self.session.effects_some_remain()?;
-            // **提示は一度だけ**（TR-REC-12）。何度も出すと録音の邪魔になる。
+            // 提示は一度だけ（`TR-REC-12`）。何度も出すと録音の邪魔になる。
             self.session.show_prompt_once()?;
         }
         self.session.calibrate_gain()?;
 
-        // **アプリが触る前のゲインを覚えておく**（TR-REC-15）。
+        // アプリが触る前のゲインを覚えておく（`TR-REC-15`）。
         // 終了時にここへ戻す。戻せないと、利用者のマイクの設定を勝手に変えたままになる。
         if self.gain_before.as_ref().is_none_or(|(d, _)| d != device)
             && let Some(g) = mac::read_gain(device)
@@ -581,7 +585,7 @@ impl Studio {
             cap.set_source_channel(usize::try_from(saved_channel).unwrap_or(0));
         }
 
-        // **収録画面に入った時点から止めない**（REQ-REC-102、TR-REC-19）。
+        // 収録画面に入った時点から止めない（`REQ-REC-102`、`TR-REC-19`）。
         // ここから排出が回り、プリロールが溜まりはじめる。
         cap.arm();
         self.pump = Some(Pump::start(consumer, format.sample_rate_hz));
@@ -592,15 +596,14 @@ impl Studio {
 
     /// 残り全部を録り切れるかを見積もる（`REQ-REC-110`, `TR-REC-41`）。
     ///
-    /// **入る分だけ録らせる。** 3時間の収録の途中で埋まると、その日の作業を失う。
+    /// 入る分だけ録らせる。 3時間の収録の途中で埋まると、その日の作業を失う。
     /// 判定は状態機械が一度だけ行い、選ばせない。
     ///
-    /// **残量を引けない環境では「足りる」として通す。** 引けないだけで
+    /// 残量を引けない環境では「足りる」として通す。 引けないだけで
     /// 収録できなくなるほうが困る（`TR-REC-24` は残量不足を止めるもので、
     /// 残量が読めないことを止めるものではない）。
     #[tracing::instrument(skip(self), err)]
     pub fn estimate_space(&mut self) -> Result<SpaceEstimate> {
-        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
@@ -611,7 +614,7 @@ impl Studio {
         self.session
             .estimate_space(required, available.unwrap_or(u64::MAX))?;
 
-        // **足りないときは「その残量で何件録れるか」を出す**（TR-REC-41）。
+        // 足りないときは「その残量で何件録れるか」を出す（`TR-REC-41`）。
         // 「足りません」だけでは、何を削れば足りるのか分からない。
         let fits = available.map_or(remaining, |a| storage::rows_that_fit(a, rate));
         Ok(SpaceEstimate {
@@ -624,10 +627,9 @@ impl Studio {
 
     /// 次のテイクを始めてよいだけの残量があるか（`TR-REC-41`）。
     ///
-    /// **進行中のテイクは最後まで録りきる。** 止めるのは次を始めるところだけ。
+    /// 進行中のテイクは最後まで録りきる。 止めるのは次を始めるところだけ。
     #[tracing::instrument(skip(self), err)]
     pub fn has_room_for_one_more(&mut self) -> Result<bool> {
-        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
@@ -640,14 +642,14 @@ impl Studio {
 
     /// 入力が届いているかを確かめる（`TR-REC-17`）。    /// 入力が届いているかを確かめる（`TR-REC-17`）。
     ///
-    /// **権限が無いと macOS は無音を返す。** 成否ではなく中身を見る。
+    /// 権限が無いと macOS は無音を返す。 成否ではなく中身を見る。
     ///
-    /// ストリームは開いたまま測る。**止めて測ると、そのぶんプリロールが途切れる**
+    /// ストリームは開いたまま測る。止めて測ると、そのぶんプリロールが途切れる
     /// （`TR-REC-19`）。
     #[tracing::instrument(skip(self), err)]
     pub fn probe_input(&mut self, ms: u64) -> Result<f32> {
         {
-            // 直前の残りを捨ててから測る。**「今」の入力だけを見る。**
+            // 直前の残りを捨ててから測る。「今」の入力だけを見る。
             let pump = self.pump.as_ref().ok_or_else(no_stream)?;
             let _ = pump.take_peak();
         }
@@ -664,7 +666,7 @@ impl Studio {
 
     /// プリロールがどれだけ溜まっているか（ミリ秒、`TR-REC-19`）。
     ///
-    /// **`PREROLL_MS` に足りていなければ、遡れるのはその長さまで。**
+    /// `PREROLL_MS` に足りていなければ、遡れるのはその長さまで。
     #[must_use]
     pub fn preroll_ms(&self) -> u64 {
         self.pump.as_ref().map_or(0, Pump::preroll_ms)
@@ -672,7 +674,7 @@ impl Studio {
 
     /// 出力がどこへ出ているらしいか（`TR-REC-24`）。
     ///
-    /// **これは一次の足切りでしかない。** `TransportType` も `DataSource` も
+    /// これは一次の足切りでしかない。 `TransportType` も `DataSource` も
     /// ドライバの自己申告で、Unknown が正規値として存在する。
     /// 実際の回り込みは [`Studio::check_guide_leak`] が録った音で確かめる。
     #[must_use]
@@ -682,16 +684,15 @@ impl Studio {
 
     /// ガイドを鳴らしながら録って、回り込みを確かめる（`TR-REC-24`）。
     ///
-    /// **出力経路の判定だけでは足りない。** ヘッドホンと申告していても、
-    /// 装着されている保証はない。**回り込みは録音側でしか確認できない。**
+    /// 出力経路の判定だけでは足りない。 ヘッドホンと申告していても、
+    /// 装着されている保証はない。回り込みは録音側でしか確認できない。
     ///
-    /// **これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。**
+    /// これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。
     ///
     /// 既知の再生信号との相関を取るだけなので、声質の評価を一切含まない
     /// （`TR-REC-17` と同じ性質の静的な経路検査）。
     #[tracing::instrument(skip(self), err)]
     pub fn check_guide_leak(&mut self, midi: i32) -> Result<LeakCheck> {
-        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
 
@@ -731,7 +732,7 @@ impl Studio {
 
     /// 音高を鳴らす（`TR-REC-23` の音高提示）。
     ///
-    /// **回り込みが確かめられていなければ鳴らさない**（`TR-REC-24`）。
+    /// 回り込みが確かめられていなければ鳴らさない（`TR-REC-24`）。
     /// 鳴らしたものが全テイクに混じる。
     #[tracing::instrument(skip(self), err)]
     pub fn play_pitch(&mut self, midi: i32) -> Result<()> {
@@ -750,7 +751,6 @@ impl Studio {
             }
             Some(_) => {}
         }
-        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
@@ -759,13 +759,13 @@ impl Studio {
         Ok(())
     }
 
-    /// 鳴らしながら録る。**回り込みの検査にだけ使う。**
+    /// 鳴らしながら録る。回り込みの検査にだけ使う。
     fn play_and_capture(&mut self, played: &[f32], rate: u32) -> Result<Vec<f32>> {
         let pump = self.pump.as_ref().ok_or_else(no_stream)?;
         pump.begin_probe();
         let handle = mac::play(played.to_vec(), rate)?;
 
-        // 鳴っているあいだ待つ。**余裕を持たせる**（バッファのぶん遅れる）。
+        // 鳴っているあいだ待つ。余裕を持たせる（バッファのぶん遅れる）。
         let ms = (played.len() as u64 * 1000 / u64::from(rate.max(1))) + 200;
         std::thread::sleep(std::time::Duration::from_millis(ms));
         drop(handle);
@@ -775,7 +775,7 @@ impl Studio {
 
     /// 全チャンネルを混ぜる（`TR-REC-06`）。
     ///
-    /// **全チャンネルに有意な信号があるときだけ選べる。**
+    /// 全チャンネルに有意な信号があるときだけ選べる。
     /// 片側にしか信号が無いのに混ぜると 6dB 損をする。
     #[tracing::instrument(skip(self), err)]
     pub fn use_mixed_channels(&mut self) -> Result<()> {
@@ -800,7 +800,7 @@ impl Studio {
 
     /// 保存してある校正と、いまのゲインを突き合わせる（`TR-REC-15`）。
     ///
-    /// **勝手に戻さない。** 差があることを返すだけで、戻すかどうかは本人が決める。
+    /// 勝手に戻さない。 差があることを返すだけで、戻すかどうかは本人が決める。
     #[tracing::instrument(skip(self), err)]
     pub fn gain_drift(&mut self) -> Result<Option<(f32, f32)>> {
         let Some(device) = self.device.clone() else {
@@ -814,7 +814,7 @@ impl Studio {
         let (Some(saved), Some(now)) = (saved, mac::read_gain(&device)) else {
             return Ok(None);
         };
-        // 1% 未満の差は動いていないものとして扱う。**OS 側の丸めで毎回出す意味は無い。**
+        // 1% 未満の差は動いていないものとして扱う。OS 側の丸めで毎回出す意味は無い。
         if (saved - now).abs() < 0.01 {
             Ok(None)
         } else {
@@ -822,7 +822,7 @@ impl Studio {
         }
     }
 
-    /// 保存してあるゲインへ戻す（`TR-REC-15`）。**本人が選んだときだけ呼ぶ。**
+    /// 保存してあるゲインへ戻す（`TR-REC-15`）。本人が選んだときだけ呼ぶ。
     #[tracing::instrument(skip(self), err)]
     pub fn restore_saved_gain(&mut self) -> Result<()> {
         let Some(device) = self.device.clone() else {
@@ -841,13 +841,13 @@ impl Studio {
 
     /// 入力レベルを校正する（`TR-REC-14`）。
     ///
-    /// **そのプロジェクトで最も高い音高の全力発声**を数秒録って、
+    /// そのプロジェクトで最も高い音高の全力発声を数秒録って、
     /// ピークが -12〜-6 dBFS に入っていれば校正完了。範囲外なら OS の入力ゲインを動かす。
     ///
-    /// **関門にしない。** 収束しなくても収録に進める。3時間の収録の前に、
+    /// 関門にしない。 収束しなくても収録に進める。3時間の収録の前に、
     /// レベル合わせで止められる方がよほど困る。
     ///
-    /// **収録中は呼ばない**（`TR-REC-15`）。
+    /// 収録中は呼ばない（`TR-REC-15`）。
     #[tracing::instrument(skip(self), err)]
     pub fn calibrate(&mut self, seconds: f64) -> Result<Calibration> {
         if self.recording.is_some() {
@@ -868,7 +868,7 @@ impl Studio {
                 f64::NEG_INFINITY
             };
 
-            // **ソフトウェアのボリュームは校正に使えない**（TR-REC-14）。
+            // ソフトウェアのボリュームは校正に使えない（`TR-REC-14`）。
             // 値は読めても動かさない。動かしても A/D の手前は変わらない。
             let gain = control
                 .is_usable()
@@ -883,7 +883,7 @@ impl Studio {
                     attempt += 1;
                 }
                 Outcome::GaveUp { reason } => {
-                    // **ここでも収録には進める。** 関門にしない（TR-REC-14）。
+                    // ここでも収録には進める。 関門にしない（`TR-REC-14`）。
                     // `NoControl` のときは自動調整せず、OS 設定での案内を
                     // 画面側が1回だけ出す（結果の `control` から判断できる）。
                     tracing::info!(reason = reason.as_str(), "校正を切り上げる");
@@ -892,9 +892,9 @@ impl Studio {
             }
         };
 
-        // ── モノラル化の元を決める（TR-REC-06）──
+        // ## モノラル化の元を決める（`TR-REC-06`）
         //
-        // **L+R の平均を既定にしない。** 片側にしか信号が無いインタフェースは珍しくなく、
+        // L+R の平均を既定にしない。 片側にしか信号が無いインタフェースは珍しくなく、
         // 平均すると 6dB 損をする。全力発声を録ったいま測るのがいちばん確か。
         let rms = self
             .capture
@@ -933,7 +933,7 @@ impl Studio {
         };
         let at = now_rfc3339();
         self.opened_mut()?.ledger.put_calibration(&result, &at)?;
-        // **校正の直後は状態機械の上でも校正済みにする。**
+        // 校正の直後は状態機械の上でも校正済みにする。
         Ok(result)
     }
 
@@ -953,7 +953,7 @@ impl Studio {
 
     /// いま録るべき行の収録を始める。
     ///
-    /// **押した瞬間より前へ遡って書きはじめる**（`TR-REC-19`）。
+    /// 押した瞬間より前へ遡って書きはじめる（`TR-REC-19`）。
     /// 人は「録音」を押してから息を吸わない。指示の時点から書くと語頭が欠ける。
     #[tracing::instrument(skip(self), err)]
     pub fn start_take(&mut self) -> Result<String> {
@@ -968,7 +968,7 @@ impl Studio {
 
     /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
     ///
-    /// **録り直しの一覧。** 採用を戻すのにも使う。
+    /// 録り直しの一覧。 採用を戻すのにも使う。
     ///
     /// # Errors
     ///
@@ -980,8 +980,8 @@ impl Studio {
 
     /// 採用テイクを切り替える（`TR-RCL-25`）。
     ///
-    /// **カバレッジは変わらない。** 行が生む単位は行が持っていて、テイクに依らない。
-    /// 変わるのは原音設定の値だけ。**だから再アライメントも要らない**——
+    /// カバレッジは変わらない。 行が生む単位は行が持っていて、テイクに依らない。
+    /// 変わるのは原音設定の値だけ。だから再アライメントも要らない——
     /// oto はテイクごとに導出済みで、切り替えれば付いてくる。
     ///
     /// # Errors
@@ -990,15 +990,15 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
         self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
-        // **試唱のキャッシュは消さなくてよい。** 鍵に素材の内容ハッシュが
+        // 試唱のキャッシュは消さなくてよい。 鍵に素材の内容ハッシュが
         // 入っているので、テイクが変われば別の鍵になり、古い結果は使われない。
         self.prerender_songs();
         Ok(())
     }
 
-    /// 行を指定して録る。**録り直しの入口**（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
+    /// 行を指定して録る。録り直しの入口（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
     ///
-    /// **既存のテイクを消さない。** 世代を1つ足して積み、
+    /// 既存のテイクを消さない。 世代を1つ足して積み、
     /// `finish_take` が採用を新しい方へ切り替える。過去のテイクは非採用として残り、
     /// [`Self::adopt_take`] でいつでも戻せる。
     ///
@@ -1010,7 +1010,7 @@ impl Studio {
         if self.recording.is_some() {
             return Err(AppError::new("app.already_recording", "すでに収録中"));
         }
-        // **ストリームが開いていることだけ確かめる。** レートは持ち回さない——
+        // ストリームが開いていることだけ確かめる。 レートは持ち回さない——
         // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let audio_dir = self.opened()?.dir.audio_dir();
@@ -1019,11 +1019,11 @@ impl Studio {
         // 台帳に載らないファイルができる。
         self.opened_mut()?.ledger.row_state(&row_id)?;
 
-        // **世代を名前に入れる。** 録り直しても既存の WAV を上書きしない（TR-PKG-39）。
+        // 世代を名前に入れる。 録り直しても既存の WAV を上書きしない（`TR-PKG-39`）。
         let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;
         let path = audio_dir.join(format!("{row_id}_{generation}.wav"));
 
-        // **残りが1テイクぶんを割ったら、次を始めさせない**（TR-REC-41）。
+        // 残りが1テイクぶんを割ったら、次を始めさせない（`TR-REC-41`）。
         // 進行中のテイクは最後まで録りきるので、止めるのはここだけ。
         if !self.has_room_for_one_more()? {
             return Err(AppError::new(
@@ -1032,7 +1032,7 @@ impl Studio {
             ));
         }
 
-        // **遡れる分が足りないことは止める理由にしない。** 記録して進む。
+        // 遡れる分が足りないことは止める理由にしない。 記録して進む。
         // 収録画面に入った直後は、まだプリロールが溜まりきっていない。
         let held = self.preroll_ms();
         if held < PREROLL_MS {
@@ -1044,8 +1044,8 @@ impl Studio {
         }
 
         self.session.start_take()?;
-        // **ここで取りこぼしの基準を取る。** このテイクの中で増えたぶんだけを見る
-        //（TR-REC-07 は「1テイクの中で1フレームでも欠落したら」と定めている）。
+        // ここで取りこぼしの基準を取る。 このテイクの中で増えたぶんだけを見る
+        //（`TR-REC-07` は「1テイクの中で1フレームでも欠落したら」と定めている）。
         self.xrun_baseline = self
             .capture
             .as_ref()
@@ -1063,13 +1063,13 @@ impl Studio {
 
     /// 収録を止めて、テイクを確定させる。
     ///
-    /// **順序は、ファイル確定 → DB コミット**（`DEC-REC-004`）。
+    /// 順序は、ファイル確定 → DB コミット（`DEC-REC-004`）。
     /// 逆にすると、ファイルの無い行が DB に残る。
     ///
     /// 確定のあと、その場で解析と `.frq` と oto の導出まで済ませる
     /// （`TR-PKG-05`, `TR-PKG-42`）。
     ///
-    /// **取りこぼしがあったテイクは、ここで自動的に無効にする**（`TR-REC-07`）。
+    /// 取りこぼしがあったテイクは、ここで自動的に無効にする（`TR-REC-07`）。
     /// 同じフレーズがもう一度出てくる。
     #[tracing::instrument(skip(self), err)]
     pub fn finish_take(&mut self) -> Result<TakeResult> {
@@ -1078,12 +1078,11 @@ impl Studio {
             .take()
             .ok_or_else(|| AppError::new("app.not_recording", "収録していない"))?;
 
-        // **マスターの時間軸で見る。** 書かれる WAV は常に 44100（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let guide_offset = self.guide_offset_at_start.take();
 
-        // **指示のあとも `TAIL_MS` ぶん書く**（TR-REC-19）。ここで待つ。
+        // 指示のあとも `TAIL_MS` ぶん書く（`TR-REC-19`）。ここで待つ。
         let finished = self
             .pump
             .as_ref()
@@ -1100,7 +1099,7 @@ impl Studio {
 
         self.session.finish_take()?;
 
-        // ── ここまでで**ファイルは確定している**。DB はこの先 ──
+        // ## ここまででファイルは確定している。DB はこの先
         let root = self.opened()?.dir.root().to_path_buf();
         let rel = finished
             .path
@@ -1119,15 +1118,15 @@ impl Studio {
             recorded_at: now_rfc3339(),
         })?;
 
-        // ── 解析。**録音停止時に確定させて、以後 WAV を読み直さない** ──
+        // ## 解析。録音停止時に確定させて、以後 WAV を読み直さない
         let f64s: Vec<f64> = finished.samples.iter().map(|s| f64::from(*s)).collect();
-        // **試唱のために走らせる解析を、そのまま .frq へ回す**（TR-PKG-05）。
+        // 試唱のために走らせる解析を、そのまま .frq へ回す（`TR-PKG-05`）。
         // 書き出しのために推定し直さない。
         //
-        // **二段構え**（TR-SYN-22）。最初の数テイクは DIO+StoneMask で即座に確定し、
+        // 二段構え（`TR-SYN-22`）。最初の数テイクは DIO+StoneMask で即座に確定し、
         // 話者音域が判明したら Harvest で引き直す。
         // `.frq` が要求するのは F0 と平均振幅だけなので、初期テイクの試唱には
-        // DIO の精度で足りる。**待たせないことのほうが効く。**
+        // DIO の精度で足りる。待たせないことのほうが効く。
         let purpose = if self.observed_f0.len() >= f0::RANGE_SAMPLE_TAKES {
             f0::Purpose::Distribution
         } else {
@@ -1154,12 +1153,12 @@ impl Studio {
         self.opened_mut()?.ledger.put_analysis(take_id, &analysis)?;
         analysis.frq.write(&frq::frq_path(&finished.path)?)?;
 
-        // ── 境界と oto ──
+        // ## 境界と oto
         let duration_ms = frames as f64 * 1000.0 / f64::from(rate);
         let cfg = SegmentConfig::default();
-        // **アライナを通す**（`TR-ALN-03`）。MFA が使えなければ退避経路が同じ口で答える。
+        // アライナを通す（`TR-ALN-03`）。MFA が使えなければ退避経路が同じ口で答える。
         let alignment = self.align_take(&f64s, rate, &row_id);
-        // **1ファイルに複数モーラが入る**（`TR-RCL-03`、`DEC-ALN-013`）。
+        // 1ファイルに複数モーラが入る（`TR-RCL-03`、`DEC-ALN-013`）。
         // モーラごとに境界を取り出し、oto もモーラごとに作る。
         let kana = self.opened_mut()?.ledger.units_of(&row_id)?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
@@ -1175,8 +1174,8 @@ impl Studio {
             })
         });
 
-        // ── 計測（TR-REC-16）と無音マージン（TR-REC-38）──
-        // **測るだけ。判定も指摘もしない。**
+        // ## 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）
+        // 測るだけ。判定も指摘もしない。
         let metrics = TakeMetrics::measure(
             &finished.samples,
             rate,
@@ -1194,10 +1193,10 @@ impl Studio {
         let (oto, conf) = match per_mora {
             None => (None, None),
             Some(ref v) => {
-                // **確信度はテイク全体で1つ。** 事後確率があればそこから組み立てる
+                // 確信度はテイク全体で1つ。 事後確率があればそこから組み立てる
                 // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
-                // **MFA が動いたのにパワー比で境界鋭さを測ると、
-                // 要件の定義と違うものを記録することになる。**
+                // MFA が動いたのにパワー比で境界鋭さを測ると、
+                // 要件の定義と違うものを記録することになる。
                 let c = alignment
                     .as_ref()
                     .and_then(|a| Confidence::from_alignment(a, &f64s))
@@ -1207,7 +1206,7 @@ impl Studio {
                 let preset = Preset::default_for(koeru_core::alias::Method::Single)
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
 
-                // **モーラごとに1つ。** 同じ WAV を別のエイリアスが別の位置で指す。
+                // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
                 let mut first = None;
                 for (b, reading) in v.iter().zip(&kana) {
                     let o = derive_cv(
@@ -1216,7 +1215,7 @@ impl Studio {
                         b.vowel_end_ms,
                         duration_ms,
                         &preset,
-                        // **子音クラスはそのモーラから引く**（`TR-ALN-17`）。
+                        // 子音クラスはそのモーラから引く（`TR-ALN-17`）。
                         Self::consonant_class_of(reading),
                     );
                     self.opened_mut()?.ledger.put_oto(
@@ -1240,25 +1239,25 @@ impl Studio {
             }
         };
 
-        // ── 採否 ──
+        // ## 採否
         //
-        // **取りこぼしたテイクは自動的に無効にする**（TR-REC-07）。
+        // 取りこぼしたテイクは自動的に無効にする（`TR-REC-07`）。
         // 欠落した素材は oto の導出も合成も救えないので、採用の候補に入れない。
-        // ファイルは残す（TR-REC-21 の「削除も上書きもしない」）。
+        // ファイルは残す（`TR-REC-21` の「既存のテイクを削除・上書きせず」）。
         if discontinuities > 0 {
             tracing::warn!(discontinuities, "取りこぼしたテイクを無効にする");
             self.opened_mut()?.ledger.invalidate_take(take_id)?;
         } else {
-            // **録れたものは既定で採用する。** 選ばせるのは録り直したときだけ。
+            // 録れたものは既定で採用する。 選ばせるのは録り直したときだけ。
             self.opened_mut()?.ledger.adopt_take(&row_id, take_id)?;
         }
 
-        // ── 背後で前処理を進める（TR-SYN-04, TR-SYN-34）──
+        // ## 背後で前処理を進める（`TR-SYN-04`, `TR-SYN-34`）
         //
-        // **完了期限は「次の録音項目まで」ではなく「試唱押下まで」。**
+        // 完了期限は「次の録音項目まで」ではなく「試唱押下まで」。
         // 3時間の収録の途中で、次のフレーズを出すのを待たせない。
         //
-        // **いま録ったものを含むフレーズを、操作を待たずに合成しておく**（TR-SYN-04）。
+        // いま録ったものを含むフレーズを、操作を待たずに合成しておく（`TR-SYN-04`）。
         // 押されたときには、もう出来ている。
         self.prerender_songs();
 
@@ -1279,9 +1278,9 @@ impl Studio {
 
     /// ファイル名を NFC に揃える（`TR-REC-32`）。
     ///
-    /// **macOS はファイル作成後の名前を分解形で返すことがある。**
+    /// macOS はファイル作成後の名前を分解形で返すことがある。
     /// 揃えないと、同じ「が」が別の文字列として台帳と食い違う。
-    /// **書き出しの直前にも通す。** 分解形のまま配ると、受け手の環境で見つからない。
+    /// 書き出しの直前にも通す。 分解形のまま配ると、受け手の環境で見つからない。
     ///
     /// 返るのは直した数。
     #[tracing::instrument(skip(self), err)]
@@ -1292,7 +1291,7 @@ impl Studio {
 
     /// NFC でない名前が残っていないか（`TR-REC-32`）。
     ///
-    /// **書き出しの関門。** 残っていたら書き出さない。
+    /// 書き出しの関門。 残っていたら書き出さない。
     #[tracing::instrument(skip(self), err)]
     pub fn non_nfc_names(&mut self) -> Result<Vec<String>> {
         let dir = self.opened()?.dir.audio_dir();
@@ -1301,10 +1300,10 @@ impl Studio {
 
     /// 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
     ///
-    /// **収録中の判定ではない。** ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
+    /// 収録中の判定ではない。 ここでだけ、壊れた成果物が完成へ到達する経路を塞ぐ。
     #[tracing::instrument(skip(self), err)]
     pub fn preflight(&mut self) -> Result<Preflight> {
-        // **名前は先に直す。** 直せるものを関門で止めない。
+        // 名前は先に直す。 直せるものを関門で止めない。
         let renamed = self.normalize_file_names()?;
         let non_nfc = self.non_nfc_names()?;
         let clipped = self.opened_mut()?.ledger.clipped_adopted_takes()?;
@@ -1318,9 +1317,9 @@ impl Studio {
         })
     }
 
-    /// 収録済みのテイクを、指定した音高で合成する。**鳴らさない。**
+    /// 収録済みのテイクを、指定した音高で合成する。鳴らさない。
     ///
-    /// **周波数表は台帳から取る。** 書き出しのためだけでなく、試唱もここを使う
+    /// 周波数表は台帳から取る。 書き出しのためだけでなく、試唱もここを使う
     /// （`TR-PKG-05` の「再推定を要しない」）。
     ///
     /// 返るのは `(サンプル, サンプルレート)`。
@@ -1337,7 +1336,7 @@ impl Studio {
             .ledger
             .take(take_id)?
             .ok_or_else(|| AppError::new("app.unknown_take", "そのテイクが台帳に無い"))?;
-        // **1テイクに複数のエントリがある**（`DEC-ALN-013`）。試聴は先頭の1つで鳴らす。
+        // 1テイクに複数のエントリがある（`DEC-ALN-013`）。試聴は先頭の1つで鳴らす。
         // 並びはエイリアス順で常に同じ（`TR-ALN-29`）。
         let oto = self
             .opened_mut()?
@@ -1356,7 +1355,7 @@ impl Studio {
         let out = render(&RenderRequest {
             samples: &samples,
             sample_rate_hz: w.rate_hz,
-            // **`tone` は鳴らしたい音高。収録音高ではない**（resampler の doc を参照）。
+            // `tone` は鳴らしたい音高。収録音高ではない（resampler の doc を参照）。
             // ここに収録音高を渡すと、どの音高を選んでも同じ高さで鳴る。
             tone: midi,
             oto: Oto {
@@ -1372,7 +1371,7 @@ impl Studio {
             modulation: 0.0,
             tempo: 120.0,
             pitch_bend_cents: &[],
-            // **表はファイル全体・hop=256 の `.frq`**（`TR-PKG-05`）。
+            // 表はファイル全体・hop=256 の `.frq`（`TR-PKG-05`）。
             // 切り出しと 5ms 格子への載せ替えは合成器がする。
             frequency_table: (!table.is_empty()).then_some(FrequencyTable {
                 f0: &table,
@@ -1388,13 +1387,13 @@ impl Studio {
         Ok((pcm, w.rate_hz))
     }
 
-    /// 収録済みのテイクを、指定した音高で鳴らす。**縦切りの終点。**
+    /// 収録済みのテイクを、指定した音高で鳴らす。縦切りの終点。
     #[tracing::instrument(skip(self), err)]
     pub fn preview(&mut self, take_id: i32, midi: i32, length_ms: f64) -> Result<usize> {
         let (pcm, rate) = self.render_take(take_id, midi, length_ms)?;
         let n = pcm.len();
 
-        // **前の再生は止める。** 重ねると何を聴いているか分からなくなる。
+        // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
         self.playback = None;
         self.playback = Some(mac::play(pcm, rate)?);
         Ok(n)
@@ -1402,8 +1401,8 @@ impl Studio {
 
     /// いま録ったものを含む曲のフレーズを、背後で合成しておく（`TR-SYN-04`）。
     ///
-    /// **ユーザー操作を待たない。** 押されたときには、もう出来ている。
-    /// **録音入力より低い優先度で回す**（`TR-SYN-34`）ので、収録の邪魔にならない。
+    /// ユーザー操作を待たない。 押されたときには、もう出来ている。
+    /// 録音入力より低い優先度で回す（`TR-SYN-34`）ので、収録の邪魔にならない。
     fn prerender_songs(&mut self) {
         // どの曲がいま歌えるかだけ見て、歌えるものの先頭フレーズを温めておく。
         let Ok(status) = self.song_status() else {
@@ -1418,7 +1417,7 @@ impl Studio {
         }
         let cache = Arc::clone(&self.song_cache);
         self.workers.submit(Priority::PostRecording, move || {
-            // **鍵に素材の内容ハッシュが入っている**ので、古い結果は自然に使われない。
+            // 鍵に素材の内容ハッシュが入っているので、古い結果は自然に使われない。
             // ここでできるのは、次に押されたときに載っている確率を上げることだけ。
             let held = cache.lock().map_or(0, |c| c.len());
             tracing::debug!(held, singable, "試唱の前処理を進めた");
@@ -1427,7 +1426,7 @@ impl Studio {
 
     /// 背後で待っている仕事の数（`TR-SYN-33`）。
     ///
-    /// **「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない**（`TR-SYN-33`）。
+    /// 「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない（`TR-SYN-33`）。
     /// 画面はこれを見て、進んでいることを出す。
     #[must_use]
     pub fn pending_work(&self) -> usize {
@@ -1436,7 +1435,7 @@ impl Studio {
 
     /// 見えている範囲の波形（`TR-PLT-04`）。
     ///
-    /// **読む量は画素数に比例する。** 範囲の広さには比例しない。
+    /// 読む量は画素数に比例する。 範囲の広さには比例しない。
     /// 段はテイクごとに一度だけ積んで持ち回す。
     #[tracing::instrument(skip(self), fields(take_id, pixels), err)]
     pub fn waveform_window(
@@ -1465,7 +1464,7 @@ impl Studio {
 
     /// 見えている範囲のスペクトログラム（`TR-PLT-04`）。
     ///
-    /// **素材ファイル全体の STFT を一括で先行計算しない。**
+    /// 素材ファイル全体の STFT を一括で先行計算しない。
     #[tracing::instrument(skip(self), fields(take_id, columns, rows), err)]
     pub fn spectrogram_window(
         &mut self,
@@ -1494,14 +1493,14 @@ impl Studio {
         ))
     }
 
-    /// テイクの段を積む。**一度積んだら持ち回す。**
+    /// テイクの段を積む。一度積んだら持ち回す。
     fn mipmap_of(&mut self, take_id: i32) -> Result<(Arc<waveform::Mipmap>, u32)> {
         if let Some((map, rate)) = self.mipmaps.get(&take_id) {
             return Ok((Arc::clone(map), *rate));
         }
         let (samples, rate) = self.samples_of(take_id)?;
         let map = Arc::new(waveform::Mipmap::build(&samples));
-        // **上限を置く。** 3時間ぶんの段を全部持つとメモリが尽きる。
+        // 上限を置く。 3時間ぶんの段を全部持つとメモリが尽きる。
         if self.mipmaps.len() >= MIPMAP_CACHE {
             self.mipmaps.clear();
         }
@@ -1521,13 +1520,13 @@ impl Studio {
         Ok((w.samples, w.rate_hz))
     }
 
-    /// 待っている仕事の持ち手（`TR-SYN-33`）。**状態ロックの外から読むために出す。**
+    /// 待っている仕事の持ち手（`TR-SYN-33`）。状態ロックの外から読むために出す。
     #[must_use]
     pub fn pending_handle(&self) -> crate::workers::PendingHandle {
         self.workers.pending_handle()
     }
 
-    /// 包絡の持ち手（`TR-REC-43`）。**状態ロックの外から読むために出す。**
+    /// 包絡の持ち手（`TR-REC-43`）。状態ロックの外から読むために出す。
     ///
     /// マイクを選ぶ前は無い。
     #[must_use]
@@ -1537,7 +1536,7 @@ impl Studio {
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
     ///
-    /// **自動原音設定が波形のどこを指したかを見せるための口。**
+    /// 自動原音設定が波形のどこを指したかを見せるための口。
     /// 数字だけ出しても、それが発声と重なっているかは分からない
     /// ——4モーラが 100ms に潰れていても「確信度 30%」としか出なかった。
     ///
@@ -1549,10 +1548,10 @@ impl Studio {
         Ok(self.opened_mut()?.ledger.otos_of(take_id)?)
     }
 
-    /// 録れたものを**そのまま**鳴らす（`TR-REC-43`）。
+    /// 録れたものをそのまま鳴らす（`TR-REC-43`）。
     ///
-    /// **合成を通さない。** `preview` は oto で切り出して目標音高へ寄せた音で、
-    /// **「録れているか」を確かめるための音ではない。**
+    /// 合成を通さない。 `preview` は oto で切り出して目標音高へ寄せた音で、
+    /// 「録れているか」を確かめるための音ではない。
     /// 声が入っていないテイクを、合成の失敗と区別できるようにする。
     ///
     /// # Errors
@@ -1573,7 +1572,7 @@ impl Studio {
         )]
         let ms = w.samples.len() as f64 * 1000.0 / f64::from(w.rate_hz);
 
-        // **前の再生は止める。** 重ねると何を聴いているか分からなくなる。
+        // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
         self.playback = None;
         self.playback = Some(mac::play(w.samples, w.rate_hz)?);
         Ok(ms)
@@ -1581,29 +1580,29 @@ impl Studio {
 
     /// 鳴らしている音を止める（`TR-SYN-27`）。
     ///
-    /// **進行中の合成も止める。** 200ms 以内に抜ける。
+    /// 進行中の合成も止める。 200ms 以内に抜ける。
     pub fn stop_preview(&mut self) {
         self.singing = None;
         self.playback = None;
         self.playback_stream = None;
-        // **積んである仕事も捨てる**（TR-SYN-27）。曲を切り替えたときに、
+        // 積んである仕事も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
         // 前の曲のための前処理を回し続ける意味は無い。
         self.workers.clear();
     }
 
     /// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
     ///
-    /// **先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る**（`TR-SYN-03`）。
+    /// 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る（`TR-SYN-03`）。
     ///
-    /// **鳴らせない音符があるフレーズは、フレーズごと落とす**（`TR-SYN-18` (2)）。
+    /// 鳴らせない音符があるフレーズは、フレーズごと落とす（`TR-SYN-18` (2)）。
     /// 落とした位置に無音・別音・代替音を挿入しない。
     /// 残りが短すぎれば、そもそも鳴らさない（`TR-SYN-18` (3)）。
     ///
     /// 返るのは（フレーズ数, 落としたフレーズ数, 鳴らす長さ ms）。
-    #[tracing::instrument(skip(self), fields(index), err)]
-    pub fn sing_song(&mut self, index: usize) -> Result<SungSong> {
+    #[tracing::instrument(skip(self, id), err)]
+    pub fn sing_song(&mut self, id: &str) -> Result<SungSong> {
         let started = std::time::Instant::now();
-        // **先に止める。** 重ねると何を聴いているか分からなくなる。
+        // 先に止める。 重ねると何を聴いているか分からなくなる。
         self.stop_preview();
 
         let rate = 44_100_u32;
@@ -1613,13 +1612,13 @@ impl Studio {
             .ledger
             .songs_in_bank()?
             .into_iter()
-            .nth(index)
+            .find(|(sid, _)| sid == id)
             .map(|(_, s)| s)
             .ok_or_else(|| AppError::new("app.unknown_song", "その曲がバンクに無い"))?;
 
-        // ── 素材を集める ──
+        // ## 素材を集める
         //
-        // **採用テイクだけを使う。** 無効にしたテイク（取りこぼし）は入らない。
+        // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
         let Materials {
             paths,
             tables,
@@ -1627,7 +1626,7 @@ impl Studio {
         } = self.adopted_materials(&root)?;
         let available: std::collections::BTreeSet<String> = paths.keys().cloned().collect();
 
-        // ── フレーズに割る ──
+        // ## フレーズに割る
         let moras = song
             .moras(UnitSet::Core)
             .ok_or_else(|| AppError::new("app.unreadable_lyrics", "この曲の歌詞を読めない"))?;
@@ -1663,8 +1662,8 @@ impl Studio {
                         duration_ms,
                     });
                 }
-                // **促音は鳴らさない拍。** ここでフレーズを切るが、
-                // **素材が足りないわけではない**ので `playable` は倒さない。
+                // 促音は鳴らさない拍。 ここでフレーズを切るが、
+                // 素材が足りないわけではないので `playable` は倒さない。
                 koeru_core::alias::PhraseUnit::Rest => {
                     if !current.is_empty() {
                         phrases.push((
@@ -1674,7 +1673,7 @@ impl Studio {
                     }
                 }
                 koeru_core::alias::PhraseUnit::Missing(_) => {
-                    // **鳴らせない音符が出たら、そこでフレーズを切る**（TR-SYN-18）。
+                    // 鳴らせない音符が出たら、そこでフレーズを切る（`TR-SYN-18`）。
                     if !current.is_empty() {
                         phrases.push((
                             koeru_synth::phrase::Phrase::new(std::mem::take(&mut current)),
@@ -1703,7 +1702,7 @@ impl Studio {
         let owned: Vec<koeru_synth::phrase::Phrase> = kept.into_iter().cloned().collect();
         let phrase_count = owned.len();
 
-        // ── 鳴らす ──
+        // ## 鳴らす
         let samples: Arc<dyn koeru_synth::phrase::Samples + Send + Sync> =
             Arc::new(WavSamples { paths, tables });
 
@@ -1724,9 +1723,9 @@ impl Studio {
         self.playback_stream = Some(stream);
         self.singing = Some(running);
 
-        // ── 押してから鳴るまでを測る（TR-SYN-33）──
+        // ## 押してから鳴るまでを測る（`TR-SYN-33`）
         //
-        // **場面ごとに分けて溜める。** 同じ目標でひとくくりにすると、
+        // 場面ごとに分けて溜める。 同じ目標でひとくくりにすると、
         // 初回の重さと2回目以降の軽さのどちらかが説明できなくなる。
         let case = if self.ever_previewed {
             Case::Warm
@@ -1753,7 +1752,7 @@ impl Studio {
 
     /// 試唱の待ち時間の実測（`TR-SYN-33`）。
     ///
-    /// **回数が少ないうちは判定しない。**
+    /// 回数が少ないうちは判定しない。
     #[must_use]
     pub fn latency_report(&self) -> Vec<LatencyRow> {
         let mut out: Vec<LatencyRow> = self
@@ -1762,12 +1761,12 @@ impl Studio {
             .map(|(case, o)| LatencyRow {
                 case: *case,
                 count: o.count(),
-                median_ms: o.median().map(|d| d.as_millis()),
-                budget_ms: latency::budget(*case).median.as_millis(),
+                median_ms: o.median().map(ms_u32),
+                budget_ms: ms_u32(latency::budget(*case).median),
                 meets: o.meets(*case, LATENCY_MIN_SAMPLES),
             })
             .collect();
-        out.sort_by_key(|r| format!("{:?}", r.case));
+        out.sort_by_key(|r| r.case.as_str());
         out
     }
 
@@ -1787,7 +1786,7 @@ impl Studio {
             let Some(take) = self.opened_mut()?.ledger.take_for_unit(&unit)? else {
                 continue;
             };
-            // **単位がそのままエイリアス。** 1テイクに複数のエントリがあるので、
+            // 単位がそのままエイリアス。 1テイクに複数のエントリがあるので、
             // 欲しい単位のものを名前で引く（`DEC-ALN-013`）。
             let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id, &unit)? else {
                 continue;
@@ -1814,7 +1813,7 @@ impl Studio {
         })
     }
 
-    /// **テスト用。** 音声デバイス無しで、行を収録済みとして印を付ける。
+    /// テスト用。 音声デバイス無しで、行を収録済みとして印を付ける。
     ///
     /// 実際の収録は `start_take` → `finish_take` を通る。ここはカバレッジの
     /// 計算だけを確かめたいときの入口。
@@ -1862,19 +1861,19 @@ impl Studio {
 
     /// 1テイクをアライメントする（`TR-ALN-03`, `TR-ALN-10`）。
     ///
-    /// **録音完了の直後に呼ぶ**（`TR-ALN-10` の逐次推定）。
+    /// 録音完了の直後に呼ぶ（`TR-ALN-10` の逐次推定）。
     ///
-    /// **`Alignment` をそのまま返す。** 境界だけに畳んで返すと、
+    /// `Alignment` をそのまま返す。 境界だけに畳んで返すと、
     /// 事後確率が捨てられて `TR-ALN-24` の成分 (1) 経路確信度が永久に出せない
-    /// （**一度そう書いた**）。呼び出し側が確信度を組み立てるのに要る。
+    /// （一度そう書いた）。呼び出し側が確信度を組み立てるのに要る。
     ///
     /// アライナが答えられなければ退避経路の [`detect_single`] へ落ち、
     /// その場合は事後確率を持たない `Alignment` になる。
-    /// **黙って諦めない**——落ちた理由はトレースに種別で出す。
+    /// 黙って諦めない——落ちた理由はトレースに種別で出す。
     fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Option<Alignment> {
         use koeru_align::aligner::AlignRequest;
 
-        // **読みは録音リストが持っている**（`TR-ALN-07`。実行時に g2p を持ち込まない）。
+        // 読みは録音リストが持っている（`TR-ALN-07`。実行時に g2p を持ち込まない）。
         let kana = self.opened_mut().ok()?.ledger.units_of(row_id).ok()?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
         let phonemes = match koeru_align::phoneme::phonemes_for_all(&readings) {
@@ -1897,10 +1896,10 @@ impl Studio {
         match self.aligner.as_aligner().align(&req) {
             Ok(a) => Some(a),
             Err(e) => {
-                // **テキスト逸脱はここで潰さない**（`TR-ALN-09`）。
+                // テキスト逸脱はここで潰さない（`TR-ALN-09`）。
                 // 境界が出ないまま返せば、oto が付かず確認キューへ回る。
                 tracing::info!(reason = e.kind(), "アライメントが通らなかった");
-                // **既に退避経路なら、もう一度同じものを呼んでも同じ結果。**
+                // 既に退避経路なら、もう一度同じものを呼んでも同じ結果。
                 if matches!(e, koeru_align::aligner::AlignError::TextDeviation)
                     || self.aligner.is_fallback()
                 {
@@ -1914,8 +1913,8 @@ impl Studio {
 
     /// そのモーラの子音クラス（`TR-ALN-17` の子音クラス別係数）。
     ///
-    /// **1行に複数モーラが入る**ので（`DEC-ALN-013`）、行ではなくモーラから引く。
-    /// 引けなければ母音始まり扱い——**推測で無声破裂音にしない。**
+    /// 1行に複数モーラが入るので（`DEC-ALN-013`）、行ではなくモーラから引く。
+    /// 引けなければ母音始まり扱い——推測で無声破裂音にしない。
     /// 取り違えると、重ねてはいけない音を重ねる。
     fn consonant_class_of(kana: &str) -> ConsonantClass {
         koeru_core::inventory::units(UnitSet::Extended)
@@ -1947,7 +1946,7 @@ fn no_stream_err() -> AppError {
 }
 
 impl Drop for Studio {
-    /// **アプリが変更した OS 側のゲインを、終了時に元へ戻す**（`TR-REC-15`）。
+    /// アプリが変更した OS 側のゲインを、終了時に元へ戻す（`TR-REC-15`）。
     ///
     /// 戻さないと、利用者のマイクの設定を勝手に変えたままになる。
     /// KOERU を閉じたあとに別のアプリで小さすぎる／大きすぎる音になる。
@@ -1964,8 +1963,8 @@ impl Drop for Studio {
 
 /// 素材の内容ハッシュ（`TR-SYN-02`）。
 ///
-/// **録り直したら変わる。** 変われば鍵が変わり、古い合成結果は使われない。
-/// 中身を読み直さずに済むよう、**更新時刻と大きさから作る。**
+/// 録り直したら変わる。 変われば鍵が変わり、古い合成結果は使われない。
+/// 中身を読み直さずに済むよう、更新時刻と大きさから作る。
 fn hash_of(path: Option<&PathBuf>) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let Some(p) = path else { return 0 };
@@ -1984,13 +1983,13 @@ fn hash_of(path: Option<&PathBuf>) -> u64 {
 
 /// 現在時刻を RFC 3339 で。
 ///
-/// **秒までで足りる。** 台帳に入るのは順序を保つためで、精密な時刻ではない。
+/// 秒までで足りる。 台帳に入るのは順序を保つためで、精密な時刻ではない。
 fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // 素の算術で組む。**日付だけのために依存を増やさない。**
+    // 素の算術で組む。日付だけのために依存を増やさない。
     let days = secs / 86_400;
     let rem = secs % 86_400;
     let (y, m, d) = civil_from_days(i64::try_from(days).unwrap_or(0));

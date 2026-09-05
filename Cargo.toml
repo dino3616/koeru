@@ -12,7 +12,7 @@ repository = "https://github.com/dino3616/koeru"
 # clippy::all は priority = -1 にしてあるので、個別の lint 指定が常に優先される。
 # 例外は「行単位・ブロック単位の #[allow(...)]」で入れる。理由をコメントで残すこと。
 [workspace.lints.rust]
-# **手元で「書いていない OS 向けの組み立て」を検査するためのフラグ。**
+# 手元で「書いていない OS 向けの組み立て」を検査するためのフラグ。
 # cargo の feature にしないのは、feature が加算的であるべきで、
 # --all-features で挙動が変わるものを混ぜると macOS の CI がスタブを検査しはじめるため。
 unexpected_cfgs = { level = "warn", check-cfg = [
@@ -41,16 +41,21 @@ unimplemented = "warn"
 
 [workspace.dependencies]
 anyhow = "1"
-# Tauri のコマンド境界で使う。**ドメイン層には入れない**（型は Rust 側が正本）。
+# Tauri のコマンド境界で使う。ドメイン層には入れない（型は Rust 側が正本）。
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# 画面へ渡す型と、コマンドの呼び出し口を TS へ書き出す（`DEC-PLT-019`）。
+# rc が取れていないが、これは上流の版付けの都合で、更新は続いている。
+specta = "=2.0.0-rc.25"
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "time"] }
 
-# macOS の AVFoundation。**マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。**
+# macOS の AVFoundation。マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。
 # CoreAudio の HAL は素の C API なので自前で束縛しており、ここは Objective-C なので届かない。
-# **[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が既に objc2 を引いている。**
+# [Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が既に objc2 を引いている。
 objc2 = "0.6"
 objc2-av-foundation = { version = "0.3", default-features = false, features = [
   "std",
@@ -61,10 +66,10 @@ objc2-av-foundation = { version = "0.3", default-features = false, features = [
 # 権限要求の完了ブロックを組み立てるために要る（objc2 族）。
 block2 = "0.6"
 
-# WORLD（同梱の C++）をビルドする。**cc は rust-lang org**。
+# WORLD（同梱の C++）をビルドする。cc は rust-lang org。
 cc = "1"
 
-# プロジェクトの永続化。**SQLite を bundled で同梱**し、OS の libsqlite3 に依存しない
+# プロジェクトの永続化。SQLite を bundled で同梱し、OS の libsqlite3 に依存しない
 # （TR-PLT-20 のオフライン完結、TR-PLT-07 の外部インストール禁止）。
 # diesel-rs は Organization、Apache-2.0。
 diesel = { version = "2.3", default-features = false, features = [
@@ -74,22 +79,22 @@ diesel = { version = "2.3", default-features = false, features = [
 diesel_migrations = { version = "2.3", default-features = false, features = ["sqlite"] }
 libsqlite3-sys = { version = "0.38", features = ["bundled"] }
 
-# プロジェクトディレクトリ名（TR-PKG-37）。**uuid-rs は Organization**、Apache-2.0/MIT。
+# プロジェクトディレクトリ名（TR-PKG-37）。uuid-rs は Organization、Apache-2.0/MIT。
 uuid = { version = "1", default-features = false, features = ["v4", "std"] }
-# manifest（TR-PKG-37）の読み書き。**toml-rs は Organization。**
+# manifest（TR-PKG-37）の読み書き。toml-rs は Organization。
 # serde を要さず、コメントを保存したまま往復できるので選んだ。
 # manifest は「人が見て中身が判別できる」ために置くもので、コメントが消えると意味が薄れる。
 toml_edit = { version = "0.24", default-features = false, features = ["parse", "display"] }
-# 書き出した oto.ini の内容ハッシュ（TR-PKG-44, TR-PKG-48）。**RustCrypto は Organization。**
+# 書き出した oto.ini の内容ハッシュ（TR-PKG-44, TR-PKG-48）。RustCrypto は Organization。
 sha2 = "0.10"
 # ライブラリ書き出し（TR-PKG-47）と配布パッケージ（M4）。
-# **zip-rs は Organization**、MIT、活発。deflate だけに絞り、
+# zip-rs は Organization、MIT、活発。deflate だけに絞り、
 # bzip2 / lzma / zstd / AES は引かない（配布 ZIP は UTAU が読める必要がある）。
 zip = { version = "8", default-features = false, features = ["deflate"] }
 
-# CP932（TR-PLT-08, TR-PKG-48）。**Firefox の符号化層そのもの**で Gecko に vendored されている。
+# CP932（TR-PLT-08, TR-PKG-48）。Firefox の符号化層そのもので Gecko に vendored されている。
 # リポジトリは個人アカウント（hsivonen）だが、実質の保守主体は Mozilla（DEC-PLT-013）。
 encoding_rs = "0.8"
-# NFC 正規化（TR-PKG-48）。macOS が NFD で返すファイル名を揃える。**unicode-rs は Organization。**
+# NFC 正規化（TR-PKG-48）。macOS が NFD で返すファイル名を揃える。unicode-rs は Organization。
 unicode-normalization = "0.1"
 

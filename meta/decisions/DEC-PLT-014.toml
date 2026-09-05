@@ -12,19 +12,19 @@ options = [
 ]
 selected = 'Canvas 2D ＋ WebGL2'
 rationale = '''
-**Tauri の WebView は OS ごとに別物で、WebGPU が揃わない。**
+Tauri の WebView は OS ごとに別物で、WebGPU が揃わない。
 Windows は WebView2（Chromium）で使えるが、Tauri のウィンドウで有効化する手順が確立していない。
-**Linux は WebKitGTK で、WebGPU の対応状況が確認できない。**
+Linux は WebKitGTK で、WebGPU の対応状況が確認できない。
 TR-PLT-01 は Linux を対象に含めているので、ここで WebGPU 専用の描画層を敷くと、
-**Linux で波形が出ないアプリになる。**
+Linux で波形が出ないアプリになる。
 
 vgpu（vercel-labs、MIT、Organization）は WebGPU 専用で、
 用途もシェーダ・3D シーン・GPU テンソル・数式可視化に寄っている。
-**KOERU が要るのは TR-PLT-04 の2つだけ**——min/max 包絡のミップマップと、
+KOERU が要るのは TR-PLT-04 の2つだけ——min/max 包絡のミップマップと、
 STFT をテクスチャに載せてパン・ズーム中は再サンプルだけする経路。
 どちらも Canvas 2D か、テクスチャ付き矩形1枚の WebGL2 で足りる。
 
-**「あれば使う」の二重経路も採らない。** 描画は KOERU の操作感の中核で、
+「あれば使う」の二重経路も採らない。 描画は KOERU の操作感の中核で、
 OS ごとに別の経路が走ると、片方でしか出ない不具合を抱え込む。
 '''
 review_triggers = [

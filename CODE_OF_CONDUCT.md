@@ -36,7 +36,9 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at GitHub 上で @dino3616 へ直接連絡してください. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement by contacting [@dino3616](https://github.com/dino3616) directly on GitHub, or by opening a [private security advisory](https://github.com/dino3616/koeru/security/advisories/new) if you would rather not use GitHub messaging. All complaints will be reviewed and investigated promptly and fairly.
+
+日本語でも構いません。GitHub 上で [@dino3616](https://github.com/dino3616) へ直接ご連絡ください。GitHub のメッセージを使いたくない場合は、[非公開の security advisory](https://github.com/dino3616/koeru/security/advisories/new) からでも受け付けます。
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 

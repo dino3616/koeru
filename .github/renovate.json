@@ -1,0 +1,45 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "Asia/Tokyo",
+  "schedule": ["before 9am on monday"],
+  "labels": ["dependencies"],
+  "commitMessagePrefix": "chore(deps):",
+  "commitBody": "Signed-off-by: shio <dino3616@gmail.com>",
+  "prHourlyLimit": 2,
+  "enabledManagers": ["cargo", "bun", "github-actions", "git-submodules"],
+  "git-submodules": { "enabled": true },
+  "packageRules": [
+    {
+      "description": "自動マージはしない。ライセンスと挙動を人が見る（CONTRIBUTING の依存追加の規律）。",
+      "matchPackageNames": ["*"],
+      "automerge": false
+    },
+    {
+      "description": "パッチと minor はまとめる。個別に来ると読む回数だけが増える。",
+      "matchUpdateTypes": ["patch", "minor"],
+      "groupName": "patch と minor"
+    },
+    {
+      "description": "major は1つずつ。破壊的変更は個別に読む。",
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "submodule は同梱の C++ とモデル（DEC-PLT-016, DEC-ALN-012）。上げると build.rs とモデルの互換に効くので、必ず人が判断する。",
+      "matchManagers": ["git-submodules"],
+      "dependencyDashboardApproval": true,
+      "groupName": null
+    },
+    {
+      "description": "Tauri と Radix と TanStack は面で動くので、それぞれまとめて上げる。",
+      "matchPackageNames": ["/^@tauri-apps//", "/^tauri/"],
+      "groupName": "tauri"
+    },
+    { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
+    { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" }
+  ],
+  "ignoreDeps": [],
+  "vulnerabilityAlerts": { "labels": ["security"], "schedule": ["at any time"] }
+}

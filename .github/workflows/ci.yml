@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# 同じ枝で新しい push が来たら、走っている検査は捨てる。
+# main だけは畳まない（履歴の各点が緑だったことを残したい）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
@@ -15,20 +21,21 @@ env:
 jobs:
   lint:
     name: fmt + clippy
-    # **ubuntu で回す。** 音声のバックエンドは macOS しか無いので、
+    # ubuntu で回す。 音声のバックエンドは macOS しか無いので、
     # ここでは `backend::current` がスタブを指す。
-    # **「書いていない OS でもアプリが組み立つか」を見ているのはこのジョブ。**
+    # 「書いていない OS でもアプリが組み立つか」を見ているのはこのジョブ。
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
+          # C / C++ とモデルは submodule で調達している（DEC-PLT-016, DEC-ALN-012）。
           # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
-          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
+          # MFA のモデルは HuggingFace の LFS に入っている（DEC-ALN-012）。
           # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
           lfs: true
-      # **Tauri は Linux で WebKitGTK を要る**（DEC-PLT-014）。
+      # Tauri は Linux で WebKitGTK を要る（DEC-PLT-014）。
       - uses: ./.github/actions/linux-webview
       - name: Show toolchain
         run: rustc --version && cargo --version
@@ -46,34 +53,27 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
-          # 取らないと build.rs が手順を出して止まる。
+          # 理由は lint ジョブの同じ箇所。Rust をビルドする job だけが要る。
           submodules: recursive
-          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
-          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
           lfs: true
       # Linux だけ WebKitGTK が要る（上と同じ理由）。
       - uses: ./.github/actions/linux-webview
         if: matrix.os == 'ubuntu-latest'
-      # **音声デバイスを要るテストは、実機ハーネスとして自分で戻る。**
+      # 音声デバイスを要るテストは、実機ハーネスとして自分で戻る。
       # CI のランナーにマイクは無いので、通らないのではなく通り抜ける。
       - run: cargo test --workspace --all-features
 
   specs:
     name: specs (FSL + meta)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      # xtask の依存は toml だけで koeru-* を引かない。submodule も LFS も要らない。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
-          # 取らないと build.rs が手順を出して止まる。
-          submodules: recursive
-          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
-          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
-          lfs: true
       # 配布バイナリはバージョンと SHA-256 の両方で固定する。
       # 更新は Renovate 任せにせず、semantic diff を確認してから上げること。
       - name: Install fslc
@@ -105,7 +105,7 @@ jobs:
         run: |
           set -euo pipefail
           # 仕様の側から回す。文書が無いことを黙って見逃さないため。
-          # **設計層も含める。** 読ませる仕様なのに網から外れていた。
+          # 設計層も含める。 読ませる仕様なのに網から外れていた。
           for f in specs/requirements/*.fsl specs/design/*.fsl; do
             b="$(basename "$f" .fsl)"
             # method-coverage は fslc document generate が関係の空リテラルを扱えない。
@@ -121,49 +121,61 @@ jobs:
         run: |
           cargo run --package xtask -- check-meta
           cargo run --package xtask -- check-budgets
+          cargo run --package xtask -- check-coverage
+          # 手書き文書とソースコメントの ID 参照が実体に解決するか。
+          # check-meta は TOML の中しか見ないので、ここが Markdown とコメントを受け持つ。
+          cargo run --package xtask -- check-references
+          # 判断記録の索引は生成物。手で足すと片方だけ古くなる。
+          cargo run --package xtask -- index-decisions --check
 
   ui:
     name: ui (format + lint + type + contrast)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
-        # **WebView 側は crates/koeru-app/ui にまとめてある。**
+        # WebView 側は crates/koeru-app/ui にまとめてある。
         # ここだけで完結する bun パッケージなので、ワークスペースを跨がない。
         working-directory: crates/koeru-app/ui
     steps:
+      # bun しか使わない。submodule も LFS も要らない。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
-          # 取らないと build.rs が手順を出して止まる。
-          submodules: recursive
-          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
-          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
-          lfs: true
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: crates/koeru-app/ui/package.json
       - name: Install
         run: bun install --frozen-lockfile
-      # 整形・lint・型。**--fix を付けない。** CI は直す場所ではない。
+      # story を実ブラウザで描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
+      # ブラウザは毎回落とさない。 lockfile が変わったときだけ入れ直す。
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('crates/koeru-app/ui/bun.lock') }}
+      # ブラウザ本体だけをキャッシュする。 OS のライブラリは
+      # ~/.cache/ms-playwright の外にあるので、当たっても入れ直す。
+      - name: Install Playwright（ブラウザとライブラリ）
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: bunx playwright install --with-deps chromium
+      - name: Install Playwright（ライブラリだけ）
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: bunx playwright install-deps chromium
+      # 整形・lint・型 ＋ story の網羅 ＋ story の axe と play。
+      # --fix を付けない。CI は直す場所ではない。
       - name: vp check
         run: bun run check:ci
-      # ビルドと型と**配色の検査**。段を選び直したまま出すと、
-      # 明暗どちらかで WCAG 2.2 AA を割る（TR-PLT-25、TR-PLT-28）。
+      # ビルドと型と npm のライセンス。
       - name: build
         run: bun run build
 
   licenses:
     name: license policy
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      # cargo deny はマニフェスト解決だけでビルドしない。submodule も LFS も要らない。
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          # **C / C++ とモデルは submodule で調達している**（DEC-PLT-016, DEC-ALN-012）。
-          # 取らないと build.rs が手順を出して止まる。
-          submodules: recursive
-          # **MFA のモデルは HuggingFace の LFS に入っている**（DEC-ALN-012）。
-          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
-          lfs: true
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。

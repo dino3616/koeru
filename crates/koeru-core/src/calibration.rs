@@ -1,24 +1,24 @@
 //! 入力レベルの校正（`TR-REC-14`, `TR-REC-15`）。
 //!
-//! **目的は「破綻の防止」ではなく「初期値の妥当化」に限る。**
+//! 目的は「破綻の防止」ではなく「初期値の妥当化」に限る。
 //! 校正しても収録中の破綻は防げない。ここが担うのは、最初のひと声を録る前に、
 //! 明らかに小さすぎる／大きすぎる状態を外すことだけ。
 //!
-//! **関門にしない**（`TR-REC-14`）。収束しなくても収録に進める。
+//! 関門にしない（`TR-REC-14`）。収束しなくても収録に進める。
 //! 3時間の収録の前に、レベル合わせで止められる方がよほど困る。
 //!
 //! ここは純粋な計算だけを持つ。OS のゲイン API は `koeru-audio` が持つ。
 
-/// 目標範囲の下限（dBFS）。**16 bit のヘッドルームより 32 bit float の余裕を優先する。**
+/// 目標範囲の下限（dBFS）。16 bit のヘッドルームより 32 bit float の余裕を優先する。
 pub const TARGET_MIN_DBFS: f64 = -12.0;
 
 /// 目標範囲の上限（dBFS）。
 pub const TARGET_MAX_DBFS: f64 = -6.0;
 
-/// 校正に使う発声の長さ（秒）。**そのプロジェクトで最も高い音高の全力発声。**
+/// 校正に使う発声の長さ（秒）。そのプロジェクトで最も高い音高の全力発声。
 pub const UTTERANCE_SECONDS: std::ops::RangeInclusive<f64> = 3.0..=5.0;
 
-/// 測定の上限回数（`TR-REC-14`）。**2回で収束させ、収束しなくても進む。**
+/// 測定の上限回数（`TR-REC-14`）。2回で収束させ、収束しなくても進む。
 pub const MAX_ATTEMPTS: u32 = 2;
 
 /// 校正の結果。
@@ -33,7 +33,7 @@ pub enum Outcome {
     },
     /// 範囲外だが、これ以上は動かせない。
     ///
-    /// **ここでも収録には進める**（`TR-REC-14`）。関門にしない。
+    /// ここでも収録には進める（`TR-REC-14`）。関門にしない。
     GaveUp {
         /// なぜ動かせないか。
         reason: GaveUp,
@@ -47,7 +47,7 @@ pub enum GaveUp {
     OutOfAttempts,
     /// ゲインが端に張り付いていて、これ以上動かせない。
     AtLimit,
-    /// ゲインを読み書きできない。**OS 設定での調整を1回だけ案内する。**
+    /// ゲインを読み書きできない。OS 設定での調整を1回だけ案内する。
     NoControl,
     /// 発声が無かった（無音）。
     Silent,
@@ -71,7 +71,7 @@ impl GaveUp {
 /// `peak_dbfs` は測った区間のサンプルピーク。`current_gain` は 0.0〜1.0、
 /// 読み書きできなければ `None`。`attempt` は1から数えた回数。
 ///
-/// **ゲインは dB ではなくスカラで持つ**（CoreAudio も PipeWire もそう）。
+/// ゲインは dB ではなくスカラで持つ（CoreAudio も PipeWire もそう）。
 /// 目標との差を dB で出し、それを線形の倍率に直して掛ける。
 #[must_use]
 pub fn step(peak_dbfs: f64, current_gain: Option<f32>, attempt: u32) -> Outcome {
@@ -94,7 +94,7 @@ pub fn step(peak_dbfs: f64, current_gain: Option<f32>, attempt: u32) -> Outcome 
         };
     }
 
-    // 範囲の中央を狙う。**端を狙うと、次の一声で簡単に外れる。**
+    // 範囲の中央を狙う。端を狙うと、次の一声で簡単に外れる。
     let target = f64::midpoint(TARGET_MIN_DBFS, TARGET_MAX_DBFS);
     let delta_db = target - peak_dbfs;
     #[allow(
@@ -116,7 +116,7 @@ pub fn step(peak_dbfs: f64, current_gain: Option<f32>, attempt: u32) -> Outcome 
     Outcome::Adjust { next_gain: next }
 }
 
-/// 校正の記録（`TR-REC-15`）。**プロジェクトに保存して、次の収録で突き合わせる。**
+/// 校正の記録（`TR-REC-15`）。プロジェクトに保存して、次の収録で突き合わせる。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Calibration {
     /// 校正で決めたゲイン（0.0〜1.0）。読み書きできなければ `None`。
@@ -125,11 +125,11 @@ pub struct Calibration {
     pub control: String,
     /// 最後に測ったピーク（dBFS）。
     pub peak_dbfs: f64,
-    /// 範囲に入ったか。**入らなくても収録には進める。**
+    /// 範囲に入ったか。入らなくても収録には進める。
     pub settled: bool,
     /// どのデバイスで校正したか（永続識別子）。
     pub device_id: String,
-    /// モノラルの元にするチャンネル（`TR-REC-06`）。**-1 は混ぜる。**
+    /// モノラルの元にするチャンネル（`TR-REC-06`）。-1 は混ぜる。
     pub source_channel: i32,
 }
 
@@ -160,7 +160,7 @@ mod tests {
         assert!(next_gain < 0.8, "{next_gain}");
     }
 
-    /// **範囲の中央を狙う。** 端を狙うと次の一声で簡単に外れる。
+    /// 範囲の中央を狙う。 端を狙うと次の一声で簡単に外れる。
     #[test]
     fn 中央を狙って一度で入る() {
         // -18 dBFS のとき、-9 へ持っていきたい → 倍率は約 2.82。
@@ -172,7 +172,7 @@ mod tests {
         assert!((new_peak + 9.0).abs() < 0.5, "{new_peak}");
     }
 
-    /// **収束しなくても進める**（TR-REC-14）。関門にしない。
+    /// 収束しなくても進める（`TR-REC-14`）。関門にしない。
     #[test]
     fn 二回で諦める() {
         assert_eq!(
@@ -201,7 +201,7 @@ mod tests {
         );
     }
 
-    /// **読み書きできないデバイスでは自動調整しない**（TR-REC-14）。
+    /// 読み書きできないデバイスでは自動調整しない（`TR-REC-14`）。
     #[test]
     fn ゲインを触れなければ諦める() {
         assert_eq!(

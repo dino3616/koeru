@@ -1,0 +1,21 @@
+# 生成物は差分と言語統計から外す。
+#
+# `docs/generated/` は FSL からの決定論的な生成物で、手で編集しない。
+# `routeTree.gen.ts` は TanStack Router が書き出す。
+# **どちらもレビューで読む対象ではない**ので、既定の差分に混ぜない。
+# 中身の検査は CI がしている（`fslc document check` と型検査）。
+docs/generated/**  linguist-generated=true -diff
+crates/koeru-app/ui/src/routeTree.gen.ts  linguist-generated=true -diff
+
+# 調達物は言語統計に入れない。KOERU 自身が書いた量を見えなくする。
+crates/koeru-align/vendor/**   linguist-vendored=true
+crates/koeru-synth/vendor/**   linguist-vendored=true
+crates/koeru-align/models/**   linguist-vendored=true
+
+# 改行を揃える。Windows でも検査が同じ結果になるように。
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.wav binary

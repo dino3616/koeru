@@ -1,0 +1,25 @@
+{
+  /*
+   * Bun で走らせるもの（検査スクリプトと Vite / 試験の設定）。
+   *
+   * 画面のコードと型環境を分ける。 1枚にまとめると `types` が合流して、
+   * `src/` でも `Bun.file` が型検査を通る——実測した。ブラウザで動かない
+   * コードが型としては正しく見える状態になるので、分けたままにする。
+   *
+   * 基底は `@tsconfig/bun`（Bun が推奨する設定そのもの）。 target と lib と
+   * `types: ["bun"]` はあちらが持つので、ここでは書かない。
+   */
+  "extends": ["@tsconfig/bun/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
+  "include": ["scripts/**/*.ts", "vite.config.ts", "vitest.stories.config.ts"],
+  "compilerOptions": {
+    // `@tsconfig/strictest` が後に来るので、Bun 側の設定を書き戻す。
+    // 順序を入れ替えると strictest の厳しさが緩む。
+    "lib": ["ESNext"],
+    "target": "ESNext",
+    "types": ["bun"],
+    "moduleResolution": "bundler",
+    "module": "Preserve",
+    "noEmit": true,
+    "composite": true
+  }
+}

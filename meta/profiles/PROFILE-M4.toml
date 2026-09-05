@@ -2,7 +2,7 @@ schema = 'profile'
 id = 'PROFILE-M4'
 title = '手渡せる形にする'
 status = 'planned'
-note = '書き出し前検証 → ZIP → 読み戻し検証。character.txt / character.yaml / 規約テンプレート。**非公開のまま完成し、渡せる状態まで。**'
+note = '書き出し前検証 → ZIP → 読み戻し検証。character.txt / character.yaml / 規約テンプレート。非公開のまま完成し、渡せる状態まで。'
 includes_requirements = [
   'TR-PKG-01',
   'TR-PKG-02',

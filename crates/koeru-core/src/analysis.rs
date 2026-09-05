@@ -1,6 +1,6 @@
 //! 録音停止時に算出して DB へ入れる値（`TR-PKG-05`, `TR-PKG-42`）。
 //!
-//! **書き出しと再開で WAV を再走査しない**のが目的。
+//! 書き出しと再開で WAV を再走査しないのが目的。
 //! 3時間ぶんの WAV を起動のたびに読み直すと、再開が即座でなくなる。
 //!
 //! ここは純粋な計算だけを持つ。保存は [`crate::db`]。
@@ -9,16 +9,26 @@ use crate::frq::{Frq, HOP_SIZE};
 
 /// 波形サムネイルのバケット数。
 ///
-/// **表示幅に依らない固定値にする。** ウィンドウ幅ごとに作り直すと、
+/// 表示幅に依らない固定値にする。 ウィンドウ幅ごとに作り直すと、
 /// 結局 WAV を読み直すことになる。描画側はここから間引くか補間する。
 pub const THUMBNAIL_BUCKETS: usize = 512;
+
+/// クリップとみなす下限。
+///
+/// 1.0 ではなく 0.999 にしてある。16bit で受けた値を f32 へ正規化すると
+/// 天井は 32767/32768 = 0.99997 で、負側にしか 1.0 は現れない。
+/// 1.0 で判定すると、実際に張り付いた録音が「割れていない」と出る。
+///
+/// 画面側にも同じ値がある（`ui/src/lib/levels.ts`）。ずれは
+/// `koeru-app` の `画面のクリップ閾値がrustと一致する` が落とす。
+pub const CLIP_THRESHOLD: f32 = 0.999;
 
 /// 録音停止時に確定させる値。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TakeAnalysis {
-    /// 絶対値の最大。クリップ判定と表示に使う。
+    /// 絶対値の最大。[`CLIP_THRESHOLD`] 以上ならクリップ。
     pub peak: f32,
-    /// 周波数表（`.frq`）。**書き出し時に推定し直さない。**
+    /// 周波数表（`.frq`）。書き出し時に推定し直さない。
     pub frq: Frq,
     /// 波形サムネイル。バケットごとのピークを 0〜255 で持つ。
     pub thumbnail: Vec<u8>,
@@ -53,7 +63,7 @@ pub fn peak(samples: &[f32]) -> f32 {
 
 /// バケットごとのピークを 0〜255 で持つ包絡線。
 ///
-/// **平均ではなくピークを採る。** 平均にすると、短いクリックや破裂音が
+/// 平均ではなくピークを採る。 平均にすると、短いクリックや破裂音が
 /// 見えなくなり、波形を見て切り直す判断ができない。
 #[must_use]
 pub fn thumbnail(samples: &[f32], buckets: usize) -> Vec<u8> {
@@ -83,17 +93,16 @@ pub fn thumbnail(samples: &[f32], buckets: usize) -> Vec<u8> {
 
 /// テイクごとに測る値（`TR-REC-16`）。
 ///
-/// **測るだけで、判定も指摘もしない。** 「小さすぎます」「歪んでいます」を出さない。
+/// 測るだけで、判定も指摘もしない。 「小さすぎます」「歪んでいます」を出さない。
 /// 自動で無効化もしない（自動無効化は `TR-REC-07` の取りこぼしと
 /// `TR-REC-04` のデバイス消失の2つだけ）。
 ///
-/// **フルスケール到達だけは、書き出しの直前に一度だけ集計して提示する**（`TR-REC-16`）。
+/// フルスケール到達だけは、書き出しの直前に一度だけ集計して提示する（`TR-REC-16`）。
 /// 収録中の判定ではないのでスコープを侵さず、壊れた成果物が完成に到達する経路を塞げる。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TakeMetrics {
     /// サンプルピーク（dBFS）。無音なら [`f64::NEG_INFINITY`]。
     pub peak_dbfs: f64,
-    /// 区間 RMS。
     pub rms: f64,
     /// フルスケールに達したサンプルが3つ以上続いた回数。
     pub full_scale_runs: u32,
@@ -109,7 +118,7 @@ pub struct TakeMetrics {
 
 /// 無音マージンの下限（ミリ秒、`TR-REC-38`）。
 ///
-/// **足りなくてもトリミングしない。** 足りなかったという事実を記録するだけ。
+/// 足りなくてもトリミングしない。 足りなかったという事実を記録するだけ。
 pub const REQUIRED_MARGIN_MS: f64 = 300.0;
 
 /// 16 bit の 1LSB。これ以上をフルスケール到達とみなす（`TR-REC-16`）。
@@ -122,7 +131,7 @@ impl TakeMetrics {
     /// 波形と、検出した発声区間から測る。
     ///
     /// `voice_start_ms` / `voice_end_ms` は検出できなければ `None`。
-    /// **検出できなくても測れるものは測る。**
+    /// 検出できなくても測れるものは測る。
     #[must_use]
     pub fn measure(
         samples: &[f32],
@@ -151,7 +160,7 @@ impl TakeMetrics {
             samples.iter().map(|s| f64::from(*s)).sum::<f64>() / samples.len() as f64
         };
 
-        // **3サンプル以上続いたときだけ数える**（TR-REC-16）。
+        // 3サンプル以上続いたときだけ数える（`TR-REC-16`）。
         // 単発のフルスケールは歪みの証拠にならない。
         let mut full_scale_runs = 0_u32;
         let mut run = 0_usize;
@@ -169,7 +178,7 @@ impl TakeMetrics {
         let leading_margin_ms = voice_start_ms.unwrap_or(0.0).max(0.0);
         let trailing_margin_ms = voice_end_ms.map_or(0.0, |e| (len_ms - e).max(0.0));
 
-        // ノイズフロアは先頭マージンの RMS。**マージンが無ければ測らない。**
+        // ノイズフロアは先頭マージンの RMS。マージンが無ければ測らない。
         let head = ((leading_margin_ms / 1000.0) * f64::from(rate_hz)) as usize;
         let head = head.min(samples.len());
         let noise_floor_rms = if head == 0 {
@@ -195,7 +204,7 @@ impl TakeMetrics {
 
     /// `TR-REC-38` の無音マージンを満たしているか。
     ///
-    /// **満たしていなくてもテイクは有効。** 事実を記録するだけで、
+    /// 満たしていなくてもテイクは有効。 事実を記録するだけで、
     /// トリミングも無効化もしない。
     #[must_use]
     pub fn has_required_margins(&self) -> bool {
@@ -216,7 +225,7 @@ pub fn f64s_to_bytes(xs: &[f64]) -> Vec<u8> {
 
 /// little-endian のバイト列を `f64` の並びに戻す。
 ///
-/// **8で割り切れない端は捨てる。** 途中で切れた BLOB を読んだときに
+/// 8で割り切れない端は捨てる。 途中で切れた BLOB を読んだときに
 /// でたらめな値を作らない。
 #[must_use]
 pub fn bytes_to_f64s(b: &[u8]) -> Vec<f64> {
@@ -243,7 +252,7 @@ mod tests {
         assert_eq!(thumbnail(&[], 512), vec![0_u8; 512]);
     }
 
-    /// **平均ではなくピークを採る**（短い破裂音を消さない）。
+    /// 平均ではなくピークを採る（短い破裂音を消さない）。
     #[test]
     fn thumbnail_keeps_short_transients() {
         let mut s = vec![0.0_f32; 4096];
@@ -264,7 +273,7 @@ mod tests {
         assert_eq!(bytes_to_f64s(&f64s_to_bytes(&xs)), xs);
     }
 
-    /// **途中で切れた BLOB からでたらめな値を作らない。**
+    /// 途中で切れた BLOB からでたらめな値を作らない。
     #[test]
     fn truncated_blobs_drop_the_tail() {
         let mut b = f64s_to_bytes(&[1.0, 2.0]);
@@ -303,7 +312,7 @@ mod tests {
         assert!(m.rms.abs() < 1e-12);
     }
 
-    /// **単発のフルスケールは数えない。** 3サンプル以上続いたときだけ（TR-REC-16）。
+    /// 単発のフルスケールは数えない。 3サンプル以上続いたときだけ（`TR-REC-16`）。
     #[test]
     fn フルスケールは連続したときだけ数える() {
         let one = TakeMetrics::measure(&[0.0, 1.0, 0.0, -1.0, 0.0], 44_100, None, None);
@@ -325,7 +334,7 @@ mod tests {
         assert!(centred.dc_offset.abs() < 0.05, "中心にある波は 0 付近");
     }
 
-    /// **無音マージンは測るだけで、削らない**（TR-REC-38）。
+    /// 無音マージンは測るだけで、削らない（`TR-REC-38`）。
     #[test]
     fn 無音マージンを前後で測る() {
         // 1秒。発声が 0.4s〜0.6s。
@@ -342,7 +351,7 @@ mod tests {
         assert!((m.leading_margin_ms - 100.0).abs() < 1.0);
     }
 
-    /// ノイズフロアは**先頭マージン区間**の RMS。
+    /// ノイズフロアは先頭マージン区間の RMS。
     #[test]
     fn ノイズフロアは先頭マージンから測る() {
         // 先頭 0.5s が静か、その後が大きい。

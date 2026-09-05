@@ -1,10 +1,10 @@
-# 5値の導出規約（TR-ALN-23）。**定数をコードに書かないための正本。**
+# 5値の導出規約（TR-ALN-23）。定数をコードに書かないための正本。
 #
 # 方式ごとに1つ。上級モードで編集・保存・プロジェクトへ適用できる。
-# **プリセットの変更は再計算だけで反映され、再アライメントを要求しない**
+# プリセットの変更は再計算だけで反映され、再アライメントを要求しない
 # （TR-ALN-13 の三分法。導出はアライナが出した境界だけを入力に取る）。
 #
-# `version` を上げると再計算の対象になる（TR-ALN-29）。**値を変えたら必ず上げること。**
+# `version` を上げると再計算の対象になる（TR-ALN-29）。値を変えたら必ず上げること。
 #
 # 子音クラスの係数（TR-ALN-17）:
 #   overlap_ratio           オフセットから先行発声までの区間に掛ける比（TR-ALN-16）
@@ -25,12 +25,12 @@ leading_margin_ms = 20.0
 overlap_ratio = 0.3333333333333333
 vowel_steady_margin_ms = 30.0
 
-# **無声破裂音は重ねない。** 前の音と重ねると破裂が濁る（TR-ALN-16）。
+# 無声破裂音は重ねない。 前の音と重ねると破裂が濁る（TR-ALN-16）。
 [single.class.unvoiced_plosive]
 overlap_ratio = 0.0
 vowel_steady_margin_ms = 30.0
 
-# 破擦音は閉鎖を持つが破裂音ではない。**少しだけ重ねる。**
+# 破擦音は閉鎖を持つが破裂音ではない。少しだけ重ねる。
 [single.class.affricate]
 overlap_ratio = 0.15
 vowel_steady_margin_ms = 30.0
@@ -43,7 +43,7 @@ vowel_steady_margin_ms = 30.0
 overlap_ratio = 0.3333333333333333
 vowel_steady_margin_ms = 30.0
 
-# **はじき音は短い。** 子音部を長く取ると母音を食う。
+# はじき音は短い。 子音部を長く取ると母音を食う。
 [single.class.flap]
 overlap_ratio = 0.3333333333333333
 vowel_steady_margin_ms = 20.0
@@ -53,7 +53,7 @@ overlap_ratio = 0.3333333333333333
 vowel_steady_margin_ms = 30.0
 
 # ── 連続音（VCV）──────────────────────────────
-# **[Unknown] 到達水準は M3 の excludes。** 値は単独音からの持ち込みで、実測していない。
+# [Unknown] 到達水準は M3 の excludes。 値は単独音からの持ち込みで、実測していない。
 [sequential]
 id = "sequential-default"
 version = 1
@@ -88,7 +88,7 @@ overlap_ratio = 0.3333333333333333
 vowel_steady_margin_ms = 30.0
 
 # ── CVVC ─────────────────────────────────────
-# **VC は別の規約セットで生成する**（TR-ALN-19）。ここは CV 側の係数。
+# VC は別の規約セットで生成する（TR-ALN-19）。ここは CV 側の係数。
 [cvvc]
 id = "cvvc-default"
 version = 1
