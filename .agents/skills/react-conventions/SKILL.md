@@ -114,6 +114,27 @@ const { data: otos = [] } = useQuery(otosQuery(takeId));         // 無くても
 const adopt = useMutation({ mutationFn: /* … */ });              // 押して走るもの
 ```
 
+### `api` に約束を繋がない
+
+`api.…()` に `.then` / `.catch` / `.finally` を繋いだら、その場で「走っている最中か」「結果」「失敗した」を state で持ち直しているということ。3つ持つと、どれか1つを消し忘れる——成功したのに前の赤字が残る形が、この画面で2回出た。
+
+```tsx
+// 悪い
+const run = () => {
+  setRunning(true);
+  setError(null);
+  api.calibrate(4).then(setResult).catch(/* … */).finally(() => setRunning(false));
+};
+
+// 良い
+const run = useMutation({ mutationFn: () => api.calibrate(4) });
+// run.isPending / run.data / run.error
+```
+
+`queryFn` と `mutationFn` の中では繋がない。約束をそのまま返せばよく、状態は TanStack Query が持つ。だから「繋いでいる＝手で持ち直している」でほぼ言い切れる。`bun run check:ipc` が見ていて、例外は理由つきで `EXEMPT` に書く（いまは3件——Channel の開閉、待ち数の予約、canvas の実測から幅が決まる描画要求）。
+
+`await` は別。順序が要る手続き（`use-recorder` の状態機械）は `await` で書くのが自然で、そこは state を持ち直していない。
+
 ### 流し続けるものは Channel
 
 `invoke` で引きに行かせない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。
@@ -159,8 +180,9 @@ variant は全部出す。 `Button` の `primary` だけ出して `danger` を�
 ```bash
 bun run storybook       # 立てて目で見る
 bun run check:stories   # story の無い部品を探す
+bun run check:ipc       # `api` に約束を繋いでいる箇所を探す
 bun run test            # 実ブラウザで axe と play を走らせる
-bun run check:ci        # 上の3つぶんをまとめて（CI と同じ）
+bun run check:ci        # 上のぶんをまとめて（CI と同じ）
 ```
 
 ### Rust の呼び出しはモックで差し替える

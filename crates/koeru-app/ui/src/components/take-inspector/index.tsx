@@ -230,7 +230,7 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
     canvas.height = SPECTRO_ROWS;
 
     // 濃淡の両端をトークンから取る。直接 RGB を書くと明暗に追従せず、
-    // `check-contrast.ts` の網羅検査にも引っかからない。
+    // `palette.story.tsx` が並べる段の網羅からも外れる。
     const lo = readRgb(styles, "--slate-3");
     const hi = readRgb(styles, "--cyan-11");
 

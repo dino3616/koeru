@@ -8,13 +8,14 @@
     "build": "vp build && tsc --build --force && bun run check:licenses",
     "preview": "vp preview",
     "check": "vp check --fix",
-    "check:ci": "vp check && bun run check:stories && bun run test",
+    "check:ci": "vp check && bun run check:stories && bun run check:ipc && bun run test",
     "tauri": "cd .. && ui/node_modules/.bin/tauri",
     "check:licenses": "bun run scripts/check-licenses.ts",
     "storybook": "storybook dev -p 6006 --no-open",
     "storybook:build": "storybook build",
     "test": "vp test --run --config vitest.story.config.ts",
-    "check:stories": "bun run scripts/check-stories.ts"
+    "check:stories": "bun run scripts/check-stories.ts",
+    "check:ipc": "bun run scripts/check-ipc-calls.ts"
   },
   "dependencies": {
     "@radix-ui/colors": "3.0.0",

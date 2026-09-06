@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
 import { CalibrationCard } from "~/components/calibration-card";
@@ -7,7 +7,7 @@ import { LiveWaveform } from "~/components/live-waveform";
 import { Spinner } from "~/components/spinner";
 import { Card } from "~/components/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/select";
-import { api, type MicModeView, micModeLabel, type SpaceView } from "~/lib/ipc";
+import { api, micModeLabel } from "~/lib/ipc";
 import { devicesQuery } from "~/lib/queries";
 
 type InputSetupProps = {
@@ -48,17 +48,36 @@ export const InputSetup = ({
    * 台帳の鍵の下には置かない（`~/lib/queries`）。
    */
   const { data: devices } = useSuspenseQuery(devicesQuery());
-  const [micMode, setMicMode] = useState<MicModeView | null>(null);
-  const [space, setSpace] = useState<SpaceView | null>(null);
   const [leaking, setLeaking] = useState<boolean | null>(null);
+
   /**
-   * デバイスを開いている最中か。
+   * デバイスを開く。
    *
-   * 選ぶと `arm_device` → `probe_input`（400ms 待つ）→ `estimate_space` と
-   * 続くので、押してから半秒以上かかる。 その間に選び直させない——
+   * `arm_device` → `probe_input`（400ms 待つ）→ `estimate_space` の3手で
+   * 1つの操作。 押してから半秒以上かかるので、その間は選び直させない——
    * 途中で別のデバイスを開くと、どちらの結果が後に着くか決まらない。
+   *
+   * 結果は `arm.data` が持つ。 別に state を置くと、次のデバイスを開いている
+   * 最中に前のデバイスの「OS 処理あり」が出たままになる。`mutate` は
+   * 走り出す時点で前の結果を捨てるので、消し忘れが起きない。
    */
-  const [arming, setArming] = useState(false);
+  const arm = useMutation({
+    mutationFn: async (id: string) => {
+      const mode = await api.armDevice(id);
+      const peak = await api.probeInput(400);
+      const space = await api.estimateSpace();
+      return { mode, peak, space };
+    },
+    onMutate: () => onStatus("入力を確かめています"),
+    // 届いているかを一度だけ言う。以後の値は波形とメーターが持つ（`TR-REC-43`）。
+    onSuccess: ({ peak }) =>
+      onStatus(peak > 0.000_001 ? "入力が届いています" : "入力が届いていません"),
+    onError,
+  });
+
+  const micMode = arm.data?.mode ?? null;
+  const space = arm.data?.space ?? null;
+  const arming = arm.isPending;
 
   /**
    * 設定を開いているか。
@@ -72,23 +91,7 @@ export const InputSetup = ({
 
   const choose = (next: string) => {
     onDeviceChange(next);
-    onStatus("入力を確かめています");
-    setArming(true);
-    api
-      .armDevice(next)
-      .then((mode) => {
-        setMicMode(mode);
-        return api.probeInput(400);
-      })
-      .then((peak) => {
-        // 届いているかを一度だけ言う。以後の値は波形とメーターが持つ（`TR-REC-43`）。
-        onStatus(peak > 0.000_001 ? "入力が届いています" : "入力が届いていません");
-        return api.estimateSpace();
-      })
-      .then(setSpace)
-      .catch(onError)
-      // 失敗しても下ろす。下ろさないと二度と選べなくなる。
-      .finally(() => setArming(false));
+    arm.mutate(next);
   };
 
   /** 畳んだときに、何が済んでいるかを1行で見せる。 */

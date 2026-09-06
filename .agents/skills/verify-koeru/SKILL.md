@@ -85,6 +85,10 @@ bun run build           # ビルド ＋ 型 ＋ npm のライセンス
 axe に規則が無い性質を見る（`TR-PLT-25`、`DEC-PLT-022`）。
 試験ファイルを別に置いていないので、`src/__tests__/` は無い。
 
+`check:ipc` は `api` の呼び方を見る。 `api.…()` に `.then` / `.catch` /
+`.finally` を繋いでいたら落ちる——その場で状態を持ち直している合図で、
+押して走るものは `useMutation`、読みは `~/lib/queries` へ寄せる（`DEC-PLT-023`）。
+
 検査範囲は story の範囲そのもの。 部品に story が無ければ一度も検査されない。
 配色の段も `src/styles/palette.story.tsx` に並べたものだけが測られる。
 

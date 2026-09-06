@@ -1,4 +1,9 @@
-import { useQueryClient, useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  useSuspenseQueries,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useCallback, useState } from "react";
 
@@ -151,17 +156,35 @@ const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
   /** デバイスを選べているか。選ぶまでは録らせない。 */
   const ready = deviceId !== undefined;
 
-  /** 録れたものをそのまま鳴らす（`TR-REC-43`）。 */
-  const playRaw = (takeId: number) => {
-    setError(null);
-    api.playTake(takeId).catch(fail);
-  };
+  /*
+   * 鳴らす操作はどれも `useMutation`。
+   *
+   * `.catch(fail)` を手で書くのと同じことをしているように見えるが、
+   * 前の失敗を消すのが `onMutate` に寄るので、書き忘れる場所が無くなる。
+   * 押した順に走るだけのもので、取り直しも重複排除も要らない。
+   */
+  const playRaw = useMutation({
+    mutationFn: (takeId: number) => api.playTake(takeId),
+    onMutate: () => setError(null),
+    onError: fail,
+  });
 
-  const sing = (midi: number) => {
-    if (take === null) return;
-    setError(null);
-    api.preview({ takeId: take.take_id, midi, lengthMs: PREVIEW_LENGTH_MS }).catch(fail);
-  };
+  /** 録れたものを、目標の音高で歌わせる。 */
+  const sing = useMutation({
+    mutationFn: ({ takeId, midi }: { takeId: number; midi: number }) =>
+      api.preview({ takeId, midi, lengthMs: PREVIEW_LENGTH_MS }),
+    onMutate: () => setError(null),
+    onError: fail,
+  });
+
+  /** 音高提示（`TR-REC-24`）。回り込みが無いときだけ出す。 */
+  const playPitch = useMutation({
+    mutationFn: (midi: number) => api.playPitch(midi),
+    onMutate: () => setError(null),
+    onError: fail,
+  });
+
+  const stopPreview = useMutation({ mutationFn: () => api.stopPreview(), onError: fail });
 
   const allDone = progress.next_row_id === null;
   const pct = progress.required > 0 ? Math.round((progress.covered / progress.required) * 100) : 0;
@@ -279,9 +302,7 @@ const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
           {leaking === false && (
             <Button
               variant="ghost"
-              onClick={() => {
-                api.playPitch(PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI).catch(fail);
-              }}
+              onClick={() => playPitch.mutate(PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI)}
               disabled={recording || continuous}
             >
               音高を聞く
@@ -363,10 +384,10 @@ const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
             */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-slate-11">録れた音:</span>
-              <Button variant="secondary" onClick={() => playRaw(take.take_id)}>
+              <Button variant="secondary" onClick={() => playRaw.mutate(take.take_id)}>
                 そのまま聴く
               </Button>
-              <Button variant="ghost" onClick={() => api.stopPreview().catch(fail)}>
+              <Button variant="ghost" onClick={() => stopPreview.mutate()}>
                 止める
               </Button>
             </div>
@@ -375,11 +396,14 @@ const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-slate-11">歌わせる:</span>
                 {PREVIEW_PITCHES.map((p) => (
-                  <Button key={p.midi} onClick={() => sing(p.midi)}>
+                  <Button
+                    key={p.midi}
+                    onClick={() => sing.mutate({ takeId: take.take_id, midi: p.midi })}
+                  >
                     {p.label}
                   </Button>
                 ))}
-                <Button variant="ghost" onClick={() => api.stopPreview().catch(fail)}>
+                <Button variant="ghost" onClick={() => stopPreview.mutate()}>
                   止める
                 </Button>
               </div>
@@ -403,7 +427,11 @@ const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
         （`async-suspense-boundaries`）。失敗は上の `ErrorBoundary` が受ける。
       */}
       <Suspense fallback={<CardSkeleton title="録れたもの一覧" />}>
-        <TakeList busy={recording || continuous} onRetake={retake} onPlay={playRaw} />
+        <TakeList
+          busy={recording || continuous}
+          onRetake={retake}
+          onPlay={(takeId) => playRaw.mutate(takeId)}
+        />
       </Suspense>
 
       <Suspense fallback={<CardSkeleton title="歌える曲" />}>

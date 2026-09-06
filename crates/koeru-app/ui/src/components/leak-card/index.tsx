@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
-import { type LeakView, api, errorMessage } from "~/lib/ipc";
+import { api, errorMessage } from "~/lib/ipc";
 
 type LeakCardProps = {
   ready: boolean;
@@ -22,24 +22,19 @@ type LeakCardProps = {
  * これを置かないと、全テイクにガイドが混入した音源が完成に到達しうる。
  */
 export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) => {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<LeakView | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const run = useMutation({
+    mutationFn: () => api.checkGuideLeak(midi),
+    onMutate: () => onStatus("音を鳴らして、マイクに入るか確かめています"),
+    onSuccess: (r) => {
+      onChecked(r.leaking);
+      onStatus(r.leaking ? "スピーカの音がマイクに入っています" : "マイクには入っていません");
+    },
+  });
 
-  const run = () => {
-    setRunning(true);
-    setError(null);
-    onStatus("音を鳴らして、マイクに入るか確かめています");
-    api
-      .checkGuideLeak(midi)
-      .then((r) => {
-        setResult(r);
-        onChecked(r.leaking);
-        onStatus(r.leaking ? "スピーカの音がマイクに入っています" : "マイクには入っていません");
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-      .finally(() => setRunning(false));
-  };
+  const play = useMutation({ mutationFn: () => api.playPitch(midi) });
+
+  const result = run.data ?? null;
+  const error = run.error ?? play.error;
 
   return (
     <Card title="音の回り込み">
@@ -51,16 +46,15 @@ export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) =>
         </p>
 
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={run} disabled={!ready || running}>
-            {running ? "確かめています" : "確かめる"}
+          <Button
+            variant="secondary"
+            onClick={() => run.mutate()}
+            disabled={!ready || run.isPending}
+          >
+            {run.isPending ? "確かめています" : "確かめる"}
           </Button>
           {result !== null && !result.leaking && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                api.playPitch(midi).catch((e: unknown) => setError(errorMessage(e)));
-              }}
-            >
+            <Button variant="ghost" onClick={() => play.mutate()}>
               音高を聞く
             </Button>
           )}
@@ -82,7 +76,7 @@ export const LeakCard = ({ ready, midi, onStatus, onChecked }: LeakCardProps) =>
 
         {error !== null && (
           <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
-            {error}
+            {errorMessage(error)}
           </p>
         )}
       </div>

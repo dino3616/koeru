@@ -36,6 +36,9 @@ export const SongList = () => {
    * `Suspense` の外で受けるのは、これが読みではなく指示だから。
    */
   const sing = useMutation({ mutationFn: (id: string) => api.singSong(id) });
+
+  /** 鳴っているものを止める。失敗しても言わない——止まっているのが望みなので。 */
+  const stop = useMutation({ mutationFn: () => api.stopPreview() });
   const preparingId = sing.isPending ? sing.variables : null;
 
   const [pending, setPending] = useState(0);
@@ -145,7 +148,7 @@ export const SongList = () => {
                 >
                   {preparingId === s.id ? "用意しています" : "歌わせる"}
                 </Button>
-                <Button variant="ghost" onClick={() => api.stopPreview().catch(() => undefined)}>
+                <Button variant="ghost" onClick={() => stop.mutate()}>
                   止める
                 </Button>
                 {sing.data?.title === s.title && (

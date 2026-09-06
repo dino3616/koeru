@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
-import { type CalibrationView, api, errorMessage } from "~/lib/ipc";
+import { api, errorMessage } from "~/lib/ipc";
 
 /** 校正に使う発声の長さ（秒）。3〜5秒（`TR-REC-14`）。 */
 const SECONDS = 4;
@@ -23,32 +23,34 @@ type CalibrationCardProps = {
  * 出すのは測った値と、次に何をすればよいかだけ。
  */
 export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<CalibrationView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [drift, setDrift] = useState<[number, number] | null>(null);
-
-  const run = () => {
-    setRunning(true);
-    setError(null);
-    onStatus(`${SECONDS} 秒間、いちばん高い音で声を出してください`);
-    api
-      .calibrate(SECONDS)
-      .then((c) => {
-        setResult(c);
-        onStatus(c.settled ? "レベルが合いました" : "レベルはこのまま進みます");
-      })
-      .catch((e: unknown) => setError(errorMessage(e)))
-      .finally(() => setRunning(false));
-  };
+  /*
+   * 押して初めて走るものは全部 `useMutation`。
+   *
+   * 「走っている最中か」「結果」「失敗」を state で3つ持つと、
+   * どれか1つを消し忘れる。 前の失敗を消し忘れて、成功したのに
+   * 赤字が残ったままになる形は、この画面でも一度出た。
+   */
+  const run = useMutation({
+    mutationFn: () => api.calibrate(SECONDS),
+    onMutate: () => onStatus(`${SECONDS} 秒間、いちばん高い音で声を出してください`),
+    onSuccess: (c) => onStatus(c.settled ? "レベルが合いました" : "レベルはこのまま進みます"),
+  });
 
   // 前回と違うゲインで開いたか（`TR-REC-15`）。勝手に戻さない。
-  const checkDrift = () => {
-    api
-      .gainDrift()
-      .then(setDrift)
-      .catch(() => setDrift(null));
-  };
+  //
+  // 失敗は出さない。 これは補助で、読めなければ「差は無い」として進める。
+  const drift = useMutation({ mutationFn: () => api.gainDrift() });
+
+  const restore = useMutation({
+    mutationFn: () => api.restoreSavedGain(),
+    onSuccess: () => {
+      drift.reset();
+      onStatus("前回のレベルへ戻しました");
+    },
+  });
+
+  const result = run.data ?? null;
+  const error = run.error ?? restore.error;
 
   return (
     <Card title="入力レベル">
@@ -60,10 +62,14 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
         </p>
 
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={run} disabled={!ready || running}>
-            {running ? `録っています（${SECONDS} 秒）` : "レベルを合わせる"}
+          <Button
+            variant="secondary"
+            onClick={() => run.mutate()}
+            disabled={!ready || run.isPending}
+          >
+            {run.isPending ? `録っています（${SECONDS} 秒）` : "レベルを合わせる"}
           </Button>
-          <Button variant="ghost" onClick={checkDrift} disabled={!ready}>
+          <Button variant="ghost" onClick={() => drift.mutate()} disabled={!ready}>
             前回との差を見る
           </Button>
         </div>
@@ -102,25 +108,16 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
           </div>
         )}
 
-        {drift !== null && (
+        {drift.data != null && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-3 px-4 py-3 text-sm">
             <span className="text-slate-11">
-              前回は {Math.round(drift[0] * 100)}%、いまは {Math.round(drift[1] * 100)}% です。
+              前回は {Math.round(drift.data[0] * 100)}%、いまは {Math.round(drift.data[1] * 100)}%
+              です。
             </span>
-            <Button
-              onClick={() => {
-                api
-                  .restoreSavedGain()
-                  .then(() => {
-                    setDrift(null);
-                    onStatus("前回のレベルへ戻しました");
-                  })
-                  .catch((e: unknown) => setError(errorMessage(e)));
-              }}
-            >
+            <Button onClick={() => restore.mutate()} disabled={restore.isPending}>
               前回へ戻す
             </Button>
-            <Button variant="ghost" onClick={() => setDrift(null)}>
+            <Button variant="ghost" onClick={() => drift.reset()}>
               このまま
             </Button>
           </div>
@@ -128,7 +125,7 @@ export const CalibrationCard = ({ ready, onStatus }: CalibrationCardProps) => {
 
         {error !== null && (
           <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
-            {error}
+            {errorMessage(error)}
           </p>
         )}
       </div>
