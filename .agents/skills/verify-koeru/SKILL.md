@@ -157,6 +157,16 @@ cargo xtask index-decisions --check   # 判断記録の索引が古くないか
 cargo xtask check-profile <ID>  # 未決の論点がリリースを塞いでいないか
 ```
 
+記録を足すときは番号を `next-id` で取る。 検査ではないが、ここに置いておく。
+
+```bash
+cargo xtask next-id DEC-PLT     # その接頭辞で、まだ使われていない番号
+```
+
+ディレクトリを見て決めない。 既にある ID へ上書きすると、そこにあった判断が
+消え、それを引用していた記録だけが別のことを指す。形も参照先も壊れないので、
+上の検査は全部通る。**踏んだ**（`meta/README.md`）。
+
 `check-profile` は通常の CI では走らせない。 未決が残っているのは開発中は正常で、
 その状態でリリースするのが異常だという線引きにしている。
 実行は `.github/workflows/release-gate.yml`。

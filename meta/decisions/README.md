@@ -15,7 +15,8 @@
 | [DEC-ALL-004](DEC-ALL-004.toml) | 商用購入が前提の基盤 | 商用ライセンス購入が前提の GUI・音声フレームワークは採らない | accepted |
 | [DEC-ALL-005](DEC-ALL-005.toml) | 既存ツールの参照方法 | コピーレフトの既存ツールは、公開された機能的事実からのみ互換基準を定める | accepted |
 | [DEC-ALL-006](DEC-ALL-006.toml) | ローカル完結と単一実装 | ローカル完結・単一実装の方針に反する部品は採らない | accepted |
-| [DEC-ALL-007](DEC-ALL-007.toml) | ライセンスの示し方 | ファイル単位の SPDX ヘッダは置かない。示すのは LICENSE と Cargo.toml だけ | accepted |
+| [DEC-ALL-007](DEC-ALL-007.toml) | 配布形態との両立 | 署名配布と両立しない動的リンク前提の部品は、実行時 dlopen 経由でのみ到達する | accepted |
+| [DEC-ALL-008](DEC-ALL-008.toml) | ライセンスの示し方 | ファイル単位の SPDX ヘッダは置かない。示すのは LICENSE と Cargo.toml だけ | accepted |
 | [DEC-ALN-001](DEC-ALN-001.toml) |  | 強制アライメントは Julius セグメンテーションキットを一次経路にする | accepted |
 | [DEC-ALN-002](DEC-ALN-002.toml) | 原音設定 | 原音設定は自動を既定とし、setParam / vLabeler と同等の編集機能を必ず持つ | accepted |
 | [DEC-ALN-003](DEC-ALN-003.toml) | 確認の上限 | 確認待ちの上限を件数ではなく合計所要時間で切り、通常モードは合計5分とする | accepted |
@@ -82,4 +83,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-72 件。
+73 件。

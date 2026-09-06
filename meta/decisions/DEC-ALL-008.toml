@@ -1,0 +1,34 @@
+schema = 'decision'
+id = 'DEC-ALL-008'
+constraint_label = 'ライセンスの示し方'
+constraint = '再配布する人に、条件が伝わること'
+title = 'ファイル単位の SPDX ヘッダは置かない。示すのは LICENSE と Cargo.toml だけ'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '置かない（LICENSE と Cargo.toml の license 欄だけ）',
+  '全ファイルに置く（REUSE 準拠）',
+  '各 crate の入口だけに置く',
+]
+selected = '置かない（LICENSE と Cargo.toml の license 欄だけ）'
+rationale = '''
+AGPL-3.0-or-later は強いコピーレフトで、切り出して再配布される単位はファイルではなく
+成果物全体になる。 断片だけを持ち出して別の条件で配ることが、そもそもライセンス上できない。
+
+置くと 93 の `.rs` と TS・CSS すべてに3行が乗り、REUSE 準拠の検査も要る。
+守る対象が「ファイル単位で切り出される可能性」であるのに、その可能性が閉じている。
+
+代わりに、リポジトリ直下の `LICENSE`、各 `Cargo.toml` の `license` 欄、
+`README.md` の「ライセンス」節で示す。 npm 側は `check-licenses.ts` が、
+Rust 側は `cargo deny check` が、取り込めるものだけに限っていることを検査する。
+
+この判断を記録に残すこと自体が指摘だった。 「置かない」と決めた形跡が無いと、
+次に見た人が「忘れているのか、決めたのか」を判別できない。
+'''
+review_triggers = [
+  '一部の crate を別ライセンスで切り出して配ることになったとき',
+  'AGPL 以外のライセンスを併記することになったとき（デュアルライセンス）',
+  '配布物にファイル単位で取り込まれる形の成果物を出すとき',
+]
+affects_requirements = []
+supersedes = []
