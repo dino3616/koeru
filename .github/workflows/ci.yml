@@ -129,7 +129,7 @@ jobs:
           cargo run --package xtask -- index-decisions --check
 
   ui:
-    name: ui (format + lint + type + contrast)
+    name: ui (format + lint + type + story)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
