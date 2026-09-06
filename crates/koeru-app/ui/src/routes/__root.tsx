@@ -1,10 +1,21 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 
+import { QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
+
 import { Announcer } from "~/components/announcer";
 import { ErrorBoundary } from "~/components/error-boundary";
 import type { ReactNode } from "react";
 
+import { createQueryClient } from "~/lib/query-client";
 import globalsCss from "~/styles/globals.css?url";
+
+/*
+ * 1つだけ作る。
+ *
+ * 描画のたびに作ると、キャッシュが毎回空になって取り直しが止まらない。
+ * このアプリは窓が1つなので、モジュールの寿命でよい。
+ */
+const queryClient = createQueryClient();
 
 const RootDocument = ({ children }: { children: ReactNode }) => (
   /*
@@ -40,9 +51,24 @@ export const Route = createRootRoute({
   }),
   shellComponent: RootDocument,
   component: () => (
-    <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      {/*
+        読み上げ領域は境界の外に置く。 内側に入れると、描画で例外が出たときに
+        領域ごと外れて挿し直しになり、支援技術が変化として拾えなくなる。
+      */}
       <Announcer />
-      <Outlet />
-    </ErrorBoundary>
+      {/*
+        「やり直す」で問い合わせの失敗も消す。
+        `reset` を渡さないと、描き直した先で同じ失敗をもう一度読んで
+        即座に同じ例外が飛ぶ——押しても画面が変わらない。
+      */}
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <ErrorBoundary onReset={reset}>
+            <Outlet />
+          </ErrorBoundary>
+        )}
+      </QueryErrorResetBoundary>
+    </QueryClientProvider>
   ),
 });

@@ -1,6 +1,8 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ProgressView, type TakeView } from "~/lib/ipc";
+import { autoAdvanceQuery } from "~/lib/queries";
 
 /** テイクが1つ確定したときに呼び側へ渡すもの。 */
 type Settled = {
@@ -47,7 +49,14 @@ export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderO
    * `recording` を下ろしてから結果が返るまでの間を、これで埋める。
    */
   const [settling, setSettling] = useState(false);
-  const [advanceMs, setAdvanceMs] = useState(3000);
+  /**
+   * 1フレーズの長さ（`TR-REC-20`）。
+   *
+   * 仮の値を置いて後から差し替えない。 画面には秒数がそのまま出るし、
+   * 連続収録はこの長さで進むので、読めていない間の値で始められると
+   * 実際とは違う長さで録れる。読めるまでは上の `Suspense` が受ける。
+   */
+  const { data: advanceMs } = useSuspenseQuery(autoAdvanceQuery());
 
   /**
    * いま録っているテイクの番号。
@@ -60,10 +69,6 @@ export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderO
   const arming = useRef(false);
   /** 連続収録が回っているか。React の外から読むので ref で持つ。 */
   const continuing = useRef(false);
-
-  useEffect(() => {
-    api.autoAdvanceMs().then(setAdvanceMs).catch(onError);
-  }, [onError]);
 
   /*
    * 画面を離れたら連続収録を止める。

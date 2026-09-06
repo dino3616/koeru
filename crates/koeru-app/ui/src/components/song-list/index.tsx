@@ -1,13 +1,10 @@
+import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
-import { type SongView, type SungSongView, api, errorMessage } from "~/lib/ipc";
-
-type SongListProps = {
-  /** 収録が進むたびに変わる値。これが変わったら数え直す（`TR-RCL-17`）。 */
-  revision: number;
-};
+import { Button } from "~/components/button";
+import { Card } from "~/components/card";
+import { api, errorMessage } from "~/lib/ipc";
+import { songStatusQuery } from "~/lib/queries";
 
 /**
  * 歌える曲（`TR-RCL-17`、`TR-RCL-19`、`TR-SYN-20`）。
@@ -18,20 +15,29 @@ type SongListProps = {
  * 曲は録り始めのとっかかりとして最も効く指標であって、唯一の指標ではない
  * （`TR-RCL-19`）。曲が1本も無くても、カバレッジで進捗は読める。
  */
-export const SongList = ({ revision }: SongListProps) => {
-  const [songs, setSongs] = useState<SongView[]>([]);
-  /** 一覧を読めなかった。これは一覧の代わりに出す。 */
-  const [loadError, setLoadError] = useState<string | null>(null);
-  /** 試唱に失敗した。一覧は消さない——押した行の近くに出すだけ。 */
-  const [singError, setSingError] = useState<string | null>(null);
-  const [sung, setSung] = useState<SungSongView | null>(null);
-  /**
-   * いま用意している曲。
+export const SongList = () => {
+  /*
+   * 読みは `useSuspenseQuery`。
    *
-   * 真偽値で持つと、1曲を歌わせたときに全行が「用意しています」になり、
-   * 全部のボタンが disabled になってフォーカスも落ちる。
+   * 読み込み中は上の `Suspense`、失敗は `ErrorBoundary` が受ける。
+   * 「まだ無い」と「失敗した」を自前で書き分けなくてよくなる——
+   * 以前は成功時にエラーを消し忘れて、開いたあとも赤字が残っていた。
    */
-  const [preparingId, setPreparingId] = useState<string | null>(null);
+  const { data: songs } = useSuspenseQuery(songStatusQuery());
+
+  /**
+   * 試唱。
+   *
+   * `variables` に押した曲の識別子が入るので、「いま用意している曲」を
+   * 別に持たなくてよい。真偽値で持つと、1曲を歌わせたときに全行が
+   * 「用意しています」になり、全部のボタンが disabled になってフォーカスも落ちる。
+   *
+   * 失敗しても一覧は消さない。 押した行の近くに1行出すだけ——
+   * `Suspense` の外で受けるのは、これが読みではなく指示だから。
+   */
+  const sing = useMutation({ mutationFn: (id: string) => api.singSong(id) });
+  const preparingId = sing.isPending ? sing.variables : null;
+
   const [pending, setPending] = useState(0);
 
   /*
@@ -68,28 +74,6 @@ export const SongList = ({ revision }: SongListProps) => {
     };
   }, []);
 
-  const sing = (id: string) => {
-    setSingError(null);
-    setPreparingId(id);
-    api
-      .singSong(id)
-      .then(setSung)
-      .catch((e: unknown) => setSingError(errorMessage(e)))
-      .finally(() => setPreparingId(null));
-  };
-
-  useEffect(() => {
-    api
-      .songStatus()
-      .then((v) => {
-        setSongs(v);
-        // 成功したらエラーを消す。 消さないと、プロジェクトを開く前に
-        // 一度失敗しただけで、開いたあとも赤字が出たままになる。踏んだ。
-        setLoadError(null);
-      })
-      .catch((e: unknown) => setLoadError(errorMessage(e)));
-  }, [revision]);
-
   return (
     <Card title="歌える曲">
       {/*
@@ -105,16 +89,6 @@ export const SongList = ({ revision }: SongListProps) => {
           ? `録った音を整えています（残り ${pending} 件）。いま歌わせても鳴りますが、少し待ちます。`
           : ""}
       </p>
-
-      {/*
-        読み込みに失敗しても、既に持っている一覧は消さない。
-        消すと「さっきまで見えていた曲」が理由も分からず消える。
-      */}
-      {loadError !== null && (
-        <p role="alert" className="mt-3 text-sm text-red-11">
-          {loadError}
-        </p>
-      )}
 
       {songs.length === 0 ? (
         <p className="mt-3 text-sm text-slate-11">
@@ -165,7 +139,7 @@ export const SongList = ({ revision }: SongListProps) => {
                   `aria-busy` で状態を伝え、二重起動はハンドラ側で弾く。
                 */}
                 <Button
-                  onClick={() => preparingId === null && sing(s.id)}
+                  onClick={() => preparingId === null && sing.mutate(s.id)}
                   aria-busy={preparingId === s.id}
                   aria-label={`${s.title} を歌わせる`}
                 >
@@ -174,11 +148,11 @@ export const SongList = ({ revision }: SongListProps) => {
                 <Button variant="ghost" onClick={() => api.stopPreview().catch(() => undefined)}>
                   止める
                 </Button>
-                {sung?.title === s.title && (
+                {sing.data?.title === s.title && (
                   <span className="font-mono text-xs text-slate-11 tabular-nums">
-                    {(sung.duration_ms / 1000).toFixed(1)} 秒
-                    {sung.dropped_phrases > 0 &&
-                      ` · ${sung.dropped_phrases} フレーズは飛ばしました`}
+                    {(sing.data.duration_ms / 1000).toFixed(1)} 秒
+                    {sing.data.dropped_phrases > 0 &&
+                      ` · ${sing.data.dropped_phrases} フレーズは飛ばしました`}
                   </span>
                 )}
               </div>
@@ -187,9 +161,9 @@ export const SongList = ({ revision }: SongListProps) => {
         </ul>
       )}
 
-      {singError !== null && (
+      {sing.error !== null && (
         <p role="alert" className="mt-3 text-sm text-red-11">
-          {singError}
+          {errorMessage(sing.error)}
         </p>
       )}
     </Card>

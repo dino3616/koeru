@@ -1,18 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 
 import { CalibrationCard } from "~/components/calibration-card";
 import { LeakCard } from "~/components/leak-card";
 import { LiveWaveform } from "~/components/live-waveform";
 import { Spinner } from "~/components/spinner";
-import { Card } from "~/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import { api, type DeviceView, type MicModeView, micModeLabel, type SpaceView } from "~/lib/ipc";
+import { Card } from "~/components/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/select";
+import { api, type MicModeView, micModeLabel, type SpaceView } from "~/lib/ipc";
+import { devicesQuery } from "~/lib/queries";
 
 type InputSetupProps = {
   /** 選ばれている入力デバイス。未選択なら `undefined`。 */
@@ -47,7 +43,11 @@ export const InputSetup = ({
   onError,
   onLeakChecked,
 }: InputSetupProps) => {
-  const [devices, setDevices] = useState<DeviceView[]>([]);
+  /*
+   * 挙げるのは1回。 抜き差しで変わるが、画面の操作では変わらないので
+   * 台帳の鍵の下には置かない（`~/lib/queries`）。
+   */
+  const { data: devices } = useSuspenseQuery(devicesQuery());
   const [micMode, setMicMode] = useState<MicModeView | null>(null);
   const [space, setSpace] = useState<SpaceView | null>(null);
   const [leaking, setLeaking] = useState<boolean | null>(null);
@@ -69,10 +69,6 @@ export const InputSetup = ({
   const settled = useRef(false);
 
   const ready = deviceId !== undefined;
-
-  useEffect(() => {
-    api.listDevices().then(setDevices).catch(onError);
-  }, [onError]);
 
   const choose = (next: string) => {
     onDeviceChange(next);

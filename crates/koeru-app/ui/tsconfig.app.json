@@ -1,7 +1,7 @@
 {
   // 画面のコードと、それを描く Storybook。Bun の型を通さない。
   "extends": ["@tsconfig/strictest/tsconfig.json", "@tsconfig/vite-react/tsconfig.json"],
-  "include": ["src/**/*.ts", "src/**/*.tsx", ".storybook/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", ".storybook/**/*.ts", ".storybook/**/*.tsx"],
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",

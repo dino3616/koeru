@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
+import { Button } from "~/components/button";
+import { Card } from "~/components/card";
 import { type CalibrationView, api, errorMessage } from "~/lib/ipc";
 
 /** 校正に使う発声の長さ（秒）。3〜5秒（`TR-REC-14`）。 */

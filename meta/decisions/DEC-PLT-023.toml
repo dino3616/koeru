@@ -1,0 +1,51 @@
+schema = 'decision'
+id = 'DEC-PLT-023'
+constraint_label = '読みの取り回し'
+constraint = 'Rust から読むものを、部品ごとに書き下ろさないこと'
+title = 'Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'TanStack Query（useSuspenseQuery / useMutation）',
+  'useEffect と useState で部品ごとに書く',
+  'React の use() と自前のキャッシュ',
+]
+selected = 'TanStack Query（useSuspenseQuery / useMutation）'
+rationale = '''
+読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。 待ちは `Suspense`、
+失敗は経路の受け口（`RouteError`）と `__root` の `ErrorBoundary` が受ける。
+
+自前で書くと、部品ごとに3つの状態を書き下ろすことになる。 「まだ無い」「取れた」
+「失敗した」を毎回書き分ければ、書き落としが出る——実際、成功時にエラーを消し忘れて、
+一度失敗したあとは開いても赤字が残ったままになっていた。中断と境界に寄せると、
+部品には「取れた」しか残らない。
+
+`use()` は入れ物を持たない。 約束を投げるところまでは同じだが、同じ約束を
+返し続ける仕組みが要る。それを自分で書くと、鍵・重複排除・無効化を作ることになる
+——名前の違うキャッシュを1つ増やすだけになる。
+
+鍵と取得口は `ui/src/lib/queries.ts` に集める。 部品の側に散らすと、同じものを
+別の鍵で引いて二重に取りに行く。台帳から読むものは `ledgerKey` の下に置き、
+テイクが確定したらまとめて無効化する——版番号を鍵に混ぜない。混ぜると変わるたびに
+別の鍵になってキャッシュが積み上がる。
+
+`open_project` は台帳の鍵の下に置かない。 あれは収録セッションを1つ始め直す
+（`TR-REC-30`）ので、テイクが確定するたびに呼ぶとセッションが録音の途中で切り替わる。
+開くのと読むのを別の部品に分け、境界を挟んで順に解く——同じ部品に2つの
+`useSuspenseQuery` を並べると同時に投げられ、開く前に台帳を読んで `app.no_project` を受ける。
+
+流し続けるものは載せない。 波形と待ち数は Channel と自前の予約で回す（`DEC-PLT-017`）。
+あれは問い合わせではないし、取り直しにも重複排除にも意味が無い。
+
+MIT。 依存は `@tanstack/react-query` の1件で、ルータと同じ作者・同じ配布元。
+'''
+review_triggers = [
+  '読みが増えて、鍵の無効化の範囲が部品ごとに違ってきたとき',
+  'React の use() と Suspense だけで、入れ物なしに同じことが書けるようになったとき',
+]
+affects_requirements = [
+  'TR-PLT-29',
+  'TR-RCL-17',
+  'TR-RCL-25',
+]
+supersedes = []

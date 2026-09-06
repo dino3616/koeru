@@ -10,7 +10,7 @@
    * `types: ["bun"]` はあちらが持つので、ここでは書かない。
    */
   "extends": ["@tsconfig/bun/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
-  "include": ["scripts/**/*.ts", "vite.config.ts", "vitest.stories.config.ts"],
+  "include": ["scripts/**/*.ts", "vite.config.ts", "vitest.story.config.ts"],
   "compilerOptions": {
     // `@tsconfig/strictest` が後に来るので、Bun 側の設定を書き戻す。
     // 順序を入れ替えると strictest の厳しさが緩む。

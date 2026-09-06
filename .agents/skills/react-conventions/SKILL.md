@@ -59,7 +59,7 @@ const button = tv({
 
 塗りは段 9 ではなく段 11。段 9 は明暗で同じ値になる色があり、字を載せると 4.5:1 に届かない。hover は段 12。`brightness()` フィルタで作らない——塗りと字の両方が明るくなり、字は 255 で頭打ちになるので比が下がる。
 
-検査は `bun run check:contrast`。sRGB と display-p3 の両方で計算し、低いほうで判定する。`src/` で使っている段が検査対象に入っているかも見る。
+検査は実ブラウザで走る axe（`bun run test`）。段の網羅は `src/styles/palette.story.tsx` が持ち、字と面の組み合わせ・境界とフォーカス・非テキストの比を、計算済みの色から測る。段を使いはじめたら、ここへ足す——載せていない組み合わせは一度も測られない。
 
 ## 部品
 
@@ -94,9 +94,29 @@ cargo test -p koeru-app --test bindings                          # 古くない�
 
 `~/lib/ipc` はその上の薄い層で、持っているのは3つだけ。生成物の結果型を投げる形へ剥がすこと、位置引数で取り違えやすいものをオブジェクト引数に直すこと、Rust の識別子を日本語へ直すこと。
 
+### 読みは TanStack Query に載せる
+
+`useEffect` と `useState` で書き下ろさない（`DEC-PLT-023`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は経路の受け口（`RouteError`）と `__root` の `ErrorBoundary` が受ける。
+
+自前で書くと、部品ごとに「まだ無い」「取れた」「失敗した」を書き分けることになり、書き落としが出る——成功時にエラーを消し忘れて、一度失敗したあとは赤字が残ったままになっていた。
+
+鍵と取得口は `~/lib/queries` に集める。散らすと、同じものを別の鍵で引いて二重に取りに行く。台帳から読むものは `ledgerKey` の下に置き、テイクが確定したら `invalidateQueries({ queryKey: ledgerKey })` でまとめて無効化する。版番号を鍵に混ぜない——変わるたびに別の鍵になってキャッシュが積み上がる。
+
+順に解かせたいものは、部品を分けて境界を挟む。同じ部品に2つの `useSuspenseQuery` を並べると同時に投げられる。`open_project` の前に台帳を読むと `app.no_project` を受けるので、開くところと読むところを別の部品にする。
+
+失敗しても画面が成り立つものは `useQuery` のまま。波形に重ねる oto の目盛りは、取れなくても波形は読める。中断させると、これを待つあいだ波形が消える。
+
+```tsx
+const { data: rows } = useSuspenseQuery(rowsWithTakesQuery());   // 読み
+const { data: otos = [] } = useQuery(otosQuery(takeId));         // 無くても成り立つ読み
+const adopt = useMutation({ mutationFn: /* … */ });              // 押して走るもの
+```
+
 ### 流し続けるものは Channel
 
 `invoke` で引きに行かせない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。
+
+待ち数のように繰り返し引くものも Query に載せない。返ってきてから次を予約する形を自分で書く——`refetchInterval` も `setInterval` も、1回が間隔より長くかかったときの振る舞いを自分で決められない。
 
 ### 小数は `Finite` を通す
 
@@ -118,14 +138,15 @@ lint は `jsx-a11y` を有効にしてある。`vite.config.ts` の `lint.plugin
 bun run check          # 整形 + lint + 型（--fix つき）
 bun run check:ci       # 直さずに見る + 試験（CI と同じ）
 bun run test           # 名前・役割・値とフォーカス順序（`TR-PLT-25`）
-bun run build          # ビルド + tsc + コントラスト + npm のライセンス
+bun run build          # ビルド + tsc + npm のライセンス
 ```
 
 ### すべての部品に story を書く
 
-例外なし。 `check:stories` が、大文字で始まる名前を輸出している `.tsx` に
-隣の `.stories.tsx` があるかを見る。無ければ落ちる。描かないものは
-`EXEMPT` へ理由つきで足す（いまはルータの殻と経路の宣言だけ）。
+例外なし。 部品は1ディレクトリ1つで、`components/<name>/index.tsx` と
+`components/<name>/<name>.story.tsx` が並ぶ。`check:stories` がその対応を見て、
+無ければ落ちる。描かないものは `EXEMPT` へ理由つきで足す
+（いまはルータの殻と経路の宣言だけ）。
 
 story が検査範囲を決める（`DEC-PLT-022`）。 書き忘れた部品は axe に
 一度も当たらないまま通るので、「検査が緑」と「検査した」が食い違う。
@@ -171,7 +192,7 @@ Tauri の無いところで `new Channel()` すると即落ちる。
 「判定不能」になり違反として上がらない。以前あった `check-contrast.ts`
 （Radix の値を自前で計算する検査）は廃止した（`DEC-PLT-022`）。
 
-段の網羅は `palette.stories.tsx` が持つ。 明暗を入れ子で並べて1つの story で測る。
+段の網羅は `src/styles/palette.story.tsx` が持つ。 明暗を入れ子で並べて1つの story で測る。
 story を分けない——vitest 統合は既定の globals で1回ずつ走らせるので、
 `theme` を切り替えた story を別に置いても片方しか回らない。
 段を使いはじめたら、ここへ足す。
@@ -202,8 +223,8 @@ export const 名前つき: Story = {
 await しないと、違反があっても落ちないことがある。lint が
 `no-floating-promises` で拾うので、警告を消さずに直す。
 
-いま `play` が持っているのは3つ。`Card` の名前つき／名前なしで landmark に
-なるか、入れ子で段が1つずつ下がるか、`<meter>` が値と範囲を持ち語も並ぶか
+書いてあるのは、たとえば `Card` の名前つき／名前なしで landmark になるか、
+入れ子で段が1つずつ下がるか、`<meter>` が値と範囲を持ち語も並ぶか
 （`TR-PLT-28`、`TR-PLT-29`）。
 
 npm の依存ライセンスは `check:licenses` が見る。 Rust 側の `cargo deny check` に

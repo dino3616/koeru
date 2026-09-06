@@ -9,14 +9,14 @@ import type { StorybookConfig } from "@storybook/react-vite";
  * それを実ブラウザで CI から走らせる（`DEC-PLT-022`）。
  *
  * `addon-vitest` を `addons` に必ず載せる。 これが tester を配線する。
- * `vitest.stories.config.ts` に plugin を書いただけでは足りず、
+ * `vitest.story.config.ts` に plugin を書いただけでは足りず、
  * 外すと iframe が起動しないまま 60 秒で諦める。一度そうなった。
  *
  * ビルダは `vite-plus`。 Storybook 10 の optional peer は `^0.1.15 || ^0.2.0` で、
  * このリポジトリは 0.3.0。動くことを確かめて採っている。
  */
 const config: StorybookConfig = {
-  stories: ["../src/**/*.stories.tsx"],
+  stories: ["../src/**/*.story.tsx"],
   addons: ["@storybook/addon-a11y", "@storybook/addon-vitest"],
   framework: { name: "@storybook/react-vite", options: {} },
   // 使う人向けの説明を書く場所ではない。部品の検査と目視のためだけに立てる。

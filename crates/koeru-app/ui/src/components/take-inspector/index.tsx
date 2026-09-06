@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Spinner } from "~/components/spinner";
-import { Button } from "~/components/ui/button";
+import { Button } from "~/components/button";
 import { CLIP_THRESHOLD } from "~/lib/levels";
 import { type OtoView, api, errorMessage } from "~/lib/ipc";
+import { otosQuery } from "~/lib/queries";
 
 type TakeInspectorProps = {
   takeId: number;
@@ -98,7 +100,14 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
    */
   const [span, setSpan] = useState<[number, number]>([0, durationMs]);
   const [showSpectro, setShowSpectro] = useState(false);
-  const [otos, setOtos] = useState<OtoView[]>([]);
+  /**
+   * 自動原音設定が指した位置（`TR-ALN-33`）。
+   *
+   * `useSuspenseQuery` にしない。 これは波形の上に重ねる目盛りで、
+   * 取れなくても波形は読める。中断させると、これを待つあいだ波形が消える。
+   * 失敗も上げない——重ねるものが無いだけで、テイクの検分は成立する。
+   */
+  const { data: otos = [] } = useQuery(otosQuery(takeId));
   const [error, setError] = useState<string | null>(null);
   /**
    * 描く元を取っている最中か。
@@ -108,14 +117,6 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
    * 何も出さないと「変わっていない」と読める。
    */
   const [drawing, setDrawing] = useState(false);
-
-  // 自動原音設定が指した位置（`TR-ALN-33`）。テイクが変わったら引き直す。
-  useEffect(() => {
-    api
-      .otosOfTake(takeId)
-      .then(setOtos)
-      .catch(() => setOtos([]));
-  }, [takeId]);
 
   const draw = useCallback(() => {
     const canvas = waveRef.current;

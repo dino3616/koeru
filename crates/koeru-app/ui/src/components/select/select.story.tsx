@@ -1,13 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect } from "storybook/test";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/select";
 
 /*
  * 一覧から1つ選ぶ。

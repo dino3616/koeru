@@ -78,7 +78,7 @@ cd crates/koeru-app/ui
 bun install
 bun run check           # 整形・lint・型（vp check --fix）
 bun run check:ci        # 直さずに見る ＋ 試験（CI と同じ）
-bun run build           # ビルド ＋ 型 ＋ 配色 ＋ npm のライセンス
+bun run build           # ビルド ＋ 型 ＋ npm のライセンス
 ```
 
 試験は story だけ。 実ブラウザに描いて axe を当て、`play` で
@@ -86,7 +86,7 @@ axe に規則が無い性質を見る（`TR-PLT-25`、`DEC-PLT-022`）。
 試験ファイルを別に置いていないので、`src/__tests__/` は無い。
 
 検査範囲は story の範囲そのもの。 部品に story が無ければ一度も検査されない。
-配色の段も `palette.stories.tsx` に並べたものだけが測られる。
+配色の段も `src/styles/palette.story.tsx` に並べたものだけが測られる。
 
 実ブラウザなので Playwright が要る。 CI では `~/.cache/ms-playwright` を
 lockfile のハッシュでキャッシュしている。手元では `bunx playwright install chromium`。

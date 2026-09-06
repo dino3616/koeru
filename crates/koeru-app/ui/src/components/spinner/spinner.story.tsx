@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect } from "storybook/test";
 
 import { Spinner } from "~/components/spinner";
-import { Button } from "~/components/ui/button";
+import { Button } from "~/components/button";
 
 /*
  * 待っていることを示す印。

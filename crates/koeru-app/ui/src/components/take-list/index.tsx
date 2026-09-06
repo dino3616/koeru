@@ -1,12 +1,11 @@
-import { useEffect, useState } from "react";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
-import { type RowTakesView, api, errorMessage } from "~/lib/ipc";
+import { Button } from "~/components/button";
+import { Card } from "~/components/card";
+import { api, errorMessage } from "~/lib/ipc";
+import { ledgerKey, rowsWithTakesQuery } from "~/lib/queries";
 
 type TakeListProps = {
-  /** 収録が進むたびに変わる値。これが変わったら引き直す。 */
-  revision: number;
   /** 収録中は録り直しを出さない。 */
   busy: boolean;
   /** 録り直しを始める。 */
@@ -25,37 +24,35 @@ type TakeListProps = {
  * 一覧が無いと、一度録った行を二度と選べない。 `next_row` は
  * 未収録しか返さないので、ここが録り直しの唯一の入口になる。
  */
-export const TakeList = ({ revision, busy, onRetake, onPlay }: TakeListProps) => {
-  const [rows, setRows] = useState<RowTakesView[]>([]);
-  const [error, setError] = useState<string | null>(null);
+export const TakeList = ({ busy, onRetake, onPlay }: TakeListProps) => {
+  /*
+   * 読みは `useSuspenseQuery`。
+   *
+   * 読み込み中は上の `Suspense` が受け、失敗は `ErrorBoundary` が受ける。
+   * だから `rows` は必ず在り、失敗の state も要らない——
+   * 「まだ無い」と「失敗した」を部品ごとに書き分けなくてよくなる。
+   */
+  const { data: rows } = useSuspenseQuery(rowsWithTakesQuery());
+  const queryClient = useQueryClient();
 
-  const reload = () => {
-    api
-      .rowsWithTakes()
-      .then((v) => {
-        setRows(v);
-        // 成功したら消す。 消さないと、開く前に一度失敗しただけで赤いまま残る。
-        setError(null);
-      })
-      .catch((e: unknown) => setError(errorMessage(e)));
-  };
-
-  useEffect(reload, [revision]);
-
-  const adopt = (rowId: string, takeId: number) => {
-    api
-      .adoptTake(rowId, takeId)
-      .then(reload)
-      .catch((e: unknown) => setError(errorMessage(e)));
-  };
+  /*
+   * 採用の切り替えは指示。 問い合わせではないので `useMutation`。
+   * 済んだら台帳を無効化して、一覧も進み具合も取り直させる。
+   */
+  const adopt = useMutation({
+    mutationFn: ({ rowId, takeId }: { rowId: string; takeId: number }) =>
+      api.adoptTake(rowId, takeId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ledgerKey }),
+  });
 
   const recorded = rows.filter((r) => r.takes.length > 0);
 
   return (
     <Card title="録れたもの一覧">
-      {error !== null && (
+      {/* 採用の切り替えだけは、ここで失敗を出す。読みの失敗は境界が受ける。 */}
+      {adopt.error !== null && (
         <p role="alert" className="mt-3 text-sm text-red-11">
-          {error}
+          {errorMessage(adopt.error)}
         </p>
       )}
 
@@ -90,7 +87,9 @@ export const TakeList = ({ revision, busy, onRetake, onPlay }: TakeListProps) =>
                           ? `${r.row_id} の ${t.generation} 本目、${seconds} 秒。取りこぼしがあるので使えません`
                           : `${r.row_id} の ${t.generation} 本目、${seconds} 秒${adopted ? "。採用中" : "を採用する"}`
                       }
-                      onClick={() => !adopted && adopt(r.row_id, t.take_id)}
+                      onClick={() => {
+                        if (!adopted) adopt.mutate({ rowId: r.row_id, takeId: t.take_id });
+                      }}
                     >
                       <span aria-hidden="true">
                         {t.generation}

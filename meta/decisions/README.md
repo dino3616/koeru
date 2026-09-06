@@ -58,6 +58,7 @@
 | [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | accepted |
 | [DEC-PLT-021](DEC-PLT-021.toml) | 画面の分け方 | OOUI はカード（面）の単位で採る。ルートはオブジェクトごとに分けない | accepted |
 | [DEC-PLT-022](DEC-PLT-022.toml) | アクセシビリティの自動検査 | Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する | accepted |
+| [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -81,4 +82,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-71 件。
+72 件。

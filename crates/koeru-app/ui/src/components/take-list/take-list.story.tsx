@@ -13,7 +13,7 @@ import { api } from "~/lib/ipc";
 const meta = {
   title: "部品/TakeList",
   component: TakeList,
-  args: { revision: 0, busy: false, onRetake: fn(), onPlay: fn() },
+  args: { busy: false, onRetake: fn(), onPlay: fn() },
 } satisfies Meta<typeof TakeList>;
 
 export default meta;

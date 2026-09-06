@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect } from "storybook/test";
 
-import { Card } from "~/components/ui/card";
+import { Card } from "~/components/card";
 
 /*
  * ひとまとまりの領域。

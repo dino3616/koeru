@@ -1,11 +1,13 @@
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
 
 import { SongList } from "~/components/song-list";
+import { CardSkeleton } from "~/components/card-skeleton";
 import { TakeList } from "~/components/take-list";
 import { TakeInspector } from "~/components/take-inspector";
-import { Button } from "~/components/ui/button";
-import { Card } from "~/components/ui/card";
+import { Button } from "~/components/button";
+import { Card } from "~/components/card";
 import { Elapsed } from "~/components/elapsed";
 import { Spinner } from "~/components/spinner";
 import { InputSetup } from "~/components/input-setup";
@@ -13,6 +15,7 @@ import { cx } from "~/lib/tv";
 import { useScreenFocus } from "~/lib/use-screen-focus";
 import { useRecorder } from "~/lib/use-recorder";
 import { api, errorMessage, type ProgressView } from "~/lib/ipc";
+import { ledgerKey, openProjectQuery, progressQuery } from "~/lib/queries";
 
 /** 試唱の基準音（MIDI）。C4。フォールバックもここを参照する。 */
 const BASE_MIDI = 60;
@@ -35,21 +38,69 @@ const PREVIEW_LENGTH_MS = 800;
  * 録る → 波形が出る → その場で歌わせて聴く、までをここで完結させる。
  * パスを画面に出さない（`TR-PKG-45`）。保存先も、ファイル名も見せない。
  */
+/**
+ * 収録画面。縦切りの本体。
+ *
+ * 開くまでと開いたあとを別の部品に分ける。 `open_project` を先に
+ * 済ませないと、台帳を読む子が `app.no_project` を受ける——同じ部品に
+ * 両方の `useSuspenseQuery` を並べると、React Query は2つを同時に投げるので
+ * 順番が保てない。境界を挟んで、親が解けてから子を出す。
+ */
 export const RecordScreen = () => {
   const navigate = useNavigate();
-  const heading = useScreenFocus();
   const { id } = useSearch({ from: "/record" });
 
+  // 識別子が無いまま開かれることがある（殻だけを先に出したときや、
+  // 履歴から直接来たとき）。落とさず、戻る道を出す。
+  if (id === undefined) {
+    return (
+      <main className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-4 p-8">
+        <p className="text-slate-11">音源が選ばれていません。</p>
+        <Button variant="primary" onClick={() => navigate({ to: "/" })}>
+          一覧へ戻る
+        </Button>
+      </main>
+    );
+  }
+
+  return (
+    <Suspense
+      fallback={
+        <main
+          role="status"
+          className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-3 p-8"
+        >
+          <Spinner />
+          <p className="text-slate-11">読み込み中</p>
+        </main>
+      }
+    >
+      <RecordSession id={id} />
+    </Suspense>
+  );
+};
+
+/**
+ * プロジェクトを開くところまで。
+ *
+ * 子を返すだけの層に見えるが、`useSuspenseQuery` が解けるまで子は描かれない
+ * ——React は親が中断した時点で降りるのをやめる。これが「開いてから読む」の
+ * 保証になっている。
+ */
+const RecordSession = ({ id }: { id: string }) => {
+  useSuspenseQuery(openProjectQuery(id));
+  return <RecordBody />;
+};
+
+/** 開いたあとの収録画面。 */
+const RecordBody = () => {
+  const navigate = useNavigate();
+  const heading = useScreenFocus();
+  const queryClient = useQueryClient();
+
+  const { data: progress } = useSuspenseQuery(progressQuery());
+
   const [deviceId, setDeviceId] = useState<string | undefined>(undefined);
-  const [progress, setProgress] = useState<ProgressView | null>(null);
-  /**
-   * 台帳が変わるたびに増やす。
-   *
-   * カバレッジでは代用できない。 採用テイクを切り替えても、
-   * 録り直しても、カバレッジは変わらない（`TR-RCL-25`）。
-   * それを鍵にすると、一覧が更新されない。
-   */
-  const [revision, setRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   /** 回り込みの確認結果。音高提示を鳴らしてよいかを決める（`TR-REC-24`）。 */
@@ -57,11 +108,21 @@ export const RecordScreen = () => {
 
   const fail = useCallback((e: unknown) => setError(errorMessage(e)), []);
 
-  /** 確定したら、進み具合と一覧を同時に進める。片方だけ動くと数が合わない。 */
-  const onSettled = useCallback(({ progress: p }: { progress: ProgressView }) => {
-    setProgress(p);
-    setRevision((n) => n + 1);
-  }, []);
+  /**
+   * 確定したら、進み具合と一覧を同時に進める。片方だけ動くと数が合わない。
+   *
+   * 進み具合は確定が返した値をそのまま書く。 取り直しを待つと、
+   * 数字だけが一拍遅れて動く。そのうえで台帳全体を無効化して、
+   * 一覧を取り直させる——カバレッジでは代用できない。採用テイクを
+   * 切り替えても録り直しても、カバレッジは変わらない（`TR-RCL-25`）。
+   */
+  const onSettled = useCallback(
+    ({ progress: p }: { progress: ProgressView }) => {
+      queryClient.setQueryData(progressQuery().queryKey, p);
+      void queryClient.invalidateQueries({ queryKey: ledgerKey });
+    },
+    [queryClient],
+  );
 
   const {
     take,
@@ -85,11 +146,6 @@ export const RecordScreen = () => {
   /** デバイスを選べているか。選ぶまでは録らせない。 */
   const ready = deviceId !== undefined;
 
-  useEffect(() => {
-    if (id === undefined) return;
-    api.openProject(id).then(setProgress).catch(fail);
-  }, [id, fail]);
-
   /** 録れたものをそのまま鳴らす（`TR-REC-43`）。 */
   const playRaw = (takeId: number) => {
     setError(null);
@@ -102,25 +158,8 @@ export const RecordScreen = () => {
     api.preview({ takeId: take.take_id, midi, lengthMs: PREVIEW_LENGTH_MS }).catch(fail);
   };
 
-  // 識別子が無いまま開かれることがある（殻だけを先に出したときや、
-  // 履歴から直接来たとき）。落とさず、戻る道を出す。
-  if (id === undefined) {
-    return (
-      <main className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center gap-4 p-8">
-        <p className="text-slate-11">音源が選ばれていません。</p>
-        <Button variant="primary" onClick={() => navigate({ to: "/" })}>
-          一覧へ戻る
-        </Button>
-      </main>
-    );
-  }
-
-  // まだ読めていないことと、全部録れたことを混ぜない。
-  // 混ぜると、開いた直後に「全部録れました」と出る。
-  const loaded = progress !== null;
-  const allDone = loaded && progress.next_row_id === null;
-  const pct =
-    loaded && progress.required > 0 ? Math.round((progress.covered / progress.required) * 100) : 0;
+  const allDone = progress.next_row_id === null;
+  const pct = progress.required > 0 ? Math.round((progress.covered / progress.required) * 100) : 0;
 
   return (
     <main className="mx-auto flex h-full max-w-4xl flex-col gap-5 overflow-y-auto p-8">
@@ -136,18 +175,12 @@ export const RecordScreen = () => {
             行数は本人の作業量、単位の被覆は音源の到達度で、意味が違う。
           */}
           <p className="mt-1 font-mono text-sm text-slate-11 tabular-nums">
-            {loaded ? (
+            {progress.covered} / {progress.required} 音（{pct}%）
+            {progress.songs_in_bank > 0 && (
               <>
-                {progress.covered} / {progress.required} 音（{pct}%）
-                {progress.songs_in_bank > 0 && (
-                  <>
-                    {" · "}
-                    {progress.singable_songs} / {progress.songs_in_bank} 曲が歌える
-                  </>
-                )}
+                {" · "}
+                {progress.singable_songs} / {progress.songs_in_bank} 曲が歌える
               </>
-            ) : (
-              "読み込み中"
             )}
           </p>
         </div>
@@ -161,31 +194,29 @@ export const RecordScreen = () => {
         {status}
       </p>
 
-      <InputSetup
-        deviceId={deviceId}
-        onDeviceChange={(next) => {
-          setDeviceId(next);
-          setError(null);
-        }}
-        guideMidi={PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI}
-        onStatus={setStatus}
-        onError={fail}
-        onLeakChecked={setLeaking}
-      />
+      <Suspense fallback={<CardSkeleton title="マイク" />}>
+        <InputSetup
+          deviceId={deviceId}
+          onDeviceChange={(next) => {
+            setDeviceId(next);
+            setError(null);
+          }}
+          guideMidi={PREVIEW_PITCHES[1]?.midi ?? BASE_MIDI}
+          onStatus={setStatus}
+          onError={fail}
+          onLeakChecked={setLeaking}
+        />
+      </Suspense>
 
       <Card title="いま録るところ">
-        {loaded ? (
-          <p
-            className={cx(
-              "mt-3 select-text text-5xl font-semibold tracking-widest",
-              allDone && "text-slate-11",
-            )}
-          >
-            {progress.next_row_text ?? "全部録れました"}
-          </p>
-        ) : (
-          <p className="mt-3 text-5xl font-semibold tracking-widest text-slate-11">…</p>
-        )}
+        <p
+          className={cx(
+            "mt-3 select-text text-5xl font-semibold tracking-widest",
+            allDone && "text-slate-11",
+          )}
+        >
+          {progress.next_row_text ?? "全部録れました"}
+        </p>
 
         <div className="mt-5 flex flex-wrap items-center gap-3">
           {recording ? (
@@ -212,7 +243,7 @@ export const RecordScreen = () => {
               variant="primary"
               size="lg"
               onClick={start}
-              disabled={!ready || !loaded || allDone || continuous}
+              disabled={!ready || allDone || continuous}
             >
               録る
             </Button>
@@ -233,7 +264,7 @@ export const RecordScreen = () => {
                 setError(null);
                 void runContinuous();
               }}
-              disabled={!ready || !loaded || allDone || recording}
+              disabled={!ready || allDone || recording}
             >
               続けて録る
             </Button>
@@ -363,23 +394,16 @@ export const RecordScreen = () => {
       )}
 
       {/*
-        プロジェクトが開くまで、台帳を読む子を出さない。
-        React は Effect を子から先に流すので、出しておくと `open_project` より先に
-        問い合わせて `app.no_project` を受ける。`revision` は最初のテイクまで
-        増えないので、そのエラーはそれまで消えない。
+        外枠を先に出す。 中身の取得を待たせない
+        （`async-suspense-boundaries`）。失敗は上の `ErrorBoundary` が受ける。
       */}
-      {loaded && (
-        <>
-          <TakeList
-            revision={revision}
-            busy={recording || continuous}
-            onRetake={retake}
-            onPlay={playRaw}
-          />
+      <Suspense fallback={<CardSkeleton title="録れたもの一覧" />}>
+        <TakeList busy={recording || continuous} onRetake={retake} onPlay={playRaw} />
+      </Suspense>
 
-          <SongList revision={revision} />
-        </>
-      )}
+      <Suspense fallback={<CardSkeleton title="歌える曲" />}>
+        <SongList />
+      </Suspense>
 
       {error !== null && (
         <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">

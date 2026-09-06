@@ -7,6 +7,8 @@ import {
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
+import { RouteError } from "~/components/route-error";
+
 /*
  * story にルータの文脈を与える。
  *
@@ -35,6 +37,14 @@ export const withRouter = (children: ReactNode, path = "/") => {
   const router = createRouter({
     routeTree: root.addChildren([index, record]),
     history: createMemoryHistory({ initialEntries: [path] }),
+    /*
+     * 本物と同じ失敗の面を出す（`~/router`）。
+     *
+     * 渡さないと、ルータが自前の既定の面を描く。 あれは本体では一度も
+     * 出ない絵なので、story で見ているものが本体と食い違う——
+     * 実際、既定の面は赤字のコントラストが 3.89 で a11y の検査に落ちた。
+     */
+    defaultErrorComponent: RouteError,
   });
 
   return <RouterProvider router={router as never} />;

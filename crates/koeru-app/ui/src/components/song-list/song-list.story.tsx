@@ -13,7 +13,6 @@ import { api } from "~/lib/ipc";
 const meta = {
   title: "部品/SongList",
   component: SongList,
-  args: { revision: 0 },
   beforeEach: () => {
     mocked(api.pendingWork).mockResolvedValue(0);
   },
