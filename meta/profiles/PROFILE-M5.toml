@@ -3,7 +3,7 @@ id = 'PROFILE-M5'
 title = '方式を広げる'
 status = 'planned'
 note = '''連続音・CVVC・多音階。prefix.map と subbank。下位方式への書き出し。所要時間の実測。
-**歌詞の g2p もここへ移した**（DEC-RCL-005）。M2 の主経路は UST の取り込みで、
+歌詞の g2p もここへ移した（DEC-RCL-005）。M2 の主経路は UST の取り込みで、
 UST はノートに仮名の歌詞を持つので g2p が無くても通る。
 辞書の同梱は配布物の大きさに直接効くので、要る場面が来てから積む。'''
 includes_requirements = [

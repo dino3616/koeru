@@ -1,0 +1,17 @@
+{
+  // 画面のコードと、それを描く Storybook。Bun の型を通さない。
+  "extends": ["@tsconfig/strictest/tsconfig.json", "@tsconfig/vite-react/tsconfig.json"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", ".storybook/**/*.ts", ".storybook/**/*.tsx"],
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "composite": true,
+    "resolveJsonModule": true,
+    // `DOM.Iterable` を足す。 無いと `querySelectorAll` の結果を
+    // `for…of` や スプレッドで回せない——`vp check` は通すが `tsc` が落とす。
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "paths": { "~/*": ["./src/*"] }
+  }
+}

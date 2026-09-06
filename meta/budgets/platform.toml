@@ -12,9 +12,9 @@ id = 'TGT-PLT-001'
 item = 'インストーラのダウンロードサイズ（win-x64）'
 goal = '≤ 300MB（圧縮後）'
 decided_by = 'DEC-ALN-008'
-note = '''**枠であって実測ではない。** 内訳の見込みは MFA モデル 88.0MiB（EVID-ALN-001）
+note = '''枠であって実測ではない。 内訳の見込みは MFA モデル 88.0MiB（EVID-ALN-001）
 ＋ Julius 3.6MB（退避経路）＋ Kaldi の共有ライブラリ 約30MiB ＋ アプリ本体
-＋ WebView2 固定版。**ビルドが通った時点で実値に差し替える。**
+＋ WebView2 固定版。ビルドが通った時点で実値に差し替える。
 従来の 120MB は、同梱モデルが snfa 級（約1.2MB）だった時期の枠'''
 
 [[target]]
@@ -23,15 +23,15 @@ item = '同（macOS arm64 / Linux x64）'
 goal = '≤ 250MB'
 decided_by = 'DEC-ALN-008'
 note = '''macOS は WKWebView が OS 同梱のため増えない。Linux は Flatpak runtime に含める。
-**win-x64 との差 50MB は WebView2 固定版のぶん。** こちらも枠であって実測ではない'''
+win-x64 との差 50MB は WebView2 固定版のぶん。 こちらも枠であって実測ではない'''
 
 [[target]]
 id = 'TGT-PLT-003'
 item = '同梱する推論モデルの合計サイズ'
 goal = '≤ 100MB'
 decided_by = 'DEC-ALN-008'
-note = '''**実サイズ約 100.6MiB**——MFA 日本語音響モデル 97.0MiB（展開後、EVID-ALN-001 の実測）
-＋ Julius 3.6MB（退避経路）。**枠にほぼ張り付いている。** TR-ALN-02 の同梱予算と同じ数字'''
+note = '''実サイズ約 100.6MiB——MFA 日本語音響モデル 97.0MiB（展開後、EVID-ALN-001 の実測）
+＋ Julius 3.6MB（退避経路）。枠にほぼ張り付いている。 TR-ALN-02 の同梱予算と同じ数字'''
 
 [[target]]
 id = 'TGT-PLT-004'
@@ -70,7 +70,7 @@ goal = '10秒素材の STFT を ≤ 150ms、再描画は ≤ 16.7ms（再計算�
 id = 'TGT-PLT-010'
 item = '原音設定エントリ間の移動'
 goal = '≤ 50ms（エントリ数 3000）'
-note = '**Q-EDT-001 によりディスクキャッシュ前提への変更が必要**'
+note = 'Q-EDT-001 によりディスクキャッシュ前提への変更が必要'
 
 [[target]]
 id = 'TGT-PLT-011'
@@ -78,4 +78,4 @@ item = 'ピークメモリ'
 goal = '≤ 1.5GB'
 derives_from = ['BUDGET-MEMORY-001', 'SCALE-REF-001']
 decided_by = 'DEC-PLT-012'
-note = '**内訳は BUDGET-MEMORY-001 が持つ。** 実行モード別に割り直した。山は編集中の 1,456MB で、残る余裕は 44MB。WebView の 400MB は実測ではなく枠'
+note = '内訳は BUDGET-MEMORY-001 が持つ。 実行モード別に割り直した。山は編集中の 1,456MB で、残る余裕は 44MB。WebView の 400MB は実測ではなく枠'

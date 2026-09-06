@@ -1,23 +1,23 @@
-//! 単独音の境界検出（`TR-ALN-11` の専用経路）。**退避経路**（`DEC-ALN-006`）。
+//! 単独音の境界検出（`TR-ALN-11` の専用経路）。退避経路（`DEC-ALN-006`）。
 //!
-//! **一次経路は MFA の音響モデル**（`DEC-ALN-008`）。ここは MFA が使えないときと、
+//! 一次経路は MFA の音響モデル（`DEC-ALN-008`）。ここは MFA が使えないときと、
 //! MFA の統合が終わるまでの試唱に使う。
 //!
-//! **単独音では1ファイルに1モーラしか入っていない。** その前提を使い、
+//! 単独音では1ファイルに1モーラしか入っていない。 その前提を使い、
 //! 汎用の連続音アライメント経路を流用しない（`TR-ALN-11`）。
 //!
 //! 工程は3つ。
 //!
-//! 1. **無音区間トリミングとオンセット検出**で発声開始を求める
-//! 2. **子音から母音への境界**を求める（`[pau, C, V, pau]` の2〜3境界に限定）
-//! 3. **母音の定常区間終端**を別途推定する
+//! 1. 無音区間トリミングとオンセット検出で発声開始を求める
+//! 2. 子音から母音への境界を求める（`[pau, C, V, pau]` の2〜3境界に限定）
+//! 3. 母音の定常区間終端を別途推定する
 //!
 //! ## 境界の求め方
 //!
-//! 短時間パワーとゼロ交差率を使う。**子音（とくに無声摩擦音・破裂音）は
-//! パワーが低くゼロ交差率が高い。母音は逆。** この差が境界になる。
+//! 短時間パワーとゼロ交差率を使う。子音（とくに無声摩擦音・破裂音）は
+//! パワーが低くゼロ交差率が高い。母音は逆。 この差が境界になる。
 //!
-//! **音響モデルを使わない。** `TR-ALN-02` は「アプリ本体と同じ言語での
+//! 音響モデルを使わない。 `TR-ALN-02` は「アプリ本体と同じ言語での
 //! ネイティブ実装を既定とする」と定めており、単独音では音素列が
 //! 2〜3境界しかないので、統計的なアライメントを持ち出す必要がない。
 
@@ -28,21 +28,21 @@ use crate::confidence::{Confidence, acoustic_score};
 pub struct Boundaries {
     /// 発声開始。無音の終わり。
     pub voice_start_ms: f64,
-    /// 子音から母音への境界。**母音始まりなら `voice_start_ms` と同じ。**
+    /// 子音から母音への境界。母音始まりなら `voice_start_ms` と同じ。
     pub vowel_start_ms: f64,
     /// 母音の定常区間終端。
     pub vowel_end_ms: f64,
 }
 
 impl Boundaries {
-    /// アライメントの結果から、**モーラごとの3境界**を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
+    /// アライメントの結果から、モーラごとの3境界を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
     ///
-    /// **単独音でも1ファイルに複数モーラが入る**（`TR-RCL-03` が1行あたり最大N単位で
+    /// 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03` が1行あたり最大N単位で
     /// グルーピングする）。`readings` はその行のモーラの並びで、
-    /// **返るのは同じ長さの境界の列。** 同じ WAV を複数のエイリアスが別の位置で指す。
+    /// 返るのは同じ長さの境界の列。 同じ WAV を複数のエイリアスが別の位置で指す。
     ///
     /// 並びは `[sil, (C V)+, sil]`。各モーラは `[C, V]` か `[V]`。
-    /// **区間の数が読みから期待される数と合わなければ `None`**——
+    /// 区間の数が読みから期待される数と合わなければ `None`——
     /// 黙って先頭から詰めない。
     ///
     /// # Errors
@@ -52,7 +52,7 @@ impl Boundaries {
         if readings.is_empty() {
             return None;
         }
-        // 各モーラが何音素か。**辞書が正本**（`TR-ALN-07`）。
+        // 各モーラが何音素か。辞書が正本（`TR-ALN-07`）。
         let widths: Vec<usize> = readings
             .iter()
             .map(|r| crate::phoneme::phonemes_for(r).map(<[_]>::len))
@@ -70,7 +70,7 @@ impl Boundaries {
             let (voice_start_ms, vowel_start_ms) = match w {
                 // [C, V]
                 2 => (seg[0].start_ms, seg[1].start_ms),
-                // [V]。**母音始まりは発声開始と母音開始が同じ。**
+                // [V]。母音始まりは発声開始と母音開始が同じ。
                 1 => (seg[0].start_ms, seg[0].start_ms),
                 _ => return None,
             };
@@ -86,9 +86,9 @@ impl Boundaries {
 
     /// アライメントの結果から、単独音の3境界を取り出す（`TR-ALN-11`）。
     ///
-    /// **1モーラの行だけ。** 複数モーラなら [`Self::per_mora`] を使うこと。
+    /// 1モーラの行だけ。 複数モーラなら [`Self::per_mora`] を使うこと。
     ///
-    /// **どのアライナが出したものでも同じ形で受ける**（`TR-ALN-03` の trait 経由）。
+    /// どのアライナが出したものでも同じ形で受ける（`TR-ALN-03` の trait 経由）。
     /// 並びは `[sil, C, V, sil]` か `[sil, V, sil]`。
     ///
     /// それ以外の並び（連続音・CVVC）は `None`。**単独音の専用経路なので、
@@ -102,7 +102,7 @@ impl Boundaries {
                 vowel_start_ms: a.segments[2].start_ms,
                 vowel_end_ms: a.segments[2].end_ms,
             }),
-            // [sil, V, sil]。**母音始まりは発声開始と母音開始が同じ。**
+            // [sil, V, sil]。母音始まりは発声開始と母音開始が同じ。
             3 => Some(Self {
                 voice_start_ms: a.segments[1].start_ms,
                 vowel_start_ms: a.segments[1].start_ms,
@@ -113,14 +113,14 @@ impl Boundaries {
     }
 }
 
-/// 検出の設定。**定数を直に書かない**（`TR-ALN-23` の規約プリセット）。
+/// 検出の設定。定数を直に書かない（`TR-ALN-23` の規約プリセット）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SegmentConfig {
     /// 分析窓の長さ（ミリ秒）。
     pub window_ms: f64,
     /// 窓を進める幅（ミリ秒）。
     pub hop_ms: f64,
-    /// 無音とみなすパワーの閾値。**最大パワーに対する比。**
+    /// 無音とみなすパワーの閾値。最大パワーに対する比。
     pub silence_ratio: f64,
     /// 子音とみなすゼロ交差率の下限（1秒あたりの交差数）。
     pub consonant_zcr_per_sec: f64,
@@ -133,7 +133,7 @@ impl Default for SegmentConfig {
         Self {
             window_ms: 20.0,
             hop_ms: 5.0,
-            // -40 dB 相当。**環境ノイズを拾わない程度に低く。**
+            // -40 dB 相当。環境ノイズを拾わない程度に低く。
             silence_ratio: 0.01,
             // 有声母音のゼロ交差率は概ね 1000〜2000/秒。無声子音はその数倍。
             consonant_zcr_per_sec: 4000.0,
@@ -182,7 +182,7 @@ fn analyze(samples: &[f64], sample_rate_hz: u32, cfg: &SegmentConfig) -> Frames 
 
 /// 単独音1ファイルの境界を求める（`TR-ALN-11`）。
 ///
-/// 戻り値が `None` なのは、**発声が見つからなかったとき**。
+/// 戻り値が `None` なのは、発声が見つからなかったとき。
 /// 無音のファイル、または閾値を超えるパワーが無いとき。
 #[tracing::instrument(skip(samples), fields(len = samples.len()))]
 #[must_use]
@@ -201,12 +201,12 @@ pub fn detect_single(
     }
     let floor = peak * cfg.silence_ratio;
 
-    // ── 1. 無音を越えて発声が始まる位置 ──────────────────
+    // ## 1. 無音を越えて発声が始まる位置
     let start_idx = f.power.iter().position(|p| *p > floor)?;
     let voice_start_ms = start_idx as f64 * f.hop_ms;
 
-    // ── 2. 子音から母音への境界 ──────────────────────────
-    // **発声開始からゼロ交差率が下がるまでが子音。** 高いままなら母音始まりとみなす。
+    // ## 2. 子音から母音への境界
+    // 発声開始からゼロ交差率が下がるまでが子音。 高いままなら母音始まりとみなす。
     let mut vowel_idx = start_idx;
     for i in start_idx..f.zcr.len() {
         if f.power[i] <= floor {
@@ -220,8 +220,8 @@ pub fn detect_single(
     }
     let vowel_start_ms = vowel_idx as f64 * f.hop_ms;
 
-    // ── 3. 母音の定常区間終端 ────────────────────────────
-    // **母音のピークから減衰して閾値を割るところ。**
+    // ## 3. 母音の定常区間終端
+    // 母音のピークから減衰して閾値を割るところ。
     let vowel_peak = f.power[vowel_idx..]
         .iter()
         .copied()
@@ -270,7 +270,7 @@ pub fn confidence(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let at = ((b.vowel_start_ms / f.hop_ms) as usize).min(f.power.len() - 1);
 
-    // **境界「周辺」を見る**（TR-ALN-24 の境界鋭さ）。ファイル全体の最大値を比べると、
+    // 境界「周辺」を見る（`TR-ALN-24` の境界鋭さ）。ファイル全体の最大値を比べると、
     // 離れた位置の山に引きずられて、境界そのものの立ち方が映らない。
     // 窓が境界をまたぐぶん（window/hop フレーム）は避けて、その外側を取る。
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -289,7 +289,7 @@ pub fn confidence(
         .iter()
         .copied()
         .fold(0.0_f64, f64::max);
-    // **境界の前後でパワーが変わるほど、境界がはっきりしている。**
+    // 境界の前後でパワーが変わるほど、境界がはっきりしている。
     let sharpness = if after > 0.0 {
         (1.0 - (before / after).min(1.0)).clamp(0.0, 1.0)
     } else {
@@ -300,11 +300,11 @@ pub fn confidence(
     let acoustic = crate::confidence::acoustic_score(samples);
 
     Confidence {
-        // **退避経路は経路確信度を出せない**（TR-ALN-24 の成分 (1)）。
+        // 退避経路は経路確信度を出せない（`TR-ALN-24` の成分 (1)）。
         // 音響モデルを通していないので、経路という概念がそもそも無い。
         path: None,
         sharpness,
-        // **1テイクだけでは集団中央値からの逸脱を測れない**（TR-ALN-12）。
+        // 1テイクだけでは集団中央値からの逸脱を測れない（`TR-ALN-12`）。
         // 呼び出し側が集団統計を持ったときに差し替える。
         prior: 1.0,
         acoustic,
@@ -313,17 +313,17 @@ pub fn confidence(
 
 /// 退避経路のアライナ（`DEC-ALN-006`, `TR-ALN-11`）。
 ///
-/// **音響モデルを使わない。** 短時間パワーとゼロ交差率で境界を出す。
+/// 音響モデルを使わない。 短時間パワーとゼロ交差率で境界を出す。
 /// MFA が使えないときと、MFA の統合が終わるまでの試唱に使う。
 ///
 /// # 出せないものがある
 ///
 /// `TR-ALN-03` は「いずれの実装も emission 行列を返す」と求めているが、
-/// **ここには経路という概念が無い**ので [`crate::aligner::Alignment::posteriors`] は
-/// `None`。**0 を入れない**——0 は「確信が無い」であって「測れない」ではない。
+/// ここには経路という概念が無いので [`crate::aligner::Alignment::posteriors`] は
+/// `None`。0 を入れない——0 は「確信が無い」であって「測れない」ではない。
 ///
 /// その結果、確信度の成分 (1) 経路確信度（`TR-ALN-24`）と、
-/// 次善候補（`TR-ALN-26` (4)）が出せない。**欠けた状態として扱う。**
+/// 次善候補（`TR-ALN-26` (4)）が出せない。欠けた状態として扱う。
 #[derive(Debug, Clone)]
 pub struct HeuristicAligner {
     config: SegmentConfig,
@@ -361,7 +361,7 @@ impl crate::aligner::Aligner for HeuristicAligner {
     ) -> Result<crate::aligner::Alignment, crate::aligner::AlignError> {
         use crate::aligner::{AlignError, Alignment, Segment};
 
-        // **単独音の専用経路**（`TR-ALN-11`）。子音＋母音か、母音だけ。
+        // 単独音の専用経路（`TR-ALN-11`）。子音＋母音か、母音だけ。
         if req.phonemes.is_empty() || req.phonemes.len() > 2 {
             return Err(AlignError::EmptyPhonemes);
         }
@@ -395,7 +395,7 @@ impl crate::aligner::Aligner for HeuristicAligner {
                 end_ms: b.vowel_end_ms,
             });
         } else {
-            // 母音始まり。**`voice_start` と `vowel_start` は同じ位置。**
+            // 母音始まり。`voice_start` と `vowel_start` は同じ位置。
             segments.push(Segment {
                 phoneme: req.phonemes[0],
                 start_ms: b.voice_start_ms,
@@ -410,7 +410,7 @@ impl crate::aligner::Aligner for HeuristicAligner {
 
         Ok(Alignment {
             segments,
-            // **経路という概念が無い。** 0 を入れずに欠けたままにする。
+            // 経路という概念が無い。 0 を入れずに欠けたままにする。
             posteriors: None,
             log_likelihood: None,
             grid_divergence: None,
@@ -421,9 +421,9 @@ impl crate::aligner::Aligner for HeuristicAligner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// **複数モーラの行から、モーラごとの境界が取れる**（`DEC-ALN-013`）。
+    /// 複数モーラの行から、モーラごとの境界が取れる（`DEC-ALN-013`）。
     ///
-    /// **画面で「発声を見つけられませんでした」と出た形。** `from_alignment` が
+    /// 画面で「発声を見つけられませんでした」と出た形。 `from_alignment` が
     /// 4区間しか受けず、`に にゃ にゅ にょ`（10区間）で `None` を返していた。
     #[test]
     fn 複数モーラの行から境界を取れる() {
@@ -445,7 +445,7 @@ mod tests {
             grid_divergence: None,
         };
 
-        // **1モーラ用は受けない。**
+        // 1モーラ用は受けない。
         assert!(Boundaries::from_alignment(&a).is_none());
 
         let per = Boundaries::per_mora(&a, &readings).expect("モーラごとに取れる");
@@ -457,13 +457,13 @@ mod tests {
         // 4つめの「にょ」は区間 7 と 8。
         assert!((per[3].voice_start_ms - 700.0).abs() < 1e-9);
         assert!((per[3].vowel_end_ms - 900.0).abs() < 1e-9);
-        // **境界が単調。**
+        // 境界が単調。
         for w in per.windows(2) {
             assert!(w[1].voice_start_ms >= w[0].vowel_end_ms);
         }
     }
 
-    /// **母音始まりのモーラが混ざっても取れる。**
+    /// 母音始まりのモーラが混ざっても取れる。
     #[test]
     fn 母音始まりが混ざっても取れる() {
         use crate::aligner::{Alignment, Segment};
@@ -489,7 +489,7 @@ mod tests {
         assert!(per[1].vowel_start_ms > per[1].voice_start_ms);
     }
 
-    /// **区間の数が合わなければ、黙って先頭から詰めない。**
+    /// 区間の数が合わなければ、黙って先頭から詰めない。
     #[test]
     fn 区間の数が合わなければ拒む() {
         use crate::aligner::{Alignment, Segment};
@@ -513,7 +513,7 @@ mod tests {
         assert!(Boundaries::per_mora(&a, &["ぢゃ"]).is_none());
     }
 
-    /// **アライメントの結果から単独音の境界を取り出せる**（`TR-ALN-03` 経由）。
+    /// アライメントの結果から単独音の境界を取り出せる（`TR-ALN-03` 経由）。
     #[test]
     fn アライメントから境界を取り出せる() {
         use crate::aligner::{AlignRequest, Aligner as _};
@@ -538,7 +538,7 @@ mod tests {
         assert!((b.vowel_end_ms - direct.vowel_end_ms).abs() < 1e-9);
     }
 
-    /// **母音始まりでは発声開始と母音開始が同じ。**
+    /// 母音始まりでは発声開始と母音開始が同じ。
     #[test]
     fn 母音始まりの境界も取り出せる() {
         use crate::aligner::{AlignRequest, Aligner as _};
@@ -578,7 +578,7 @@ mod tests {
         assert!(Boundaries::from_alignment(&a).is_none());
     }
 
-    /// **退避経路も `Aligner` を実装する**（`TR-ALN-03` の「いずれの実装も」）。
+    /// 退避経路も `Aligner` を実装する（`TR-ALN-03` の「いずれの実装も」）。
     #[test]
     fn 退避経路も同じ口で呼べる() {
         use crate::aligner::{AlignRequest, Aligner as _};
@@ -607,7 +607,7 @@ mod tests {
         }
     }
 
-    /// **経路確信度を出せないことを、`None` で言う**（`TR-ALN-24` の成分 (1)）。
+    /// 経路確信度を出せないことを、`None` で言う（`TR-ALN-24` の成分 (1)）。
     /// 0 を入れると「確信が無い」と読まれる。
     #[test]
     fn 退避経路は事後確率を持たない() {
@@ -630,7 +630,7 @@ mod tests {
         assert_eq!(r.segments.len(), 3);
     }
 
-    /// **単独音の専用経路なので、3音素以上は受けない**（`TR-ALN-11`）。
+    /// 単独音の専用経路なので、3音素以上は受けない（`TR-ALN-11`）。
     #[test]
     fn 三音素以上は受けない() {
         use crate::aligner::{AlignRequest, Aligner as _};
@@ -657,7 +657,7 @@ mod tests {
         let n = |ms: f64| (ms * per_ms) as usize;
         let mut out = vec![0.0; n(silence_ms)];
 
-        // 無声子音: 高いゼロ交差率の雑音。**振幅は母音より小さい。**
+        // 無声子音: 高いゼロ交差率の雑音。振幅は母音より小さい。
         let mut state = 0x1234_5678_9abc_def0_u64;
         for _ in 0..n(consonant_ms) {
             state ^= state << 13;
@@ -703,7 +703,7 @@ mod tests {
         );
     }
 
-    /// **子音から母音への境界を見つけられる**（TR-ALN-11 の (2)）。
+    /// 子音から母音への境界を見つけられる（`TR-ALN-11` の (2)）。
     #[test]
     fn 子音から母音への境界を見つけられる() {
         let x = syllable(100.0, 50.0, 300.0, 100.0);
@@ -716,7 +716,7 @@ mod tests {
         assert!(b.vowel_start_ms > b.voice_start_ms, "子音ぶん右にある");
     }
 
-    /// **母音の定常区間終端を見つけられる**（TR-ALN-11 の (3)）。
+    /// 母音の定常区間終端を見つけられる（`TR-ALN-11` の (3)）。
     #[test]
     fn 母音の定常区間終端を見つけられる() {
         let x = syllable(100.0, 50.0, 300.0, 200.0);
@@ -733,7 +733,7 @@ mod tests {
         );
     }
 
-    /// **母音始まりでは子音の境界が発声開始と一致する。**
+    /// 母音始まりでは子音の境界が発声開始と一致する。
     #[test]
     fn 母音始まりでも検出できる() {
         let x = syllable(100.0, 0.0, 300.0, 100.0);
@@ -746,20 +746,24 @@ mod tests {
         );
     }
 
-    /// **無音のファイルからは何も返さない。**
+    /// 無音のファイルからは何も返さない。
     #[test]
     fn 無音からは境界を返さない() {
         let x = vec![0.0_f64; 44_100];
         assert!(detect_single(&x, FS, &SegmentConfig::default()).is_none());
     }
 
+    /// 窓1つ分に満たない入力。
+    ///
+    /// 落ちないことだけを見ると、でたらめな境界を返しても通ってしまう。
+    /// 10 サンプルは 44100 Hz で 0.23ms で、境界を置ける場所が無い。
     #[test]
-    fn 短すぎる入力で落ちない() {
+    fn 短すぎる入力では境界を返さない() {
         let x = vec![0.1_f64; 10];
-        let _ = detect_single(&x, FS, &SegmentConfig::default());
+        assert!(detect_single(&x, FS, &SegmentConfig::default()).is_none());
     }
 
-    /// **境界がはっきりしているほど確信度が高い。**
+    /// 境界がはっきりしているほど確信度が高い。
     #[test]
     fn 確信度は境界の鋭さを映す() {
         let clear = syllable(100.0, 50.0, 300.0, 100.0);
@@ -770,7 +774,7 @@ mod tests {
         assert!(c.score() > 0.5);
     }
 
-    /// **クリッピングがあると確信度を下げる**（TR-ALN-24 の音響異常度）。
+    /// クリッピングがあると確信度を下げる（`TR-ALN-24` の音響異常度）。
     #[test]
     fn クリッピングは確信度を下げる() {
         let mut x = syllable(100.0, 50.0, 300.0, 100.0);
@@ -782,7 +786,7 @@ mod tests {
         assert!(c.acoustic < 0.5, "疑う: {:.3}", c.acoustic);
     }
 
-    /// **レベル不足も確信度を下げる。**
+    /// レベル不足も確信度を下げる。
     #[test]
     fn レベル不足は確信度を下げる() {
         let x: Vec<f64> = syllable(100.0, 50.0, 300.0, 100.0)

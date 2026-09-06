@@ -1,0 +1,43 @@
+schema = 'decision'
+id = 'DEC-PLT-020'
+constraint_label = 'クラス名の組み立て'
+constraint = '部品が守っている条件を、呼び出し側が黙って壊せないこと'
+title = 'tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'tailwind-variants（twMerge 無効）＋ className を受けない',
+  'class-variance-authority ＋ clsx ＋ tailwind-merge',
+  'クラス名を素の文字列で組む',
+]
+selected = 'tailwind-variants（twMerge 無効）＋ className を受けない'
+rationale = '''
+部品は `className` を props で受けない。 見た目は部品が持つ。外から差し込めるように
+すると、同じ部品が呼ばれた場所ごとに違う姿になり、`TR-PLT-28` の対象サイズのような
+部品が守っているはずの条件を、呼び出し側が黙って壊せる。
+
+受け取らないなら tailwind-merge は要らない。 畳む必要があるのは外から上書きされる
+部品だけで、衝突が起きないなら毎回の描画で空回りする。それ以上に、畳みに頼ると
+衝突が黙って解決される——どちらが勝つかは tailwind-merge の分類表が決めるので、
+Tailwind の版が上がって分類が変わると、何も書き換えていないのに見た目が変わる。
+`tv` は `createTV({ twMerge: false })` で作る。条件で足すだけなら `cx`。
+
+`base` と `slots` は使わない。 静的なクラスは JSX にそのまま書く。`base` に移すと
+見た目を読むのに2箇所を行き来することになる。`slots` は1つの `tv` が複数要素の
+見た目を持つ形で、部品を分ける代わりにならない。`tv` を通すのは値で切り替わるものだけ。
+
+cva から移る。 cva は variants を持つが `twMerge` の切り替えを持たず、
+`cn` を別に用意することになる。tailwind-variants は両方を1つで持ち、依存も無い。
+
+依存は 12 件から 10 件になった（clsx、tailwind-merge、class-variance-authority を外し、
+tailwind-variants を入れた）。
+'''
+review_triggers = [
+  '部品に className を渡したくなる場面が繰り返し出たとき（variant が足りていない合図）',
+  'tailwind-variants が Tailwind の版に追随しなくなったとき',
+]
+affects_requirements = [
+  'TR-PLT-03',
+  'TR-PLT-28',
+]
+supersedes = []

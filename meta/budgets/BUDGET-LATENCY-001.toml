@@ -1,18 +1,18 @@
 schema = 'budget'
-id = "BUDGET-LATENCY-001"
-title = "8フレーズ録音直後の初回試唱までの待ち時間"
+id = 'BUDGET-LATENCY-001'
+title = '8フレーズ録音直後の初回試唱までの待ち時間'
 limit = 30000
 unit = "ms"
 scope = "単独音・4コア想定・押下から最初の音が鳴るまで"
 source_requirements = ["TR-SYN-33", "TR-PLT-17"]
 note = '''
-単独音・4コア想定。**[Fact]** と **[Assumption]** を工程ごとに分けて積み上げる。
+単独音・4コア想定。[Fact] と [Assumption] を工程ごとに分けて積み上げる。
 
-**押下時に前処理が全件完了していれば 0.4〜0.7s で収まる。ただしこの条件は初回試唱では原理的に成立しない。** TR-SYN-34 は「試唱押下時に未完了の項目があれば押下側で待ち合わせる」と定め、journey-map の【初めて歌う】は8フレーズを録り終えた直後に試唱する導線である。**最後の1件の前処理は押下の数秒前に始まったばかりで、必ず未完了である。**
+押下時に前処理が全件完了していれば 0.4〜0.7s で収まる。ただしこの条件は初回試唱では原理的に成立しない。 TR-SYN-34 は「試唱押下時に未完了の項目があれば押下側で待ち合わせる」と定め、journey-map の【初めて歌う】は8フレーズを録り終えた直後に試唱する導線である。最後の1件の前処理は押下の数秒前に始まったばかりで、必ず未完了である。
 
-**実際に起きること**: 最後の1件の前処理 4.6〜4.8s ＋ 押下後 0.4〜0.7s ＝ **約5〜5.5秒**。Harvest が実時間相当なら **約10〜12秒**。**[Fact]** journey-map の「数十秒の待ち時間のあと」の枠内であり、TR-SYN-33 の最悪 30 秒枠も破らない。**体験としては許容できる。破綻しているのは予算の定義であって体験ではない。**
+実際に起きること: 最後の1件の前処理 4.6〜4.8s ＋ 押下後 0.4〜0.7s ＝ 約5〜5.5秒。Harvest が実時間相当なら 約10〜12秒。[Fact] journey-map の「数十秒の待ち時間のあと」の枠内であり、TR-SYN-33 の最悪 30 秒枠も破らない。体験としては許容できる。破綻しているのは予算の定義であって体験ではない。
 
-**E2E 予算を縮める最も効く一手は、モデルの小型化でも並列化でもなく、align 枠 3.0s の実測への差し替えである。** これは実測（4秒テイクで 13.5ms、RTF 0.0034）に対して200倍以上の過大確保であり、TR-ALN-10 の元の 300ms へ詰めれば前処理は 4.6〜4.8s → **2.0〜2.2s** に落ち、押下後を足しても**約2.5秒**になる。
+E2E 予算を縮める最も効く一手は、モデルの小型化でも並列化でもなく、align 枠 3.0s の実測への差し替えである。 これは実測（4秒テイクで 13.5ms、RTF 0.0034）に対して200倍以上の過大確保であり、TR-ALN-10 の元の 300ms へ詰めれば前処理は 4.6〜4.8s → 2.0〜2.2s に落ち、押下後を足しても約2.5秒になる。
 '''
 
 [[allocations]]
@@ -32,14 +32,14 @@ stated = '既定オフ。有効時のみ 1テイク（4秒）あたり 200ms'
 confidence = 'Assumption'
 value = 200
 measured = false
-note = '**既定オフなので初回試唱の経路には載らない。** 有効にした場合、この 200ms が小計 4.6〜4.8s に加わる。マスターは不変で、前処理済みは再生成可能なキャッシュとして別層に置く'
+note = '既定オフなので初回試唱の経路には載らない。 有効にした場合、この 200ms が小計 4.6〜4.8s に加わる。マスターは不変で、前処理済みは再生成可能なキャッシュとして別層に置く'
 
 [[allocations]]
 item = '解析＋強制アライメント＋oto 5値導出'
 kind = 'step'
 source = 'synth が align 領域に割り当てた枠'
 stated = '3.0s'
-confidence = '**過大確保**'
+confidence = '過大確保'
 value = 3000
 measured = false
 
@@ -47,7 +47,7 @@ measured = false
 item = '（参考）アライナ推論の実測'
 kind = 'reference'
 source = '自前ベンチ'
-stated = '4秒テイクで **13.5ms**（RTF 0.0034）'
+stated = '4秒テイクで 13.5ms（RTF 0.0034）'
 confidence = 'Fact'
 measured = false
 
@@ -56,7 +56,7 @@ item = '周波数表（`.frq`）の生成'
 kind = 'step'
 source = 'synth'
 stated = '1.0s'
-confidence = '**Assumption（未実測）**'
+confidence = 'Assumption（未実測）'
 value = 1000
 measured = false
 
@@ -65,15 +65,15 @@ item = '該当フレーズのプリレンダ'
 kind = 'step'
 source = 'synth（80ms/音符 × 4〜6）'
 stated = '0.32〜0.48s'
-confidence = '**Assumption（係数が未実測）**'
+confidence = 'Assumption（係数が未実測）'
 value = 480
 measured = false
 
 [[allocations]]
-item = '**小計＝録音1件の前処理**'
+item = '小計＝録音1件の前処理'
 kind = 'subtotal'
 source = 'synth の枠は 5s'
-stated = '**4.6〜4.8s**'
+stated = '4.6〜4.8s'
 confidence = '—'
 measured = false
 
@@ -103,12 +103,12 @@ stated = '実測 0.05〜0.2s 相当'
 confidence = 'Assumption'
 value = 200
 measured = false
-note = '**入力と同じ層が持つ。** 出力デバイスの選択・排他モードの扱いは入力側の要件（TR-REC-03 / TR-REC-04）と同じ機構に載せる'
+note = '入力と同じ層が持つ。 出力デバイスの選択・排他モードの扱いは入力側の要件（TR-REC-03 / TR-REC-04）と同じ機構に載せる'
 
 [[allocations]]
-item = '**押下後の小計**'
+item = '押下後の小計'
 kind = 'subtotal'
 source = 'TR-SYN-33 の中央値 1.5s'
-stated = '**0.4〜0.7s**'
+stated = '0.4〜0.7s'
 confidence = '—'
 measured = false

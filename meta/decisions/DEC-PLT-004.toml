@@ -11,7 +11,7 @@ options = [
 ]
 selected = 'Flatpak 1形態'
 rationale = '''
-**WebKitGTK のディストリビューション依存を Flatpak runtime に吸収できる**のが決め手。
+WebKitGTK のディストリビューション依存を Flatpak runtime に吸収できるのが決め手。
 Tauri を選んだ以上ここが最大のリスクになる。Linux は中核機能のみの第三対応環境という位置づけと整合する。
 '''
 review_triggers = [

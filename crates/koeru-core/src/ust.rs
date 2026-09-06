@@ -1,19 +1,19 @@
 //! UST / USTX の取り込み（`TR-RCL-12`）。
 //!
-//! **主経路は本人が持ち込む UST / USTX。** 曲バンクを持たないので、
+//! 主経路は本人が持ち込む UST / USTX。 曲バンクを持たないので、
 //! 「歌えるか」を測る対象は本人が決める。
 //!
-//! **ファイル全体だけでなく、任意のノート群を選んで目標にできる**（サビだけ、など）。
+//! ファイル全体だけでなく、任意のノート群を選んで目標にできる（サビだけ、など）。
 //! ここが返すのはノート列なので、切り出しは呼び出し側が行う。
 //!
 //! # 符号化
 //!
-//! **UST は CP932 が既定**（UTAU 本体がそう書く）。判定は [`crate::text`] に任せる。
+//! UST は CP932 が既定（UTAU 本体がそう書く）。判定は [`crate::text`] に任せる。
 //! USTX は YAML で UTF-8。
 //!
 //! # 取り込まないもの
 //!
-//! テンポ、フラグ、エンベロープ、ピッチベンド。**要るのは歌詞・音高・長さだけ**
+//! テンポ、フラグ、エンベロープ、ピッチベンド。要るのは歌詞・音高・長さだけ
 //! （`TR-RCL-12` (a)(b)）。カバレッジの計算にそれ以外は効かない。
 
 use crate::song::{Note, Provenance, Song};
@@ -22,7 +22,7 @@ use crate::text::{self, TextEncoding};
 /// UST を読めなかった理由。
 #[derive(Debug, thiserror::Error)]
 pub enum UstError {
-    /// 符号化を判定できなかった。**文字化けした状態で読み込まない**（`TR-PLT-08`）。
+    /// 符号化を判定できなかった。文字化けした状態で読み込まない（`TR-PLT-08`）。
     #[error("符号化を判定できなかった")]
     Encoding(#[from] text::TextError),
 
@@ -52,9 +52,9 @@ const REST_LYRICS: [&str; 4] = ["R", "r", "休", "-"];
 
 /// UST を読む（CP932 / UTF-8 のどちらでも）。
 ///
-/// **符号化は宣言を見てから決める。** `#Charset:` があればそれ、無ければ CP932
+/// 符号化は宣言を見てから決める。 `#Charset:` があればそれ、無ければ CP932
 /// （`TR-PKG-48` と同じ順序）。
-#[tracing::instrument(skip(bytes), fields(len = bytes.len()), err)]
+#[tracing::instrument(skip(bytes, title), fields(len = bytes.len()), err)]
 pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
     let declared = text::oto_charset_declaration(bytes);
     let encoding = declared
@@ -62,7 +62,7 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
         .and_then(TextEncoding::parse)
         .unwrap_or(TextEncoding::Cp932);
 
-    // **宣言どおりに読めなければ、もう一方も試す。**
+    // 宣言どおりに読めなければ、もう一方も試す。
     // UTAU 以外が書いた UST は UTF-8 のことがある。読めないまま止めるより試す。
     let body = text::decode(bytes, encoding).or_else(|first| {
         let other = match encoding {
@@ -102,7 +102,7 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
             if in_note {
                 flush(&mut notes, &mut lyric, &mut midi, &mut ticks);
             }
-            // **`[#0000]` のような節がノート。** `[#SETTING]` などは飛ばす。
+            // `[#0000]` のような節がノート。 `[#SETTING]` などは飛ばす。
             in_note = line
                 .trim_start_matches("[#")
                 .trim_end_matches(']')
@@ -136,7 +136,7 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
         title: title.to_owned(),
         notes,
         provenance: Provenance {
-            // **持ち込んだ曲は配布パッケージに含めない**（TR-RCL-12）。
+            // 持ち込んだ曲は配布パッケージに含めない（`TR-RCL-12`）。
             source: "本人が持ち込んだ UST".to_owned(),
             license: "不明（配布物には含めない）".to_owned(),
         },
@@ -145,8 +145,8 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
 
 /// 同梱する伝承曲（`TR-RCL-12`）。
 ///
-/// **同梱はパブリックドメインの伝承曲に限る。** 第三者の楽曲の旋律・歌詞は含めない。
-/// **これは初回のとっかかりで、曲バンクではない。** 本人が外せる。
+/// 同梱はパブリックドメインの伝承曲に限る。 第三者の楽曲の旋律・歌詞は含めない。
+/// これは初回のとっかかりで、曲バンクではない。 本人が外せる。
 #[must_use]
 pub fn bundled_songs() -> Vec<Song> {
     vec![sakura_sakura()]
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(s.notes[1].lyric, "く");
     }
 
-    /// **UST は CP932 が既定**（UTAU 本体がそう書く）。
+    /// UST は CP932 が既定（UTAU 本体がそう書く）。
     #[test]
     fn cp932_の_ust_を読める() {
         let bytes = text::encode(SAMPLE, TextEncoding::Cp932).expect("書けること");
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(s.notes[0].lyric, "さ");
     }
 
-    /// **宣言があればそれに従う。**
+    /// 宣言があればそれに従う。
     #[test]
     fn charset_の宣言に従う() {
         let declared = format!("#Charset:UTF-8\n{SAMPLE}");
@@ -239,7 +239,7 @@ mod tests {
         assert!(parse_ust(only_rest.as_bytes(), "x").is_err());
     }
 
-    /// **同梱はパブリックドメインの伝承曲だけ**（TR-RCL-12）。
+    /// 同梱はパブリックドメインの伝承曲だけ（`TR-RCL-12`）。
     #[test]
     fn 同梱曲はパブリックドメイン() {
         let songs = bundled_songs();
@@ -256,7 +256,7 @@ mod tests {
         assert_eq!(m.len(), s.notes.len());
 
         let need = s.required_aliases(Method::Single, UnitSet::Core);
-        // さ く ら や よ い の そ は。**長音は単位を要求しない。**
+        // さ く ら や よ い の そ は。長音は単位を要求しない。
         assert_eq!(need.len(), 9, "{need:?}");
         assert!(need.contains("さ"));
         assert!(!need.contains("ー"));

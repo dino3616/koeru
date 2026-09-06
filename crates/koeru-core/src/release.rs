@@ -1,10 +1,10 @@
 //! 書き出し単位のバージョン管理（`TR-PKG-44`, `TR-PKG-46`, `TR-PKG-48`）。
 //!
-//! **バージョンは ZIP の書き出し単位で刻む。** プロジェクトの保存回数でも、
+//! バージョンは ZIP の書き出し単位で刻む。 プロジェクトの保存回数でも、
 //! 録音した本数でもない。受け手の手元にあるのは ZIP なので、
 //! 突き合わせられる単位はそこしかない。
 //!
-//! リリースレコードは**不変**で、これはスキーマのトリガが止める
+//! リリースレコードは不変で、これはスキーマのトリガが止める
 //! （`migrations/2026-08-30-020000_releases`）。規律に頼らない。
 
 use sha2::{Digest as _, Sha256};
@@ -33,7 +33,7 @@ impl Validation {
         }
     }
 
-    /// 保存した名前から戻す。**知らない値は `NotRun` に倒す。**
+    /// 保存した名前から戻す。知らない値は `NotRun` に倒す。
     /// 未知の検証結果を「通った」と読むほうが危ない。
     #[must_use]
     pub fn parse(s: &str) -> Self {
@@ -45,10 +45,10 @@ impl Validation {
     }
 }
 
-/// 書き出し1回ぶんの記録。**一度書いたら変わらない**（`TR-PKG-44`）。
+/// 書き出し1回ぶんの記録。一度書いたら変わらない（`TR-PKG-44`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Release {
-    /// 単調増加する連番。**採番は DB が持つ。**
+    /// 単調増加する連番。採番は DB が持つ。
     pub seq: i32,
     /// ユーザーが付けたバージョン文字列。
     pub version: String,
@@ -89,7 +89,7 @@ pub struct NewRelease {
 
 /// バイト列の SHA-256 を小文字16進で返す。
 ///
-/// **`oto.ini` は改行と符号化を確定させてからここへ渡す。** 同じ内容でも
+/// `oto.ini` は改行と符号化を確定させてからここへ渡す。 同じ内容でも
 /// CRLF と LF で違うハッシュになるので、比較の前提が崩れる。
 #[must_use]
 pub fn content_hash(bytes: &[u8]) -> String {
@@ -104,11 +104,11 @@ pub fn content_hash(bytes: &[u8]) -> String {
 
 /// 書き出し先の名前を決める（`TR-PKG-44`）。
 ///
-/// **過去のバージョンを上書きしない。** 連番を先頭に付けるので、同じ
+/// 過去のバージョンを上書きしない。 連番を先頭に付けるので、同じ
 /// バージョン文字列を二度使っても別のファイルになる。
 ///
-/// バージョン文字列は FS 上安全な字だけを残す。**残らなかった場合でも
-/// 連番があるので名前は必ず一意。**
+/// バージョン文字列は FS 上安全な字だけを残す。残らなかった場合でも
+/// 連番があるので名前は必ず一意。
 #[must_use]
 pub fn archive_name(seq: i32, version: &str, ext: &str) -> String {
     let mut safe = String::with_capacity(version.len());
@@ -116,7 +116,7 @@ pub fn archive_name(seq: i32, version: &str, ext: &str) -> String {
         if c.is_ascii_alphanumeric() || matches!(c, '.' | '_') {
             safe.push(c);
         } else if !safe.ends_with('-') {
-            // 連続する置換を1つにまとめる。**`a----b` のような名前を作らない。**
+            // 連続する置換を1つにまとめる。`a----b` のような名前を作らない。
             safe.push('-');
         }
     }
@@ -133,7 +133,7 @@ pub fn archive_name(seq: i32, version: &str, ext: &str) -> String {
 pub enum OtoDrift {
     /// 書き出したときのままで、外部で編集されていない。
     Unchanged,
-    /// 外部ツールで編集されている。**差分を取り込むか捨てるかは本人が選ぶ。**
+    /// 外部ツールで編集されている。差分を取り込むか捨てるかは本人が選ぶ。
     EditedExternally,
     /// 対応するリリースレコードが無く、比較できない。
     UnknownRelease,
@@ -167,7 +167,7 @@ mod tests {
         assert_ne!(content_hash(b"a\nb"), content_hash(b"a\r\nb"));
     }
 
-    /// **過去のバージョンを上書きしない**（TR-PKG-44）。
+    /// 過去のバージョンを上書きしない（`TR-PKG-44`）。
     /// 同じバージョン文字列を二度使っても、名前は衝突しない。
     #[test]
     fn archive_names_never_collide_on_repeated_versions() {
@@ -213,7 +213,7 @@ mod tests {
         }
     }
 
-    /// **外部ツールでの編集をハッシュの不一致から検出する**（TR-PKG-48）。
+    /// 外部ツールでの編集をハッシュの不一致から検出する（`TR-PKG-48`）。
     #[test]
     fn drift_is_detected_from_the_hash() {
         let oto = b"[a.wav]\na=1";
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(detect_drift(None, oto), OtoDrift::UnknownRelease);
     }
 
-    /// **知らない検証結果を「通った」と読まない。**
+    /// 知らない検証結果を「通った」と読まない。
     #[test]
     fn unknown_validation_falls_back_to_not_run() {
         assert_eq!(Validation::parse("passed"), Validation::Passed);

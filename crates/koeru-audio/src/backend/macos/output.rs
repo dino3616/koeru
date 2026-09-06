@@ -1,11 +1,11 @@
 //! 出力エンドポイントの種別（macOS、`TR-REC-24`）。
 //!
-//! **判定結果は記録するが、安全側の根拠には使わない**（`TR-REC-24` の [Fact]）。
+//! 判定結果は記録するが、安全側の根拠には使わない（`TR-REC-24` の [Fact]）。
 //! `TransportType` も `DataSource` もドライバの自己申告で、Unknown が正規値として存在する。
 //! ヘッドホンと申告していても、装着されている保証はない。
 //!
-//! **回り込みは録音側でしか確認できない。** ここが返すのは、
-//! 「スピーカらしいので鳴らさない」という**一次の足切り**だけ。
+//! 回り込みは録音側でしか確認できない。 ここが返すのは、
+//! 「スピーカらしいので鳴らさない」という一次の足切りだけ。
 //! 実際の検査は [`koeru_core::leak`] が録った音で行う。
 
 use super::property_scalar;
@@ -14,11 +14,11 @@ use super::sys;
 /// 出力がどこへ出ているらしいか（`TR-REC-24`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputKind {
-    /// ヘッドホン・イヤホンらしい。**それでも装着の保証は無い。**
+    /// ヘッドホン・イヤホンらしい。それでも装着の保証は無い。
     Headphones,
-    /// スピーカらしい。**ガイド・音高提示・モニタリングを鳴らさない**（`TR-REC-24`）。
+    /// スピーカらしい。ガイド・音高提示・モニタリングを鳴らさない（`TR-REC-24`）。
     Speakers,
-    /// 分からない。**「スピーカではない」と読まない。**
+    /// 分からない。「スピーカではない」と読まない。
     /// 収録前に一度だけ本人へ確認する。
     Unknown,
 }
@@ -26,7 +26,7 @@ pub enum OutputKind {
 impl OutputKind {
     /// 鳴らしてよいか。
     ///
-    /// **分からないときは鳴らさない側に倒さない。** 倒すと、
+    /// 分からないときは鳴らさない側に倒さない。 倒すと、
     /// ヘッドホンを使っている人が音高を聞けなくなる。代わりに本人へ確認する。
     #[must_use]
     pub const fn definitely_speakers(self) -> bool {
@@ -51,7 +51,7 @@ pub fn default_output_kind() -> OutputKind {
         return OutputKind::Unknown;
     };
 
-    // まず経路（内蔵スピーカ / ヘッドホン端子）。**内蔵はここで分かる。**
+    // まず経路（内蔵スピーカ / ヘッドホン端子）。内蔵はここで分かる。
     let source = sys::AudioObjectPropertyAddress::output(sys::kAudioDevicePropertyDataSource);
     // SAFETY: device は既定出力として得た生きている AudioObjectID。DataSource は UInt32。
     if let Ok(id) =
@@ -75,13 +75,13 @@ pub fn default_output_kind() -> OutputKind {
     };
 
     match t {
-        // 内蔵で、経路が分からなかった。**スピーカとみなす。**
+        // 内蔵で、経路が分からなかった。スピーカとみなす。
         sys::kAudioDeviceTransportTypeBuiltIn => OutputKind::Speakers,
         // 画面や AirPlay の先はスピーカ。
         sys::kAudioDeviceTransportTypeHDMI
         | sys::kAudioDeviceTransportTypeDisplayPort
         | sys::kAudioDeviceTransportTypeAirPlay => OutputKind::Speakers,
-        // Bluetooth も USB も、ヘッドホンとスピーカの両方がある。**決められない。**
+        // Bluetooth も USB も、ヘッドホンとスピーカの両方がある。決められない。
         sys::kAudioDeviceTransportTypeBluetooth
         | sys::kAudioDeviceTransportTypeBluetoothLE
         | sys::kAudioDeviceTransportTypeUSB => OutputKind::Unknown,

@@ -1,6 +1,6 @@
 //! WAV の入出力。
 //!
-//! **KOERU が要る形式は2つだけ**（`DEC-SYN-005`）。
+//! KOERU が要る形式は2つだけ（`DEC-SYN-005`）。
 //!
 //! | | レート | 形式 | ch |
 //! |---|---|---|---|
@@ -8,14 +8,14 @@
 //! | 配布用 | 44100 Hz | 16 bit PCM | 1 |
 //!
 //! 汎用の読み書きが要らないので自前で持つ。`hound` も `dr_wav` も個人のリポジトリで、
-//! **束ねる相手を組織メンテのものに限るという方針**（`DEC-REC-001`）に対して、
+//! 束ねる相手を組織メンテのものに限るという方針（`DEC-REC-001`）に対して、
 //! この規模のものに例外を作らない。
 //!
 //! ## 書き方
 //!
-//! **`.wav.part` へストリーミング書き込みし、終了時にサイズを確定させる**（TR-REC-28）。
+//! `.wav.part` へストリーミング書き込みし、終了時にサイズを確定させる（`TR-REC-28`）。
 //! ヘッダの長さは書き始めの時点では分からないので、0 で置いて最後に seek して埋める。
-//! **fsync してからアトミックな rename で最終名にする。** そこまでが「ファイル確定」で、
+//! fsync してからアトミックな rename で最終名にする。 そこまでが「ファイル確定」で、
 //! DB へのコミットはその後（`project-storage.fsl` の `finalize_file` → `commit_take`）。
 
 use std::fs::File;
@@ -48,7 +48,7 @@ pub enum WavError {
 }
 
 impl WavError {
-    /// 送信層へ載せてよい固定文字列。**`Display` を送らない**（パスが入りうる）。
+    /// 送信層へ載せてよい固定文字列。`Display` を送らない（パスが入りうる）。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -65,9 +65,15 @@ fn io(op: &'static str) -> impl FnOnce(std::io::Error) -> WavError {
     move |source| WavError::Io { op, source }
 }
 
-/// マスターの標本化周波数（TR-REC-02）。
+/// マスターの標本化周波数（`TR-REC-02`）。
+///
+/// キャプチャはデバイスのネイティブレートで受け、pump が1回だけここへ変換する
+/// （`DEC-REC-006`）。 そこから下流はレートを持ち回らず、この値を使う。
+///
+/// [`write_distribution`] はヘッダに 44100 と書くだけでサンプルを変換しない。
+/// 44100 でないものを渡すと、44100 と名乗る別のレートの音が配られる。踏んだ。
 pub const MASTER_RATE_HZ: u32 = 44_100;
-/// 配布用の標本化周波数（TR-REC-01）。
+/// 配布用の標本化周波数（`TR-REC-01`）。
 pub const DISTRIBUTION_RATE_HZ: u32 = 44_100;
 
 const FMT_PCM: u16 = 1;
@@ -76,8 +82,8 @@ const HEADER_LEN: u64 = 44;
 
 /// 書きかけのテイク。
 ///
-/// **落とすまで `.wav.part` のまま。** [`PartialTake::finalize`] を呼ぶと
-/// サイズを確定させ、fsync してからアトミックに rename する（TR-REC-28）。
+/// 落とすまで `.wav.part` のまま。 [`PartialTake::finalize`] を呼ぶと
+/// サイズを確定させ、fsync してからアトミックに rename する（`TR-REC-28`）。
 #[derive(Debug)]
 pub struct PartialTake {
     writer: BufWriter<File>,
@@ -88,7 +94,7 @@ pub struct PartialTake {
 }
 
 impl PartialTake {
-    /// `final_path` に対応する `.wav.part` を開く（TR-REC-28）。
+    /// `final_path` に対応する `.wav.part` を開く（`TR-REC-28`）。
     ///
     /// マスターの形式（32 bit float / モノラル）で書き始める。
     #[tracing::instrument(skip(final_path), fields(rate_hz), err)]
@@ -111,7 +117,7 @@ impl PartialTake {
         })
     }
 
-    /// サンプルを書き足す。**モノラルの 32 bit float。**
+    /// サンプルを書き足す。モノラルの 32 bit float。
     pub fn write(&mut self, samples: &[f32]) -> Result<()> {
         for s in samples {
             self.writer
@@ -128,9 +134,9 @@ impl PartialTake {
         self.frames
     }
 
-    /// **ファイルを確定させる**（TR-REC-28 / `project-storage.fsl` の `finalize_file`）。
+    /// ファイルを確定させる（`TR-REC-28` / `project-storage.fsl` の `finalize_file`）。
     ///
-    /// 順序が契約そのもの。**サイズを確定 → fsync → アトミックな rename。**
+    /// 順序が契約そのもの。サイズを確定 → fsync → アトミックな rename。
     /// ここまでが済んでから DB へコミットする。逆にすると、ファイルの無い行が DB に残る。
     #[tracing::instrument(skip(self), fields(frames = self.frames), err)]
     pub fn finalize(mut self) -> Result<PathBuf> {
@@ -147,7 +153,7 @@ impl PartialTake {
             .map_err(io("rewrite_header"))?;
         file.flush().map_err(io("flush_header"))?;
 
-        // **fsync してから rename する。** 逆だと、rename は済んでいるのに
+        // fsync してから rename する。 逆だと、rename は済んでいるのに
         // 中身がディスクに無い状態が電源喪失で残りうる。
         file.sync_all().map_err(io("fsync"))?;
         drop(file);
@@ -159,7 +165,7 @@ impl PartialTake {
 
     /// 書きかけを捨てる（`discard_invalid_take`）。
     ///
-    /// **`.part` を消すだけ。確定済みのファイルには触らない。**
+    /// `.part` を消すだけ。確定済みのファイルには触らない。
     pub fn discard(self) -> Result<()> {
         let path = self.part_path.clone();
         drop(self.writer);
@@ -203,7 +209,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
     }
     let data_bytes = u32::from_le_bytes([header[40], header[41], header[42], header[43]]) as usize;
 
-    // **KOERU が扱うのは2形式だけ**（DEC-SYN-005）。
+    // KOERU が扱うのは2形式だけ（`DEC-SYN-005`）。
     if channels != 1 || !matches!((fmt, bits), (FMT_FLOAT, 32) | (FMT_PCM, 16)) {
         return Err(WavError::Unsupported {
             fmt,
@@ -228,9 +234,9 @@ pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
     Ok(Wav { samples, rate_hz })
 }
 
-/// 配布用（44100 Hz / 16 bit / モノラル）として書く（TR-REC-01）。
+/// 配布用（44100 Hz / 16 bit / モノラル）として書く（`TR-REC-01`）。
 ///
-/// **TPDF ディザのみを適用する**（TR-REC-37）。音色を変える処理は行わない。
+/// TPDF ディザのみを適用する（`TR-REC-37`）。音色を変える処理は行わない。
 #[tracing::instrument(skip(path, samples), fields(frames = samples.len()), err)]
 pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool) -> Result<()> {
     let file = File::create(path.as_ref()).map_err(io("create"))?;
@@ -244,7 +250,7 @@ pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool)
     )
     .map_err(io("write_header"))?;
 
-    // TPDF ディザ（振幅 1 LSB）。**2つの一様乱数の和で三角分布にする。**
+    // TPDF ディザ（振幅 1 LSB）。2つの一様乱数の和で三角分布にする。
     let mut state = 0x2545_F491_4F6C_DD1D_u64;
     let mut tpdf = move || {
         let mut next = || {
@@ -319,7 +325,7 @@ mod tests {
         std::fs::remove_file(&final_path).ok();
     }
 
-    /// **確定するまで最終名のファイルは存在しない**（TR-REC-28）。
+    /// 確定するまで最終名のファイルは存在しない（`TR-REC-28`）。
     #[test]
     fn 確定するまで最終名は現れない() {
         let path = tmp("part_only");
@@ -355,7 +361,7 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// **ディザは値を1 LSB ぶんしか動かさない**（TR-REC-37）。
+    /// ディザは値を1 LSB ぶんしか動かさない（`TR-REC-37`）。
     #[test]
     fn ディザは最下位ビット一つぶんに収まる() {
         let path = tmp("dither");

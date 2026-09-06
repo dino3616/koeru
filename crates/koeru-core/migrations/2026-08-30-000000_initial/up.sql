@@ -1,13 +1,13 @@
 -- KOERU のプロジェクト DB。
 --
--- **状態の単一の真実**（TR-REC-31）。`masters/` のファイル存在をスキャンして導出しない。
+-- 状態の単一の真実（TR-REC-31）。`masters/` のファイル存在をスキャンして導出しない。
 -- 試唱の可否・再開位置・書き出しの可否をすべてここから決める。
 
--- 収録セッション。**録音条件のスナップショット**（TR-REC-30 / TR-REC-13）。
+-- 収録セッション。録音条件のスナップショット（TR-REC-30 / TR-REC-13）。
 CREATE TABLE sessions (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at        TEXT    NOT NULL,
-    -- 入力デバイスの永続識別子（TR-REC-03）。**表示名は保存しない。**
+    -- 入力デバイスの永続識別子（TR-REC-03）。表示名は保存しない。
     device_id         TEXT    NOT NULL,
     sample_rate_hz    INTEGER NOT NULL,
     channels          INTEGER NOT NULL,
@@ -17,9 +17,9 @@ CREATE TABLE sessions (
     route             TEXT    NOT NULL
 ) STRICT;
 
--- 録音リストの行。**プリセットから生成した全行**（TR-RCL-18）。
+-- 録音リストの行。プリセットから生成した全行（TR-RCL-18）。
 CREATE TABLE rows (
-    -- 行 ID。**台帳と録音実体の突き合わせはこれで行う**（TR-RCL-18）。
+    -- 行 ID。台帳と録音実体の突き合わせはこれで行う（TR-RCL-18）。
     id            TEXT    PRIMARY KEY NOT NULL,
     -- 読み上げるテキスト。日本語のまま（TR-RCL-08）。
     text          TEXT    NOT NULL,
@@ -29,12 +29,12 @@ CREATE TABLE rows (
     tone          INTEGER NOT NULL,
     -- 未録音 / 録音済み / 要録り直し / 除外（TR-RCL-18）。
     state         TEXT    NOT NULL,
-    -- 並び順。**生成が決定的なので、この順も決定的**（TR-RCL-27）。
+    -- 並び順。生成が決定的なので、この順も決定的（TR-RCL-27）。
     ordinal       INTEGER NOT NULL,
     UNIQUE (file_stem, tone)
 ) STRICT;
 
--- 行が生む収録単位。**カバレッジはここから導出し、二重に保持しない**（TR-RCL-18）。
+-- 行が生む収録単位。カバレッジはここから導出し、二重に保持しない（TR-RCL-18）。
 CREATE TABLE row_units (
     row_id    TEXT    NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
     kana      TEXT    NOT NULL,
@@ -43,15 +43,15 @@ CREATE TABLE row_units (
     PRIMARY KEY (row_id, kana)
 ) STRICT;
 
--- テイク。**世代として積み、削除も上書きもしない**（TR-REC-21）。
+-- テイク。世代として積み、削除も上書きもしない（TR-REC-21）。
 --
--- **行が入るのは、ファイルが確定したあとだけ**（project-storage.fsl の
+-- 行が入るのは、ファイルが確定したあとだけ（project-storage.fsl の
 -- finalize_file → commit_take）。逆順にすると、ファイルの無い行が DB に残る。
 CREATE TABLE takes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     row_id     TEXT    NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
     session_id INTEGER NOT NULL REFERENCES sessions(id),
-    -- masters/ からの相対パス。**確定済みのファイルを指す。**
+    -- masters/ からの相対パス。確定済みのファイルを指す。
     rel_path   TEXT    NOT NULL UNIQUE,
     frames     INTEGER NOT NULL,
     recorded_at TEXT   NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE takes (
     generation INTEGER NOT NULL
 ) STRICT;
 
--- 採用テイク。**行ごとに高々1つ。** 切り替えてもカバレッジは変わらない（TR-RCL-25）。
+-- 採用テイク。行ごとに高々1つ。 切り替えてもカバレッジは変わらない（TR-RCL-25）。
 CREATE TABLE adopted_takes (
     row_id  TEXT    PRIMARY KEY NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
     take_id INTEGER NOT NULL REFERENCES takes(id)
@@ -76,11 +76,11 @@ CREATE TABLE oto_values (
     cutoff_ms       REAL    NOT NULL,
     preutterance_ms REAL    NOT NULL,
     overlap_ms      REAL    NOT NULL,
-    -- 確信度（TR-ALN-24）。**機械導出群にのみ付与する。**
+    -- 確信度（TR-ALN-24）。機械導出群にのみ付与する。
     confidence      REAL    NOT NULL,
-    -- 人が確認したか。**違反が残っているエントリは確認済みにしない**（DEC-EDT-003）。
+    -- 人が確認したか。違反が残っているエントリは確認済みにしない（DEC-EDT-003）。
     confirmed       INTEGER NOT NULL DEFAULT 0,
-    -- 人が手で編集したか。**再自動推定から守る**（TR-EDT-46）。
+    -- 人が手で編集したか。再自動推定から守る（TR-EDT-46）。
     hand_edited     INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 

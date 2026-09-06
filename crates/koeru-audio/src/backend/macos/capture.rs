@@ -1,19 +1,19 @@
 //! macOS の入力キャプチャ（AUHAL）。
 //!
-//! **`kAudioUnitSubType_HALOutput` で開き、`kAudioUnitSubType_VoiceProcessingIO` は
-//! 一切使わない**（TR-REC-11）。後者は OS 側の音声処理ユニットを通してしまう。
+//! `kAudioUnitSubType_HALOutput` で開き、`kAudioUnitSubType_VoiceProcessingIO` は
+//! 一切使わない（`TR-REC-11`）。後者は OS 側の音声処理ユニットを通してしまう。
 //!
 //! ## フォーマット
 //!
-//! **デバイスのネイティブレートのまま 32 bit float で受ける**（TR-REC-02 / TR-REC-05）。
+//! デバイスのネイティブレートのまま 32 bit float で受ける（`TR-REC-02` / `TR-REC-05`）。
 //! OS に暗黙のサンプルレート変換をさせない。44100 Hz のマスターへ落とすのは
-//! **1回だけ**で、それはこの層より後ろで行う。
+//! 1回だけで、それはこの層より後ろで行う。
 //!
-//! ## コールバックの規律（TR-REC-40）
+//! ## コールバックの規律（`TR-REC-40`）
 //!
 //! コールバック内でできるのは、事前確保済みバッファへの `AudioUnitRender` と、
 //! ロックフリーのリングバッファへの書き込みだけ。
-//! **メモリ確保・解放、ロック獲得、ファイル I/O、ログ出力を一切行わない。**
+//! メモリ確保・解放、ロック獲得、ファイル I/O、ログ出力を一切行わない。
 //! 取りこぼしはレイテンシより優先して検出する。
 
 use super::sys;
@@ -50,7 +50,7 @@ pub enum CaptureError {
 }
 
 impl CaptureError {
-    /// 送信層へ載せてよい固定文字列。**`Display` を送らない。**
+    /// 送信層へ載せてよい固定文字列。`Display` を送らない。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -71,10 +71,10 @@ fn check(status: sys::OSStatus, op: &'static str) -> Result<()> {
     Err(CaptureError::Unit { op, status })
 }
 
-/// 実際に開けたキャプチャの条件（TR-REC-13 のスナップショットに残す）。
+/// 実際に開けたキャプチャの条件（`TR-REC-13` のスナップショットに残す）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CaptureFormat {
-    /// **デバイスのネイティブレート。** OS に変換させないので、これがそのまま来る。
+    /// デバイスのネイティブレート。 OS に変換させないので、これがそのまま来る。
     pub sample_rate_hz: u32,
     pub channels: u16,
     /// 1回のコールバックで来る最大フレーム数。
@@ -83,32 +83,32 @@ pub struct CaptureFormat {
 
 /// コールバックとアプリの間で共有する状態。
 ///
-/// **すべてアトミック。** コールバックはロックを取れない。
+/// すべてアトミック。 コールバックはロックを取れない。
 #[derive(Debug)]
 struct Shared {
     /// コールバックが `AudioUnitRender` を呼ぶために要る。
-    /// **コールバックが来はじめる前に確定し、以後変わらない。**
+    /// コールバックが来はじめる前に確定し、以後変わらない。
     unit: sys::AudioUnit,
     producer: ring::Producer,
-    /// 直前のコールバックの末尾サンプル位置。**連続性の判定に使う。**
+    /// 直前のコールバックの末尾サンプル位置。連続性の判定に使う。
     last_end: AtomicU64,
-    /// タイムスタンプが飛んだ回数。**xrun の検出**（TR-REC-07）。
+    /// タイムスタンプが飛んだ回数。xrun の検出（`TR-REC-07`）。
     discontinuities: AtomicUsize,
     /// `AudioUnitRender` が失敗した回数。
     render_errors: AtomicUsize,
-    /// レンダ先のバッファ。**事前確保済みで、実行中は伸縮しない。**
+    /// レンダ先のバッファ。事前確保済みで、実行中は伸縮しない。
     scratch: Box<[std::cell::UnsafeCell<f32>]>,
     /// 1フレームあたりのチャンネル数。
     channels: usize,
     /// 収録中か。止めている間もコールバックは来るので、ここで捨てる。
     armed: AtomicBool,
-    /// **どのチャンネルをモノラルの元にするか**（`TR-REC-06`）。
+    /// どのチャンネルをモノラルの元にするか（`TR-REC-06`）。
     /// [`MIX_ALL`] なら全チャンネルの平均。
     source: AtomicUsize,
-    /// チャンネルごとの二乗和。**校正で「有意な信号を持つ側」を選ぶために測る**（`TR-REC-06`）。
+    /// チャンネルごとの二乗和。校正で「有意な信号を持つ側」を選ぶために測る（`TR-REC-06`）。
     ///
     /// f64 を CAS で積むとコールバックの中でループになるので、
-    /// **固定小数へ直して `fetch_add` する。** RMS の比較には十分な精度。
+    /// 固定小数へ直して `fetch_add` する。 RMS の比較には十分な精度。
     channel_energy: Box<[AtomicU64]>,
     /// 上に積んだフレーム数。
     energy_frames: AtomicU64,
@@ -116,7 +116,7 @@ struct Shared {
 
 /// 全チャンネルを混ぜる（`TR-REC-06`）。
 ///
-/// **既定にしない。** L+R の平均は、片側にしか信号が無いときに 6dB 損をする。
+/// 既定にしない。 L+R の平均は、片側にしか信号が無いときに 6dB 損をする。
 pub const MIX_ALL: usize = usize::MAX;
 
 /// 二乗和を積むときの倍率。
@@ -129,7 +129,7 @@ unsafe impl Sync for Shared {}
 
 /// 開いているキャプチャストリーム。
 ///
-/// **落とすと停止して解放する。** テイクごとに開閉しない（REQ-REC-102）ので、
+/// 落とすと停止して解放する。 テイクごとに開閉しない（`REQ-REC-102`）ので、
 /// 収録画面を離れるまで持ち続ける。
 #[derive(Debug)]
 pub struct Capture {
@@ -141,9 +141,9 @@ pub struct Capture {
 // SAFETY: AudioUnit のハンドルは別スレッドから操作してよい。
 unsafe impl Send for Capture {}
 
-/// キャプチャを開く（REQ-REC-102）。
+/// キャプチャを開く（`REQ-REC-102`）。
 ///
-/// **開くだけで、まだ収録は始まらない。** 収録の開始は [`Capture::arm`]。
+/// 開くだけで、まだ収録は始まらない。 収録の開始は [`Capture::arm`]。
 #[tracing::instrument(skip(device), err)]
 pub fn open(device: &crate::DeviceId, ring_capacity: usize) -> Result<(Capture, ring::Consumer)> {
     let Some(object) = super::object_id_for_public(device) else {
@@ -152,7 +152,7 @@ pub fn open(device: &crate::DeviceId, ring_capacity: usize) -> Result<(Capture, 
 
     let desc = sys::AudioComponentDescription {
         componentType: sys::kAudioUnitType_Output,
-        // **HALOutput。VoiceProcessingIO は使わない**（TR-REC-11）。
+        // HALOutput。VoiceProcessingIO は使わない（`TR-REC-11`）。
         componentSubType: sys::kAudioUnitSubType_HALOutput,
         componentManufacturer: sys::kAudioUnitManufacturer_Apple,
         ..Default::default()
@@ -220,7 +220,7 @@ fn build(
         "EnableIO(output)",
     )?;
 
-    // 使うデバイスを固定する。**既定デバイスへ暗黙に倒れないため**（TR-REC-04）。
+    // 使うデバイスを固定する。既定デバイスへ暗黙に倒れないため（`TR-REC-04`）。
     // SAFETY: object は列挙で得た生きた AudioObjectID。
     check(
         unsafe {
@@ -236,7 +236,7 @@ fn build(
         "CurrentDevice",
     )?;
 
-    // デバイス側のフォーマットを読む。**こちらから変換を要求しない**（TR-REC-05）。
+    // デバイス側のフォーマットを読む。こちらから変換を要求しない（`TR-REC-05`）。
     let mut hw = sys::AudioStreamBasicDescription::default();
     let mut size = size_of::<sys::AudioStreamBasicDescription>() as u32;
     // SAFETY: hw は有効な領域で、size もその大きさ。
@@ -254,8 +254,8 @@ fn build(
         "GetStreamFormat(hw)",
     )?;
 
-    // アプリ側で受ける形。**レートはデバイスに合わせ、32 bit float 非インターリーブ**
-    // （TR-REC-02）。レート変換は後段で1回だけ行う。
+    // アプリ側で受ける形。レートはデバイスに合わせ、32 bit float 非インターリーブ
+    // （`TR-REC-02`）。レート変換は後段で1回だけ行う。
     let channels = hw.mChannelsPerFrame.max(1);
     let app = sys::AudioStreamBasicDescription {
         mSampleRate: hw.mSampleRate,
@@ -285,7 +285,7 @@ fn build(
         "SetStreamFormat(app)",
     )?;
 
-    // 1回のコールバックで来る最大フレーム数。**事前確保の大きさを決める。**
+    // 1回のコールバックで来る最大フレーム数。事前確保の大きさを決める。
     let mut max_frames: u32 = 0;
     let mut size = size_of::<u32>() as u32;
     // SAFETY: max_frames は有効な領域。
@@ -316,7 +316,7 @@ fn build(
         scratch: scratch.into_boxed_slice(),
         channels: channels as usize,
         armed: AtomicBool::new(false),
-        // **既定は先頭チャンネル。** 混ぜない（TR-REC-06）。
+        // 既定は先頭チャンネル。 混ぜない（`TR-REC-06`）。
         source: AtomicUsize::new(0),
         channel_energy: (0..channels as usize)
             .map(|_| AtomicU64::new(0))
@@ -327,7 +327,7 @@ fn build(
 
     let cb = sys::AURenderCallbackStruct {
         inputProc: Some(input_callback),
-        // **Arc の生ポインタをコールバックへ渡す。** 解放は Capture が持つ Arc が担う。
+        // Arc の生ポインタをコールバックへ渡す。 解放は Capture が持つ Arc が担う。
         inputProcRefCon: Arc::as_ptr(&shared).cast::<c_void>().cast_mut(),
     };
     // SAFETY: cb は有効な領域で、サイズも合わせている。
@@ -378,11 +378,11 @@ fn build(
     ))
 }
 
-/// キャプチャコールバック。**リアルタイムスレッドで走る。**
+/// キャプチャコールバック。リアルタイムスレッドで走る。
 ///
 /// ここでできるのは事前確保済みバッファへの `AudioUnitRender` と、
-/// ロックフリーのリングバッファへの書き込みだけ（TR-REC-40）。
-/// **確保も解放もロックもログ出力もしない。**
+/// ロックフリーのリングバッファへの書き込みだけ（`TR-REC-40`）。
+/// 確保も解放もロックもログ出力もしない。
 unsafe extern "C" fn input_callback(
     ref_con: *mut c_void,
     flags: *mut sys::AudioUnitRenderActionFlags,
@@ -397,7 +397,7 @@ unsafe extern "C" fn input_callback(
 
     let need = (frames as usize) * shared.channels;
     if need > shared.scratch.len() {
-        // 事前確保を超えた。**確保し直さない。** 取りこぼしとして数える。
+        // 事前確保を超えた。確保し直さない。 取りこぼしとして数える。
         shared.render_errors.fetch_add(1, Ordering::Relaxed);
         return sys::kAudioHardwareNoError;
     }
@@ -452,7 +452,7 @@ unsafe extern "C" fn input_callback(
         return sys::kAudioHardwareNoError;
     }
 
-    // **タイムスタンプの連続性を見る**（TR-REC-07 の xrun 検出）。
+    // タイムスタンプの連続性を見る（`TR-REC-07` の xrun 検出）。
     // SAFETY: time_stamp は CoreAudio が渡した有効なポインタ。
     let start = unsafe { (*time_stamp).mSampleTime };
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -467,7 +467,7 @@ unsafe extern "C" fn input_callback(
 
     let n = frames as usize;
 
-    // **チャンネルごとの二乗和を積む**（TR-REC-06 の「有意な信号を持つ側を選ぶ」）。
+    // チャンネルごとの二乗和を積む（`TR-REC-06` の「有意な信号を持つチャンネル」を選ぶ）。
     // 収録していない間も積む。校正はストリームを開いたまま行うので、ここが唯一の経路。
     for ch in 0..shared.channels {
         // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
@@ -492,11 +492,11 @@ unsafe extern "C" fn input_callback(
         return sys::kAudioHardwareNoError; // 収録していないので捨てる
     }
 
-    // **選んだチャンネルだけをリングへ流す**（TR-REC-06）。
+    // 選んだチャンネルだけをリングへ流す（`TR-REC-06`）。
     // L+R の平均を既定にしない。片側にしか信号が無いときに 6dB 損をする。
     let source = shared.source.load(Ordering::Relaxed);
     if source == MIX_ALL && shared.channels > 1 {
-        // **混ぜるのは、全チャンネルに有意な信号があると本人が選んだときだけ。**
+        // 混ぜるのは、全チャンネルに有意な信号があると本人が選んだときだけ。
         // 事前確保した最後のチャンネル領域を作業場に使う——ここでは確保しない。
         // SAFETY: scratch は channels*max_frames ぶん確保してあり、コールバックだけが触る。
         let out = unsafe { std::slice::from_raw_parts_mut(shared.scratch[0].get(), n) };
@@ -527,18 +527,18 @@ impl Capture {
         self.format
     }
 
-    /// 収録を始める。**ここからリングへ流れる。**
+    /// 収録を始める。ここからリングへ流れる。
     pub fn arm(&self) {
         self.shared.last_end.store(u64::MAX, Ordering::Relaxed);
         self.shared.armed.store(true, Ordering::Release);
     }
 
-    /// 収録を止める。**ストリームは開いたまま**（REQ-REC-102）。
+    /// 収録を止める。ストリームは開いたまま（`REQ-REC-102`）。
     pub fn disarm(&self) {
         self.shared.armed.store(false, Ordering::Release);
     }
 
-    /// タイムスタンプが飛んだ回数。**0 でなければ取りこぼしがある**（TR-REC-07）。
+    /// タイムスタンプが飛んだ回数。0 でなければ取りこぼしがある（`TR-REC-07`）。
     #[must_use]
     pub fn discontinuities(&self) -> usize {
         self.shared.discontinuities.load(Ordering::Relaxed)
@@ -552,7 +552,7 @@ impl Capture {
 
     /// チャンネルごとの RMS（`TR-REC-06`）。
     ///
-    /// **積んできたぶん全部の平均。** 測り直したいときは [`Capture::reset_channel_rms`]。
+    /// 積んできたぶん全部の平均。 測り直したいときは [`Capture::reset_channel_rms`]。
     #[must_use]
     pub fn channel_rms(&self) -> Vec<f32> {
         let frames = self.shared.energy_frames.load(Ordering::Relaxed);
@@ -571,7 +571,6 @@ impl Capture {
             .collect()
     }
 
-    /// チャンネルごとの測定をやり直す。
     pub fn reset_channel_rms(&self) {
         for e in &self.shared.channel_energy {
             e.store(0, Ordering::Relaxed);
@@ -581,7 +580,7 @@ impl Capture {
 
     /// モノラルの元にするチャンネルを決める（`TR-REC-06`）。
     ///
-    /// **プロジェクトに固定して、以後変えない。** テイクごとに違う経路から
+    /// プロジェクトに固定して、以後変えない。 テイクごとに違う経路から
     /// 録った素材が混ざると、合成したときに音色が揃わない。
     pub fn set_source_channel(&self, channel: usize) {
         self.shared.source.store(
@@ -592,7 +591,7 @@ impl Capture {
 
     /// 全チャンネルを混ぜる（`TR-REC-06`）。
     ///
-    /// **全チャンネルに有意な信号があると本人が選んだときだけ。**
+    /// 全チャンネルに有意な信号があると本人が選んだときだけ。
     pub fn set_source_mix(&self) {
         self.shared.source.store(MIX_ALL, Ordering::Release);
     }

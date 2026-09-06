@@ -6,24 +6,24 @@ source = 'mfa-models のモデルカード原文、GitHub Releases API、zip の
 provenance = '''
 サイズは GitHub Releases API の実数と、zip の中央ディレクトリを HTTP Range で取得して解析した実測。
 音素セットは、同じ zip から `phones.txt`（343B）だけを Range で取り出して展開した原文。
-**特徴パイプラインはモデルのバイナリを直接読んで確かめた**（`final.mdl` の `<DIMENSION>`、
+特徴パイプラインはモデルのバイナリを直接読んで確かめた（`final.mdl` の `<DIMENSION>`、
 `lda.mat` の行列サイズ）。**`meta.json` の記述はバイナリと食い違っており、当てにならない。**
 zip の SHA-256 は `85928ffb1024486872a677a92e1fa94d2f997462d0b84c73a58aa9bb0e35179a`。
 学習コーパスの一覧は mfa-models リポジトリのモデルカード原文。
-各コーパスのライセンスは配布元の記載。**Microsoft Speech Language Translation Japanese だけは未確認。**
+各コーパスのライセンスは配布元の記載。Microsoft Speech Language Translation Japanese だけは未確認。
 '''
 confidence = 'Fact'
 supports_decisions = ['DEC-ALN-008']
 
 # ── 実サイズ（zip の中央ディレクトリから。展開せずに取れる）──────────
 measured_size = '''
-`japanese_mfa.zip` = 92,191,596 バイト（88.0 MiB）。**展開後は 101,713,910 バイト（97.0 MiB）で、zip の 1.10 倍にしかならない**
+`japanese_mfa.zip` = 92,191,596 バイト（88.0 MiB）。展開後は 101,713,910 バイト（97.0 MiB）で、zip の 1.10 倍にしかならない
 （GMM のバイナリが既に密で、圧縮が効いていない）。
 
 | ファイル | 圧縮 | 展開後 |
 |---|---|---|
-| `final.alimdl` | 45,928,472 | **50,255,653**（47.9 MiB） |
-| `final.mdl` | 45,947,221 | **50,255,653**（47.9 MiB） |
+| `final.alimdl` | 45,928,472 | 50,255,653（47.9 MiB） |
+| `final.mdl` | 45,947,221 | 50,255,653（47.9 MiB） |
 | `phone_lm.fst` | 164,810 | 518,446 |
 | `tree` | 43,425 | 380,757 |
 | `phone_pdf.counts` | 67,697 | 230,450 |
@@ -33,41 +33,41 @@ measured_size = '''
 | `rules.yaml` | 388 | 3,147 |
 | `phones.txt` | 343 | 580 |
 
-**97.0 MiB のうち 95.8 MiB が2つのモデルファイル。** 残りは合わせて 1.2 MiB で、予算上は誤差。
+97.0 MiB のうち 95.8 MiB が2つのモデルファイル。 残りは合わせて 1.2 MiB で、予算上は誤差。
 '''
 
 # ── 学習コーパスの内訳 ────────────────────────────────
 training_corpora = '''
-モデル自身の表示は **CC BY 4.0**。学習コーパスは5つ。
+モデル自身の表示は CC BY 4.0。学習コーパスは5つ。
 
 | コーパス | 時間 | ライセンス | 判定 |
 |---|---|---|---|
 | Common Voice Japanese v12.0 | 71.54h | CC0 | 問題なし |
-| **GlobalPhone Japanese v3.1** | 33.88h | **ELRA の有償ライセンス。研究用と商用で料金が分かれる** | **再配布不可・購入必須** |
-| Microsoft Speech Language Translation Japanese | 9.85h | **未確認** | 要調査 |
+| GlobalPhone Japanese v3.1 | 33.88h | ELRA の有償ライセンス。研究用と商用で料金が分かれる | 再配布不可・購入必須 |
+| Microsoft Speech Language Translation Japanese | 9.85h | 未確認 | 要調査 |
 | Japanese Versatile Speech (JVS) | 30.25h | タグは CC BY-SA 4.0、音声は独自条項 | 比較的軽い |
-| **TEDxJP-10K v1.1** | 8.85h | **TED / TEDx は CC BY-NC-ND** | **非商用 かつ 改変不可** |
+| TEDxJP-10K v1.1 | 8.85h | TED / TEDx は CC BY-NC-ND | 非商用 かつ 改変不可 |
 
-**[Risk] 学習コーパスの条件が派生した重みへ及ぶかは、法的に定まっていない。**
+[Risk] 学習コーパスの条件が派生した重みへ及ぶかは、法的に定まっていない。
 DEC-ALN-008 はこれを判断で通している（DEC-SYN-004 の SwiftF0 と同じ形）。
 '''
 
 # ── 実行時経路（Python が要るという記録は 3.x では不正確だった）────
 runtime_path = '''
-**Python は必須ではない。** MFA 3.0 は Kaldi のバイナリを呼ぶ方式をやめ、
-kalpy（pybind11 バインディング）経由で **Kaldi の共有ライブラリを直接呼ぶ**形に変わった。
+Python は必須ではない。 MFA 3.0 は Kaldi のバイナリを呼ぶ方式をやめ、
+kalpy（pybind11 バインディング）経由で Kaldi の共有ライブラリを直接呼ぶ形に変わった。
 pybind11 でできることは、C シムを書けば Rust からもできる。
 
-- **Kaldi は Apache-2.0。** `deny.toml` の allow に載っている。OpenFst も Apache-2.0
-- **PostgreSQL も必須ではない。** MFA 3.x の `use_postgres` は既定 `False` で、標準は SQLite
+- Kaldi は Apache-2.0。 `deny.toml` の allow に載っている。OpenFst も Apache-2.0
+- PostgreSQL も必須ではない。 MFA 3.x の `use_postgres` は既定 `False` で、標準は SQLite
 - conda-forge の Kaldi パッケージは linux-64 で約 33MB / osx-arm64 で約 28MB（圧縮）
 
-**必要な工程**（Kaldi の関数として）:
+必要な工程（Kaldi の関数として）:
 MFCC → CMVN → splice → LDA+MLLT 行列 → 辞書 FST と転写から training graph をコンパイル（OpenFst）
 → `final.alimdl` で1パス目の Viterbi → fMLLR 推定 → `final.mdl` で2パス目 → transition-id を音素へ変換。
 
-**特徴パイプラインは `meta.json` から確定した**（TR-ALN-05 notes の [Unknown] を閉じる）。
-**推測していた LDA+MLLT ではなかった。**
+特徴パイプラインは `meta.json` から確定した（TR-ALN-05 notes の [Unknown] を閉じる）。
+推測していた LDA+MLLT ではなかった。
 
 ```json
 "features": {
@@ -84,34 +84,34 @@ MFCC → CMVN → splice → LDA+MLLT 行列 → 辞書 FST と転写から trai
 
 - **[Fact] 特徴は LDA+MLLT の 40 次。`meta.json` の `uses_splices` / `uses_deltas` は
   このモデルの実態を表していない。** モデルのバイナリを直接読んで確かめた:
-  `final.mdl` の `<DIMENSION>` が **40**、`lda.mat` が **40 行 × 91 列**、
+  `final.mdl` の `<DIMENSION>` が 40、`lda.mat` が 40 行 × 91 列、
   91 = 13（MFCC）× 7（`splice_left_context` 3 ＋ 自分 ＋ `splice_right_context` 3）。
   Δ＋ΔΔ なら 13 × 3 = 39 で、40 にはならない。
   **`meta.json` は `uses_splices: false, uses_deltas: true` と書いているが、
   バイナリと合わない。** 実装が従うのはバイナリ側。
   したがって特徴パイプラインは
-  **MFCC(13) → CMVN → splice(±3)=91 → LDA+MLLT(40×91) → 40 → fMLLR**
-- **`uses_speaker_adaptation: true`** — SAT / fMLLR は確定。`final.alimdl` と `final.mdl` の
+  MFCC(13) → CMVN → splice(±3)=91 → LDA+MLLT(40×91) → 40 → fMLLR
+- `uses_speaker_adaptation: true` — SAT / fMLLR は確定。`final.alimdl` と `final.mdl` の
   2パス構成という読みは正しかった
-- **`sample_frequency: 16000`** — **モデルは 16kHz を前提にしている。**
+- `sample_frequency: 16000` — モデルは 16kHz を前提にしている。
   KOERU のマスターは 44100 Hz（TR-REC-01 / TR-REC-02）なので、
-  **アライメントの入口で 44100 → 16000 のダウンサンプルが要る。**
+  アライメントの入口で 44100 → 16000 のダウンサンプルが要る。
   `high_frequency: 7800` なので 7.8kHz より上は使われない
-- **`frame_shift: 10`** — フレーム分解能は 10ms。TR-ALN-06 が要求する 2ms 以下は
+- `frame_shift: 10` — フレーム分解能は 10ms。TR-ALN-06 が要求する 2ms 以下は
   サブフレーム補間で作る（TR-ALN-06 が「アライナのフレーム分解能がこれより粗い場合は」と
   想定している経路そのもの）
-- **`position_dependent_phones: false`** — 音素に `_B` / `_I` / `_E` / `_S` が付かない。
+- `position_dependent_phones: false` — 音素に `_B` / `_I` / `_E` / `_S` が付かない。
   木の引き方が単純になる
 '''
 
 # ── 音素セット（phones.txt / meta.json より）────────────────
 phone_set = '''
-**86 エントリ**（`<eps>` 0 / `sil` 1 / `spn` 2 ＋ 音素 83）。**IPA 表記。**
+86 エントリ（`<eps>` 0 / `sil` 1 / `spn` 2 ＋ 音素 83）。IPA 表記。
 長音は `ː` を付ける（`a` / `aː`）、口蓋化は `ʲ`（`b` / `bʲ`）、促音も子音に `ː`（`k` / `kː`）。
 
 母音 `a i ɨ ɯ e o`、撥音 `ɴ ɰ̃ ŋ`、声門閉鎖 `ʔ`、無声化母音 `i̥ ɨ̥ ɯ̥`。
-**撥音 `ɴ` が独立の音素として存在する**——TR-ALN-03 が snfa の制約として挙げていた
-「`phone_set` に撥音 N がなく無声化母音を区別しない」は、**MFA では問題にならない。**
+撥音 `ɴ` が独立の音素として存在する——TR-ALN-03 が snfa の制約として挙げていた
+「`phone_set` に撥音 N がなく無声化母音を区別しない」は、MFA では問題にならない。
 
 `meta.json` の `phone_groups` に 33 の群があり、TR-ALN-24 の音素別の集計と
 TR-ALN-12 の話者内一貫性の集団分けに使える。
@@ -122,63 +122,63 @@ TR-ALN-12 の話者内一貫性の集団分けに使える。
 
 無音モデルのパラメータ: `silence_probability` 0.2 / `initial_silence_probability` 0.2 /
 `final_silence_correction` 0.99 / `final_non_silence_correction` 0.24。
-**TR-ALN-09 (a)(b) の「前後の無音を自由にする」はここで効く。**
+TR-ALN-09 (a)(b) の「前後の無音を自由にする」はここで効く。
 '''
 
 # ── Rust 側の部品 ──────────────────────────────────
 rust_availability = '''
 crates.io を調べた結果。
 
-- **ある**: MFCC / fbank 抽出（`knf-rs` 137万DL、`kaldi-native-fbank` 2.2万DL）
-- **無い**: **Kaldi の GMM-HMM モデルを読んでアライメントする crate は存在しない。**
+- ある: MFCC / fbank 抽出（`knf-rs` 137万DL、`kaldi-native-fbank` 2.2万DL）
+- 無い: Kaldi の GMM-HMM モデルを読んでアライメントする crate は存在しない。
   `vosk-rust`（純 Rust の nnet3 chain 再実装）は v0.0.1・27ダウンロードで、
   そもそも chain モデル向けなので GMM-HMM には使えない
 
-したがって道は2つ。**(a) Kaldi C++ を C シム経由でリンクする**（DEC-ALN-008 が採った）、
-**(b) デコーダを自前で書く**（fMLLR まで要るので、snfa の移植より重い）。
+したがって道は2つ。(a) Kaldi C++ を C シム経由でリンクする（DEC-ALN-008 が採った）、
+(b) デコーダを自前で書く（fMLLR まで要るので、snfa の移植より重い）。
 '''
 
 # ── 実装して分かったこと ──────────────────────────
 implementation_findings = '''
-**Kaldi は OpenFst 無しで組めた。** `base + matrix + util + tree + gmm + hmm + transform + feat`
-の 77 ファイルのうち **74 が `cc` でコンパイルでき、リンクも通った**（macOS / Accelerate）。
+Kaldi は OpenFst 無しで組めた。 `base + matrix + util + tree + gmm + hmm + transform + feat`
+の 77 ファイルのうち 74 が `cc` でコンパイルでき、リンクも通った（macOS / Accelerate）。
 
 - `base/kaldi-types.h` は `OPENFST_VER >= 10800` を定義すれば `<stdint.h>` で足りる
-  （**上流自身が用意している分岐**）
-- `hmm/transition-model.h` は `<fst/fst-decl.h>` を引くが **FST の型を1つも使っていない。**
+  （上流自身が用意している分岐）
+- `hmm/transition-model.h` は `<fst/fst-decl.h>` を引くが FST の型を1つも使っていない。
   空のスタブで通る。使い始めたらビルドが壊れるので、気づける
 - `base/version.h` は Kaldi の Makefile が git から作るもの。ビルド時に生成すればよい
 - 本当に OpenFst が要るのは `tree/tree-renderer.cc`（GraphViz 可視化）、
   `hmm/tree-accu.cc`（学習用）、`hmm/hmm-utils.cc`（FST 構築）の3つだけで、
-  **どれも推論には要らない**
+  どれも推論には要らない
 
-**[Fact] dither を切らないと決定性が成り立たない。** `meta.json` は `dither: 1` だが、
-Kaldi の dither は各フレームへ乱数の雑音を足すので、**同じ入力から違う特徴が出る**
+[Fact] dither を切らないと決定性が成り立たない。 `meta.json` は `dither: 1` だが、
+Kaldi の dither は各フレームへ乱数の雑音を足すので、同じ入力から違う特徴が出る
 （実装して実測した——1回目と2回目で値が違った）。`TR-ALN-29` の「ビット単位で同一」と
-両立しないため、`dither = 0` にした。**学習時の設定と1つずれる。**
+両立しないため、`dither = 0` にした。学習時の設定と1つずれる。
 dither はモデルの選択ではなく log(0) を避けるための措置で、Kaldi 自身が
 メル帯域のエネルギーに `ApplyFloor(epsilon)` を掛けているので、切っても 0 の log は踏まない。
 
-**実モデルで確かめた値**: 特徴次元 40 / 音素数 85（`phones.txt` の 86 から `<eps>` を除いた数）/
+実モデルで確かめた値: 特徴次元 40 / 音素数 85（`phones.txt` の 86 から `<eps>` を除いた数）/
 1秒の音声で 101 フレーム（`snip_edges: false` なので端が少し増える）。
 
-**[Fact] topology は音素の飛び越しを許している。** `sil` は5状態・最短3フレーム、
-`k` と `a` は3状態だが **`HmmTopology::MinLength` が 1**。
-つまり3状態の音素でも1フレームで通過できる。**「状態数＝最短の継続長」ではない。**
+[Fact] topology は音素の飛び越しを許している。 `sil` は5状態・最短3フレーム、
+`k` と `a` は3状態だが `HmmTopology::MinLength` が 1。
+つまり3状態の音素でも1フレームで通過できる。「状態数＝最短の継続長」ではない。
 グラフを組むときも、境界の妥当性を検査するときも、`MinLength` を見ること。
 
-**[Fact] 1パス目には `final.alimdl`（話者非依存）を使う。** `final.mdl` は SAT で、
-fMLLR を掛けた特徴を前提にしている。**素の特徴に SAT モデルを当てると尤度が歪む**——
+[Fact] 1パス目には `final.alimdl`（話者非依存）を使う。 `final.mdl` は SAT で、
+fMLLR を掛けた特徴を前提にしている。素の特徴に SAT モデルを当てると尤度が歪む——
 実装して実測したところ、その状態では音素が事後確率で一度も最大にならなかった。
 話者非依存モデルへ替えたら最大を取るようになった。
 
-**[Fact] 合成音では到達水準を検証できない。** 正弦波の和で作った「母音」は、
+[Fact] 合成音では到達水準を検証できない。 正弦波の和で作った「母音」は、
 242 時間の実音声で学習した GMM には母音として見えない。境界の絶対位置を
 合成音で主張すると、**DEC-ALN-007 で M6 へ送ったはずの「到達水準の判定」を
 根拠なくやり直すことになる。** 試験は構造（区間の単調性、最短長、事後確率の和が 1、
-決定性、入力への追従）に留めた。**最初の意味のある検証には実際に録った音声が要る。**
+決定性、入力への追従）に留めた。最初の意味のある検証には実際に録った音声が要る。
 
-**[Fact] CMVN は平均だけ。分散を正規化するとアライメントが壊れる。**
+[Fact] CMVN は平均だけ。分散を正規化するとアライメントが壊れる。
 `meta.json` は `uses_cmvn: true` としか書いていないが、**Kaldi の `apply-cmvn` は
 既定で平均のみ**（`--norm-vars=false`）で、モデルもその前提で学習されている。
 分散まで揃えて実測したところ、**6.33秒の録音（発声は 1590〜2630ms）で
@@ -188,57 +188,57 @@ fMLLR を掛けた特徴を前提にしている。**素の特徴に SAT モデ�
 66.3/フレームから 9.32/フレームへ落ちた**——1パス目が壊れていたぶんを
 2パス目が埋めようとしていたということ。
 
-**この不具合は合成音の試験を1つも落とさなかった。** 構造（単調性、最短長、事後確率の和、
+この不具合は合成音の試験を1つも落とさなかった。 構造（単調性、最短長、事後確率の和、
 決定性）はどれも保たれたまま、位置だけが全部間違う。上の「合成音では到達水準を
 検証できない」の具体例で、**実音声を通す経路が無ければ気づけない。**
 `tests/alignment_on_real_audio.rs` がその経路——正解の境界を持たずに、
-**パワーで見た発声区間との重なり**だけを見る（正解データが要らない性質）。
+パワーで見た発声区間との重なりだけを見る（正解データが要らない性質）。
 壊れた状態では重なり 8%、直すと 96%。
 
-**[Fact] `ComputeFmllrDiagGmm` はヘッダに宣言があるだけで、Kaldi のどこにも定義が無い。**
-上流の死んだ宣言で、**リンクの段階で初めて分かる。** 実際の口は
+[Fact] `ComputeFmllrDiagGmm` はヘッダに宣言があるだけで、Kaldi のどこにも定義が無い。
+上流の死んだ宣言で、リンクの段階で初めて分かる。 実際の口は
 `FmllrDiagGmmAccs::Update(opts, xform, &objf_impr, &count)`。
 
-**[Fact] MFCC の dither を切らないと決定性が成り立たない**（上の実装知見を参照）。
+[Fact] MFCC の dither を切らないと決定性が成り立たない（上の実装知見を参照）。
 
-**[Fact] リサンプラの窓幅は遮断周波数に追随させる。** 44100 → 16000 では
+[Fact] リサンプラの窓幅は遮断周波数に追随させる。 44100 → 16000 では
 sinc が `1/cutoff` 倍に伸びるので、入力サンプルで数えた窓幅も同じだけ広げないと
 ローブが数本しか入らない。**幅を固定したまま遮断だけ下げて 12kHz が -10dB しか
 落ちなかった。** 追随させると定常部で -88dB。
-**端の窓が欠けたぶんを重みで割り戻さないこと**——割り戻すと信号が急に始まるとき
-**先頭に無い音を作る。** ゼロ詰めなら素直に立ち上がるだけで済む。
+端の窓が欠けたぶんを重みで割り戻さないこと——割り戻すと信号が急に始まるとき
+先頭に無い音を作る。 ゼロ詰めなら素直に立ち上がるだけで済む。
 '''
 
 # ── 同梱する版（v3.3.0）──────────────────────────
 bundled_version = '''
-**同梱するのは HuggingFace の `MontrealCorpusTools/japanese_mfa`（v3.3.0）**（DEC-ALN-012）。
-調査と最初の実装は Release zip の v3.0.0 で行ったが、**そちらは git で追えない**——
+同梱するのは HuggingFace の `MontrealCorpusTools/japanese_mfa`（v3.3.0）（DEC-ALN-012）。
+調査と最初の実装は Release zip の v3.0.0 で行ったが、そちらは git で追えない——
 `mfa-models` リポジトリに入っているのは `LICENSE` / `README.md` / `meta.json`（824B）だけで、
-モデルは Release アセット。**HF のほうは本物の git リポジトリ**（git + LFS）。
+モデルは Release アセット。HF のほうは本物の git リポジトリ（git + LFS）。
 
 | | v3.0.0（Release zip） | v3.3.0（HF、同梱するもの） |
 |---|---|---|
 | train_date | 2024-02-08 | 2026-05-20 |
-| 学習量 | 873,325 秒（242h）/ 2,352 話者 | **7,553,057 秒（2,089h）/ 309,319 話者** |
-| dither | 1 | **0.0** |
+| 学習量 | 873,325 秒（242h）/ 2,352 話者 | 7,553,057 秒（2,089h）/ 309,319 話者 |
+| dither | 1 | 0.0 |
 | `final.mdl` | 50,255,653 B | 50,239,066 B |
 | `final.alimdl` | 50,255,653 B | 50,239,066 B |
 | `tree` | 380,757 B | 377,033 B |
-| `lda.mat` | 14,575 B | **14,575 B（同一）** |
-| `phones.txt` | 580 B | **580 B（同一）** |
-| 音素セット | 83 | **83、完全一致** |
+| `lda.mat` | 14,575 B | 14,575 B（同一） |
+| `phones.txt` | 580 B | 580 B（同一） |
+| 音素セット | 83 | 83、完全一致 |
 
 **音素セットが完全に一致するので、同梱の辞書リソース（`kana-phonemes.tsv`、144行）は
 そのまま使える。** 特徴次元 40 も変わらず、試験も全部通った。
 
-**[Fact] 上流が dither を 0 にしている。** v3.0.0 の `meta.json` は `dither: 1` だったが、
-v3.3.0 は `0.0`。**TR-ALN-29 のために切った判断が、上流の側でも同じ結論になっている。**
+[Fact] 上流が dither を 0 にしている。 v3.0.0 の `meta.json` は `dither: 1` だったが、
+v3.3.0 は `0.0`。TR-ALN-29 のために切った判断が、上流の側でも同じ結論になっている。
 
-**[Risk] 学習コーパスの構成が大きく変わり、ライセンスの重さが増した。**
+[Risk] 学習コーパスの構成が大きく変わり、ライセンスの重さが増した。
 
 | コーパス | 時間 | 比率 | ライセンス |
 |---|---|---|---|
-| **LaboroTV Japanese** | 1,915.43 | **91.7%** | **LaboroTV Non-commercial** |
+| LaboroTV Japanese | 1,915.43 | 91.7% | LaboroTV Non-commercial |
 | Common Voice Japanese | 71.54 | 3.4% | CC0 |
 | GlobalPhone Japanese | 33.88 | 1.6% | ELRA（有償・再配布不可） |
 | Japanese Versatile Speech | 30.25 | 1.4% | CC BY-SA 4.0 |
@@ -246,9 +246,9 @@ v3.3.0 は `0.0`。**TR-ALN-29 のために切った判断が、上流の側で�
 | Microsoft Speech Language Translation | 9.85 | 0.5% | Microsoft Research Data License |
 | TEDxJP-10K | 8.85 | 0.4% | Apache-2.0 |
 
-**非商用または再配布不可が 1,968.02h（94.2%）。** v3.0.0 では 42.7h（17.6%）の少数派だった。
+非商用または再配布不可が 1,968.02h（94.2%）。 v3.0.0 では 42.7h（17.6%）の少数派だった。
 
-**訂正: TEDxJP-10K は Apache-2.0 だった。** 以前この Evidence と台帳に
+訂正: TEDxJP-10K は Apache-2.0 だった。 以前この Evidence と台帳に
 「TED / TEDx は CC BY-NC-ND」と書いたのは、TED 本体の利用規約からの推定で、
-**コーパス自体のライセンスを確かめていなかった。** HF のモデルカードは Apache-2.0 と明記している。
+コーパス自体のライセンスを確かめていなかった。 HF のモデルカードは Apache-2.0 と明記している。
 '''

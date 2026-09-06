@@ -1,10 +1,10 @@
 schema = 'decision'
-id = "DEC-ALN-001"
-title = "強制アライメントは Julius セグメンテーションキットを一次経路にする"
-status = "accepted"
-owner = "dino3616"
+id = 'DEC-ALN-001'
+title = '強制アライメントは Julius セグメンテーションキットを一次経路にする'
+status = 'accepted'
+owner = 'dino3616'
 options = ["MFA", "snfa 移植", "Julius segmentation-kit", "自前学習"]
-selected = "Julius segmentation-kit"
+selected = 'Julius segmentation-kit'
 rationale = """
 MFA は Python / Conda / Kaldi ランタイムを要し、単一ネイティブアプリと両立しない。
 日本語音響モデルの CC BY 4.0 表示も、上流コーパスの再配布禁止・非商用限定を上書きできない。

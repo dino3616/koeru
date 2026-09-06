@@ -1,6 +1,6 @@
 //! 書き出し前の検証と自動修復（`TR-ALN-20`）。
 //!
-//! **修復できるものは直し、直せないものは書き出しを止める。**
+//! 修復できるものは直し、直せないものは書き出しを止める。
 //!
 //! > 全エントリに対して書き出し前に次を検証し、違反があれば規約の範囲内で自動修復する。
 //! > 修復できない場合はそのエントリを確認キューへ回し書き出しをブロックする。
@@ -14,18 +14,18 @@
 //! | (3) | 先行発声 ≦ 子音部 | 子音部を先行発声まで伸ばして直す |
 //! | (4) | 子音部の位置 < 右ブランクの位置 | (1) と同じ |
 //! | (5) | 切り出し範囲が WAV 長を超えない | 右ブランクを WAV 末尾へ寄せて直す |
-//! | (6) | 同一 WAV 内でエイリアスが重複しない | **直せない** |
+//! | (6) | 同一 WAV 内でエイリアスが重複しない | 直せない |
 //!
 //! # なぜ (6) だけ直せないのか
 //!
-//! **どちらのエントリを残すか、機械には決められない。** 名前を機械的に付け替えると
+//! どちらのエントリを残すか、機械には決められない。 名前を機械的に付け替えると
 //! 「同名で意味の違う成果物」を作ることになり（`TR-PKG-46`）、
 //! 外部ツールで開いたときに何が起きたか説明できなくなる。
 //!
 //! # 直したことは黙らない
 //!
-//! [`Repair`] が「何をどう直したか」を返す。**直った事実を持っておかないと、
-//! 上級モードで「なぜこの値になっているのか」が説明できない。**
+//! [`Repair`] が「何をどう直したか」を返す。直った事実を持っておかないと、
+//! 上級モードで「なぜこの値になっているのか」が説明できない。
 
 use koeru_core::oto::Oto;
 
@@ -43,7 +43,7 @@ pub enum Issue {
     PreutteranceBeyondConsonant,
     /// (5) 切り出し範囲が WAV 長を超えている。
     RegionBeyondFile,
-    /// (6) 同一 WAV 内でエイリアスが重複している。**直せない。**
+    /// (6) 同一 WAV 内でエイリアスが重複している。直せない。
     DuplicateAlias,
 }
 
@@ -72,9 +72,9 @@ impl Issue {
 pub struct Repair {
     /// 直したあとの5値。
     pub oto: Oto,
-    /// 直した項目。**何もなければ空。**
+    /// 直した項目。何もなければ空。
     pub fixed: Vec<Issue>,
-    /// 直せなかった項目。**あれば書き出しを止める。**
+    /// 直せなかった項目。あれば書き出しを止める。
     pub unrepairable: Vec<Issue>,
 }
 
@@ -89,7 +89,7 @@ impl Repair {
 /// 1エントリを検証して、直せるものを直す（`TR-ALN-20`）。
 ///
 /// `duplicate_alias` は、呼び出し側が同一 WAV 内の重複を見て渡す。
-/// **ここは1エントリしか見ないので、重複は判定できない**（[`find_duplicate_aliases`] を使う）。
+/// ここは1エントリしか見ないので、重複は判定できない（[`find_duplicate_aliases`] を使う）。
 #[must_use]
 pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
     let mut o = *oto;
@@ -100,7 +100,7 @@ pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
         unrepairable.push(Issue::DuplicateAlias);
     }
 
-    // (2) 負の値を 0 へクリップする。**オーバーラップだけは負を許す**（TR-ALN-16）。
+    // (2) 負の値を 0 へクリップする。オーバーラップだけは負を許す（`TR-ALN-16`）。
     if o.offset_ms < 0.0 || o.preutterance_ms < 0.0 || o.consonant_ms < 0.0 {
         o.offset_ms = o.offset_ms.max(0.0);
         o.preutterance_ms = o.preutterance_ms.max(0.0);
@@ -115,7 +115,7 @@ pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
     }
     let available = (file_len_ms - o.offset_ms).max(0.0);
     if o.usable_ms(file_len_ms) > available {
-        // **負値表現へ寄せる。** 正値表現のまま縮めると、
+        // 負値表現へ寄せる。 正値表現のまま縮めると、
         // ファイル末尾からの距離という意味が変わってしまう。
         o.cutoff_ms = -available;
         if !fixed.contains(&Issue::RegionBeyondFile) {
@@ -124,18 +124,18 @@ pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
     }
     let usable = o.usable_ms(file_len_ms);
 
-    // (3) 先行発声 ≦ 子音部。**子音部を伸ばして合わせる。**
+    // (3) 先行発声 ≦ 子音部。子音部を伸ばして合わせる。
     // 先行発声を縮めると、母音の開始位置という意味が壊れる。
     if o.preutterance_ms > o.consonant_ms {
         o.consonant_ms = o.preutterance_ms;
         fixed.push(Issue::PreutteranceBeyondConsonant);
     }
 
-    // (1)(4) 子音部は右ブランクより 1ms 以上手前。**子音部を縮めて直す。**
+    // (1)(4) 子音部は右ブランクより 1ms 以上手前。子音部を縮めて直す。
     if o.consonant_ms > usable - MIN_GAP_MS {
         o.consonant_ms = (usable - MIN_GAP_MS).max(0.0);
         fixed.push(Issue::ConsonantTooCloseToCutoff);
-        // 縮めた結果 (3) が崩れることがある。**先行発声も一緒に引く。**
+        // 縮めた結果 (3) が崩れることがある。先行発声も一緒に引く。
         if o.preutterance_ms > o.consonant_ms {
             o.preutterance_ms = o.consonant_ms;
             if !fixed.contains(&Issue::PreutteranceBeyondConsonant) {
@@ -144,7 +144,7 @@ pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
         }
     }
 
-    // **直したのに使える区間が残らなかったら、それは直せていない。**
+    // 直したのに使える区間が残らなかったら、それは直せていない。
     if o.usable_ms(file_len_ms) <= 0.0 {
         unrepairable.push(Issue::RegionBeyondFile);
     }
@@ -158,7 +158,7 @@ pub fn repair(oto: &Oto, file_len_ms: f64, duplicate_alias: bool) -> Repair {
 
 /// 同一 WAV 内で重複しているエイリアスを返す（`TR-ALN-20` (6)）。
 ///
-/// **大文字小文字を無視する**（`TR-REC-34` が oto セット内のファイル名に課しているのと同じ規律。
+/// 大文字小文字を無視する（`TR-REC-34` が oto セット内のファイル名に課しているのと同じ規律。
 /// 大小だけ違う名前は、Windows と macOS で別物になったり同じ物になったりする）。
 #[must_use]
 pub fn find_duplicate_aliases<'a>(aliases: &[&'a str]) -> Vec<&'a str> {
@@ -214,7 +214,7 @@ mod tests {
         assert!(r.may_export());
     }
 
-    /// **オーバーラップの負は違反ではない**（`TR-ALN-16`）。
+    /// オーバーラップの負は違反ではない（`TR-ALN-16`）。
     #[test]
     fn 負のオーバーラップは直さない() {
         let o = Oto {
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(r.oto.overlap_ms, -12.0);
     }
 
-    /// (3) 先行発声が子音部を追い越したら、**子音部を伸ばす。**
+    /// (3) 先行発声が子音部を追い越したら、子音部を伸ばす。
     #[test]
     fn 先行発声が子音部を超えたら子音部を伸ばす() {
         let o = Oto {
@@ -255,7 +255,7 @@ mod tests {
         assert!(r.may_export());
     }
 
-    /// 縮めた結果 (3) が崩れたら、**先行発声も一緒に引く。**
+    /// 縮めた結果 (3) が崩れたら、先行発声も一緒に引く。
     #[test]
     fn 縮めた結果の破れも直す() {
         let o = Oto {
@@ -288,7 +288,7 @@ mod tests {
         assert!(r.may_export());
     }
 
-    /// **オフセットがファイル末尾を越えていたら、使える区間が残らない。**
+    /// オフセットがファイル末尾を越えていたら、使える区間が残らない。
     #[test]
     fn 使える区間が残らないのは直せない() {
         let o = Oto {
@@ -303,7 +303,7 @@ mod tests {
         assert!(r.unrepairable.contains(&Issue::RegionBeyondFile));
     }
 
-    /// (6) エイリアスの重複は**直せない**。
+    /// (6) エイリアスの重複は直せない。
     #[test]
     fn エイリアスの重複は直せない() {
         let r = repair(&base(), 1000.0, true);
@@ -318,13 +318,13 @@ mod tests {
         assert_eq!(find_duplicate_aliases(&["a", "i", "a"]), ["a"]);
     }
 
-    /// **大文字小文字だけ違う名前も重複として扱う**（`TR-REC-34` と同じ規律）。
+    /// 大文字小文字だけ違う名前も重複として扱う（`TR-REC-34` と同じ規律）。
     #[test]
     fn 大文字小文字だけ違うのも重複() {
         assert_eq!(find_duplicate_aliases(&["Ka", "ka"]), ["Ka", "ka"]);
     }
 
-    /// **直したあとは制約を満たしている。** ここが破れると、
+    /// 直したあとは制約を満たしている。 ここが破れると、
     /// 修復が「別の違反を作る」だけになる。
     #[test]
     fn 直したあとは制約を満たす() {

@@ -1,0 +1,73 @@
+schema = 'decision'
+id = 'DEC-PLT-022'
+constraint_label = 'アクセシビリティの自動検査'
+constraint = '名前・役割・値とフォーカス順序を CI で検査すること（TR-PLT-25）'
+title = 'Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'story を書き、composeStories で擬似 DOM に描いて axe を当てる',
+  'story を書き、@storybook/addon-vitest で実ブラウザに描いて axe を当てる',
+  '検査を手で書く（部品ごとに名前と役割を assert する）',
+]
+selected = 'story を書き、@storybook/addon-vitest で実ブラウザに描いて axe を当てる'
+rationale = '''
+手書きの検査はやめる。 以前は accessible name の算出を自前で書いて11件を
+assert していた。axe-core の規則の網羅には遠く及ばず、当たらない規則があることも
+見えていなかった。story を書けば、その部品が自動で検査範囲へ入る。
+
+実ブラウザで走らせる。 `color-contrast` は計算済みの色が要る規則で、
+擬似 DOM では「判定不能」になり違反として上がってこない。実ブラウザなら
+実際に画面へ出る色を測るので、計算した値と食い違う余地が無い。
+
+`scripts/check-contrast.ts` は廃止した。 Radix パッケージの値を読んで
+自前で比を計算していたが、実際に描いた色を測るほうが確か。段の網羅は
+`palette.stories.tsx` が受け持つ——明暗を入れ子で並べて1つの story で測る。
+story を分けない。 vitest 統合は既定の globals で1回ずつ走らせるので、
+`theme` を切り替えた story を別に置いても片方しか回らない。
+
+ここへ着くまでに踏んだもの。 どれも「検査が通っているのに何も見ていない」形で、
+気づかないまま進める余地があった。
+
+1. `@vitest/browser-playwright` を直接引くと、`vp check --fix` が
+   `vite-plus/test/browser-playwright` からの import を自動で足し、
+   識別子が衝突して設定が読めなくなる。tester が起動しないまま60秒で諦める。
+   vite-plus が再輸出しているほうを使う。
+2. vitest を上位に別途入れると、vite-plus 同梱（4.1.11）と二重になる。
+   版を揃える。
+3. 試験側の設定に Tailwind のプラグインを入れ忘れると、ユーティリティが
+   生成されず背景色が解決できない。axe は `color-contrast` を「判定不能」と
+   して報告し、検査は通る。
+4. 設定を `vitest.config.ts` という名前で置くと `vp test` がそれを読み、
+   擬似 DOM 側の試験を1つも拾わないまま緑になる。
+5. `addon-vitest` を `addons` から外すと tester が配線されない。
+6. `import "vite-plus/test/optional-types.js"` は実行時に解決できない。
+
+試験ファイルを別に置かない。 axe が見る規則（`button-name` / `heading-order` /
+`tabindex`）は story を描くだけで当たる。axe に規則が無い性質——`Card` が
+名前つきで landmark になるか、`<meter>` が値と範囲を持つか、色だけで
+伝えていないか——は `play` に書き、部品と同じ場所に置く。
+
+`play` の `expect` は await する。 `storybook/test` の `expect` は Promise を
+返すので、await しないと違反があっても落ちないことがある。lint の
+`no-floating-promises` が拾う。
+
+`region` は切る。 「ページの内容はすべて landmark の中にある」を見る規則で、
+部品を1つだけ描いた story では常に違反する。画面全体の landmark は
+`accessibility.test.tsx` が見ている。
+
+CI ではブラウザをキャッシュする。 `~/.cache/ms-playwright` を lockfile の
+ハッシュで引く。OS のライブラリはそこに入らないので、当たっても入れ直す。
+'''
+review_triggers = [
+  'vite-plus を上げるとき。同梱の vitest の版が変わると、揃えている前提が崩れる',
+  'Storybook の peer 範囲（`^0.1.15 || ^0.2.0`）に 0.3 が入らないまま vite-plus を上げるとき',
+  'story を持たない部品が増えたとき（検査範囲は story の範囲そのもの）',
+  'axe-core の版が上がって、当たる規則が変わったとき',
+]
+affects_requirements = [
+  'TR-PLT-25',
+  'TR-PLT-26',
+  'TR-PLT-29',
+]
+supersedes = []

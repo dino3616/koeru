@@ -1,12 +1,12 @@
 schema = 'decision'
-id = "DEC-PLT-001"
-title = "実装スタックを Rust + Tauri にする"
+id = 'DEC-PLT-001'
+title = '実装スタックを Rust + Tauri にする'
 constraint_label = '形態'
-constraint = '単一のネイティブアプリケーション。PC 前提。実装は **Rust + Tauri**'
-status = "accepted"
-owner = "dino3616"
+constraint = '単一のネイティブアプリケーション。PC 前提。実装は Rust + Tauri'
+status = 'accepted'
+owner = 'dino3616'
 options = ["Rust + Tauri", ".NET + Avalonia", "Compose Multiplatform", "Rust + Slint"]
-selected = "Rust + Tauri"
+selected = 'Rust + Tauri'
 rationale = """
 GUI 基盤の必須条件はライセンスが許諾表記のみで同梱・再配布できることで、そこは複数候補が満たす。
 差が出たのは日本語 IME と OS のアクセシビリティ API への対応の確実さで、Tauri が最も確実だった。
@@ -22,7 +22,7 @@ affects_requirements = ["TR-PLT-03", "TR-PLT-12", "TR-PLT-15", "TR-PLT-21"]
 affects_budgets = ["BUDGET-MEMORY-001"]
 
 # .NET 前提の部品はここで外れる。SharpZipLib は MIT で許諾に問題は無いが、
-# **スタックが Rust になった時点で採る理由が消えた。** 置き換えは `zip`（CMP-038）。
+# スタックが Rust になった時点で採る理由が消えた。 置き換えは `zip`（CMP-038）。
 affects_components = [
   'CMP-036',
 ]

@@ -1,6 +1,6 @@
 //! MFA 日本語音響モデルを Kaldi 経由で叩く（`TR-ALN-05`, `DEC-ALN-008`）。
 //!
-//! **一次経路。** 退避経路は [`crate::segment`]（`DEC-ALN-006`）。
+//! 一次経路。 退避経路は [`crate::segment`]（`DEC-ALN-006`）。
 //!
 //! # Python は要らない
 //!
@@ -12,9 +12,9 @@
 //!
 //! # 16kHz へ落とす必要がある
 //!
-//! **モデルは 16kHz を前提にしている**（`EVID-ALN-001`。`meta.json` の
+//! モデルは 16kHz を前提にしている（`EVID-ALN-001`。`meta.json` の
 //! `sample_frequency: 16000`）。KOERU のマスターは 44100 Hz（`TR-REC-02`）なので、
-//! アライメントの入口でダウンサンプルが要る。**黙って変換しない**——
+//! アライメントの入口でダウンサンプルが要る。黙って変換しない——
 //! [`MfaAligner::features`] は 16kHz を受け取る前提で、合わなければ拒む
 //! （`TR-SYN-31` と同じ規律）。
 //!
@@ -24,7 +24,7 @@
 //! MFCC(13) → CMVN → splice(±3)=91 → LDA+MLLT(40x91) → 40 → fMLLR
 //! ```
 //!
-//! **`meta.json` の `uses_splices` / `uses_deltas` は当てにならない。**
+//! `meta.json` の `uses_splices` / `uses_deltas` は当てにならない。
 //! `final.mdl` の `<DIMENSION>` が 40、`lda.mat` が 40×91 で、Δ+ΔΔ の 39 ではない
 //! （`EVID-ALN-001`）。
 
@@ -34,7 +34,7 @@ use std::path::Path;
 /// モデルが前提とするサンプリング周波数（`EVID-ALN-001`）。
 pub const MODEL_SAMPLE_RATE_HZ: u32 = 16_000;
 
-/// フレーム進み幅（ミリ秒）。**`TR-ALN-06` の 2ms はサブフレーム補間で作る。**
+/// フレーム進み幅（ミリ秒）。`TR-ALN-06` の 2ms はサブフレーム補間で作る。
 pub const FRAME_SHIFT_MS: f64 = 10.0;
 
 #[repr(C)]
@@ -42,7 +42,7 @@ struct KoeruKaldi {
     _private: [u8; 0],
 }
 
-// **C 境界を跨ぐのは PCM バッファとパラメータだけ**（`TR-PLT-06`）。
+// C 境界を跨ぐのは PCM バッファとパラメータだけ（`TR-PLT-06`）。
 unsafe extern "C" {
     fn koeru_kaldi_open(model_dir: *const c_char) -> *mut KoeruKaldi;
     fn koeru_kaldi_close(h: *mut KoeruKaldi);
@@ -73,11 +73,10 @@ unsafe extern "C" {
 /// 1テイクのアライメント結果（C 境界から返るそのまま）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawAlignment {
-    /// 音素の境目（ミリ秒）。**長さは `音素数 + 3`**（前後の `sil` を含む）。
+    /// 音素の境目（ミリ秒）。長さは `音素数 + 3`（前後の `sil` を含む）。
     pub boundaries_ms: Vec<f32>,
     /// 音素列全体の対数尤度（`TR-ALN-09` (c)）。
     pub log_likelihood: f64,
-    /// フレーム数。
     pub frames: usize,
     /// フレーム × (音素数 + 2) の事後確率、行優先（`TR-ALN-03`）。
     pub posteriors: Vec<f32>,
@@ -102,7 +101,7 @@ pub enum MfaError {
     #[error("音響モデルの処理に失敗した")]
     Internal,
 
-    /// **サンプリング周波数が合わない。黙って変換しない**（`TR-SYN-31` と同じ規律）。
+    /// サンプリング周波数が合わない。黙って変換しない（`TR-SYN-31` と同じ規律）。
     #[error("サンプリング周波数がモデルの前提と違う")]
     RateMismatch,
 
@@ -112,7 +111,7 @@ pub enum MfaError {
 }
 
 impl MfaError {
-    /// 送信してよい種別文字列。**パスも歌詞も載せない**（AGENTS.md #3）。
+    /// 送信してよい種別文字列。パスも歌詞も載せない（AGENTS.md #3）。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -139,7 +138,7 @@ type Result<T> = std::result::Result<T, MfaError>;
 
 /// 読み込んだ MFA モデル。
 ///
-/// **`final.alimdl` と `final.mdl` を両方常駐させる**（`TGT-ALN-004` の 160MB）。
+/// `final.alimdl` と `final.mdl` を両方常駐させる（`TGT-ALN-004` の 160MB）。
 /// 逐次ロードならピークは半分で済むが、`TR-ALN-10` の逐次推定でテイクごとに
 /// 48MiB を読み直すことになり、`TGT-ALN-001` と `TGT-ALN-005` を割る（`DEC-ALN-008`）。
 #[derive(Debug)]
@@ -148,20 +147,20 @@ pub struct MfaAligner {
     identity: String,
 }
 
-// **ハンドルの中身は Kaldi の読み取り専用のモデル。** 送っても壊れない。
+// ハンドルの中身は Kaldi の読み取り専用のモデル。 送っても壊れない。
 //
-// **`Sync` は付けない。** Kaldi の `Mfcc` が内部に作業バッファを持っていて、
+// `Sync` は付けない。 Kaldi の `Mfcc` が内部に作業バッファを持っていて、
 // 同時に呼ぶと壊れる。`!Sync` なので `&MfaAligner` は他スレッドへ渡せず、
-// **`&self` を取るメソッドでも同時呼び出しは起きない。**
+// `&self` を取るメソッドでも同時呼び出しは起きない。
 // （Rust 側の状態は何も変えないので `&mut self` にする理由が無い——
-// `&self` から `&mut self` を作るのは未定義動作。**踏んだ。**）
+// `&self` から `&mut self` を作るのは未定義動作。踏んだ。）
 unsafe impl Send for MfaAligner {}
 
 impl MfaAligner {
     /// モデルのディレクトリを開く。
     ///
     /// `final.mdl` / `final.alimdl` / `tree` / `lda.mat` があること。
-    /// `identity` は決定性の鍵に混ぜる文字列で、**モデルの版を含めること**（`TR-ALN-29`）。
+    /// `identity` は決定性の鍵に混ぜる文字列で、モデルの版を含めること（`TR-ALN-29`）。
     ///
     /// # Errors
     ///
@@ -186,7 +185,7 @@ impl MfaAligner {
         &self.identity
     }
 
-    /// 特徴の次元。**LDA の出力次元で、40 のはず。**
+    /// 特徴の次元。LDA の出力次元で、40 のはず。
     #[must_use]
     pub fn feature_dim(&self) -> usize {
         // SAFETY: `self.handle` は `open` が返した非 NULL のハンドル。
@@ -204,7 +203,7 @@ impl MfaAligner {
 
     /// その音素を通過するのに要る最短フレーム数。
     ///
-    /// **HMM の状態数とは限らない。** topology が飛び越しを許していれば短くなる。
+    /// HMM の状態数とは限らない。 topology が飛び越しを許していれば短くなる。
     #[must_use]
     pub fn min_length(&self, phone: u32) -> usize {
         let p = c_int::try_from(phone).unwrap_or(0);
@@ -215,7 +214,7 @@ impl MfaAligner {
 
     /// 特徴量を作る（MFCC → CMVN → splice → LDA）。
     ///
-    /// `samples` は **16kHz モノラルの [-1, 1]**。返るのは `(フレーム数, 平坦な行優先の行列)`。
+    /// `samples` は 16kHz モノラルの [-1, 1]。返るのは `(フレーム数, 平坦な行優先の行列)`。
     ///
     /// # Errors
     ///
@@ -226,7 +225,7 @@ impl MfaAligner {
         }
         let n = c_int::try_from(samples.len()).map_err(|_| MfaError::Args)?;
 
-        // まずフレーム数だけ測る。**出力の大きさを推測しない。**
+        // まずフレーム数だけ測る。出力の大きさを推測しない。
         // SAFETY: `samples` は `n` 要素あり、`out` に NULL を渡すのは
         //         「測るだけ」を意味する取り決め（`koeru_kaldi.h`）。
         let frames = unsafe {
@@ -259,11 +258,11 @@ impl MfaAligner {
 impl MfaAligner {
     /// 1テイクを強制アライメントして、C 境界の生の結果を返す。
     ///
-    /// **`Aligner::align` の下回り。** リサンプルもサブフレーム補間もしない——
+    /// `Aligner::align` の下回り。 リサンプルもサブフレーム補間もしない——
     /// 16kHz を受け取り、フレームの刻みで境界を返す。
-    /// **`Aligner` を通す側を使うこと**（trait 側が入口の変換と `TR-ALN-06` を担う）。
+    /// `Aligner` を通す側を使うこと（trait 側が入口の変換と `TR-ALN-06` を担う）。
     ///
-    /// `phones` はモデル内の音素番号。**前後の無音は入れない**——
+    /// `phones` はモデル内の音素番号。前後の無音は入れない——
     /// シム側が `sil` を足す（`TR-ALN-09` の (a)(b)「前後の無音区間の長さを自由にする」）。
     ///
     /// # Errors
@@ -286,7 +285,7 @@ impl MfaAligner {
             .map(|p| c_int::try_from(*p).map_err(|_| MfaError::Args))
             .collect::<Result<_>>()?;
 
-        // **出力の大きさを推測しない。** 先にフレーム数を測る。
+        // 出力の大きさを推測しない。 先にフレーム数を測る。
         let frames = {
             let n = c_int::try_from(samples.len()).map_err(|_| MfaError::Args)?;
             // SAFETY: `samples` は `n` 要素あり、`out` の NULL は「測るだけ」の取り決め。
@@ -335,13 +334,13 @@ impl MfaAligner {
 
 /// テキスト逸脱と判定する、1フレームあたりの対数尤度の下限（`TR-ALN-09` (c)）。
 ///
-/// **[Unknown] この値に根拠はない。** モデルの `average_log_likelihood` は -0.103 だが
+/// [Unknown] この値に根拠はない。 モデルの `average_log_likelihood` は -0.103 だが
 /// （`EVID-ALN-001`）、それは学習コーパス上の値で、KOERU の収録条件のものではない。
-/// **到達水準の判定を M6 へ送った以上、ここも実測で決められない**（`DEC-ALN-007`）。
+/// 到達水準の判定を M6 へ送った以上、ここも実測で決められない（`DEC-ALN-007`）。
 /// 明らかに読みが違うテイクだけを弾く、緩い線として置いてある。
 pub(crate) const TEXT_DEVIATION_FLOOR: f64 = -200.0;
 
-/// サブフレーム補間で交点を探す幅（フレーム）。**境界の前後 3 フレーム = ±30ms。**
+/// サブフレーム補間で交点を探す幅（フレーム）。境界の前後 3 フレーム = ±30ms。
 const REFINE_WINDOW: usize = 3;
 
 impl crate::aligner::Aligner for MfaAligner {
@@ -359,7 +358,7 @@ impl crate::aligner::Aligner for MfaAligner {
             return Err(AlignError::EmptyPhonemes);
         }
 
-        // **16kHz へ落としてから渡す**（`EVID-ALN-001`）。マスターには触らない。
+        // 16kHz へ落としてから渡す（`EVID-ALN-001`）。マスターには触らない。
         let mono: Vec<f32> = req.samples.iter().map(|v| *v as f32).collect();
         let wave = if req.sample_rate_hz == MODEL_SAMPLE_RATE_HZ {
             mono
@@ -382,7 +381,7 @@ impl crate::aligner::Aligner for MfaAligner {
                 MfaError::Args | MfaError::Internal => AlignError::TooShort,
             })?;
 
-        // **テキスト逸脱**（`TR-ALN-09` (c)）。1フレームあたりで見る——
+        // テキスト逸脱（`TR-ALN-09` (c)）。1フレームあたりで見る——
         // 長いテイクほど尤度が下がるので、総和で切ると長さで判定が変わる。
         #[allow(clippy::cast_precision_loss)]
         let per_frame = if raw.frames == 0 {
@@ -394,7 +393,7 @@ impl crate::aligner::Aligner for MfaAligner {
             return Err(AlignError::TextDeviation);
         }
 
-        // **前後の `sil` を含めた並び**（`TR-ALN-09` (a)(b)）。
+        // 前後の `sil` を含めた並び（`TR-ALN-09` (a)(b)）。
         let sil = crate::phoneme::Phoneme::new(crate::phoneme::SILENCE)
             .ok_or(AlignError::ModelUnavailable)?;
         let mut phones = Vec::with_capacity(req.phonemes.len() + 2);
@@ -402,7 +401,7 @@ impl crate::aligner::Aligner for MfaAligner {
         phones.extend_from_slice(req.phonemes);
         phones.push(sil);
 
-        // **境界をサブフレーム補間で連続値にする**（`TR-ALN-06`）。
+        // 境界をサブフレーム補間で連続値にする（`TR-ALN-06`）。
         let slots = phones.len();
         let mut edges = Vec::with_capacity(slots + 1);
         edges.push(0.0_f64);
@@ -419,7 +418,7 @@ impl crate::aligner::Aligner for MfaAligner {
                 hop_ms: FRAME_SHIFT_MS,
                 window: REFINE_WINDOW,
             });
-            // **単調にする。** 補間が前の境界より手前を指したら、前に合わせる。
+            // 単調にする。 補間が前の境界より手前を指したら、前に合わせる。
             let prev = edges[s - 1];
             edges.push(r.ms.max(prev));
         }
@@ -442,7 +441,7 @@ impl crate::aligner::Aligner for MfaAligner {
                 values: raw.posteriors,
             }),
             log_likelihood: Some(raw.log_likelihood),
-            // グリッドは未実装（`TR-ALN-08`）。**渡していないので `None`。**
+            // グリッドは未実装（`TR-ALN-08`）。渡していないので `None`。
             grid_divergence: None,
         })
     }
@@ -460,9 +459,9 @@ mod tests {
     use super::*;
     use crate::aligner::Aligner;
 
-    /// 実モデルの置き場所。**環境変数で指す。**
+    /// 実モデルの置き場所。環境変数で指す。
     ///
-    /// **リポジトリにモデルを入れていない**ので、無ければ試験は静かに戻る
+    /// リポジトリにモデルを入れていないので、無ければ試験は静かに戻る
     /// （`koeru-audio` の実機ハーネスと同じ形）。
     fn model_dir() -> Option<std::path::PathBuf> {
         let p = std::path::PathBuf::from(std::env::var("KOERU_MFA_MODEL_DIR").ok()?);
@@ -483,27 +482,27 @@ mod tests {
         }
     }
 
-    /// **無いディレクトリは素直に失敗する。** 落ちない。
+    /// 無いディレクトリは素直に失敗する。 落ちない。
     #[test]
     fn 無いモデルは開けない() {
         let e = MfaAligner::open(Path::new("/nonexistent/koeru/model"), "test").unwrap_err();
         assert_eq!(e.kind(), "mfa.model");
     }
 
-    /// 実モデルを読む。**`KOERU_MFA_MODEL_DIR` が無ければ戻る。**
+    /// 実モデルを読む。`KOERU_MFA_MODEL_DIR` が無ければ戻る。
     #[test]
     fn 実モデルを読める() {
         let Some(dir) = model_dir() else {
             return;
         };
         let a = MfaAligner::open(&dir, "mfa-japanese@3.0.0").expect("読める");
-        // **LDA の出力次元は 40**（EVID-ALN-001）。
+        // LDA の出力次元は 40（`EVID-ALN-001`）。
         assert_eq!(a.feature_dim(), 40);
-        // **音素は 83 + sil + spn**（phones.txt の 86 から `<eps>` を除いた数）。
+        // 音素は 83 + sil + spn（phones.txt の 86 から `<eps>` を除いた数）。
         assert_eq!(a.num_phones(), 85);
     }
 
-    /// **16kHz でないものは黙って変換しない**（`TR-SYN-31` と同じ規律）。
+    /// 16kHz でないものは黙って変換しない（`TR-SYN-31` と同じ規律）。
     #[test]
     fn サンプリング周波数が合わなければ拒む() {
         let Some(dir) = model_dir() else {
@@ -514,7 +513,7 @@ mod tests {
         assert_eq!(e.kind(), "mfa.rate_mismatch");
     }
 
-    /// 実モデルで特徴を作る。**次元とフレーム数が理屈に合うこと。**
+    /// 実モデルで特徴を作る。次元とフレーム数が理屈に合うこと。
     #[test]
     fn 実モデルで特徴を作れる() {
         let Some(dir) = model_dir() else {
@@ -522,7 +521,7 @@ mod tests {
         };
         let a = MfaAligner::open(&dir, "t").expect("読める");
 
-        // 1秒ぶんの正弦波。**無音だと CMVN の分散が 0 になる。**
+        // 1秒ぶんの正弦波。無音だと CMVN の分散が 0 になる。
         let n = MODEL_SAMPLE_RATE_HZ as usize;
         let wave: Vec<f32> = (0..n)
             .map(|i| {
@@ -533,18 +532,18 @@ mod tests {
             .collect();
 
         let (frames, feats) = a.features(&wave, MODEL_SAMPLE_RATE_HZ).expect("作れる");
-        // **1秒 / 10ms = 100 フレーム前後。** `snip_edges: false` なので端が少し増える。
+        // 1秒 / 10ms = 100 フレーム前後。 `snip_edges: false` なので端が少し増える。
         assert!((95..=105).contains(&frames), "フレーム数 {frames}");
         assert_eq!(feats.len(), frames * 40);
         assert!(feats.iter().all(|v| v.is_finite()), "有限でない値がある");
-        // **全部 0 ではない。** 0 なら特徴が作れていない。
+        // 全部 0 ではない。 0 なら特徴が作れていない。
         assert!(feats.iter().any(|v| v.abs() > 1e-6));
     }
 
     /// 「か」を模した合成音を、実モデルでアライメントする。
     ///
-    /// **無音 → 無声子音（雑音）→ 母音（倍音）→ 無音** という形を作って、
-    /// 境界がその並びに沿って出るかを見る。**精度の検証ではない**——
+    /// 無音 → 無声子音（雑音）→ 母音（倍音）→ 無音 という形を作って、
+    /// 境界がその並びに沿って出るかを見る。精度の検証ではない——
     /// 経路が通り、境界が単調で、区間が音の構造とだいたい合うことの確認
     /// （到達水準の判定は M6。`DEC-ALN-007`）。
     #[test]
@@ -555,7 +554,7 @@ mod tests {
         let a = MfaAligner::open(&dir, "t").expect("読める");
 
         let wave = syllable(200.0, 80.0, 500.0, 200.0);
-        // `k` と `a`。**辞書と同じ音素番号を引く。**
+        // `k` と `a`。辞書と同じ音素番号を引く。
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
         let vowel = crate::phoneme::Phoneme::new("a").expect("ある").id();
 
@@ -565,7 +564,7 @@ mod tests {
 
         // 境界は「先頭 sil + k + a + 末尾 sil」の4区間なので5点。
         assert_eq!(r.boundaries_ms.len(), 5);
-        // **単調非減少。** 境界が戻ったら区間が負になる。
+        // 単調非減少。 境界が戻ったら区間が負になる。
         for w in r.boundaries_ms.windows(2) {
             assert!(w[1] >= w[0], "境界が戻っている: {:?}", r.boundaries_ms);
         }
@@ -578,7 +577,7 @@ mod tests {
         );
         assert!(r.log_likelihood.is_finite());
 
-        // **事後確率が返っている**（`TR-ALN-03`）。
+        // 事後確率が返っている（`TR-ALN-03`）。
         assert_eq!(r.posteriors.len(), r.frames * 4);
         // 各フレームで、4つの音素にかかる確率の和が 1 に近い。
         for t in 0..r.frames {
@@ -587,12 +586,12 @@ mod tests {
         }
     }
 
-    /// **各音素の区間が、topology の最短長を下回らない。**
+    /// 各音素の区間が、topology の最短長を下回らない。
     ///
-    /// グラフの組み立てが壊れると、ここが真っ先に破れる（**実際に一度破れた**——
+    /// グラフの組み立てが壊れると、ここが真っ先に破れる（実際に一度破れた——
     /// 最後の音素の出口アークが範囲外の添字を指していて、DP 配列の外へ書いていた）。
     ///
-    /// **`MinLength` は状態数とは限らない。** このモデルは3状態の音素でも
+    /// `MinLength` は状態数とは限らない。 このモデルは3状態の音素でも
     /// 飛び越しを許していて最短 1 フレーム（`EVID-ALN-001`）。
     #[test]
     fn 各音素の区間が最短長を下回らない() {
@@ -622,7 +621,7 @@ mod tests {
         }
     }
 
-    /// **同じ入力からは同じ境界が出る**（`TR-ALN-29`）。
+    /// 同じ入力からは同じ境界が出る（`TR-ALN-29`）。
     #[test]
     fn 同じ入力からは同じ境界が出る() {
         let Some(dir) = model_dir() else {
@@ -643,7 +642,7 @@ mod tests {
         assert!((r1.log_likelihood - r2.log_likelihood).abs() < 1e-9);
     }
 
-    /// **音声が長くなれば、最後の境界も後ろへ動く。**
+    /// 音声が長くなれば、最後の境界も後ろへ動く。
     ///
     /// 当たり前に見えるが、**境界が入力と無関係な定数になっていないこと**の確認。
     #[test]
@@ -673,7 +672,7 @@ mod tests {
         assert!(long.boundaries_ms[4] > short.boundaries_ms[4]);
     }
 
-    /// **音素列が空なら拒む。**
+    /// 音素列が空なら拒む。
     #[test]
     fn 空の音素列は拒む() {
         let Some(dir) = model_dir() else {
@@ -686,7 +685,7 @@ mod tests {
         assert_eq!(e.kind(), "mfa.args");
     }
 
-    /// **短すぎる音声は拒む。** 状態の数だけフレームが要る。
+    /// 短すぎる音声は拒む。 状態の数だけフレームが要る。
     #[test]
     fn 短すぎる音声は拒む() {
         let Some(dir) = model_dir() else {
@@ -694,7 +693,7 @@ mod tests {
         };
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
-        // 10ms しかない。**フレームが1〜2個。**
+        // 10ms しかない。フレームが1〜2個。
         let e = a
             .align_raw(&[0.1; 160], MODEL_SAMPLE_RATE_HZ, &[k])
             .unwrap_err();
@@ -703,14 +702,14 @@ mod tests {
 
     /// 無音 → 無声子音（雑音）→ 母音（倍音）→ 減衰 という形を作る。
     ///
-    /// `segment.rs` の試験と同じ作り方。**16kHz で作る。**
+    /// `segment.rs` の試験と同じ作り方。16kHz で作る。
     fn syllable(silence_ms: f64, consonant_ms: f64, vowel_ms: f64, tail_ms: f64) -> Vec<f32> {
         let per_ms = f64::from(MODEL_SAMPLE_RATE_HZ) / 1000.0;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let n = |ms: f64| (ms * per_ms) as usize;
         let mut out = vec![0.0_f32; n(silence_ms)];
 
-        // 無声子音: 高いゼロ交差率の雑音。**振幅は母音より小さい。**
+        // 無声子音: 高いゼロ交差率の雑音。振幅は母音より小さい。
         let mut state = 0x1234_5678_9abc_def0_u64;
         for _ in 0..n(consonant_ms) {
             state ^= state << 13;
@@ -737,7 +736,7 @@ mod tests {
         out
     }
 
-    /// **trait を通したアライメントが、44100 Hz の入力で通る**（`TR-ALN-03`, `TR-ALN-06`）。
+    /// trait を通したアライメントが、44100 Hz の入力で通る（`TR-ALN-03`, `TR-ALN-06`）。
     ///
     /// 入口でリサンプルし、境界をサブフレーム補間で連続値にして返す。
     #[test]
@@ -749,7 +748,7 @@ mod tests {
         };
         let a = MfaAligner::open(&dir, "mfa-japanese@3.0.0").expect("読める");
 
-        // **44100 Hz で作る。** マスターと同じ。
+        // 44100 Hz で作る。 マスターと同じ。
         let rate = 44_100_u32;
         let n = rate as usize;
         let wave: Vec<f64> = (0..n)
@@ -779,25 +778,25 @@ mod tests {
         assert_eq!(r.segments[2].phoneme, vowel);
         assert_eq!(r.segments[3].phoneme.as_str(), crate::phoneme::SILENCE);
 
-        // **区間が繋がっていて、単調。**
+        // 区間が繋がっていて、単調。
         for w in r.segments.windows(2) {
             assert!((w[0].end_ms - w[1].start_ms).abs() < 1e-9);
         }
         assert!(r.segments[0].start_ms >= 0.0);
         assert!(r.segments[3].end_ms > r.segments[0].start_ms);
 
-        // **emission 行列を返している**（`TR-ALN-03`）。
+        // emission 行列を返している（`TR-ALN-03`）。
         let p = r.posteriors.expect("事後確率がある");
         assert_eq!(p.phonemes, 4);
         assert_eq!(p.values.len(), p.frames * 4);
         assert!((p.hop_ms - FRAME_SHIFT_MS).abs() < 1e-9);
         assert!(r.log_likelihood.is_some());
 
-        // **フレーム数は 16kHz 換算。** 1秒なら 100 前後。
+        // フレーム数は 16kHz 換算。 1秒なら 100 前後。
         assert!((95..=105).contains(&p.frames), "frames {}", p.frames);
     }
 
-    /// **退避経路と違い、MFA は経路確信度を出せる**（`TR-ALN-24` の成分 (1)）。
+    /// 退避経路と違い、MFA は経路確信度を出せる（`TR-ALN-24` の成分 (1)）。
     #[test]
     fn trait_の識別子にモデルの版が入る() {
         let Some(dir) = model_dir() else {
@@ -807,9 +806,9 @@ mod tests {
         assert_eq!(Aligner::identity(&a), "mfa-japanese@3.0.0");
     }
 
-    /// **同じ入力からは同じ特徴が出る**（`TR-ALN-29` の決定性）。
+    /// 同じ入力からは同じ特徴が出る（`TR-ALN-29` の決定性）。
     ///
-    /// **[Risk] `dither: 1` は乱数を使う。** Kaldi の dither は固定シードなので
+    /// [Risk] `dither: 1` は乱数を使う。 Kaldi の dither は固定シードなので
     /// 同一プロセス内では再現するが、ここが崩れたら `TR-ALN-29` が成り立たない。
     #[test]
     fn 同じ入力からは同じ特徴が出る() {

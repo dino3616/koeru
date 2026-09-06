@@ -11,7 +11,7 @@ domain = 'synth'
 id = 'TGT-SYN-001'
 item = '押下 → 最初の音（初回・直前の録音の前処理を含む）'
 goal = '中央値 6秒 / p95 10秒'
-note = '**新設ケース**'
+note = '新設ケース'
 
 [[target]]
 id = 'TGT-SYN-002'
@@ -36,8 +36,8 @@ goal = '50ms（50音符）'
 [[target]]
 id = 'TGT-SYN-006'
 item = '1音符あたりの合成'
-goal = '80ms（音符長 0.5秒、**FFT 長 2048**、フレーム 10ms）'
-note = '**[Assumption] 係数は未実測。最初の実測項目に格上げする**'
+goal = '80ms（音符長 0.5秒、FFT 長 2048、フレーム 10ms）'
+note = '[Assumption] 係数は未実測。最初の実測項目に格上げする'
 
 [[target]]
 id = 'TGT-SYN-007'
@@ -47,26 +47,26 @@ goal = '0.5 以下'
 [[target]]
 id = 'TGT-SYN-008'
 item = '周波数表の生成'
-goal = '1.0秒（録音1件・4秒 WAV・**F0 下限 55Hz**）'
-note = '**[Unknown] Harvest の RTF は未実測。最初の実測項目**'
+goal = '1.0秒（録音1件・4秒 WAV・F0 下限 55Hz）'
+note = '[Unknown] Harvest の RTF は未実測。最初の実測項目'
 
 [[target]]
 id = 'TGT-SYN-009'
 item = '自動原音設定（録音1件）'
 goal = '3.0秒'
-note = '**実測に対して200倍以上の過大確保。0.3秒へ詰める**'
+note = '実測に対して200倍以上の過大確保。0.3秒へ詰める'
 
 [[target]]
 id = 'TGT-SYN-010'
 item = '録音1件の確定 → 前処理の完了'
 goal = '5秒'
-note = '**確約ではなく計測対象として扱う**'
+note = '確約ではなく計測対象として扱う'
 
 [[target]]
 id = 'TGT-SYN-011'
 item = 'バックグラウンド前処理の同時実行数'
 goal = '論理コア数の 1/2 以下'
-note = '**ワーカプール全体の優先度を明示する**'
+note = 'ワーカプール全体の優先度を明示する'
 
 [[target]]
 id = 'TGT-SYN-012'
@@ -94,5 +94,5 @@ goal = '1GB / プロジェクト'
 [[target]]
 id = 'TGT-SYN-016'
 item = 'CheapTrick の FFT 長'
-goal = 'F0 下限 71Hz で 2048 / 55Hz で 4096（**解析コストが約2倍**）'
+goal = 'F0 下限 71Hz で 2048 / 55Hz で 4096（解析コストが約2倍）'
 note = '試唱は 2048 固定、`.frq` は 4096'

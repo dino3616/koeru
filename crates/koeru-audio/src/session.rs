@@ -1,29 +1,29 @@
 //! 収録セッションの状態機械。
 //!
-//! **`specs/requirements/recording-input.fsl` の写し。** あちらは `proved`（無限深度）で、
-//! ここはその契約を Rust で持つ。**振る舞いを足すときは FSL を先に直す。**
+//! `specs/requirements/recording-input.fsl` の写し。 あちらは `proved`（無限深度）で、
+//! ここはその契約を Rust で持つ。振る舞いを足すときは FSL を先に直す。
 //! 対応は `@requirement` の ID で辿れる。
 //!
 //! この型は純粋で、I/O を持たない。OS 側の出来事はバックエンドが呼び分けて渡す。
-//! そうしておくと、**ハードウェアなしで契約を検査できる。**
+//! そうしておくと、ハードウェアなしで契約を検査できる。
 //!
-//! **加工を無効化できない場合の扱いは、指摘ではなく一度きりの提示に限る**
+//! 加工を無効化できない場合の扱いは、指摘ではなく一度きりの提示に限る
 //! （`TR-REC-10`）。何度も出すと、録音そのものの邪魔になる。
 //!
 //! # 写してはいけないものがある
 //!
-//! FSL の `MAX_TAKES` は**写さない。** あれは `ASSUME-3`——
+//! FSL の `MAX_TAKES` は写さない。 あれは `ASSUME-3`——
 //! 「テイク数は検証用に有限へ閉じる（表現上の仮定）」であって、製品の規則ではない。
-//! **設計層の `project-storage.fsl` では同じ定数が 2 になっている。**
+//! 設計層の `project-storage.fsl` では同じ定数が 2 になっている。
 //! 値が食い違うこと自体が、任意の有界化である証拠。
 //!
-//! **製品側の規則は逆。** `TR-REC-21` が「録音リスト項目1つあたりのテイク保持数は
-//! **上限を設けず**、プロジェクトの総容量が閾値（既定 4 GB）を超えたときに、
+//! 製品側の規則は逆。 `TR-REC-21` が「録音リスト項目1つあたりのテイク保持数は
+//! 上限を設けず、プロジェクトの総容量が閾値（既定 4 GB）を超えたときに、
 //! 非採用テイクの古い順から削除候補として本人に提示する」と定めている。
 //!
-//! **一度写して踏んだ。** `Session::new(3)` としてアプリに入り、
+//! 一度写して踏んだ。 `Session::new(3)` としてアプリに入り、
 //! 3テイク録ると以降どの項目も録れなくなっていた（`DEC-REC-005`）。
-//! ここで効く上限は**残量だけ**（`space_sufficient` / `TR-REC-41`）。
+//! ここで効く上限は残量だけ（`space_sufficient` / `TR-REC-41`）。
 
 use crate::device::DeviceId;
 use crate::error::SessionError;
@@ -41,7 +41,7 @@ pub enum Device {
 /// OS 側の音声加工の列挙結果（FSL の `Effects`）。
 ///
 /// ASSUME-2: 個々の効果種別（AGC / NS / AEC 等）はここでは畳む。
-/// 種別ごとの記録はセッションメタデータが持つ（TR-REC-08）。
+/// 種別ごとの記録はセッションメタデータが持つ（`TR-REC-08`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effects {
     Unknown,
@@ -58,7 +58,7 @@ pub enum Gain {
 
 /// 入力経路の生死（FSL の `Liveness`）。
 ///
-/// ASSUME-1: 「最初の 1.0 秒間」「-90 dBFS」（TR-REC-17）は実時間と連続量なので、
+/// ASSUME-1: 「最初の 1.0 秒間」「-90 dBFS」（`TR-REC-17`）は実時間と連続量なので、
 /// ここでは「届いているか」の離散判定に畳む。閾値の判定はバックエンドが持つ。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Liveness {
@@ -97,7 +97,7 @@ impl Default for Session {
 impl Session {
     /// FSL の `init` と同じ初期状態。
     ///
-    /// **テイク数の上限は取らない**（`TR-REC-21`）。冒頭の「写してはいけないもの」を参照。
+    /// テイク数の上限は取らない（`TR-REC-21`）。冒頭の「写してはいけないもの」を参照。
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -120,7 +120,7 @@ impl Session {
         }
     }
 
-    // ── 観測 ────────────────────────────────────────────────
+    // ## 観測
     #[must_use]
     pub const fn device(&self) -> Device {
         self.device
@@ -166,9 +166,9 @@ impl Session {
         self.os_gain_restored
     }
 
-    // ── 遷移 ────────────────────────────────────────────────
+    // ## 遷移
 
-    /// REQ-REC-101 入力デバイスは本人が明示的に選び、識別子でプロジェクトに固定する。
+    /// `REQ-REC-101` 入力デバイスは本人が明示的に選び、識別子でプロジェクトに固定する。
     pub fn select_device(&mut self, id: DeviceId) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::NotSelected)?;
@@ -178,7 +178,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-102 収録画面に入った時点でストリームを開き、テイクごとに開閉しない。
+    /// `REQ-REC-102` 収録画面に入った時点でストリームを開き、テイクごとに開閉しない。
     pub fn open_stream(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::Selected)?;
@@ -187,12 +187,12 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-103 適用中の効果を列挙し、無効化できたものは無効化した。
+    /// `REQ-REC-103` 適用中の効果を列挙し、無効化できたものは無効化した。
     pub fn effects_all_disabled(&mut self) -> Result<()> {
         self.enumerate_effects(Effects::Clean)
     }
 
-    /// REQ-REC-103 無効化できない効果が残った。
+    /// `REQ-REC-103` 無効化できない効果が残った。
     pub fn effects_some_remain(&mut self) -> Result<()> {
         self.enumerate_effects(Effects::SomeRemain)
     }
@@ -211,7 +211,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-104 無効化できない効果が残ったら、収録開始前に一度だけ手順を提示する。
+    /// `REQ-REC-104` 無効化できない効果が残ったら、収録開始前に一度だけ手順を提示する。
     pub fn show_prompt_once(&mut self) -> Result<()> {
         self.alive()?;
         if self.effects != Effects::SomeRemain {
@@ -228,7 +228,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-105 入力レベルの校正は収録前の1回のセットアップ工程で、収録中は行わない。
+    /// `REQ-REC-105` 入力レベルの校正は収録前の1回のセットアップ工程で、収録中は行わない。
     pub fn calibrate_gain(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::Selected)?;
@@ -245,7 +245,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-106 入力が届いていた。
+    /// `REQ-REC-106` 入力が届いていた。
     pub fn input_is_alive(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_stream(true)?;
@@ -254,7 +254,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-106 入力が届いていなければ収録を止め、テイクを作らずデバイス選択へ戻す。
+    /// `REQ-REC-106` 入力が届いていなければ収録を止め、テイクを作らずデバイス選択へ戻す。
     pub fn input_is_dead(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_stream(true)?;
@@ -268,7 +268,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-107 ガイドを鳴らす前に、回り込みの有無を一度だけ確認する。
+    /// `REQ-REC-107` ガイドを鳴らす前に、回り込みの有無を一度だけ確認する。
     pub fn check_guide_leak(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_stream(true)?;
@@ -280,7 +280,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-107 回り込みが無いと確認できたときだけガイドを鳴らす。
+    /// `REQ-REC-107` 回り込みが無いと確認できたときだけガイドを鳴らす。
     pub fn enable_guide(&mut self) -> Result<()> {
         self.alive()?;
         if !self.leak_checked {
@@ -293,9 +293,9 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-110 収録を始める前に、リスト全体が必要とする容量を見積もる。
+    /// `REQ-REC-110` 収録を始める前に、リスト全体が必要とする容量を見積もる。
     ///
-    /// **足りるかどうかは見積もった結果で決まり、選べない。** 呼び出し側は
+    /// 足りるかどうかは見積もった結果で決まり、選べない。 呼び出し側は
     /// 実際の残量と必要量を渡し、判定はここで一度だけ行う。
     pub fn estimate_space(&mut self, required_bytes: u64, available_bytes: u64) -> Result<()> {
         self.alive()?;
@@ -309,7 +309,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-108 / REQ-REC-110 収録は、デバイスが生きていて入力が届き、
+    /// `REQ-REC-108` / `REQ-REC-110` 収録は、デバイスが生きていて入力が届き、
     /// 校正済みで、残量が足りているときだけ始められる。
     #[tracing::instrument(skip(self), fields(takes = self.takes), err)]
     pub fn start_take(&mut self) -> Result<()> {
@@ -327,12 +327,12 @@ impl Session {
             return Err(SessionError::NotEnoughSpace);
         }
         self.expect_not_recording()?;
-        // **テイク数では止めない**（`TR-REC-21`）。止めるのは残量（上の `NotEnoughSpace`）。
+        // テイク数では止めない（`TR-REC-21`）。止めるのは残量（上の `NotEnoughSpace`）。
         self.recording = true;
         self.settled()
     }
 
-    /// REQ-REC-108 テイクが確定してもストリームは開いたままにする。
+    /// `REQ-REC-108` テイクが確定してもストリームは開いたままにする。
     #[tracing::instrument(skip(self), fields(takes = self.takes), err)]
     pub fn finish_take(&mut self) -> Result<()> {
         self.alive()?;
@@ -346,9 +346,9 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-109 選択済みデバイスが録音中に消失したら、進行中テイクを破棄して収録を止める。
+    /// `REQ-REC-109` 選択済みデバイスが録音中に消失したら、進行中テイクを破棄して収録を止める。
     ///
-    /// **識別子は保持する。** 同一識別子が戻ったときだけ再開できる。
+    /// 識別子は保持する。 同一識別子が戻ったときだけ再開できる。
     pub fn device_lost(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::Selected)?;
@@ -360,9 +360,9 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-109 復帰は同一識別子のデバイスが戻ったときだけ。
+    /// `REQ-REC-109` 復帰は同一識別子のデバイスが戻ったときだけ。
     ///
-    /// **別のデバイスへ自動で切り替えない。** 識別子が違えば拒む。
+    /// 別のデバイスへ自動で切り替えない。 識別子が違えば拒む。
     pub fn same_device_returned(&mut self, id: &DeviceId) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::Lost)?;
@@ -376,7 +376,7 @@ impl Session {
         self.settled()
     }
 
-    /// REQ-REC-105 アプリが変更した OS 側のゲインは、終了時に変更前の値へ戻す。
+    /// `REQ-REC-105` アプリが変更した OS 側のゲインは、終了時に変更前の値へ戻す。
     pub fn exit(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_not_recording()?;
@@ -385,7 +385,7 @@ impl Session {
         self.settled()
     }
 
-    // ── 前提の検査 ──────────────────────────────────────────
+    // ## 前提の検査
 
     fn alive(&self) -> Result<()> {
         if self.exited {
@@ -432,7 +432,7 @@ impl Session {
 
     /// 遷移のたびに不変条件を確かめる。
     ///
-    /// **FSL 側で `proved` になっている命題をここでも持つ。** 仕様と実装が
+    /// FSL 側で `proved` になっている命題をここでも持つ。 仕様と実装が
     /// 離れたときに、テストを待たずその場で落ちる。
     fn settled(&self) -> Result<()> {
         debug_assert!(

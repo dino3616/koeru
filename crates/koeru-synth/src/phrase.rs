@@ -1,15 +1,15 @@
 //! フレーズ単位の合成（`TR-SYN-01`, `TR-SYN-02`, `TR-SYN-18`）。
 //!
-//! **7工程のうち「サンプル選択 → タイミング算出 → resample → クロスフェード連結」**
+//! 7工程のうち「サンプル選択 → タイミング算出 → resample → クロスフェード連結」
 //! をここが持つ（`TR-SYN-01`）。外部プロセスもネットワークも使わない。
 //!
 //! # なぜフレーズ単位なのか
 //!
-//! **キャッシュの破棄を曲全体に及ばせないため**（`TR-SYN-26`）。
+//! キャッシュの破棄を曲全体に及ばせないため（`TR-SYN-26`）。
 //! 1テイク録り直しただけで曲を丸ごと合成し直すと、録音のたびに数秒待たされる。
 //! フレーズに割っておけば、変わったところだけを捨てられる。
 //!
-//! **鳴らし始めを早くするため**でもある（`TR-SYN-03`）。
+//! 鳴らし始めを早くするためでもある（`TR-SYN-03`）。
 //! 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。
 
 use std::hash::{Hash, Hasher};
@@ -20,12 +20,12 @@ use koeru_core::oto::Oto;
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
 ///
-/// **これが変わったキャッシュは捨てる。** 同じ入力でも出る音が変わる。
+/// これが変わったキャッシュは捨てる。 同じ入力でも出る音が変わる。
 pub const CORE_VERSION: u32 = 1;
 
 /// フレーズを分ける最短の無音（ミリ秒）。
 ///
-/// **これより長い休符でフレーズを割る。** 息継ぎの位置がフレーズの境目。
+/// これより長い休符でフレーズを割る。 息継ぎの位置がフレーズの境目。
 pub const PHRASE_GAP_MS: f64 = 200.0;
 
 /// 1音符ぶんの合成の入力（`TR-SYN-02`）。
@@ -35,7 +35,7 @@ pub struct NoteSpec {
     pub alias: String,
     /// 素材の場所。
     pub sample_path: PathBuf,
-    /// **素材の内容ハッシュ**（`TR-SYN-02`）。録り直したら変わる。
+    /// 素材の内容ハッシュ（`TR-SYN-02`）。録り直したら変わる。
     pub sample_hash: u64,
     /// oto の5値。
     pub oto: Oto,
@@ -47,7 +47,7 @@ pub struct NoteSpec {
 
 /// フレーズ（`TR-SYN-02`）。
 ///
-/// **不変。** 作ったあとは変えない。変わったら別のフレーズとして作り直す。
+/// 不変。 作ったあとは変えない。変わったら別のフレーズとして作り直す。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Phrase {
     /// 音符列。
@@ -68,10 +68,10 @@ impl Phrase {
 
     /// キャッシュの鍵（`TR-SYN-02`）。
     ///
-    /// **素材の内容ハッシュ・oto 5値・音高列・合成コアの版から作る。**
+    /// 素材の内容ハッシュ・oto 5値・音高列・合成コアの版から作る。
     /// このどれかが変われば別の鍵になり、古い結果は使われない（`TR-SYN-26`）。
     ///
-    /// oto の5値は f64 なので、**ビット列として混ぜる。** 丸めで鍵が動かないように。
+    /// oto の5値は f64 なので、ビット列として混ぜる。 丸めで鍵が動かないように。
     #[must_use]
     pub fn cache_key(&self) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -94,7 +94,7 @@ impl Phrase {
         h.finish()
     }
 
-    /// 鳴らしたときの長さ（ミリ秒）。**重なるぶんを引く。**
+    /// 鳴らしたときの長さ（ミリ秒）。重なるぶんを引く。
     #[must_use]
     pub fn duration_ms(&self) -> f64 {
         let total: f64 = self.notes.iter().map(|n| n.duration_ms).sum();
@@ -110,7 +110,7 @@ impl Phrase {
 
 /// 素材を渡す口。
 ///
-/// **合成が素材の読み方を知らなくてよいようにする。** テストでは合成波を渡せる。
+/// 合成が素材の読み方を知らなくてよいようにする。 テストでは合成波を渡せる。
 pub trait Samples {
     /// この音符の素材（44100 Hz 相当の倍精度配列）とサンプルレート。
     ///
@@ -119,10 +119,10 @@ pub trait Samples {
     /// 読めないとき。
     fn load(&self, note: &NoteSpec) -> Result<(Vec<f64>, u32), RenderError>;
 
-    /// この音符の周波数表。**無ければ空**（`TR-SYN-08`）。
+    /// この音符の周波数表。無ければ空（`TR-SYN-08`）。
     ///
-    /// **素材ファイル全体を、`.frq` の格子（hop=256）で返す**（`TR-PKG-05`）。
-    /// 切り出しと格子の載せ替えは合成器がする。**ここで切らないこと。**
+    /// 素材ファイル全体を、`.frq` の格子（hop=256）で返す（`TR-PKG-05`）。
+    /// 切り出しと格子の載せ替えは合成器がする。ここで切らないこと。
     fn frequency_table(&self, note: &NoteSpec) -> Vec<f64> {
         let _ = note;
         Vec::new()
@@ -131,7 +131,7 @@ pub trait Samples {
 
 /// フレーズを1本の波形にする（`TR-SYN-01`）。
 ///
-/// **クロスフェードで繋ぐ。** 重なりの長さは次の音符のオーバーラップ。
+/// クロスフェードで繋ぐ。 重なりの長さは次の音符のオーバーラップ。
 /// 突き合わせで繋ぐと、境目でぷつっと鳴る。
 ///
 /// # Errors
@@ -156,17 +156,17 @@ pub fn render_phrase(
         let piece = render(&RenderRequest {
             samples: &source,
             sample_rate_hz: source_rate,
-            // **`tone` は鳴らしたい音高。収録音高ではない。**
+            // `tone` は鳴らしたい音高。収録音高ではない。
             tone: note.midi,
             oto: note.oto,
             required_length_ms: note.duration_ms,
-            // **試唱のフラグは既定に固定し、UI に出さない**（TR-SYN-09）。
+            // 試唱のフラグは既定に固定し、UI に出さない（`TR-SYN-09`）。
             consonant_velocity: flags.consonant_velocity,
             volume: flags.volume,
             modulation: flags.modulation,
             tempo: 120.0,
             pitch_bend_cents: &[],
-            // **表はファイル全体・hop=256。** 切り出しは合成器がする。
+            // 表はファイル全体・hop=256。 切り出しは合成器がする。
             frequency_table: (!table.is_empty()).then_some(FrequencyTable {
                 f0: &table,
                 hop_samples: koeru_core::frq::HOP_SIZE,
@@ -178,7 +178,7 @@ pub fn render_phrase(
             continue;
         }
 
-        // **重なりの長さは次の音符のオーバーラップ**（UTAU の慣例）。
+        // 重なりの長さは次の音符のオーバーラップ（UTAU の慣例）。
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
@@ -195,7 +195,7 @@ pub fn render_phrase(
 
 /// 重ねながら繋ぐ。
 ///
-/// **等パワーで混ぜる。** 直線で混ぜると、重なりの真ん中で音量が落ちる。
+/// 等パワーで混ぜる。 直線で混ぜると、重なりの真ん中で音量が落ちる。
 fn crossfade_append(out: &mut Vec<f64>, piece: &[f64], overlap: usize) {
     if overlap == 0 {
         out.extend_from_slice(piece);
@@ -216,11 +216,11 @@ fn crossfade_append(out: &mut Vec<f64>, piece: &[f64], overlap: usize) {
 
 /// 短縮版に載せるフレーズを選ぶ（`TR-SYN-18`）。
 ///
-/// **鳴らせない音符があるフレーズは、フレーズごと落とす。**
+/// 鳴らせない音符があるフレーズは、フレーズごと落とす。
 /// 落とした位置に無音・別音・代替音を挿入しない（`TR-SYN-18` (2)）。
 /// 「途中で変な音がした」より「そこは無かった」ほうが、何が足りないか分かる。
 ///
-/// 残ったフレーズの合計が `min_total_ms` に満たなければ、**試唱の選択肢に出さない**
+/// 残ったフレーズの合計が `min_total_ms` に満たなければ、試唱の選択肢に出さない
 /// （`TR-SYN-18` (3)）。
 #[must_use]
 pub fn shortened(phrases: &[(Phrase, bool)], min_total_ms: f64) -> Option<Vec<&Phrase>> {
@@ -239,9 +239,9 @@ mod tests {
 
     /// 素材の切り出し位置を、導出規約を通さずに直に置く。
     ///
-    /// **`koeru-align` の `derive_cv` を呼ばない**（`DEC-ALN-009` で crate が分かれた）。
+    /// `koeru-align` の `derive_cv` を呼ばない（`DEC-ALN-009` で crate が分かれた）。
     /// resampler の試験は「この5値ならこう鳴る」を見るもので、
-    /// **規約が変わるたびに落ちてはいけない。**
+    /// 規約が変わるたびに落ちてはいけない。
     const fn oto(preutterance_ms: f64, usable_ms: f64) -> Oto {
         Oto {
             offset_ms: 0.0,
@@ -269,7 +269,7 @@ mod tests {
         (0..n)
             .map(|i| {
                 let t = i as f64 / f64::from(rate);
-                // 倍音を足す。**純音では包絡が点になり、音高を動かせない。**
+                // 倍音を足す。純音では包絡が点になり、音高を動かせない。
                 (1..=8)
                     .map(|k| {
                         (2.0 * std::f64::consts::PI * hz * f64::from(k) * t).sin() / f64::from(k)
@@ -291,7 +291,7 @@ mod tests {
         }
     }
 
-    /// **素材が変われば鍵が変わる**（TR-SYN-02, TR-SYN-26）。
+    /// 素材が変われば鍵が変わる（`TR-SYN-02`, `TR-SYN-26`）。
     #[test]
     fn 素材の録り直しで鍵が変わる() {
         let a = Phrase::new(vec![note("か", 60, 1)]);
@@ -299,7 +299,7 @@ mod tests {
         assert_ne!(a.cache_key(), b.cache_key());
     }
 
-    /// **oto が変われば鍵が変わる**（TR-SYN-26）。
+    /// oto が変われば鍵が変わる（`TR-SYN-26`）。
     #[test]
     fn otoの変更で鍵が変わる() {
         let a = Phrase::new(vec![note("か", 60, 1)]);
@@ -309,7 +309,7 @@ mod tests {
         assert_ne!(a.cache_key(), b.cache_key());
     }
 
-    /// **音高と長さが変われば鍵が変わる。**
+    /// 音高と長さが変われば鍵が変わる。
     #[test]
     fn 音符列の変更で鍵が変わる() {
         let base = Phrase::new(vec![note("か", 60, 1)]);
@@ -323,7 +323,7 @@ mod tests {
         assert_ne!(base.cache_key(), Phrase::new(vec![n]).cache_key());
     }
 
-    /// **合成コアの版が変われば鍵が変わる**（TR-SYN-02）。
+    /// 合成コアの版が変われば鍵が変わる（`TR-SYN-02`）。
     #[test]
     fn 合成コアの版で鍵が変わる() {
         let a = Phrase::new(vec![note("か", 60, 1)]);
@@ -332,7 +332,7 @@ mod tests {
         assert_ne!(a.cache_key(), b.cache_key());
     }
 
-    /// **同じ入力なら同じ鍵。**
+    /// 同じ入力なら同じ鍵。
     #[test]
     fn 同じ入力なら同じ鍵() {
         let a = Phrase::new(vec![note("か", 60, 1), note("き", 62, 2)]);
@@ -350,7 +350,7 @@ mod tests {
         assert!(y.is_empty());
     }
 
-    /// **音符を繋いだ長さになる。** 重なるぶんは引かれる。
+    /// 音符を繋いだ長さになる。 重なるぶんは引かれる。
     #[test]
     fn 繋いだ長さが仕様どおり() {
         let f = Fixed {
@@ -372,7 +372,7 @@ mod tests {
         );
     }
 
-    /// **境目でぷつっと鳴らない。** 等パワーで混ぜる。
+    /// 境目でぷつっと鳴らない。 等パワーで混ぜる。
     #[test]
     fn 境目に段差ができない() {
         let f = Fixed {
@@ -398,7 +398,7 @@ mod tests {
         );
     }
 
-    /// **鳴らせないフレーズはフレーズごと落とす**（TR-SYN-18 (2)）。
+    /// 鳴らせないフレーズはフレーズごと落とす（`TR-SYN-18` (2)）。
     /// 落とした位置に何も挿入しない。
     #[test]
     fn 鳴らせないフレーズを落とす() {
@@ -413,7 +413,7 @@ mod tests {
         assert_eq!(got[1], &c, "落とした位置に何も挿さない");
     }
 
-    /// **短すぎれば試唱の選択肢に出さない**（TR-SYN-18 (3)）。
+    /// 短すぎれば試唱の選択肢に出さない（`TR-SYN-18` (3)）。
     #[test]
     fn 短すぎる曲は選択肢に出さない() {
         let a = Phrase::new(vec![note("か", 60, 1)]);

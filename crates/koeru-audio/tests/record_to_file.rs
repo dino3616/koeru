@@ -1,14 +1,17 @@
-//! **縦切りの1枚目: 実際に録音して、テイクのファイルを確定させる。**
+//! 縦切りの1枚目: 実際に録音して、テイクのファイルを確定させる。
 //!
 //! recording-input.fsl の状態機械を通し、macOS のキャプチャから
 //! `.wav.part` → fsync → rename までを実機で確かめる。
 //!
-//! **これは回帰テストではなく、実機ハーネス。** マイクが無い環境では途中で戻る。
+//! これは回帰テストではなく、実機ハーネス。 マイクが無い環境では途中で戻る。
 //! 何が起きたかを読むために標準出力を使う。ここだけ `print_stdout` を許す
 //! （出力は tracing に統一する規律は、アプリのコードに掛かるもの）。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
-// **macOS 専用。** 他 OS のバックエンドはまだ無い（DEC-REC-001 で後回しと決めた）。
+// macOS 専用。 他 OS のバックエンドはまだ無い（`DEC-REC-001` で後回しと決めた）。
 // これを付け忘れて Windows / Linux の CI を落とした。
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
@@ -48,7 +51,7 @@ fn 録音してテイクのファイルを作る() {
         return;
     };
 
-    // ── 状態機械の手順どおりに進める（AC-REC-101）──
+    // ## 状態機械の手順どおりに進める（`AC-REC-101`）
     let mut s = Session::new();
     s.select_device(dev.id.clone()).expect("デバイスを選ぶ");
 
@@ -62,13 +65,13 @@ fn 録音してテイクのファイルを作る() {
     } else {
         s.effects_some_remain().expect("効果が残る");
         s.show_prompt_once().expect("一度だけ提示");
-        println!("**OS 側の加工が残っている: {mode:?}**");
+        println!("OS 側の加工が残っている: {mode:?}");
     }
 
     s.calibrate_gain().expect("校正");
 
-    // ── 入力が届いているか（TR-REC-17）──
-    // **権限が無いと macOS は無音を返すので、成否ではなく中身を見る。**
+    // ## 入力が届いているか（`TR-REC-17`）
+    // 権限が無いと macOS は無音を返すので、成否ではなく中身を見る。
     cap.arm();
     std::thread::sleep(std::time::Duration::from_millis(300));
     let mut probe = vec![0.0_f32; 48_000];
@@ -88,7 +91,7 @@ fn 録音してテイクのファイルを作る() {
         if alive {
             "届いている"
         } else {
-            "**届いていない**"
+            "届いていない"
         }
     );
     if alive {
@@ -102,7 +105,7 @@ fn 録音してテイクのファイルを作る() {
 
     s.estimate_space(1_000_000, u64::MAX).expect("残量");
 
-    // ── 収録（REQ-REC-108）──
+    // ## 収録（`REQ-REC-108`）
     let mut path = std::env::temp_dir();
     path.push(format!("koeru-take-{}.wav", std::process::id()));
     let mut take =
@@ -129,7 +132,7 @@ fn 録音してテイクのファイルを作る() {
     }
     cap.disarm();
 
-    // ── 取りこぼしの判定（TR-REC-07）──
+    // ## 取りこぼしの判定（`TR-REC-07`）
     let dropped = consumer.dropped();
     let jumps = cap.discontinuities();
     println!(
@@ -138,7 +141,7 @@ fn 録音してテイクのファイルを作る() {
     );
 
     if dropped > 0 || jumps > 0 {
-        println!("**取りこぼしがあるのでテイクを無効にする**（TR-REC-07）");
+        println!("取りこぼしがあるのでテイクを無効にする（TR-REC-07）");
         take.discard().expect("捨てられる");
         s.finish_take().expect("状態は進める");
         return;
@@ -148,7 +151,7 @@ fn 録音してテイクのファイルを作る() {
     let final_path = take.finalize().expect("確定できる");
     s.finish_take().expect("テイク確定");
 
-    // ── 読み戻して確かめる ──
+    // ## 読み戻して確かめる
     let w = wav::read(&final_path).expect("読み戻せる");
     println!("確定: {} フレーム / {} Hz", frames, w.rate_hz);
     println!("読み戻し: {} サンプル", w.samples.len());

@@ -1,6 +1,6 @@
-//! **実際に録った音声でアライメントが正気かを見る実機ハーネス。**
+//! 実際に録った音声でアライメントが正気かを見る実機ハーネス。
 //!
-//! **これは回帰テストではない。** 音声が無い環境では静かに戻る
+//! これは回帰テストではない。 音声が無い環境では静かに戻る
 //! （`koeru-audio` の `record_to_file.rs` と同じ形）。
 //!
 //! ```bash
@@ -11,23 +11,26 @@
 //!
 //! # 何を見ているか
 //!
-//! **正解の境界は持っていない**（`DEC-ALN-007` で評価を M6 へ送った）。
+//! 正解の境界は持っていない（`DEC-ALN-007` で評価を M6 へ送った）。
 //! だから精度は測らず、**「アライナが置いた発声区間が、
 //! パワーで見た発声区間と重なるか」**だけを見る。正解データが要らない性質。
 //!
-//! **これは実際に壊れた形を捕まえる。** CMVN の分散まで正規化していたとき、
+//! これは実際に壊れた形を捕まえる。 CMVN の分散まで正規化していたとき、
 //! 8音素が発声の外の 80ms に潰れ、重なりがほぼ 0 になった。
-//! 合成音の試験は全部通っていたので、**ここでしか気づけない。**
+//! 合成音の試験は全部通っていたので、ここでしか気づけない。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
-// **バックエンドが書いてある OS だけ。** `koeru_force_unsupported_backend` では
+// バックエンドが書いてある OS だけ。 `koeru_force_unsupported_backend` では
 // `MfaAligner::open` が `ModelUnavailable` を返すので、組み立てから外す。
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_align::aligner::{AlignRequest, Aligner as _};
 use koeru_align::{mfa::MfaAligner, phoneme, segment::Boundaries};
 
-/// パワーで発声区間を粗く出す。**ピークに対する比で切る。**
+/// パワーで発声区間を粗く出す。ピークに対する比で切る。
 fn voiced_span_ms(samples: &[f64], rate_hz: u32) -> Option<(f64, f64)> {
     let win = (rate_hz as usize / 100).max(1); // 10ms
     let peak = samples.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
@@ -56,7 +59,7 @@ fn model_dir() -> Option<std::path::PathBuf> {
     p.join("final.mdl").is_file().then_some(p)
 }
 
-/// **アライナが置いた発声区間が、パワーで見た発声区間と重なる。**
+/// アライナが置いた発声区間が、パワーで見た発声区間と重なる。
 #[test]
 fn 実音声で発声の位置がパワーと合う() {
     let (Ok(wav), Ok(reading)) = (
@@ -100,14 +103,14 @@ fn 実音声で発声の位置がパワーと合う() {
     );
     println!("  アライナが置いた発声: {a_lo:.0} 〜 {a_hi:.0} ms");
 
-    // **重なりの割合で見る。** 正解は持っていないので、
+    // 重なりの割合で見る。 正解は持っていないので、
     // 「まったく別の場所を指していない」ことだけを確かめる。
     let overlap = (a_hi.min(hi) - a_lo.max(lo)).max(0.0);
     let union = a_hi.max(hi) - a_lo.min(lo);
     let ratio = if union > 0.0 { overlap / union } else { 0.0 };
     println!("  重なり {:.0}%", ratio * 100.0);
 
-    // **CMVN の分散を正規化していたときは、ここが 0 近くまで落ちた。**
+    // CMVN の分散を正規化していたときは、ここが 0 近くまで落ちた。
     assert!(
         ratio > 0.5,
         "発声の位置がパワーと合っていない（重なり {:.0}%）。\

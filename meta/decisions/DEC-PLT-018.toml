@@ -1,0 +1,34 @@
+schema = 'decision'
+id = 'DEC-PLT-018'
+constraint_label = 'メモ化の置き場所'
+constraint = '依存の書き漏らしが「たまに古い値で描く」形で出ないこと'
+title = 'React Compiler を通す。手でメモ化しない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'React Compiler を通す',
+  'useMemo / useCallback / memo を手で置く',
+  'メモ化しない',
+]
+selected = 'React Compiler を通す'
+rationale = '''
+手で置くと、依存の書き漏らしが「たまに古い値で描く」形で出る。
+lint は依存配列の中しか見ないので、置き忘れそのものは誰も言わない。
+収録画面は 200ms ごとに再描画されるので、ここが崩れると波形が飛ぶ。
+
+経路は `@vitejs/plugin-react` の `compiler: true`。 Babel ではなく
+`oxc-transform-react`（MIT、ネイティブ実装）が入るので、oxc の変換はそのまま残る。
+実測でビルドは 2.7 秒。Babel を全体に掛け直す形ではない。
+
+導入時点で手で置いていたメモ化は 16 箇所。 一斉に外さず、
+コンパイラが効いていることを確かめながら減らす。
+'''
+review_triggers = [
+  'oxc-transform-react が @vitejs/plugin-react の要求から外れたとき',
+  'React Compiler が入っているのに古い値で描く事象が出たとき（コンパイラの前提を壊す書き方が入った合図）',
+  'ビルド時間が体感に触るまで伸びたとき',
+]
+affects_requirements = [
+  'TR-PLT-03',
+]
+supersedes = []

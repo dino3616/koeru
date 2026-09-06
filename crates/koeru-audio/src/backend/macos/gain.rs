@@ -1,17 +1,17 @@
 //! 入力ゲイン（macOS、`TR-REC-14`, `TR-REC-15`）。
 //!
-//! **校正の目的は「破綻の防止」ではなく「初期値の妥当化」に限る**（`TR-REC-14`）。
+//! 校正の目的は「破綻の防止」ではなく「初期値の妥当化」に限る（`TR-REC-14`）。
 //! 校正しても収録中の破綻は防げない。ここが担うのは、
 //! 最初のひと声を録る前に、明らかに小さすぎる／大きすぎる状態を外すことだけ。
 //!
 //! # ハードウェアかソフトウェアか
 //!
-//! **ソフトウェア実装のボリュームは校正に使えない**（`TR-REC-14` の [Fact]）。
+//! ソフトウェア実装のボリュームは校正に使えない（`TR-REC-14` の [Fact]）。
 //! デジタル側で掛けても A/D の手前のレベルは変わらないので、
 //! 上げれば量子化ノイズごと大きくなるだけ。集約デバイスや仮想デバイスがこれにあたる。
 //!
 //! CoreAudio はこの区別を直接は教えてくれないので、
-//! **`kAudioDevicePropertyTransportType` から判定する。**
+//! `kAudioDevicePropertyTransportType` から判定する。
 //! 仮想・集約と分かったものはソフトウェア扱いにし、校正の対象から外す。
 
 use super::sys;
@@ -23,11 +23,11 @@ type Result<T> = std::result::Result<T, CoreAudioError>;
 /// ゲインをどう扱えるか（`TR-REC-14`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GainControl {
-    /// ハードウェア側のボリューム。**校正に使える。**
+    /// ハードウェア側のボリューム。校正に使える。
     Hardware,
-    /// ソフトウェア側のボリューム。**校正に使えない**ので、値は読めても触らない。
+    /// ソフトウェア側のボリューム。校正に使えないので、値は読めても触らない。
     Software,
-    /// 読み書きできない。**自動調整せず、OS 設定での調整を1回だけ案内する。**
+    /// 読み書きできない。自動調整せず、OS 設定での調整を1回だけ案内する。
     Unavailable,
 }
 
@@ -79,7 +79,7 @@ pub fn control(id: &DeviceId) -> GainControl {
     }
 }
 
-/// いまのゲイン（0.0〜1.0）。**読めなければ `None`。**
+/// いまのゲイン（0.0〜1.0）。読めなければ `None`。
 #[must_use]
 pub fn read(id: &DeviceId) -> Option<f32> {
     let object = object_id_for_public(id)?;
@@ -90,7 +90,7 @@ pub fn read(id: &DeviceId) -> Option<f32> {
 
 /// ゲインを書く（0.0〜1.0）。
 ///
-/// **ハードウェア側でないデバイスには書かない**（`TR-REC-14`）。
+/// ハードウェア側でないデバイスには書かない（`TR-REC-14`）。
 /// ソフトウェアのボリュームを動かしても、校正にならないうえ元の状態を壊す。
 #[tracing::instrument(skip(id), fields(value), err)]
 pub fn write(id: &DeviceId, value: f32) -> Result<()> {
@@ -131,7 +131,7 @@ pub fn write(id: &DeviceId, value: f32) -> Result<()> {
 
 /// 仮想・集約デバイスか。
 ///
-/// **これらのボリュームはソフトウェア実装。** 上げても A/D の手前は変わらない。
+/// これらのボリュームはソフトウェア実装。 上げても A/D の手前は変わらない。
 fn is_software_device(object: sys::AudioObjectID) -> bool {
     let address = sys::AudioObjectPropertyAddress::global(sys::kAudioDevicePropertyTransportType);
     // SAFETY: object は生きている AudioObjectID。TransportType は UInt32。

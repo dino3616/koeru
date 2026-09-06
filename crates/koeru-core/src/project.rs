@@ -1,14 +1,14 @@
 //! プロジェクトのディレクトリ（`TR-PKG-37`, `TR-PKG-38`, `TR-PLT-23`, `TR-PKG-40`）。
 //!
-//! **oto.ini を作業ファイルとして置かない**（`TR-PKG-40`）。
+//! oto.ini を作業ファイルとして置かない（`TR-PKG-40`）。
 //! タイミング5値とエイリアスは DB を正とし、oto.ini は書き出し時に作る派生物。
 //! ここに置くと、DB と食い違ったまま外部ツールに編集される。
 //!
-//! **プロジェクトはディレクトリで、名前は不変の UUID。** 表示名を変えても
+//! プロジェクトはディレクトリで、名前は不変の UUID。 表示名を変えても
 //! ディレクトリ名は動かない。表示名に FS 上不正な文字や CP932 で表現できない
 //! 文字が入っても、保存と再開は壊れない（`TR-PKG-37`）。
 //!
-//! **副作用として、ライブラリ配下を人が見ても中身が判別できない。**
+//! 副作用として、ライブラリ配下を人が見ても中身が判別できない。
 //! だから各プロジェクトの直下に人間可読な manifest を平文で置く。
 //! これは飾りではなく、UUID 名の代償として要件が課している埋め合わせ。
 //!
@@ -17,10 +17,10 @@
 //!   0193f0c4-.../          ← 不変の UUID
 //!     manifest.toml        ← 人間可読。表示名・方式・項目数
 //!     project.db           ← 構造化データ（crate::db）
-//!     audio/               ← 録音 WAV。**不変資産**（TR-PKG-39）
+//!     audio/               ← 録音 WAV。不変資産（`TR-PKG-39`）
 //!     renders/             ← 試唱キャッシュ。捨ててよい
 //!     exports/             ← 生成済みパッケージ
-//!     snapshots/           ← 破壊的操作の直前の DB と manifest（TR-PKG-43）
+//!     snapshots/           ← 破壊的操作の直前の DB と manifest（`TR-PKG-43`）
 //! ```
 
 use std::fs;
@@ -47,7 +47,7 @@ pub enum ProjectError {
     #[error("manifest の {field} が読めない")]
     ManifestField { field: &'static str },
 
-    /// 知らない版の manifest。**推測で読まない。**
+    /// 知らない版の manifest。推測で読まない。
     #[error("manifest の版 {found} は扱えない（このビルドは {MANIFEST_VERSION}）")]
     ManifestVersion { found: i64 },
 
@@ -63,7 +63,7 @@ pub enum ProjectError {
 impl ProjectError {
     /// 送信してよい種別文字列（`rust-conventions`）。
     ///
-    /// **`Display` は送らない。** 表示名やパスが混じる。
+    /// `Display` は送らない。 表示名やパスが混じる。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -81,7 +81,7 @@ type Result<T> = std::result::Result<T, ProjectError>;
 
 /// 収録方式。
 ///
-/// **M2 で生成できるのは `Single` だけ**（[`crate::reclist::generate_single`]）。
+/// M2 で生成できるのは `Single` だけ（[`crate::reclist::generate_single`]）。
 /// 残りは manifest に書けるが、リスト生成はまだ無い。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Method {
@@ -96,7 +96,7 @@ pub enum Method {
 }
 
 impl Method {
-    /// manifest に書く名前。**表示用の日本語ではなく、機械が読む安定した識別子。**
+    /// manifest に書く名前。表示用の日本語ではなく、機械が読む安定した識別子。
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -120,7 +120,7 @@ impl Method {
     }
 }
 
-/// 手渡しの状態（`TR-PKG-33`）。**完成判定はこれを参照しない。**
+/// 手渡しの状態（`TR-PKG-33`）。完成判定はこれを参照しない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandoffState {
     /// 一度も書き出していない。
@@ -129,9 +129,24 @@ pub enum HandoffState {
     Exported,
 }
 
+impl HandoffState {
+    /// 画面と IPC へ渡す識別子。
+    ///
+    /// `Debug` を wire 形式にしない。 `#[derive(Debug)]` の出力は
+    /// variant 名の改名で黙って変わるので、TypeScript 側のリテラル union が
+    /// コンパイルエラーにならないまま外れる。ここを唯一の対応表にする。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotExported => "NotExported",
+            Self::Exported => "Exported",
+        }
+    }
+}
+
 /// カバレッジ側の状態（`TR-PKG-33`, `TR-PKG-34`）。
 ///
-/// **完成 = 必須エイリアス表を 100% 被覆し、全 oto が検証を通り、表示名がある状態。**
+/// 完成 = 必須エイリアス表を 100% 被覆し、全 oto が検証を通り、表示名がある状態。
 /// 制作者名義・利用規約・アイコンは条件に入らない（`TR-PKG-34`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageState {
@@ -143,7 +158,23 @@ pub enum CoverageState {
     Complete,
 }
 
-/// プロジェクトの状態。**2軸は直交する**（`TR-PKG-33`）。
+impl CoverageState {
+    /// 画面と IPC へ渡す識別子。
+    ///
+    /// `Debug` を wire 形式にしない。 `#[derive(Debug)]` の出力は
+    /// variant 名の改名で黙って変わるので、TypeScript 側のリテラル union が
+    /// コンパイルエラーにならないまま外れる。ここを唯一の対応表にする。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Incomplete => "Incomplete",
+            Self::AwaitingOto => "AwaitingOto",
+            Self::Complete => "Complete",
+        }
+    }
+}
+
+/// プロジェクトの状態。2軸は直交する（`TR-PKG-33`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProjectState {
     /// 録音と原音設定から機械的に決まる。
@@ -155,7 +186,7 @@ pub struct ProjectState {
 impl ProjectState {
     /// 完成しているか。
     ///
-    /// **`handoff` を一切見ない**（`TR-PKG-33`）。ZIP を1度も作っていなくても
+    /// `handoff` を一切見ない（`TR-PKG-33`）。ZIP を1度も作っていなくても
     /// 完成は完成（`TR-PKG-36`）。
     #[must_use]
     pub const fn is_complete(&self) -> bool {
@@ -165,7 +196,7 @@ impl ProjectState {
 
 /// 完成状態を決める（`TR-PKG-34`）。
 ///
-/// 引数は3つとも呼び出し側が DB から引く。**ここでは合成規則だけを持つ。**
+/// 引数は3つとも呼び出し側が DB から引く。ここでは合成規則だけを持つ。
 #[must_use]
 pub fn coverage_state(
     required: &std::collections::BTreeSet<String>,
@@ -186,20 +217,19 @@ pub fn coverage_state(
 /// 人間可読な manifest（`TR-PKG-37`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Manifest {
-    /// 表示名。**FS 上不正な文字や CP932 外の文字が入ってよい。**
+    /// 表示名。FS 上不正な文字や CP932 外の文字が入ってよい。
     pub display_name: String,
-    /// 収録方式。
     pub method: Method,
     /// 録音リストの項目数。
     pub item_count: u32,
     /// 複製元（`TR-PKG-46`）。
     ///
-    /// **複製は「派生」として親子関係を残す。** 同名・同内容の別プロジェクトが
+    /// 複製は「派生」として親子関係を残す。 同名・同内容の別プロジェクトが
     /// 並ぶと、どちらが後のものか分からなくなる。
     pub derived_from: Option<Uuid>,
 }
 
-/// manifest の先頭に置く説明。**これが「人が見て判別できる」の実体。**
+/// manifest の先頭に置く説明。これが「人が見て判別できる」の実体。
 const MANIFEST_HEADER: &str = "\
 # KOERU のプロジェクト。**このファイルは中身を人が見分けるために置いてある。**
 # ディレクトリ名は不変の UUID なので、名前からは何のプロジェクトか分からない。
@@ -251,7 +281,7 @@ impl Manifest {
                 field: "item_count",
             })?;
 
-        // **読めない親 UUID は「親なし」に倒さず、失敗として返す。**
+        // 読めない親 UUID は「親なし」に倒さず、失敗として返す。
         // 静かに独立プロジェクトになると、派生関係が消えたことに誰も気づかない。
         let derived_from = match doc.get("derived_from") {
             None => None,
@@ -303,19 +333,19 @@ impl ProjectDir {
         self.root.join("project.db")
     }
 
-    /// 録音 WAV。**不変資産**（`TR-PKG-39`）。
+    /// 録音 WAV。不変資産（`TR-PKG-39`）。
     #[must_use]
     pub fn audio_dir(&self) -> PathBuf {
         self.root.join("audio")
     }
 
-    /// 試唱キャッシュ。**消しても再生成できる。**
+    /// 試唱キャッシュ。消しても再生成できる。
     #[must_use]
     pub fn renders_dir(&self) -> PathBuf {
         self.root.join("renders")
     }
 
-    /// 生成済みパッケージ。**過去のものを上書きしない**（`TR-PKG-44`）。
+    /// 生成済みパッケージ。過去のものを上書きしない（`TR-PKG-44`）。
     #[must_use]
     pub fn exports_dir(&self) -> PathBuf {
         self.root.join("exports")
@@ -333,7 +363,7 @@ impl ProjectDir {
         Manifest::from_toml(&fs::read_to_string(self.manifest_path())?)
     }
 
-    /// manifest を書く。**一時ファイル → fsync → rename**（`TR-PKG-41`）。
+    /// manifest を書く。一時ファイル → fsync → rename（`TR-PKG-41`）。
     ///
     /// 途中で落ちても、部分的に書かれた manifest は残らない。
     #[tracing::instrument(skip(self, m), err)]
@@ -343,7 +373,7 @@ impl ProjectDir {
 
     /// 破壊的操作の直前に控えを取る（`TR-PKG-43`）。
     ///
-    /// **WAV は複製しない。** DB と manifest だけを複製し、WAV は元を参照する。
+    /// WAV は複製しない。 DB と manifest だけを複製し、WAV は元を参照する。
     /// 3時間の録音を操作のたびに二重化したら、ディスクがいくつあっても足りない。
     ///
     /// `seq` は呼び出し側が単調増加で与える。`label` は操作の名前
@@ -354,8 +384,8 @@ impl ProjectDir {
         fs::create_dir_all(&dir)?;
         fs::copy(self.db_path(), dir.join("project.db"))?;
         fs::copy(self.manifest_path(), dir.join("manifest.toml"))?;
-        // ディレクトリエントリを永続化する。**中身だけ fsync しても、
-        // ディレクトリが飛べば控えは無い。**
+        // ディレクトリエントリを永続化する。中身だけ fsync しても、
+        // ディレクトリが飛べば控えは無い。
         fsync_dir(&self.snapshots_dir())?;
         Ok(dir)
     }
@@ -379,7 +409,7 @@ impl ProjectDir {
 
 /// アプリが管理するライブラリ（`TR-PKG-37`）。
 ///
-/// **利用者にフォルダ操作を要求しない**（`TR-PKG-45`）。保存先の選択も、
+/// 利用者にフォルダ操作を要求しない（`TR-PKG-45`）。保存先の選択も、
 /// WAV のリネームも、バックアップフォルダ作りもここが引き受ける。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Library {
@@ -395,13 +425,13 @@ impl Library {
         Ok(Self { root })
     }
 
-    /// ライブラリの根。**通常モードの画面には出さない**（`TR-PKG-45`）。
+    /// ライブラリの根。通常モードの画面には出さない（`TR-PKG-45`）。
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// プロジェクトを作る。**ディレクトリ名は UUID で、以後変えない。**
+    /// プロジェクトを作る。ディレクトリ名は UUID で、以後変えない。
     #[tracing::instrument(skip(self, m), err)]
     pub fn create(&self, m: &Manifest) -> Result<ProjectDir> {
         let id = Uuid::new_v4();
@@ -425,12 +455,12 @@ impl Library {
 
     /// プロジェクトを複製して派生を作る（`TR-PKG-46`）。
     ///
-    /// **親子関係を manifest に残す。** 同じライブラリに同名・同内容のものが
+    /// 親子関係を manifest に残す。 同じライブラリに同名・同内容のものが
     /// 並んでも、どちらから出たかは辿れる。
     ///
-    /// WAV は複製する。**元は不変資産なので参照でも足りるが、片方を消したときに
-    /// もう片方の音が消えるのは説明がつかない**（`TR-PKG-39`）。
-    #[tracing::instrument(skip(self, parent), err)]
+    /// WAV は複製する。元は不変資産なので参照でも足りるが、片方を消したときに
+    /// もう片方の音が消えるのは説明がつかない（`TR-PKG-39`）。
+    #[tracing::instrument(skip(self, parent, display_name), err)]
     pub fn derive(&self, parent: &ProjectDir, display_name: &str) -> Result<ProjectDir> {
         let mut m = parent.read_manifest()?;
         m.display_name = display_name.to_owned();
@@ -466,7 +496,7 @@ impl Library {
 
     /// ライブラリの中身を挙げる。
     ///
-    /// **manifest が読めないものは飛ばさず、失敗として返す。** 一覧から静かに
+    /// manifest が読めないものは飛ばさず、失敗として返す。 一覧から静かに
     /// 消えると、利用者は「プロジェクトが無くなった」と受け取る。
     #[tracing::instrument(skip(self), err)]
     pub fn list(&self) -> Result<Vec<(ProjectDir, std::result::Result<Manifest, ProjectError>)>> {
@@ -496,7 +526,7 @@ impl Library {
 
 /// 一時ファイルへ書いて fsync し、アトミックな rename で置き換える（`TR-PKG-41`）。
 ///
-/// **rename が成功するまで、元のファイルはそのまま。** 途中で落ちても、
+/// rename が成功するまで、元のファイルはそのまま。 途中で落ちても、
 /// 半分書かれたファイルが正規の名前を名乗ることはない。
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension("toml.part");
@@ -514,7 +544,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// ディレクトリエントリを永続化する。
 ///
-/// **ファイルを fsync しても、ディレクトリを fsync しないと rename が飛ぶ。**
+/// ファイルを fsync しても、ディレクトリを fsync しないと rename が飛ぶ。
 /// Windows にはディレクトリを開く経路が無いので、そこでは何もしない
 /// （NTFS のメタデータ更新はジャーナルで守られる）。
 fn fsync_dir(path: &Path) -> Result<()> {
@@ -534,7 +564,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
-    /// テスト用の一時ディレクトリ。**プロセス ID と連番で衝突を避ける。**
+    /// テスト用の一時ディレクトリ。プロセス ID と連番で衝突を避ける。
     fn tmp(tag: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU32, Ordering};
         static N: AtomicU32 = AtomicU32::new(0);
@@ -565,7 +595,7 @@ mod tests {
         assert!(p.exports_dir().is_dir());
         assert!(p.snapshots_dir().is_dir());
 
-        // **ディレクトリ名は UUID**（TR-PKG-37）。
+        // ディレクトリ名は UUID（`TR-PKG-37`）。
         let name = p.root().file_name().and_then(|s| s.to_str()).expect("名前");
         assert_eq!(Uuid::parse_str(name).expect("UUID であること"), p.id());
     }
@@ -577,7 +607,7 @@ mod tests {
         assert_eq!(p.read_manifest().expect("読めること"), manifest());
     }
 
-    /// **manifest は人が読めること**（TR-PKG-37）。
+    /// manifest は人が読めること（`TR-PKG-37`）。
     /// UUID 名の代償を埋め合わせるために置いているので、表示名がそのまま見えないと意味がない。
     #[test]
     fn manifest_is_human_readable() {
@@ -594,7 +624,7 @@ mod tests {
         );
     }
 
-    /// **表示名に FS 上不正な文字や CP932 外の文字が入っても壊れない**（TR-PKG-37）。
+    /// 表示名に FS 上不正な文字や CP932 外の文字が入っても壊れない（`TR-PKG-37`）。
     #[test]
     fn display_name_may_be_hostile() {
         let lib = Library::open(tmp("hostile")).expect("開けること");
@@ -613,7 +643,7 @@ mod tests {
         assert!(Uuid::parse_str(name).is_ok());
     }
 
-    /// **改名でディレクトリ名を変えない**（TR-PKG-37）。
+    /// 改名でディレクトリ名を変えない（`TR-PKG-37`）。
     #[test]
     fn rename_does_not_move_the_directory() {
         let lib = Library::open(tmp("rename")).expect("開けること");
@@ -631,7 +661,7 @@ mod tests {
         );
     }
 
-    /// **部分的に書かれた manifest を残さない**（TR-PKG-41）。
+    /// 部分的に書かれた manifest を残さない（`TR-PKG-41`）。
     #[test]
     fn manifest_write_leaves_no_partial_file() {
         let lib = Library::open(tmp("atomic")).expect("開けること");
@@ -679,7 +709,7 @@ mod tests {
         assert_eq!([listed[0].0.id(), listed[1].0.id()], want);
     }
 
-    /// **読めない manifest を一覧から静かに消さない。**
+    /// 読めない manifest を一覧から静かに消さない。
     #[test]
     fn list_reports_broken_manifests_instead_of_hiding_them() {
         let lib = Library::open(tmp("broken")).expect("開けること");
@@ -691,7 +721,7 @@ mod tests {
         assert!(listed[0].1.is_err(), "失敗として返ること");
     }
 
-    /// **控えは WAV を複製しない**（TR-PKG-43）。
+    /// 控えは WAV を複製しない（`TR-PKG-43`）。
     #[test]
     fn snapshot_copies_the_db_but_not_the_audio() {
         let lib = Library::open(tmp("snap")).expect("開けること");
@@ -764,7 +794,7 @@ mod tests {
         );
     }
 
-    /// **完成判定は書き出し履歴を見ない**（TR-PKG-33, TR-PKG-36）。
+    /// 完成判定は書き出し履歴を見ない（`TR-PKG-33`, `TR-PKG-36`）。
     /// ZIP を1度も作っていなくても完成は完成。
     #[test]
     fn completeness_ignores_handoff() {
@@ -782,7 +812,7 @@ mod tests {
         };
         assert!(!s.is_complete());
     }
-    /// **複製は派生として親子関係を残す**（TR-PKG-46）。
+    /// 複製は派生として親子関係を残す（`TR-PKG-46`）。
     #[test]
     fn derive_keeps_the_lineage() {
         let lib = Library::open(tmp("derive")).expect("開けること");
@@ -805,7 +835,7 @@ mod tests {
         );
     }
 
-    /// **片方を消しても、もう片方の音は残る**（TR-PKG-39）。
+    /// 片方を消しても、もう片方の音は残る（`TR-PKG-39`）。
     #[test]
     fn derived_audio_is_independent_of_the_parent() {
         let lib = Library::open(tmp("derive2")).expect("開けること");
@@ -820,7 +850,7 @@ mod tests {
         );
     }
 
-    /// **読めない親 UUID を「親なし」に倒さない。**
+    /// 読めない親 UUID を「親なし」に倒さない。
     #[test]
     fn unreadable_lineage_is_an_error_not_a_silent_orphan() {
         let e = Manifest::from_toml(

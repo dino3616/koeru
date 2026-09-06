@@ -5,7 +5,7 @@ status = 'open'
 owner = 'dino3616'
 why_it_matters = '''
 3領域でバラバラに定義されている。再切り出しが必要であることは確定しているのに、
-**5値を誰が再導出するかを定めた要件が無い。** 担当が無いまま実装に入ると、どの領域も作らない。
+5値を誰が再導出するかを定めた要件が無い。 担当が無いまま実装に入ると、どの領域も作らない。
 '''
 how_to_close = 'oto 再導出の担当領域を決め、要件として追加する。align 側に置くのが自然。'
 blocks_profiles = [
@@ -23,4 +23,4 @@ affects_requirements = [
 ]
 
 # 移行前の原文。言い換えで意味が動いていないかを突き合わせるために残す。
-source_text = '| 下位方式への書き出し | **3領域でバラバラに定義され、oto の再導出を誰も担当していない** | TR-RCL-21、TR-PKG-24 / TR-PKG-25、TR-ALN-13 / TR-ALN-16 / TR-ALN-18 / TR-ALN-19、TR-REC-38 |'
+source_text = '| 下位方式への書き出し | 3領域でバラバラに定義され、oto の再導出を誰も担当していない | TR-RCL-21、TR-PKG-24 / TR-PKG-25、TR-ALN-13 / TR-ALN-16 / TR-ALN-18 / TR-ALN-19、TR-REC-38 |'

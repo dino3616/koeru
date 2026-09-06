@@ -1,15 +1,15 @@
 # KOERU が使う / 参照する / 採らなかった部品の単一台帳。
 #
-# **1部品 = 1行。** 以前は領域ごとにファイルを分けていたため、同じ部品が別 ID で複数行に載り、
+# 1部品 = 1行。 以前は領域ごとにファイルを分けていたため、同じ部品が別 ID で複数行に載り、
 # miniaudio が「採用」と「採用候補」を同時に持つような食い違いが起きていた。
-# **どの領域で使うかは `domains` が持つ。**
+# どの領域で使うかは `domains` が持つ。
 #
-# **「採用」「不適」には decided_by が要る**（check-meta が検査する）。
+# 「採用」「不適」には decided_by が要る（check-meta が検査する）。
 # 「採用候補」「条件付き」「要調査」「要選定」はまだ決めていないので不要。
 #
 # `supports_requirements` は「この部品が支える要件」。
 # 要件の側は、外部部品が要らないなら `needs_component = false` を宣言する。
-# **すべての要件がどちらか一方に属する。** `cargo xtask check-coverage` が両方を検査する
+# すべての要件がどちらか一方に属する。 `cargo xtask check-coverage` が両方を検査する
 # （支える部品が1つも無い要件、および両方を宣言している矛盾）。
 
 schema = 'component-ledger'
@@ -48,9 +48,9 @@ supports_requirements = [
   'TR-ALN-10',
   'TR-ALN-01',
 ]
-note = '''**退避経路**（DEC-ALN-008 で一次経路は MFA になった）。**`.binhmm` の同梱は DEC-ALN-004 で
+note = '''退避経路（DEC-ALN-008 で一次経路は MFA になった）。**`.binhmm` の同梱は DEC-ALN-004 で
 判断して通した**——リポジトリ全体が MIT で配られている事実を受け取った。学習コーパスの出所は未確認のまま。
-**MFA が覆ったときの戻り先として同梱を続ける**（3.6MB）'''
+MFA が覆ったときの戻り先として同梱を続ける（3.6MB）'''
 
 [[component]]
 id = 'CMP-003'
@@ -71,7 +71,7 @@ note = '帰属表示付きで同梱する（DEC-ALN-008）。499,793 語 / 61 �
 id = 'CMP-004'
 name = 'MFA 日本語音響モデル v3.0.0'
 purpose = '日本語音素の強制アライメント。一次経路'
-license = 'CC BY 4.0 表示（**上流コーパスに GlobalPhone Japanese = ELRA 有償・再配布不可、TEDxJP-10K = CC BY-NC-ND が含まれる。DEC-ALN-008 で判断して通した**）'
+license = 'CC BY 4.0 表示（上流コーパスに GlobalPhone Japanese = ELRA 有償・再配布不可、TEDxJP-10K = CC BY-NC-ND が含まれる。DEC-ALN-008 で判断して通した）'
 status = '採用'
 decided_by = 'DEC-ALN-008'
 domains = [
@@ -80,8 +80,8 @@ domains = [
 supports_requirements = [
   'TR-ALN-05',
 ]
-note = '''**一次経路**（DEC-ALN-008）。展開後 97.0MiB、うち 95.8MiB が `final.alimdl` と `final.mdl`（EVID-ALN-001 の実測）。
-**CC BY 4.0 なので帰属表示・ライセンスへのリンク・変更の明示がアプリ内に要る。**
+note = '''一次経路（DEC-ALN-008）。展開後 97.0MiB、うち 95.8MiB が `final.alimdl` と `final.mdl`（EVID-ALN-001 の実測）。
+CC BY 4.0 なので帰属表示・ライセンスへのリンク・変更の明示がアプリ内に要る。
 覆ったときの戻り先は Julius（CMP-002）'''
 
 [[component]]
@@ -117,7 +117,7 @@ supports_requirements = [
 id = 'CMP-007'
 name = 'SOFA'
 purpose = '歌声専用アライメント。境界確率ヘッドと確信度出力の参照設計 / 歌声専用アライメント。境界信頼度の参照設計'
-license = 'コード MIT / 配布 ckpt は明示なし（**Unknown**）'
+license = 'コード MIT / 配布 ckpt は明示なし（Unknown）'
 status = '不適'
 decided_by = 'DEC-ALL-001'
 domains = [
@@ -130,7 +130,7 @@ note = '配布モデルの再配布許諾が確認できない'
 id = 'CMP-008'
 name = 'HubertFA'
 purpose = '歌声向け強制アライメント'
-license = 'コード Apache-2.0 / 配布モデルは明示なし（**Unknown**）'
+license = 'コード Apache-2.0 / 配布モデルは明示なし（Unknown）'
 status = '不適'
 decided_by = 'DEC-ALL-001'
 domains = [
@@ -154,7 +154,7 @@ note = 'サイズ帯が 200MB 超、かつ学習データが ReazonSpeech'
 id = 'CMP-010'
 name = 'torchaudio forced_align + MMS_FA'
 purpose = 'CTC 強制アライメント API と多言語モデル'
-license = 'コード BSD-2-Clause / **MMS_FA モデルは CC-BY-NC 4.0（非商用）**'
+license = 'コード BSD-2-Clause / MMS_FA モデルは CC-BY-NC 4.0（非商用）'
 status = '不適'
 decided_by = 'DEC-ALL-002'
 domains = [
@@ -187,7 +187,7 @@ domains = [
 id = 'CMP-013'
 name = 'oto.ini まとめて改造ましーん'
 purpose = 'oto の一括操作と比率規約の参照'
-license = '**Unknown**'
+license = 'Unknown'
 status = '要調査'
 domains = [
   'align',
@@ -197,7 +197,7 @@ domains = [
 id = 'CMP-014'
 name = 'MAUS / WebMAUS'
 purpose = '日本語アライメントの比較対象'
-license = '**Unknown**（Web サービス）'
+license = 'Unknown（Web サービス）'
 status = '不適'
 decided_by = 'DEC-ALL-006'
 domains = [
@@ -367,7 +367,7 @@ note = '自前実装で置換'
 id = 'CMP-027'
 name = 'libsndfile'
 purpose = 'wav 以外の音声フォーマットの I/O'
-license = '**Unknown**'
+license = 'Unknown'
 status = '要調査'
 domains = [
   'editor',
@@ -377,13 +377,13 @@ domains = [
 id = 'CMP-028'
 name = 'Apache Tika (text module) / GraalVM JavaScript'
 purpose = '文字コード判定 / スクリプト（JVM）'
-license = '**Unknown**'
+license = 'Unknown'
 status = '不適'
 decided_by = 'DEC-PLT-001'
 domains = [
   'editor',
 ]
-note = '**JVM 前提。** 文字コード判定は encoding_rs / chardetng で足りる'
+note = 'JVM 前提。 文字コード判定は encoding_rs / chardetng で足りる'
 
 [[component]]
 id = 'CMP-029'
@@ -395,7 +395,7 @@ decided_by = 'DEC-PLT-001'
 domains = [
   'editor',
 ]
-note = '**JVM 前提。** note の条件（GUI 基盤が JVM 側になる場合）はもう起こらない。FFT は rustfft / realfft'
+note = 'JVM 前提。 note の条件（GUI 基盤が JVM 側になる場合）はもう起こらない。FFT は rustfft / realfft'
 
 [[component]]
 id = 'CMP-030'
@@ -514,7 +514,7 @@ supports_requirements = [
 [[component]]
 id = 'CMP-038'
 name = 'zip'
-purpose = '配布 ZIP の生成と読み戻し検証 / 既存音源アーカイブの展開とエントリ名の符号化強制。**エントリ名は UTF-8 と CP932 が混在するため、`zip` の生バイト列を取り出して `encoding_rs` で復号する**'
+purpose = '配布 ZIP の生成と読み戻し検証 / 既存音源アーカイブの展開とエントリ名の符号化強制。エントリ名は UTF-8 と CP932 が混在するため、`zip` の生バイト列を取り出して `encoding_rs` で復号する'
 license = '個別に確認'
 status = '条件付き'
 domains = [
@@ -606,7 +606,7 @@ decided_by = 'DEC-PLT-001'
 domains = [
   'platform',
 ]
-note = '**C# バインディング。** Rust + Tauri では使えない。描画面の候補は別途'
+note = 'C# バインディング。 Rust + Tauri では使えない。描画面の候補は別途'
 
 [[component]]
 id = 'CMP-044'
@@ -645,7 +645,7 @@ supports_requirements = [
   'TR-PKG-31',
   'TR-RCL-02',
 ]
-note = '**仕様参照のみ。vendoring はしない**（DEC-PLT-011）。C# なので Rust へは移植ではなく書き直しになる / **仕様と振る舞いの参照のみ**（DEC-PLT-011） / **仕様参照のみ。移植はしない**（DEC-PLT-011） / 音源形式の読み書きの**仕様参照のみ**。互換は OpenUtau で読み込めることを CI で検証して担保する / 検査項目という機能的事実の参照のみ。元から参照のみ / **日本語 phonemizer は仕様を参照して自前実装する**（TR-SYN-11）。移植はしない / 同上。Classic 層の振る舞いを仕様として参照する'
+note = '仕様参照のみ。vendoring はしない（DEC-PLT-011）。C# なので Rust へは移植ではなく書き直しになる / 仕様と振る舞いの参照のみ（DEC-PLT-011） / 仕様参照のみ。移植はしない（DEC-PLT-011） / 音源形式の読み書きの仕様参照のみ。互換は OpenUtau で読み込めることを CI で検証して担保する / 検査項目という機能的事実の参照のみ。元から参照のみ / 日本語 phonemizer は仕様を参照して自前実装する（TR-SYN-11）。移植はしない / 同上。Classic 層の振る舞いを仕様として参照する'
 
 [[component]]
 id = 'CMP-046'
@@ -657,7 +657,7 @@ decided_by = 'DEC-PLT-001'
 domains = [
   'platform',
 ]
-note = '**.NET 専用。** 自動更新の候補は別途'
+note = '.NET 専用。 自動更新の候補は別途'
 
 [[component]]
 id = 'CMP-047'
@@ -687,7 +687,7 @@ supports_requirements = [
   'TR-PLT-19',
   'TR-SYN-22',
 ]
-note = 'SwiftF0 の推論に必要（DEC-SYN-004）。**アライナは自前実装が既定なので、ONNX を積む理由は SwiftF0 だけ**（TR-ALN-02）'
+note = 'SwiftF0 の推論に必要（DEC-SYN-004）。アライナは自前実装が既定なので、ONNX を積む理由は SwiftF0 だけ（TR-ALN-02）'
 
 [[component]]
 id = 'CMP-049'
@@ -718,7 +718,7 @@ note = '同上'
 id = 'CMP-051'
 name = 'Slint'
 purpose = 'GUI（対抗案）'
-license = '**Unknown**（GitHub API は NOASSERTION。royalty-free 条項の本文が未確認）'
+license = 'Unknown（GitHub API は NOASSERTION。royalty-free 条項の本文が未確認）'
 status = '候補外'
 domains = [
   'platform',
@@ -740,7 +740,7 @@ domains = [
 id = 'CMP-053'
 name = 'Azure Artifact Signing'
 purpose = 'Windows 直接経路のコード署名。CI 署名可能'
-license = '**Unknown**（日本の法人・個人が契約できるかを確定できていない）'
+license = 'Unknown（日本の法人・個人が契約できるかを確定できていない）'
 status = '要調査'
 domains = [
   'platform',
@@ -753,7 +753,7 @@ supports_requirements = [
 id = 'CMP-054'
 name = 'OV コード署名証明書'
 purpose = 'Azure Artifact Signing が使えない場合の署名'
-license = '**Unknown**（発行条件と価格を一次情報で未確認）'
+license = 'Unknown（発行条件と価格を一次情報で未確認）'
 status = '要調査'
 domains = [
   'platform',
@@ -766,7 +766,7 @@ supports_requirements = [
 id = 'CMP-055'
 name = 'Apple Developer Program / Developer ID'
 purpose = 'macOS の配布'
-license = '**Unknown**（契約条項・年額を一次情報で未確認）'
+license = 'Unknown（契約条項・年額を一次情報で未確認）'
 status = '採用候補'
 domains = [
   'platform',
@@ -779,7 +779,7 @@ supports_requirements = [
 id = 'CMP-056'
 name = 'SignPath Foundation'
 purpose = 'OSS 向けの無償コード署名'
-license = '**Unknown**（適格要件と条項を未確認）'
+license = 'Unknown（適格要件と条項を未確認）'
 status = '要調査'
 domains = [
   'platform',
@@ -792,7 +792,7 @@ supports_requirements = [
 id = 'CMP-057'
 name = 'Sparkle 2.x'
 purpose = 'macOS の自動更新'
-license = '**Unknown**（GitHub API は NOASSERTION。同梱第三者コードの条項を未確認）'
+license = 'Unknown（GitHub API は NOASSERTION。同梱第三者コードの条項を未確認）'
 status = '要調査'
 domains = [
   'platform',
@@ -816,7 +816,7 @@ note = '自前実装で置換。下記参照'
 [[component]]
 id = 'CMP-059'
 name = 'MFA 3.x（Python アプリケーション本体）'
-purpose = '強制アライメント。**モデルと辞書だけを取り出して使う**'
+purpose = '強制アライメント。モデルと辞書だけを取り出して使う'
 license = 'コード MIT / 日本語音響モデル・辞書は CC BY 4.0 表示'
 status = '不適'
 decided_by = 'DEC-ALN-008'
@@ -826,11 +826,11 @@ domains = [
 supports_requirements = [
   'TR-ALN-05',
 ]
-note = '''**アプリケーションとしては採らない**（Python を要するため。TR-ALN-01 / TR-PLT-07）。
-**ただし従来の記録「Python / Conda / Kaldi ランタイムを要する」は Kaldi について不正確だった**——
+note = '''アプリケーションとしては採らない（Python を要するため。TR-ALN-01 / TR-PLT-07）。
+ただし従来の記録「Python / Conda / Kaldi ランタイムを要する」は Kaldi について不正確だった——
 MFA 3.0 は kalpy 経由で Kaldi の共有ライブラリを直接呼ぶ形になっており、Kaldi 単体は Apache-2.0 の
 C++ ライブラリとして Rust からも呼べる（CMP-130）。PostgreSQL も 3.x では既定オフで SQLite。
-**採るのはモデル（CMP-004）と辞書（CMP-003）と Kaldi（CMP-130）で、この Python アプリは採らない**'''
+採るのはモデル（CMP-004）と辞書（CMP-003）と Kaldi（CMP-130）で、この Python アプリは採らない'''
 
 [[component]]
 id = 'CMP-060'
@@ -998,7 +998,7 @@ note = 'ファイル形式と実測値の参照のみ。ファイルを同梱・
 id = 'CMP-071'
 name = 'hikari one crystal ja'
 purpose = '多音階連続音音源の規模とエイリアス構成の実測データ'
-license = '**Unknown**'
+license = 'Unknown'
 status = '不適'
 decided_by = 'DEC-ALL-002'
 domains = [
@@ -1009,7 +1009,7 @@ domains = [
 id = 'CMP-072'
 name = 'reclist-gen-cvvc / new_cvvc_generator'
 purpose = 'CVVC 録音リスト生成器'
-license = '**Unknown**'
+license = 'Unknown'
 status = '不適'
 decided_by = 'DEC-ALL-002'
 domains = [
@@ -1221,7 +1221,7 @@ decided_by = 'DEC-PLT-001'
 domains = [
   'synth',
 ]
-note = '**C# / .NET 前提。** かな・ローマ字変換は自前実装で足りる'
+note = 'C# / .NET 前提。 かな・ローマ字変換は自前実装で足りる'
 
 [[component]]
 id = 'CMP-089'
@@ -1241,7 +1241,7 @@ note = 'Python 実装のため同梱経路にはならない'
 id = 'CMP-090'
 name = 'ttk592/spline'
 purpose = 'worldline の `effects.cpp` が使う三次スプライン補間'
-license = '**GPL-2.0-or-later**（デュアルライセンスの提示なし）'
+license = 'GPL-2.0-or-later（デュアルライセンスの提示なし）'
 status = '不適'
 decided_by = 'DEC-ALL-003'
 domains = [
@@ -1253,7 +1253,7 @@ note = '自前実装で置換。→ DEC-PLT-002'
 id = 'CMP-091'
 name = 'moresampler'
 purpose = 'UTAU 向け高品質 resampler / 既存到達水準の参照'
-license = '**Unknown**（公式サイト非公開で readme.txt の規約を実物確認できていない）'
+license = 'Unknown（公式サイト非公開で readme.txt の規約を実物確認できていない）'
 status = '不適'
 decided_by = 'DEC-ALL-002'
 domains = [
@@ -1266,7 +1266,7 @@ note = 'Windows 専用、かつライセンス不明 / 公開文書の機能仕�
 id = 'CMP-092'
 name = 'UTAU 同梱 resampler.exe'
 purpose = 'UTAU 標準の resampler'
-license = '**Unknown**'
+license = 'Unknown'
 status = '不適'
 decided_by = 'DEC-ALL-002'
 domains = [
@@ -1315,7 +1315,7 @@ decided_by = 'DEC-PLT-011'
 domains = [
   'synth',
 ]
-note = '**取れない。`stakira/OpenUtau/cpp` の中にあり、OpenUtau のコードである**（DEC-PLT-011: OpenUtau は仕様として参照するだけで、コードを取り込まない）。DEC-PLT-011 を決めた時点では見えていなかった帰結。**UTAU 互換 resampler は WORLD の上に自前で書く**（TR-SYN-08 が引数一式を定義済み）'
+note = '取れない。`stakira/OpenUtau/cpp` の中にあり、OpenUtau のコードである（DEC-PLT-011: OpenUtau は仕様として参照するだけで、コードを取り込まない）。DEC-PLT-011 を決めた時点では見えていなかった帰結。UTAU 互換 resampler は WORLD の上に自前で書く（TR-SYN-08 が引数一式を定義済み）'
 
 [[component]]
 id = 'CMP-096'
@@ -1346,7 +1346,7 @@ supports_requirements = [
   'TR-EDT-12',
   'TR-EDT-13',
 ]
-note = '**Tauri なので描画面は既に手元にある。** TR-PLT-04 の「アプリが所有する単一の描画面」に素直に当たる。ソース矩形の変換だけで再描画する要求（TR-EDT-12）も drawImage で満たせる。→ Q-PLT-004'
+note = 'Tauri なので描画面は既に手元にある。 TR-PLT-04 の「アプリが所有する単一の描画面」に素直に当たる。ソース矩形の変換だけで再描画する要求（TR-EDT-12）も drawImage で満たせる。→ Q-PLT-004'
 
 [[component]]
 id = 'CMP-098'
@@ -1380,7 +1380,7 @@ supports_requirements = [
   'TR-EDT-09',
   'TR-EDT-12',
 ]
-note = '**WebView と別のサーフェスを持つことになるため、Tauri との統合コストが未確認。** → Q-PLT-004'
+note = 'WebView と別のサーフェスを持つことになるため、Tauri との統合コストが未確認。 → Q-PLT-004'
 
 [[component]]
 id = 'CMP-100'
@@ -1394,7 +1394,7 @@ domains = [
 supports_requirements = [
   'TR-PLT-16',
 ]
-note = 'Tauri 公式。**署名鍵の運用と、Flatpak では使わない前提の確認が要る**'
+note = 'Tauri 公式。署名鍵の運用と、Flatpak では使わない前提の確認が要る'
 
 [[component]]
 id = 'CMP-101'
@@ -1409,7 +1409,7 @@ domains = [
 supports_requirements = [
   'TR-PLT-15',
 ]
-note = '**Flatpak を使わない Linux 利用者には配布経路が無い**（TR-PLT-15 の [Risk]）。deb / AppImage を併載しない判断の帰結'
+note = 'Flatpak を使わない Linux 利用者には配布経路が無い（TR-PLT-15 の [Risk]）。deb / AppImage を併載しない判断の帰結'
 
 [[component]]
 id = 'CMP-102'
@@ -1426,7 +1426,7 @@ supports_requirements = [
   'TR-PLT-22',
   'TR-SYN-07',
 ]
-note = '**既にリポジトリで使っている**（`deny.toml`、CI）。台帳に載っていなかった'
+note = '既にリポジトリで使っている（`deny.toml`、CI）。台帳に載っていなかった'
 
 [[component]]
 id = 'CMP-103'
@@ -1442,7 +1442,7 @@ supports_requirements = [
   'TR-PLT-22',
   'TR-ALN-31',
 ]
-note = '**crate は覆えるが、モデル重みと辞書は覆えない。** TR-ALN-31 の台帳は components.toml が持ち、表記へ流し込む経路だけをこれが担う'
+note = 'crate は覆えるが、モデル重みと辞書は覆えない。 TR-ALN-31 の台帳は components.toml が持ち、表記へ流し込む経路だけをこれが担う'
 
 [[component]]
 id = 'CMP-104'
@@ -1459,7 +1459,7 @@ supports_requirements = [
   'TR-PLT-28',
   'TR-PLT-31',
 ]
-note = '**自動で測れるのは一部だけ。** キーボード完結・ドラッグの代替・状態通知の妥当性は手動確認に残る（TR-PLT-25）'
+note = '自動で測れるのは一部だけ。 キーボード完結・ドラッグの代替・状態通知の妥当性は手動確認に残る（TR-PLT-25）'
 
 [[component]]
 id = 'CMP-105'
@@ -1473,7 +1473,7 @@ domains = [
 supports_requirements = [
   'TR-EDT-40',
 ]
-note = '**自身の書き込みで通知しない仕組みが要る**（TR-EDT-40）。監視の除外はライブラリ側では解けないので、書き込み中の抑止はアプリで持つ'
+note = '自身の書き込みで通知しない仕組みが要る（TR-EDT-40）。監視の除外はライブラリ側では解けないので、書き込み中の抑止はアプリで持つ'
 
 [[component]]
 id = 'CMP-106'
@@ -1506,7 +1506,7 @@ supports_requirements = [
   'TR-SYN-21',
   'TR-SYN-22',
 ]
-note = '**[Risk] 学習コーパスに非商用限定が含まれる。** MDB-stem-synth は CC BY-NC 4.0、MIR-1K はライセンス非公開。**著者の MIT 表示を額面どおり受け取る判断**（DEC-SYN-004）。異議が示されたら Harvest へ戻す。95,842 パラメータ、model.onnx は 398KB'
+note = '[Risk] 学習コーパスに非商用限定が含まれる。 MDB-stem-synth は CC BY-NC 4.0、MIR-1K はライセンス非公開。著者の MIT 表示を額面どおり受け取る判断（DEC-SYN-004）。異議が示されたら Harvest へ戻す。95,842 パラメータ、model.onnx は 398KB'
 
 [[component]]
 id = 'CMP-108'
@@ -1546,7 +1546,7 @@ supports_requirements = [
   'TR-SYN-29',
   'TR-SYN-35',
 ]
-note = '**Microsoft の公式リポジトリ。** Windows API 全体を生成した束縛なので、必要な COM インタフェースは定義上すべて出ている'
+note = 'Microsoft の公式リポジトリ。 Windows API 全体を生成した束縛なので、必要な COM インタフェースは定義上すべて出ている'
 
 [[component]]
 id = 'CMP-109'
@@ -1559,7 +1559,7 @@ domains = [
   'recording',
   'platform',
 ]
-note = '**中身が objc2 族（個人のリポジトリ）で、依存木に16ノード入る。** CoreAudio の HAL は素の C API なので自前の extern 宣言で足りた（crates/koeru-audio/src/backend/macos/sys.rs、約100行）。**依存を増やさずに列挙と生死判定が通ることを実機で確かめた**'
+note = '中身が objc2 族（個人のリポジトリ）で、依存木に16ノード入る。 CoreAudio の HAL は素の C API なので自前の extern 宣言で足りた（crates/koeru-audio/src/backend/macos/sys.rs、約100行）。依存を増やさずに列挙と生死判定が通ることを実機で確かめた'
 
 [[component]]
 id = 'CMP-110'
@@ -1596,7 +1596,7 @@ supports_requirements = [
   'TR-SYN-29',
   'TR-SYN-35',
 ]
-note = '**freedesktop.org の公式リポジトリ**（gitlab.freedesktop.org/pipewire/pipewire-rs）。PipeWire が無い環境では ALSA の hw: へ直接接続する経路が別に要る'
+note = 'freedesktop.org の公式リポジトリ（gitlab.freedesktop.org/pipewire/pipewire-rs）。PipeWire が無い環境では ALSA の hw: へ直接接続する経路が別に要る'
 
 [[component]]
 id = 'CMP-111'
@@ -1612,7 +1612,7 @@ supports_requirements = [
   'TR-REC-11',
   'TR-PLT-18',
 ]
-note = '**マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。** CoreAudio の HAL は素の C API なので自前束縛（CMP-112）で足りたが、AVCaptureDevice は Objective-C なので同じ手が使えない。**[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が objc2 / objc2-app-kit / objc2-foundation / objc2-web-kit を既に引くので、アプリの依存木は増えない**'
+note = 'マイクモード検知（TR-REC-11）とマイク権限（TR-PLT-18）だけに使う。 CoreAudio の HAL は素の C API なので自前束縛（CMP-112）で足りたが、AVCaptureDevice は Objective-C なので同じ手が使えない。[Risk] 個人のリポジトリ（madsmtm）。ただし Tauri が objc2 / objc2-app-kit / objc2-foundation / objc2-web-kit を既に引くので、アプリの依存木は増えない'
 
 [[component]]
 id = 'CMP-112'
@@ -1629,7 +1629,7 @@ supports_requirements = [
   'TR-REC-03',
   'TR-REC-04',
 ]
-note = '**Apple の interop で組織がメンテしている crate 族が存在しないため、ここだけ自前で持つ。** AudioObjectGetPropertyData 系は素の C API で、宣言は約100行。**AVCaptureDevice（マイクモード検知、TR-REC-11）は Objective-C なので自前では書けず、そこだけ未決**'
+note = 'Apple の interop で組織がメンテしている crate 族が存在しないため、ここだけ自前で持つ。 AudioObjectGetPropertyData 系は素の C API で、宣言は約100行。AVCaptureDevice（マイクモード検知、TR-REC-11）は Objective-C なので自前では書けず、そこだけ未決'
 
 [[component]]
 id = 'CMP-113'
@@ -1646,7 +1646,7 @@ supports_requirements = [
   'TR-SYN-08',
   'TR-SYN-09',
 ]
-note = '**worldline が OpenUtau のコードで取れないため**（DEC-PLT-011）。仕様は TR-SYN-08 が定義済みの引数一式'
+note = 'worldline が OpenUtau のコードで取れないため（DEC-PLT-011）。仕様は TR-SYN-08 が定義済みの引数一式'
 
 [[component]]
 id = 'CMP-114'
@@ -1665,7 +1665,7 @@ supports_requirements = [
   'TR-REC-02',
   'TR-PKG-20',
 ]
-note = '`hound` も `dr_wav` も個人のリポジトリ。**KOERU が要る形式は TR-REC-01 / TR-REC-02 で固定されており、汎用の読み書きが要らない**'
+note = '`hound` も `dr_wav` も個人のリポジトリ。KOERU が要る形式は TR-REC-01 / TR-REC-02 で固定されており、汎用の読み書きが要らない'
 
 [[component]]
 id = 'CMP-115'
@@ -1680,7 +1680,7 @@ domains = [
 supports_requirements = [
   'TR-SYN-06',
 ]
-note = '**rust-lang org**。ビルド時のみの依存で、配布物には入らない'
+note = 'rust-lang org。ビルド時のみの依存で、配布物には入らない'
 
 [[component]]
 id = 'CMP-116'
@@ -1705,12 +1705,12 @@ supports_requirements = [
   'TR-PKG-41',
   'TR-PKG-42',
 ]
-note = '**diesel-rs は Organization**、Apache-2.0。マイグレーションは実行ファイルへ埋め込み、外部ファイルに依存しない（TR-PLT-20）'
+note = 'diesel-rs は Organization、Apache-2.0。マイグレーションは実行ファイルへ埋め込み、外部ファイルに依存しない（TR-PLT-20）'
 
 [[component]]
 id = 'CMP-117'
 name = 'libsqlite3-sys（bundled）'
-purpose = 'SQLite 本体。**同梱してビルドし、OS の libsqlite3 に依存しない**'
+purpose = 'SQLite 本体。同梱してビルドし、OS の libsqlite3 に依存しない'
 license = 'MIT（SQLite 本体は Public Domain）'
 status = '採用'
 decided_by = 'DEC-REC-004'
@@ -1721,7 +1721,7 @@ domains = [
 supports_requirements = [
   'TR-PLT-07',
 ]
-note = '**bundled 機能で SQLite を同梱する。** OS 側の版に依存すると、TR-PLT-20 のオフライン完結と TR-PLT-07 の外部インストール禁止が保てない'
+note = 'bundled 機能で SQLite を同梱する。 OS 側の版に依存すると、TR-PLT-20 のオフライン完結と TR-PLT-07 の外部インストール禁止が保てない'
 
 [[component]]
 id = 'CMP-118'
@@ -1736,7 +1736,7 @@ domains = [
 supports_requirements = [
   'TR-PKG-38',
 ]
-note = '**uuid-rs は Organization。** v4 のみ使う。既定機能を切って getrandom 経由の生成だけを引く'
+note = 'uuid-rs は Organization。 v4 のみ使う。既定機能を切って getrandom 経由の生成だけを引く'
 
 [[component]]
 id = 'CMP-119'
@@ -1752,7 +1752,7 @@ supports_requirements = [
   'TR-PKG-44',
   'TR-PKG-48',
 ]
-note = '**RustCrypto は Organization。** 外部ツールでの編集をハッシュの不一致から検出する経路に使う'
+note = 'RustCrypto は Organization。 外部ツールでの編集をハッシュの不一致から検出する経路に使う'
 
 [[component]]
 id = 'CMP-120'
@@ -1767,7 +1767,7 @@ domains = [
 supports_requirements = [
   'TR-PKG-38',
 ]
-note = '**toml-rs は Organization。** serde を要さず、**コメントを保ったまま往復できる**。manifest は「人が見て中身が判別できる」ために置くものなので、説明のコメントが消えると意味が薄れる'
+note = 'toml-rs は Organization。 serde を要さず、コメントを保ったまま往復できる。manifest は「人が見て中身が判別できる」ために置くものなので、説明のコメントが消えると意味が薄れる'
 
 [[component]]
 id = 'CMP-121'
@@ -1782,7 +1782,7 @@ domains = [
 supports_requirements = [
   'TR-PKG-47',
 ]
-note = '**zip-rs は Organization**、活発。**deflate だけに絞る**（bzip2 / lzma / zstd / AES は引かない）。配布 ZIP は UTAU 側が読める必要があるので、圧縮方式を広げる利点がない'
+note = 'zip-rs は Organization、活発。deflate だけに絞る（bzip2 / lzma / zstd / AES は引かない）。配布 ZIP は UTAU 側が読める必要があるので、圧縮方式を広げる利点がない'
 
 [[component]]
 id = 'CMP-122'
@@ -1797,7 +1797,7 @@ domains = [
 supports_requirements = [
   'TR-PKG-48',
 ]
-note = '**unicode-rs は Organization。** 揃えないと、同じ「が」が別の文字列として二重に台帳へ載る'
+note = 'unicode-rs は Organization。 揃えないと、同じ「が」が別の文字列として二重に台帳へ載る'
 
 [[component]]
 id = 'CMP-123'
@@ -1809,7 +1809,7 @@ decided_by = 'DEC-PLT-014'
 domains = [
   'platform',
 ]
-note = '''**WebGPU 専用。Tauri の WebView では OS ごとに揃わない。**
+note = '''WebGPU 専用。Tauri の WebView では OS ごとに揃わない。
 Linux の WebKitGTK は対応状況が確認できず、TR-PLT-01 が Linux を対象に含めている以上、
 ここに敷くと Linux で波形が出ない。用途もシェーダ・3D・GPU テンソル寄りで、
 TR-PLT-04 が要る min/max 包絡と STFT テクスチャとは重ならない'''
@@ -1827,7 +1827,7 @@ domains = [
 supports_requirements = [
   'TR-PLT-03',
 ]
-note = '**SPA モードで使う。** Tauri の中にサーバは無いので SSR は要らない。起動時に配るのは殻だけで、あとは全部クライアントで組む。出力は `dist/client`'
+note = 'SPA モードで使う。 Tauri の中にサーバは無いので SSR は要らない。起動時に配るのは殻だけで、あとは全部クライアントで組む。出力は `dist/client`'
 
 [[component]]
 id = 'CMP-125'
@@ -1842,7 +1842,7 @@ domains = [
 supports_requirements = [
   'TR-PLT-03',
 ]
-note = '相対単位を既定にするので、文字の拡大と行間の変更で内容が失われにくい（TR-PLT-34）。**トークンは @theme に集め、画面側から Radix の段を直に触らせない**'
+note = '相対単位を既定にするので、文字の拡大と行間の変更で内容が失われにくい（TR-PLT-34）。トークンは @theme に集め、画面側から Radix の段を直に触らせない'
 
 [[component]]
 id = 'CMP-126'
@@ -1860,22 +1860,22 @@ supports_requirements = [
   'TR-PLT-28',
   'TR-PLT-29',
 ]
-note = '''**名前・役割・値の公開とフォーカス管理を部品側が持つ**（TR-PLT-29）。
+note = '''名前・役割・値の公開とフォーカス管理を部品側が持つ（TR-PLT-29）。
 配色は段の意味（1=地 … 11=低コントラストの字、12=高コントラストの字）を守り、
-`crates/koeru-app/ui/scripts/check-contrast.ts` が **Radix の CSS を実際に読んで**比を検査する。
-**塗りは段 9 ではなく段 11 を使う。** 段 9 は明暗で同じ値になる色があり、
+`crates/koeru-app/ui/scripts/check-contrast.ts` が Radix の CSS を実際に読んで比を検査する。
+塗りは段 9 ではなく段 11 を使う。 段 9 は明暗で同じ値になる色があり、
 字を載せると 4.5:1 に届かない（実測）'''
 
 [[component]]
 id = 'CMP-127'
 name = 'shadcn/ui'
-purpose = '部品の実装を写す先。**依存としては入れない**'
+purpose = '部品の実装を写す先。依存としては入れない'
 license = 'MIT'
 status = '参照'
 domains = [
   'platform',
 ]
-note = '**レジストリからコードを写すだけ。** 写した後は KOERU のコードなので、要件に合わせて直せる（押せるものの高さを 44px 以上に固定した、など）。package.json には載らない'
+note = 'レジストリからコードを写すだけ。 写した後は KOERU のコードなので、要件に合わせて直せる（押せるものの高さを 44px 以上に固定した、など）。package.json には載らない'
 
 [[component]]
 id = 'CMP-128'
@@ -1887,7 +1887,7 @@ decided_by = 'DEC-PLT-015'
 domains = [
   'platform',
 ]
-note = '**UUID として読めない識別子を画面の入口で止める**（TR-PLT-23）。奥まで運ぶと「そのプロジェクトが無い」になり、原因が遠くなる'
+note = 'UUID として読めない識別子を画面の入口で止める（TR-PLT-23）。奥まで運ぶと「そのプロジェクトが無い」になり、原因が遠くなる'
 
 [[component]]
 id = 'CMP-129'
@@ -1899,9 +1899,9 @@ decided_by = 'DEC-PLT-015'
 domains = [
   'platform',
 ]
-note = '''**開発時のみ。配布物には入らない。** ただし貢献者がビルドするのに要るので、
+note = '''開発時のみ。配布物には入らない。 ただし貢献者がビルドするのに要るので、
 AGPL で「Made to be handed on」を原則に置いている以上、入手性は注意して見る（DEC-PLT-015）。
-**設定も lock も `crates/koeru-app/ui` の中に閉じる。** モノレポにしない。
+設定も lock も `crates/koeru-app/ui` の中に閉じる。 モノレポにしない。
 Tauri のコマンドと画面は一体のもので、別のワークスペースに切ると2箇所を行き来することになる。
 範囲が `ui/` に閉じているので、docs/generated/ と meta/ を巻き込むこともない'''
 
@@ -1922,8 +1922,8 @@ supports_requirements = [
   'TR-ALN-06',
   'TR-ALN-10',
 ]
-note = '''**C++ なので Rust からは C シム経由で呼ぶ**（pybind11 で kalpy がやっていることの Rust 版）。
+note = '''C++ なので Rust からは C シム経由で呼ぶ（pybind11 で kalpy がやっていることの Rust 版）。
 Apache-2.0 は `deny.toml` の allow に載っており、DEC-PLT-002（AGPL-3.0-or-later）と両立する。
 conda-forge のパッケージは linux-64 で約33MB / osx-arm64 で約28MB（圧縮）だが、
-**同梱するのは GMM アライメントに要る部分だけ。** OpenFst（Apache-2.0）を推移的に引く。
+同梱するのは GMM アライメントに要る部分だけ。 OpenFst（Apache-2.0）を推移的に引く。
 → EVID-ALN-001'''

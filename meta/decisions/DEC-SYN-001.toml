@@ -1,19 +1,19 @@
 schema = 'decision'
-id = "DEC-SYN-001"
-title = "合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える"
+id = 'DEC-SYN-001'
+title = '合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える'
 constraint_label = '合成'
 constraint = 'WORLD ベース。ニューラルボコーダへの置き換えは採らない。F0 推定のみ SwiftF0 に差し替え（コーパス監査が前提）'
-status = "accepted"
-owner = "dino3616"
+status = 'accepted'
+owner = 'dino3616'
 options = ["WORLD 一式", "WORLD + SwiftF0 (F0 のみ)", "ニューラルボコーダ"]
-selected = "WORLD + SwiftF0 (F0 のみ)"
+selected = 'WORLD + SwiftF0 (F0 のみ)'
 rationale = """
 ニューラルボコーダは採らない。ユーザーの声でモデルを学習・適応させることになり、
 「あなたの声そのもの」が「生成された声」に変わるため、ビジョンの Own your voice と衝突する。
 F0 推定だけは、録音条件（イヤホンマイク・家庭のノイズ）でノイズ耐性が効く SwiftF0 に差し替える。
 CheapTrick・D4C・合成は WORLD のまま。
 
-**採用の可否は DEC-SYN-004 が持つ。** 重みは MIT で明示されているが学習コーパスに
+採用の可否は DEC-SYN-004 が持つ。 重みは MIT で明示されているが学習コーパスに
 非商用限定が含まれるという構図で、そこは判断で通した。異議が示されたら Harvest へ戻る。
 """
 review_triggers = [

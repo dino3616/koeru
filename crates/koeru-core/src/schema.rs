@@ -1,8 +1,8 @@
 //! diesel のスキーマ定義。
 //!
-//! **`migrations/` の SQL と対応させて手で書く。** `diesel print-schema` は
+//! `migrations/` の SQL と対応させて手で書く。 `diesel print-schema` は
 //! CLI の導入が要るので、生成物をリポジトリへ置くのではなく、
-//! **マイグレーションとこのファイルの両方をレビュー対象にする。**
+//! マイグレーションとこのファイルの両方をレビュー対象にする。
 //! 食い違いは [`crate::db`] のテストが実際に SQL を投げて検出する。
 
 // diesel のマクロが生成するコードは、この lint の対象から外す。
@@ -42,7 +42,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 行が生む収録単位。**カバレッジはここから導出する。**
+    /// 行が生む収録単位。カバレッジはここから導出する。
     row_units (row_id, kana) {
         row_id -> Text,
         kana -> Text,
@@ -52,7 +52,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// テイク。**世代として積む**（`TR-REC-21`）。
+    /// テイク。世代として積む（`TR-REC-21`）。
     takes (id) {
         id -> Integer,
         row_id -> Text,
@@ -90,7 +90,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 録音停止時に算出した解析値。**書き出しと再開で WAV を再走査しない**
+    /// 録音停止時に算出した解析値。書き出しと再開で WAV を再走査しない
     /// （`TR-PKG-05`, `TR-PKG-42`）。
     take_analysis (take_id) {
         take_id -> Integer,
@@ -103,7 +103,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 書き出し単位のリリースレコード（`TR-PKG-44`）。**不変。**
+    /// 書き出し単位のリリースレコード（`TR-PKG-44`）。不変。
     releases (seq) {
         seq -> Integer,
         version -> Text,
@@ -135,7 +135,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 入力レベルの校正（`TR-REC-14`, `TR-REC-15`）。**デバイスごとに1つ。**
+    /// 入力レベルの校正（`TR-REC-14`, `TR-REC-15`）。デバイスごとに1つ。
     calibrations (device_id) {
         device_id -> Text,
         gain -> Nullable<Float>,
@@ -148,7 +148,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 課題曲（`TR-RCL-12`）。**曲バンクを持たない。**
+    /// 課題曲（`TR-RCL-12`）。曲バンクを持たない。
     songs (id) {
         id -> Text,
         title -> Text,

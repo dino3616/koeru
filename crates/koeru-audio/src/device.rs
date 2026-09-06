@@ -1,13 +1,13 @@
 //! 入力デバイスの同一性。
 //!
-//! **識別子は表示名ではない**（TR-REC-03）。Windows はエンドポイント ID 文字列、
+//! 識別子は表示名ではない（`TR-REC-03`）。Windows はエンドポイント ID 文字列、
 //! macOS は `kAudioDevicePropertyDeviceUID`、Linux は ALSA / PipeWire のノード名。
-//! 表示名は本人が付けた名前を含みうるので、**識別にも比較にも使わない。**
+//! 表示名は本人が付けた名前を含みうるので、識別にも比較にも使わない。
 
 /// プロジェクトに固定する、デバイスの識別子。
 ///
 /// 復帰の判定（`same_device_returned`）はこの値の一致だけで決める。
-/// 別のデバイスへ自動で切り替えないことが REQ-REC-109 の中身。
+/// 別のデバイスへ自動で切り替えないことが `REQ-REC-109` の中身。
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct DeviceId(String);
 
@@ -23,7 +23,7 @@ impl DeviceId {
     }
 }
 
-// **識別子を丸ごとトレースへ流さない。** Linux のノード名にはユーザー名が入ることがある。
+// 識別子を丸ごとトレースへ流さない。 Linux のノード名にはユーザー名が入ることがある。
 // 同一性の追跡には長さと先頭だけで足り、突き合わせは端末内のログでできる。
 impl std::fmt::Debug for DeviceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,11 +32,11 @@ impl std::fmt::Debug for DeviceId {
     }
 }
 
-/// デバイス一覧に出す情報（TR-REC-03）。
+/// デバイス一覧に出す情報（`TR-REC-03`）。
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
     pub id: DeviceId,
-    /// 表示名。**トレースにも送信にも載せない。** 本人が付けた名前を含みうる。
+    /// 表示名。トレースにも送信にも載せない。 本人が付けた名前を含みうる。
     pub name: RedactedName,
     pub is_default: bool,
     pub native_sample_rate_hz: u32,

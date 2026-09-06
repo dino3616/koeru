@@ -1,18 +1,18 @@
 //! まだ書いていない OS の音声入出力。
 //!
-//! **黙って何もしないのではなく、書いていないことを言う。**
+//! 黙って何もしないのではなく、書いていないことを言う。
 //! ここが返すのは常に [`UnsupportedError`] で、
 //! 呼び出し側は「この OS ではまだ録れない」と表示できる。
 //!
 //! # なぜ空の実装を置くのか
 //!
-//! **`koeru-app` を全 OS でコンパイルできるようにするため。**
+//! `koeru-app` を全 OS でコンパイルできるようにするため。
 //! macOS だけで通る形にしておくと、他 OS の CI が
 //! 「アプリが組み立たない」ところで止まり、**その先にあるドメイン層の
 //! 回帰にも気づけなくなる。**
 //!
 //! Windows と Linux のバックエンドは `DEC-REC-001` のとおり
-//! それぞれの API を直接叩いて書く（`TR-REC-08`〜`12`）。**ここはその席。**
+//! それぞれの API を直接叩いて書く（`TR-REC-08`〜`12`）。ここはその席。
 
 use std::path::PathBuf;
 
@@ -31,7 +31,7 @@ impl UnsupportedError {
     }
 }
 
-/// 列挙の失敗。**この OS では常に失敗する。**
+/// 列挙の失敗。この OS では常に失敗する。
 pub type CoreAudioError = UnsupportedError;
 /// キャプチャの失敗。
 pub type CaptureError = UnsupportedError;
@@ -44,15 +44,13 @@ pub const MIX_ALL: usize = usize::MAX;
 /// 開けたキャプチャの条件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureFormat {
-    /// サンプルレート。
     pub sample_rate_hz: u32,
-    /// チャンネル数。
     pub channels: u16,
     /// 1回のコールバックで来る最大フレーム数。
     pub max_frames_per_slice: u32,
 }
 
-/// 開いているキャプチャ。**この OS では作れない。**
+/// 開いているキャプチャ。この OS では作れない。
 #[derive(Debug)]
 pub struct Capture {
     _private: (),
@@ -118,7 +116,7 @@ impl Feed {
     }
 }
 
-/// 鳴っている最中の再生。**この OS では作れない。**
+/// 鳴っている最中の再生。この OS では作れない。
 #[derive(Debug)]
 pub struct Playback {
     _private: (),
@@ -159,9 +157,9 @@ impl Playback {
     }
 }
 
-// **本物と同じ形にする。** どちらも「落とすと止まる」という約束を持つので、
+// 本物と同じ形にする。 どちらも「落とすと止まる」という約束を持つので、
 // 片方に `Drop` が無いと、呼び出し側の `drop(...)` が lint に引っかかる。
-// **構築できない型なので、ここは実際には走らない。**
+// 構築できない型なので、ここは実際には走らない。
 impl Drop for Playback {
     fn drop(&mut self) {}
 }
@@ -173,11 +171,19 @@ impl Drop for Capture {
 /// マイクモード（`TR-REC-11`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicrophoneMode {
-    /// 分からない。**`is_clean()` ではない。**
+    /// 分からない。`is_clean()` ではない。
     Unknown,
 }
 
 impl MicrophoneMode {
+    /// 画面と IPC へ渡す識別子。`Debug` を wire 形式にしない。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "Unknown",
+        }
+    }
+
     /// OS 側の加工が入っていないと言えるか。
     #[must_use]
     pub const fn is_clean(self) -> bool {
@@ -208,7 +214,7 @@ impl GainControl {
 /// 出力の種別（`TR-REC-24`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputKind {
-    /// 分からない。**「スピーカではない」と読まない。**
+    /// 分からない。「スピーカではない」と読まない。
     Unknown,
 }
 

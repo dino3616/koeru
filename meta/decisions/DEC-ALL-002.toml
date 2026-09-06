@@ -12,11 +12,11 @@ options = [
 ]
 selected = '採らない'
 rationale = '''
-AGPL-3.0-or-later で配る以上、**商用利用を制限する条項が1つでも混じると配布できない。**
+AGPL-3.0-or-later で配る以上、商用利用を制限する条項が1つでも混じると配布できない。
 MMS_FA は CC-BY-NC 4.0 で明確に非商用。
 
 ライセンス不明のもの（hikari one crystal ja、reclist-gen-cvvc / new_cvvc_generator、
-moresampler、UTAU 同梱 resampler.exe）は、**不明であること自体が採らない理由。**
+moresampler、UTAU 同梱 resampler.exe）は、不明であること自体が採らない理由。
 「たぶん大丈夫」で載せると、後から外すコストが配布済みの利用者に及ぶ。
 
 moresampler と resampler.exe は Windows 専用でもあるため、

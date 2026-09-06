@@ -1,14 +1,11 @@
 {
-  "extends": ["@tsconfig/strictest/tsconfig.json", "@tsconfig/vite-react/tsconfig.json"],
-  "include": ["**/*.ts", "**/*.tsx"],
-  "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "noEmit": true,
-    "resolveJsonModule": true,
-    "types": ["vite/client", "node"],
-    "paths": {
-      "~/*": ["./src/*"]
-    }
-  }
+  /*
+   * 画面（ブラウザ）と検査スクリプト（Bun）で要る型が違うので分ける。
+   *
+   * 1枚にまとめない。 `types` が合流して、`src/` でも `Bun.file` が
+   * 型検査を通る——実測した。ブラウザで動かないコードが型としては
+   * 正しく見える状態になる。
+   */
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.bun.json" }]
 }

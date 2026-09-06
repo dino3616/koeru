@@ -1,20 +1,20 @@
 //! ガイド音と音高提示（`TR-REC-23`, `TR-REC-24`）。
 //!
-//! **単独音では既定でガイドを使わない**（`TR-REC-23`）。無音の中で1フレーズずつ出す。
-//! ただし**音高は伝える必要がある**ので、持続音だけを短く鳴らす経路は残る。
+//! 単独音では既定でガイドを使わない（`TR-REC-23`）。無音の中で1フレーズずつ出す。
+//! ただし音高は伝える必要があるので、持続音だけを短く鳴らす経路は残る。
 //! 連続音・CVVC・多音階では既定でガイドを使う。
 //!
 //! # 2成分に分ける
 //!
-//! 1. **該当音高の持続音** — 何の高さで歌うか
-//! 2. **拍のクリック** — どの速さで進むか
+//! 1. 該当音高の持続音 — 何の高さで歌うか
+//! 2. 拍のクリック — どの速さで進むか
 //!
 //! それぞれ独立に音量を設定でき、独立に無音にできる（`TR-REC-23`）。
 //! 片方だけ要る人がいる——音高は分かるが拍が要る人、その逆。
 //!
 //! # 同梱する
 //!
-//! **音源ファイルを外から入手させない**（`TR-REC-23`, `TR-PLT-20`）。
+//! 音源ファイルを外から入手させない（`TR-REC-23`, `TR-PLT-20`）。
 //! ここで合成するので、同梱物はゼロ。
 
 use std::f64::consts::TAU;
@@ -30,37 +30,37 @@ pub const DEFAULT_TAIL_MS: f64 = 500.0;
 
 /// ガイドを使わない方式で、次のフレーズへ進むまでの長さ（ミリ秒、`TR-REC-20`）。
 ///
-/// **発話の検出結果を条件にしない。** 声を認識してから進む形にすると、
+/// 発話の検出結果を条件にしない。 声を認識してから進む形にすると、
 /// 小さい声・かすれた声・咳払いで挙動が変わり、何が起きたか説明できなくなる。
 /// 固定長なら、遅れても早くても同じだけ待つ。
 pub const AUTO_ADVANCE_MS: f64 = 3000.0;
 
-/// クリックの長さ（ミリ秒）。**短くする。** 発声に被ると邪魔になる。
+/// クリックの長さ（ミリ秒）。短くする。 発声に被ると邪魔になる。
 const CLICK_MS: f64 = 18.0;
 
 /// クリックの基本周波数（Hz）。
 const CLICK_HZ: f64 = 1800.0;
 
-/// 小節頭のクリック（Hz）。**1拍目だけ高くして、頭が分かるようにする。**
+/// 小節頭のクリック（Hz）。1拍目だけ高くして、頭が分かるようにする。
 const CLICK_ACCENT_HZ: f64 = 2400.0;
 
-/// 持続音の立ち上がり・立ち下がり（ミリ秒）。**ぶつっと切らない。**
+/// 持続音の立ち上がり・立ち下がり（ミリ秒）。ぶつっと切らない。
 const FADE_MS: f64 = 25.0;
 
 /// ガイドの作り方（`TR-REC-23`）。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GuideSpec {
-    /// テンポ（BPM）。**1モーラ = 1拍。**
+    /// テンポ（BPM）。1モーラ = 1拍。
     pub tempo_bpm: f64,
-    /// このフレーズのモーラ数。**録音リストの構造に一致させる**（`TR-REC-23`）。
+    /// このフレーズのモーラ数。録音リストの構造に一致させる（`TR-REC-23`）。
     pub moras: u32,
     /// 発声開始までの助走（ミリ秒）。
     pub lead_in_ms: f64,
     /// 末尾余白（ミリ秒）。
     pub tail_ms: f64,
-    /// 持続音の音量（0.0〜1.0）。**0.0 で無音。**
+    /// 持続音の音量（0.0〜1.0）。0.0 で無音。
     pub tone_level: f64,
-    /// クリックの音量（0.0〜1.0）。**0.0 で無音。**
+    /// クリックの音量（0.0〜1.0）。0.0 で無音。
     pub click_level: f64,
 }
 
@@ -80,7 +80,7 @@ impl Default for GuideSpec {
 impl GuideSpec {
     /// 単独音の音高提示（`TR-REC-23`）。
     ///
-    /// **ガイドは使わないが、音高は伝える。** 持続音だけを、助走なしで短く。
+    /// ガイドは使わないが、音高は伝える。 持続音だけを、助走なしで短く。
     #[must_use]
     pub fn pitch_reference() -> Self {
         Self {
@@ -100,13 +100,13 @@ impl GuideSpec {
 
     /// フレーズ全体の長さ（ミリ秒）。
     ///
-    /// **助走 + モーラ数×拍長 + 末尾余白**（`TR-REC-23`）。
+    /// 助走 + モーラ数×拍長 + 末尾余白（`TR-REC-23`）。
     #[must_use]
     pub fn total_ms(&self) -> f64 {
         self.lead_in_ms + f64::from(self.moras) * self.beat_ms() + self.tail_ms
     }
 
-    /// 発声を始める位置（ミリ秒）。**助走が終わったところ。**
+    /// 発声を始める位置（ミリ秒）。助走が終わったところ。
     #[must_use]
     pub const fn voice_start_ms(&self) -> f64 {
         self.lead_in_ms
@@ -122,7 +122,7 @@ impl GuideSpec {
 /// 次のフレーズへ進むまでの長さ（`TR-REC-20`）。
 ///
 /// ガイドを使うならガイド1フレーズぶん、使わないなら固定長。
-/// **どちらも発話の検出には依らない。**
+/// どちらも発話の検出には依らない。
 #[must_use]
 pub fn advance_ms(spec: Option<&GuideSpec>) -> f64 {
     spec.map_or(AUTO_ADVANCE_MS, GuideSpec::total_ms)
@@ -136,7 +136,7 @@ pub fn midi_to_hz(note: i32) -> f64 {
 
 /// ガイドを1フレーズ合成する。
 ///
-/// **同梱物を要らなくする。** ここで作るので、外部ファイルの入手を求めない。
+/// 同梱物を要らなくする。 ここで作るので、外部ファイルの入手を求めない。
 #[must_use]
 pub fn render(spec: &GuideSpec, midi: i32, rate_hz: u32) -> Vec<f32> {
     let fs = f64::from(rate_hz);
@@ -158,7 +158,7 @@ pub fn render(spec: &GuideSpec, midi: i32, rate_hz: u32) -> Vec<f32> {
         add_clicks(&mut out, spec, fs);
     }
 
-    // **足し合わせて 1.0 を超えたら全体を縮める。** 割れたガイドを鳴らさない。
+    // 足し合わせて 1.0 を超えたら全体を縮める。 割れたガイドを鳴らさない。
     let peak = out.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
     if peak > 1.0 {
         let k = 1.0 / peak;
@@ -169,7 +169,7 @@ pub fn render(spec: &GuideSpec, midi: i32, rate_hz: u32) -> Vec<f32> {
     out
 }
 
-/// 持続音を重ねる。**倍音を少し足す。** 純音は音高が取りにくい。
+/// 持続音を重ねる。倍音を少し足す。 純音は音高が取りにくい。
 fn add_tone(out: &mut [f32], spec: &GuideSpec, midi: i32, fs: f64) {
     let hz = midi_to_hz(midi);
     #[allow(
@@ -195,7 +195,7 @@ fn add_tone(out: &mut [f32], spec: &GuideSpec, midi: i32, fs: f64) {
 
     for (i, v) in out[start..end].iter_mut().enumerate() {
         let t = i as f64 / fs;
-        // 基音 + 2倍音 + 3倍音。**音高が取りやすい厚みにする。**
+        // 基音 + 2倍音 + 3倍音。音高が取りやすい厚みにする。
         let s = (TAU * hz * t).sin()
             + 0.4 * (TAU * hz * 2.0 * t).sin()
             + 0.2 * (TAU * hz * 3.0 * t).sin();
@@ -218,7 +218,7 @@ fn add_clicks(out: &mut [f32], spec: &GuideSpec, fs: f64) {
     )]
     let click_len = ((CLICK_MS / 1000.0) * fs) as usize;
 
-    // 助走のあいだも鳴らす。**いつ始まるかが分からないと助走の意味が無い。**
+    // 助走のあいだも鳴らす。いつ始まるかが分からないと助走の意味が無い。
     let beats_before = (spec.lead_in_ms / spec.beat_ms()).floor();
     #[allow(
         clippy::cast_possible_truncation,
@@ -239,7 +239,7 @@ fn add_clicks(out: &mut [f32], spec: &GuideSpec, fs: f64) {
             reason = "位置はミリ秒から作る非負の値"
         )]
         let at = ((ms / 1000.0) * fs) as usize;
-        // **助走の最後の拍が「次で入る」の合図。** そこだけ高くする。
+        // 助走の最後の拍が「次で入る」の合図。 そこだけ高くする。
         let hz = if b == lead_beats.saturating_sub(1) || b == lead_beats {
             CLICK_ACCENT_HZ
         } else {
@@ -248,7 +248,7 @@ fn add_clicks(out: &mut [f32], spec: &GuideSpec, fs: f64) {
         for i in 0..click_len {
             let Some(v) = out.get_mut(at + i) else { break };
             let t = i as f64 / fs;
-            // 短い減衰。**尾を引かせない。**
+            // 短い減衰。尾を引かせない。
             let env = (1.0 - i as f64 / click_len as f64).powi(2);
             #[allow(
                 clippy::cast_possible_truncation,
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(y.len(), want);
     }
 
-    /// **2成分を独立に無音にできる**（TR-REC-23）。
+    /// 2成分を独立に無音にできる（`TR-REC-23`）。
     #[test]
     fn 成分ごとに無音にできる() {
         let base = GuideSpec {
@@ -356,7 +356,7 @@ mod tests {
         );
     }
 
-    /// **助走のあいだは持続音が鳴らない。** 発声位置から鳴る。
+    /// 助走のあいだは持続音が鳴らない。 発声位置から鳴る。
     #[test]
     fn 持続音は助走のあとから鳴る() {
         let s = GuideSpec {
@@ -371,7 +371,7 @@ mod tests {
         assert!(peak(&y[lead + 2000..lead + 10_000]) > 0.0);
     }
 
-    /// **クリックは助走のあいだも鳴る。** いつ始まるか分からないと助走の意味が無い。
+    /// クリックは助走のあいだも鳴る。 いつ始まるか分からないと助走の意味が無い。
     #[test]
     fn クリックは助走のあいだも鳴る() {
         let s = GuideSpec {
@@ -384,7 +384,7 @@ mod tests {
         assert!(peak(&y[..lead]) > 0.0, "助走の中で鳴ること");
     }
 
-    /// **割れたガイドを鳴らさない。**
+    /// 割れたガイドを鳴らさない。
     #[test]
     fn 足し合わせて割れない() {
         let y = render(
@@ -400,7 +400,7 @@ mod tests {
         assert!(peak(&y) <= 1.0);
     }
 
-    /// 単独音は**ガイドを使わず、音高だけ伝える**（TR-REC-23）。
+    /// 単独音はガイドを使わず、音高だけ伝える（`TR-REC-23`）。
     #[test]
     fn 単独音の音高提示はクリックも助走も無い() {
         let s = GuideSpec::pitch_reference();
@@ -426,7 +426,7 @@ mod tests {
         assert!((midi_to_hz(69) - 440.0).abs() < 1e-9);
         assert!((midi_to_hz(57) - 220.0).abs() < 1e-9);
     }
-    /// **発話の検出結果を条件にしない**（TR-REC-20）。
+    /// 発話の検出結果を条件にしない（`TR-REC-20`）。
     #[test]
     fn 次へ進む長さは固定かガイド1フレーズ分() {
         assert!((advance_ms(None) - AUTO_ADVANCE_MS).abs() < f64::EPSILON);

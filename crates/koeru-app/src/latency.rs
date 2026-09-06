@@ -1,6 +1,6 @@
 //! 試唱レイテンシ（`TR-SYN-33`）。
 //!
-//! **押してから鳴るまでを3つに分ける。** 同じ目標でひとくくりにすると、
+//! 押してから鳴るまでを3つに分ける。 同じ目標でひとくくりにすると、
 //! 初回の重さと2回目以降の軽さのどちらかが説明できなくなる。
 //!
 //! | 場面 | 中央値 | p95 |
@@ -12,8 +12,8 @@
 //!
 //! # 無言の待ち時間にしない
 //!
-//! **初回に限り「録音終了 → 試唱ボタン活性化」の間に、
-//! 前処理の完了を待つ明示的な進捗状態を置く**（`TR-SYN-33`）。
+//! 初回に限り「録音終了 → 試唱ボタン活性化」の間に、
+//! 前処理の完了を待つ明示的な進捗状態を置く（`TR-SYN-33`）。
 //! 何も出ないまま6秒待たされると、壊れたと思われる。
 
 use std::time::Duration;
@@ -21,7 +21,7 @@ use std::time::Duration;
 /// どの場面か（`TR-SYN-33`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Case {
-    /// 初回試唱。**直前の録音の前処理を含む。**
+    /// 初回試唱。直前の録音の前処理を含む。
     First,
     /// 2回目以降。前処理は済んでいて、キャッシュは無い。
     Warm,
@@ -31,12 +31,25 @@ pub enum Case {
     Replay,
 }
 
+impl Case {
+    /// 画面と IPC へ渡す識別子。`Debug` を wire 形式にしない。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::First => "First",
+            Self::Warm => "Warm",
+            Self::Incremental => "Incremental",
+            Self::Replay => "Replay",
+        }
+    }
+}
+
 /// 目標（`TR-SYN-33`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     /// 中央値の目標。
     pub median: Duration,
-    /// p95 の目標。**置いていない場面もある。**
+    /// p95 の目標。置いていない場面もある。
     pub p95: Option<Duration>,
 }
 
@@ -65,7 +78,7 @@ pub const fn budget(case: Case) -> Budget {
 
 /// 測った時間を溜める。
 ///
-/// **中央値と p95 を出すために持つ。** 1回だけ測っても、目標と比べられない。
+/// 中央値と p95 を出すために持つ。 1回だけ測っても、目標と比べられない。
 #[derive(Debug, Default)]
 pub struct Observed {
     samples: Vec<Duration>,
@@ -89,7 +102,7 @@ impl Observed {
         self.samples.len()
     }
 
-    /// 中央値。**1回も測っていなければ `None`。**
+    /// 中央値。1回も測っていなければ `None`。
     #[must_use]
     pub fn median(&self) -> Option<Duration> {
         self.percentile(0.5)
@@ -103,7 +116,7 @@ impl Observed {
 
     /// 目標に収まっているか。
     ///
-    /// **回数が少ないうちは判定しない。** 3回では中央値も p95 も意味が無い。
+    /// 回数が少ないうちは判定しない。 3回では中央値も p95 も意味が無い。
     #[must_use]
     pub fn meets(&self, case: Case, min_samples: usize) -> Option<bool> {
         if self.samples.len() < min_samples {
@@ -133,11 +146,21 @@ impl Observed {
     }
 }
 
+/// ミリ秒を画面へ渡せる幅へ落とす。
+///
+/// `Duration::as_millis` は `u128` を返す。 画面へそのまま渡すと、
+/// JS の数値が正確に持てる範囲（2^53）を超える型を境界に置くことになり、
+/// 生成した TS では `bigint` になる。待ち時間の実測に 49 日の幅は要らない。
+#[must_use]
+pub fn ms_u32(d: std::time::Duration) -> u32 {
+    u32::try_from(d.as_millis()).unwrap_or(u32::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// **目標は要件どおり**（TR-SYN-33）。
+    /// 目標は要件どおり（`TR-SYN-33`）。
     #[test]
     fn 目標が要件どおり() {
         assert_eq!(budget(Case::First).median, Duration::from_secs(6));
@@ -148,7 +171,7 @@ mod tests {
         assert_eq!(budget(Case::Replay).median, Duration::from_millis(100));
     }
 
-    /// **初回だけ p95 が緩い。** 前処理を含むから。
+    /// 初回だけ p95 が緩い。 前処理を含むから。
     #[test]
     fn 初回は他より緩い() {
         assert!(budget(Case::First).median > budget(Case::Warm).median);
@@ -166,7 +189,7 @@ mod tests {
         assert_eq!(o.p95(), Some(Duration::from_millis(5000)));
     }
 
-    /// **回数が少ないうちは判定しない。**
+    /// 回数が少ないうちは判定しない。
     #[test]
     fn 回数が少なければ判定しない() {
         let mut o = Observed::new();
@@ -194,7 +217,7 @@ mod tests {
         assert_eq!(o.count(), 0);
     }
 
-    /// **p95 を置いていない場面では中央値だけで判定する。**
+    /// p95 を置いていない場面では中央値だけで判定する。
     #[test]
     fn p95のない場面は中央値だけ見る() {
         assert_eq!(budget(Case::Incremental).p95, None);
@@ -203,5 +226,14 @@ mod tests {
             o.record(Duration::from_millis(400));
         }
         assert_eq!(o.meets(Case::Incremental, 10), Some(true));
+    }
+
+    /// 待ち時間は溢れても上限に張り付く。0 に巻き戻らない。
+    #[test]
+    fn ミリ秒は溢れても巻き戻らない() {
+        use std::time::Duration;
+        assert_eq!(ms_u32(Duration::from_millis(0)), 0);
+        assert_eq!(ms_u32(Duration::from_millis(1500)), 1500);
+        assert_eq!(ms_u32(Duration::from_secs(60 * 60 * 24 * 365)), u32::MAX);
     }
 }

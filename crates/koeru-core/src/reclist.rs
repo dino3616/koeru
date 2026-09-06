@@ -1,19 +1,19 @@
 //! 録音リストの生成（`TR-RCL-03`, `TR-RCL-08`, `TR-REC-33`, `TR-REC-34`, `TR-REC-35`）。
 //!
-//! **ファイル名は CP932 で表現でき、大小を無視して一意で、前後・連続・全角の空白を持たない**
+//! ファイル名は CP932 で表現でき、大小を無視して一意で、前後・連続・全角の空白を持たない
 //! （`TR-RCL-08`, `TR-REC-33`〜`35`）。ここで作った名前がそのまま配布物に出る。（`TR-RCL-03` / `TR-RCL-08` / `TR-RCL-27`）。
 //!
-//! **インベントリからアルゴリズムで生成する。** 第三者の配布リストを同梱しない
+//! インベントリからアルゴリズムで生成する。 第三者の配布リストを同梱しない
 //! （`TR-RCL-02`）。
 //!
 //! ## 決定性
 //!
-//! **同じプリセットと同じインベントリ版からは、行の順序を含めて常に同一のリストを得る**
+//! 同じプリセットと同じインベントリ版からは、行の順序を含めて常に同一のリストを得る
 //! （`TR-RCL-27`）。乱数を使わない。
 //!
 //! ## ファイル名
 //!
-//! **書き出しは ASCII 固定**（`DEC-PKG-004`）。行テキストは日本語のまま持ち、
+//! 書き出しは ASCII 固定（`DEC-PKG-004`）。行テキストは日本語のまま持ち、
 //! ファイル名は行 ID から ASCII で生成する（`TR-RCL-08`）。
 
 use crate::inventory::{Unit, UnitSet, units};
@@ -21,13 +21,13 @@ use crate::inventory::{Unit, UnitSet, units};
 /// 録音リストの1行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
-    /// 行 ID。**台帳との突き合わせはこれで行う**（`TR-RCL-18`）。
+    /// 行 ID。台帳との突き合わせはこれで行う（`TR-RCL-18`）。
     pub id: String,
-    /// 読み上げるテキスト。**日本語のまま**（`TR-RCL-08`）。
+    /// 読み上げるテキスト。日本語のまま（`TR-RCL-08`）。
     pub text: String,
     /// この行が生む収録単位。
     pub units: Vec<Unit>,
-    /// ファイル名。**ASCII 固定**（`DEC-PKG-004`）。拡張子を含まない。
+    /// ファイル名。ASCII 固定（`DEC-PKG-004`）。拡張子を含まない。
     pub file_stem: String,
 }
 
@@ -66,7 +66,7 @@ const RESERVED: [&str; 22] = [
 
 /// 単独音の録音リストを生成する（`TR-RCL-03`）。
 ///
-/// **同一行内の単位は子音行が揃うように並べる**（例: か き く け こ）。
+/// 同一行内の単位は子音行が揃うように並べる（例: か き く け こ）。
 /// インベントリが既にその順で並んでいるので、順に詰めるだけで揃う。
 #[tracing::instrument(fields(set = ?set, per_row))]
 pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, ReclistError> {
@@ -95,7 +95,7 @@ pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, Reclist
     };
 
     for u in all {
-        // **子音が変わったら行を切る。** そうしないと「こ が」のように行がまたぐ。
+        // 子音が変わったら行を切る。 そうしないと「こ が」のように行がまたぐ。
         let boundary = chunk.first().is_some_and(|f| f.consonant != u.consonant);
         if boundary || chunk.len() >= per_row {
             flush(&mut chunk, &mut rows);
@@ -111,7 +111,7 @@ pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, Reclist
 
 /// ファイル名の5条件を確かめる（`TR-RCL-08`）。
 ///
-/// **失敗を黙って通さない。**
+/// 失敗を黙って通さない。
 fn validate_file_names(rows: &[Row]) -> Result<(), ReclistError> {
     let mut seen = std::collections::BTreeSet::new();
     for r in rows {
@@ -143,7 +143,7 @@ fn validate_file_names(rows: &[Row]) -> Result<(), ReclistError> {
 mod tests {
     use super::*;
 
-    /// **中核 102 単位が全部リストに入る**（`DEC-RCL-004`）。
+    /// 中核 102 単位が全部リストに入る（`DEC-RCL-004`）。
     #[test]
     fn 中核セットの全単位が行に入る() {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -152,7 +152,7 @@ mod tests {
         assert!(rows.len() <= 40, "行数が過大でない: {} 行", rows.len());
     }
 
-    /// **拡張 144 単位が全部リストに入る。**
+    /// 拡張 144 単位が全部リストに入る。
     #[test]
     fn 拡張セットの全単位が行に入る() {
         let rows = generate_single(UnitSet::Extended, 5).expect("生成できる");
@@ -161,7 +161,7 @@ mod tests {
         assert!(rows.len() <= 60, "行数が過大でない: {} 行", rows.len());
     }
 
-    /// **同一行内の単位は子音行が揃う**（TR-RCL-03）。
+    /// 同一行内の単位は子音行が揃う（`TR-RCL-03`）。
     #[test]
     fn 行の中で子音が揃う() {
         for r in generate_single(UnitSet::Core, 5).expect("生成できる") {
@@ -175,7 +175,7 @@ mod tests {
         }
     }
 
-    /// **生成が決定的**（TR-RCL-27）。
+    /// 生成が決定的（`TR-RCL-27`）。
     #[test]
     fn 何度生成しても同じになる() {
         let a = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    /// **ファイル名は ASCII で一意**（TR-RCL-08 / DEC-PKG-004）。
+    /// ファイル名は ASCII で一意（`TR-RCL-08` / `DEC-PKG-004`）。
     #[test]
     fn ファイル名は_ascii_で一意() {
         let rows = generate_single(UnitSet::Extended, 5).expect("生成できる");
@@ -194,7 +194,7 @@ mod tests {
         }
     }
 
-    /// **読み上げるテキストは日本語のまま**（TR-RCL-08）。
+    /// 読み上げるテキストは日本語のまま（`TR-RCL-08`）。
     #[test]
     fn 読み上げテキストは日本語のまま() {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(total, 102);
     }
 
-    /// **予約名を弾く**（TR-RCL-08）。
+    /// 予約名を弾く（`TR-RCL-08`）。
     #[test]
     fn 予約名は弾かれる() {
         let rows = vec![Row {
@@ -238,7 +238,7 @@ mod tests {
         );
     }
 
-    /// **大文字小文字だけが違う名前も重複として弾く**（TR-REC-34）。
+    /// 大文字小文字だけが違う名前も重複として弾く（`TR-REC-34`）。
     #[test]
     fn 大文字小文字だけの違いも重複扱い() {
         let mk = |s: &str| Row {

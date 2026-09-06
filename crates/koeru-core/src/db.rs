@@ -1,27 +1,27 @@
 //! プロジェクトの永続化（`TR-REC-27`, `TR-REC-29`, `TR-REC-31`, `TR-RCL-23`）。
 //!
-//! **8分から3時間までを同じ機構で扱う**（`TR-REC-29`）。長さで経路を分けない——
+//! 8分から3時間までを同じ機構で扱う（`TR-REC-29`）。長さで経路を分けない——
 //! 分けると、短いほうでしか試されない経路ができる。
 //!
-//! **行単位で中断・再開でき、再開点と経過をここから復元する**（`TR-RCL-23`）。
+//! 行単位で中断・再開でき、再開点と経過をここから復元する（`TR-RCL-23`）。
 //!
-//! **状態の単一の真実**（`TR-REC-31`）。`masters/` のファイル存在をスキャンして
+//! 状態の単一の真実（`TR-REC-31`）。`masters/` のファイル存在をスキャンして
 //! 導出しない。試唱の可否・再開位置・書き出しの可否をすべてここから決める。
 //!
 //! ## テイクを確定させる順序
 //!
-//! **ファイル確定 → DB コミット**（`DEC-REC-004`、`project-storage.fsl` で `proved`）。
+//! ファイル確定 → DB コミット（`DEC-REC-004`、`project-storage.fsl` で `proved`）。
 //! 逆にすると、ファイルの無い行が DB に残る。テイクは録音という
-//! 「やり直しが高い操作」の成果物なので、**行だけが残って音が無い状態は復旧できない。**
+//! 「やり直しが高い操作」の成果物なので、行だけが残って音が無い状態は復旧できない。
 //!
-//! この向きは [`Ledger::commit_take`] が構造的に保証する。**確定済みのパスを
-//! 受け取ってからしか呼べない。**
+//! この向きは [`Ledger::commit_take`] が構造的に保証する。確定済みのパスを
+//! 受け取ってからしか呼べない。
 //!
 //! ## 孤児
 //!
-//! rename が済んでコミット前に落ちると、**確定済みの WAV があるのに行が無い状態**が残る
-//! （`Q-REC-005` → `DEC-REC-004`）。[`Ledger::find_orphans`] が見つけて
-//! **復旧候補として提示する。本人が採るか捨てるまで消さない。**
+//! rename が済んでコミット前に落ちると、確定済みの WAV があるのに行が無い状態が残る
+//! （`DEC-REC-004` が決めた順序の帰結）。[`Ledger::find_orphans`] が見つけて
+//! 復旧候補として提示する。本人が採るか捨てるまで消さない。
 
 use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
 use crate::calibration::Calibration;
@@ -43,10 +43,10 @@ use std::path::Path;
 
 /// 無音のピークを表す値（dBFS）。
 ///
-/// **SQLite に `-inf` は入らない。** 往復させるための番人。
+/// SQLite に `-inf` は入らない。 往復させるための番人。
 const SILENT_PEAK_DBFS: f64 = -1000.0;
 
-/// マイグレーションを実行ファイルへ埋め込む。**外部ファイルに依存しない**（`TR-PLT-20`）。
+/// マイグレーションを実行ファイルへ埋め込む。外部ファイルに依存しない（`TR-PLT-20`）。
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 /// 台帳の操作が失敗した理由。
@@ -81,7 +81,7 @@ pub enum LedgerError {
 }
 
 impl LedgerError {
-    /// 送信層へ載せてよい固定文字列。**`Display` を送らない**（パスが入りうる）。
+    /// 送信層へ載せてよい固定文字列。`Display` を送らない（パスが入りうる）。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -110,7 +110,7 @@ pub enum RowState {
 }
 
 impl RowState {
-    /// 台帳での表記。**送信してよい固定語彙。**
+    /// 台帳での表記。送信してよい固定語彙。
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -135,7 +135,7 @@ impl RowState {
 #[derive(Debug, Clone)]
 pub struct SessionSnapshot {
     pub started_at: String,
-    /// **永続識別子。表示名は保存しない**（`TR-REC-03`）。
+    /// 永続識別子。表示名は保存しない（`TR-REC-03`）。
     pub device_id: String,
     pub sample_rate_hz: i32,
     pub channels: i32,
@@ -143,9 +143,9 @@ pub struct SessionSnapshot {
     pub effects_state: String,
     /// 実際に接続した経路（`TR-REC-12`）。
     pub route: String,
-    /// モノラルの元にしたチャンネル（`TR-REC-06`）。**-1 は混ぜた。**
+    /// モノラルの元にしたチャンネル（`TR-REC-06`）。-1 は混ぜた。
     pub source_channel: i32,
-    /// マスターとして保存したレート。**常に 44100**（`TR-REC-01`, `TR-REC-02`）。
+    /// マスターとして保存したレート。常に 44100（`TR-REC-01`, `TR-REC-02`）。
     ///
     /// [`Self::sample_rate_hz`] はネイティブレート。**両方持って初めて、
     /// 一致／不一致が後から分かる**（`TR-REC-02` が記録を要求している）。
@@ -154,14 +154,14 @@ pub struct SessionSnapshot {
     pub resampler: String,
     /// 上流（ドライバ・APO）の変換の有無。
     ///
-    /// **`unknown` と明記する**（`TR-REC-02`）。`MATCH_FORMAT` は
-    /// ドライバと APO が対応する場合にのみ有効で、**アプリからは確かめられない。**
+    /// `unknown` と明記する（`TR-REC-02`）。`MATCH_FORMAT` は
+    /// ドライバと APO が対応する場合にのみ有効で、アプリからは確かめられない。
     pub upstream_conversion: String,
 }
 
 /// 確定したテイクの記録。
 ///
-/// **`rel_path` は既に確定済み**（fsync + rename が済んでいる）。
+/// `rel_path` は既に確定済み（fsync + rename が済んでいる）。
 /// この型を作れること自体が、順序を守った証拠になる。
 #[derive(Debug, Clone)]
 pub struct FinalizedTake {
@@ -186,7 +186,7 @@ pub struct Take {
 
 /// 行と、その行に積んだテイク（`TR-REC-21`, `TR-RCL-25`）。
 ///
-/// **録り直しは上書きしない。** 世代として積み、採用テイクだけが
+/// 録り直しは上書きしない。 世代として積み、採用テイクだけが
 /// 配布パッケージのファイル名（＝行テキスト）を持つ。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowTakes {
@@ -194,9 +194,9 @@ pub struct RowTakes {
     /// 読み上げる文字列。
     pub text: String,
     pub state: RowState,
-    /// 世代順。**非採用も含む**——いつでも採用を戻せる（`TR-REC-21`）。
+    /// 世代順。非採用も含む——いつでも採用を戻せる（`TR-REC-21`）。
     pub takes: Vec<Take>,
-    /// いま採用しているテイク。**無ければ未収録。**
+    /// いま採用しているテイク。無ければ未収録。
     pub adopted: Option<i32>,
 }
 
@@ -205,7 +205,7 @@ pub struct Ledger {
     conn: SqliteConnection,
 }
 
-// `SqliteConnection` は Debug を実装しない。**接続の中身は出さない**
+// `SqliteConnection` は Debug を実装しない。接続の中身は出さない
 // （パスやクエリが入りうる）ので、型名だけを出す。
 impl std::fmt::Debug for Ledger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -216,7 +216,7 @@ impl std::fmt::Debug for Ledger {
 impl Ledger {
     /// 開いてスキーマを適用する。
     ///
-    /// **WAL モードにする**（`TR-REC-27`）。書き込み中に読めるようにして、
+    /// WAL モードにする（`TR-REC-27`）。書き込み中に読めるようにして、
     /// 収録とバックグラウンドの解析が互いを待たないようにする。
     #[tracing::instrument(skip(path), err)]
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -226,7 +226,7 @@ impl Ledger {
         diesel::sql_query("PRAGMA journal_mode = WAL")
             .execute(&mut conn)
             .map_err(db("wal"))?;
-        // **外部キーを効かせる。** SQLite は既定で無効。
+        // 外部キーを効かせる。 SQLite は既定で無効。
         diesel::sql_query("PRAGMA foreign_keys = ON")
             .execute(&mut conn)
             .map_err(db("foreign_keys"))?;
@@ -242,7 +242,7 @@ impl Ledger {
 
     /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。
     ///
-    /// **生成が決定的なので、並び順もそのまま持つ**（`TR-RCL-27`）。
+    /// 生成が決定的なので、並び順もそのまま持つ（`TR-RCL-27`）。
     #[tracing::instrument(skip(self, list), fields(rows = list.len(), tone), err)]
     pub fn install_reclist(&mut self, list: &[ReclistRow], tone: i32) -> Result<()> {
         self.conn
@@ -287,7 +287,7 @@ impl Ledger {
                         sessions::effects_state.eq(&s.effects_state),
                         sessions::route.eq(&s.route),
                         sessions::source_channel.eq(s.source_channel),
-                        // **変換の記録**（`TR-REC-02`）。
+                        // 変換の記録（`TR-REC-02`）。
                         sessions::master_rate_hz.eq(s.master_rate_hz),
                         sessions::resampler.eq(&s.resampler),
                         sessions::upstream_conversion.eq(&s.upstream_conversion),
@@ -301,10 +301,10 @@ impl Ledger {
             .map_err(db("start_session"))
     }
 
-    /// **確定済みのテイクを台帳へ載せる。**
+    /// 確定済みのテイクを台帳へ載せる。
     ///
     /// 呼べるのは fsync と rename が済んだあとだけ（`DEC-REC-004`）。
-    /// 世代は行ごとに単調に増える。**採用テイクを新しい方へ切り替える**（`TR-REC-21`）。
+    /// 世代は行ごとに単調に増える。採用テイクを新しい方へ切り替える（`TR-REC-21`）。
     #[tracing::instrument(skip(self, t), fields(row = %t.row_id, frames = t.frames), err)]
     pub fn commit_take(&mut self, t: &FinalizedTake) -> Result<i32> {
         let exists: i64 = rows::table
@@ -340,7 +340,7 @@ impl Ledger {
                     .order(takes::id.desc())
                     .first(c)?;
 
-                // **採用を新しい方へ切り替える。過去のテイクは残る**（TR-REC-21）。
+                // 採用を新しい方へ切り替える。過去のテイクは残る（`TR-REC-21`）。
                 diesel::insert_into(adopted_takes::table)
                     .values((
                         adopted_takes::row_id.eq(&t.row_id),
@@ -361,7 +361,7 @@ impl Ledger {
 
     /// 取りこぼしを検出したテイクを無効にする（`TR-REC-07`）。
     ///
-    /// **ファイルは消さない。** 過去のテイクは残す（`TR-REC-21`）。
+    /// ファイルは消さない。 過去のテイクは残す（`TR-REC-21`）。
     pub fn invalidate_take(&mut self, take_id: i32) -> Result<()> {
         let n = diesel::update(takes::table.filter(takes::id.eq(take_id)))
             .set(takes::invalid.eq(1))
@@ -375,7 +375,7 @@ impl Ledger {
 
     /// 採用テイクを切り替える（`TR-RCL-25`）。
     ///
-    /// **カバレッジは変わらない。** 行が生む単位は行が持っていて、テイクに依らない。
+    /// カバレッジは変わらない。 行が生む単位は行が持っていて、テイクに依らない。
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
         let ok: i64 = takes::table
             .filter(takes::id.eq(take_id))
@@ -438,7 +438,7 @@ impl Ledger {
             .map_err(db("takes_of"))
     }
 
-    /// **収録済みの単位集合。** 採用テイクを持つ行の単位の和集合として導出する
+    /// 収録済みの単位集合。 採用テイクを持つ行の単位の和集合として導出する
     /// （`TR-RCL-18`。二重に保持しない）。
     pub fn covered_units(&mut self) -> Result<BTreeSet<String>> {
         row_units::table
@@ -451,7 +451,7 @@ impl Ledger {
             .map_err(db("covered_units"))
     }
 
-    /// 次に録る行（`TR-REC-18`）。**未録音のうち並び順が最も早いもの。**
+    /// 次に録る行（`TR-REC-18`）。未録音のうち並び順が最も早いもの。
     pub fn next_row(&mut self) -> Result<Option<(String, String)>> {
         rows::table
             .filter(rows::state.eq(RowState::Unrecorded.as_str()))
@@ -464,15 +464,15 @@ impl Ledger {
 
     /// 全部の行と、それぞれのテイク（`TR-REC-21`, `TR-RCL-25`）。
     ///
-    /// **録り直しの入口。** `next_row` は未収録しか返さないので、
-    /// これが無いと**一度録った行を二度と選べない。**
+    /// 録り直しの入口。 `next_row` は未収録しか返さないので、
+    /// これが無いと一度録った行を二度と選べない。
     ///
     /// # Errors
     ///
     /// 台帳を読めないとき。
     #[tracing::instrument(skip(self), err)]
     pub fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
-        // **3クエリで済ませる。** 行ごとに引くと、行数ぶん往復する。
+        // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
         let rows = rows::table
             .order(rows::ordinal.asc())
             .select((rows::id, rows::text, rows::state))
@@ -525,7 +525,7 @@ impl Ledger {
 
     /// 台帳が知らない確定済みファイルを見つける（`DEC-REC-004` の孤児）。
     ///
-    /// **提示するだけ。DB へ自動で書き戻さない**（`TR-REC-31` の「自動修復しない」）。
+    /// 提示するだけ。DB へ自動で書き戻さない（`TR-REC-31` の「自動修復しない」）。
     /// 本人が採るか捨てるまで消えない。
     #[tracing::instrument(skip(self, on_disk), fields(files = on_disk.len()), err)]
     pub fn find_orphans(&mut self, on_disk: &[String]) -> Result<Vec<String>> {
@@ -544,7 +544,7 @@ impl Ledger {
 
     /// oto の5値を保存する（`TR-ALN-13`）。
     ///
-    /// **エイリアス単位。** 単独音でも1ファイルに複数モーラが入るので
+    /// エイリアス単位。 単独音でも1ファイルに複数モーラが入るので
     /// （`TR-RCL-03`、`DEC-ALN-013`）、1テイクに複数のエントリがぶら下がる。
     /// 同じ WAV を複数のエイリアスが別の位置で指す。
     pub fn put_oto(
@@ -585,7 +585,7 @@ impl Ledger {
 
     /// 録音停止時の解析値を保存する（`TR-PKG-05`, `TR-PKG-42`）。
     ///
-    /// **ここで入れたものを書き出し時に使う。WAV を読み直さない。**
+    /// ここで入れたものを書き出し時に使う。WAV を読み直さない。
     #[tracing::instrument(skip(self, a), fields(take_id), err)]
     pub fn put_analysis(&mut self, take_id: i32, a: &TakeAnalysis) -> Result<()> {
         let f0 = f64s_to_bytes(&a.frq.f0);
@@ -615,7 +615,7 @@ impl Ledger {
         Ok(())
     }
 
-    /// 解析値を引く。**無ければ `None`。** 解析が無いことは失敗ではない
+    /// 解析値を引く。無ければ `None`。 解析が無いことは失敗ではない
     /// （古いプロジェクトや、まだ解析が終わっていないテイク）。
     #[tracing::instrument(skip(self), fields(take_id), err)]
     pub fn analysis_of(&mut self, take_id: i32) -> Result<Option<TakeAnalysis>> {
@@ -647,10 +647,10 @@ impl Ledger {
 
     /// 書き出しを1件記録する（`TR-PKG-44`）。
     ///
-    /// **連番と書き出し先の名前はここが決める。** 呼び出し側に採番させると、
+    /// 連番と書き出し先の名前はここが決める。 呼び出し側に採番させると、
     /// 同じ番号のリリースが2つできる。返るのは確定したレコード。
     ///
-    /// **書き出し先の名前は過去のものと衝突しない**（連番が先頭に付く）。
+    /// 書き出し先の名前は過去のものと衝突しない（連番が先頭に付く）。
     #[tracing::instrument(skip(self, r), err)]
     pub fn record_release(&mut self, r: &NewRelease, ext: &str) -> Result<Release> {
         let next = releases::table
@@ -691,7 +691,7 @@ impl Ledger {
 
     /// 書き出しの履歴を古い順に引く（`TR-PKG-44`）。
     ///
-    /// **過去のリリースはここからだけ取り出せる**（`TR-PKG-46`）。
+    /// 過去のリリースはここからだけ取り出せる（`TR-PKG-46`）。
     #[tracing::instrument(skip(self), err)]
     pub fn releases(&mut self) -> Result<Vec<Release>> {
         let rows = releases::table
@@ -736,7 +736,7 @@ impl Ledger {
                 )| Release {
                     seq,
                     version,
-                    // **保存した方式名が読めなくても履歴は出す。**
+                    // 保存した方式名が読めなくても履歴は出す。
                     // 読めないものを落とすと、その回に何を配ったかが辿れなくなる。
                     method: parse_method_or_single(&method),
                     alias_count,
@@ -750,7 +750,7 @@ impl Ledger {
             .collect())
     }
 
-    /// 一番新しい書き出し。**外部編集の検出はここと突き合わせる**（`TR-PKG-48`）。
+    /// 一番新しい書き出し。外部編集の検出はここと突き合わせる（`TR-PKG-48`）。
     #[tracing::instrument(skip(self), err)]
     pub fn latest_release(&mut self) -> Result<Option<Release>> {
         Ok(self.releases()?.pop())
@@ -758,7 +758,7 @@ impl Ledger {
 
     /// 書き出し履歴があるか（`TR-PKG-33` の `handoff_state`）。
     ///
-    /// **完成判定はこれを参照しない。**
+    /// 完成判定はこれを参照しない。
     #[tracing::instrument(skip(self), err)]
     pub fn has_been_exported(&mut self) -> Result<bool> {
         let n: i64 = releases::table
@@ -768,7 +768,7 @@ impl Ledger {
         Ok(n > 0)
     }
 
-    /// まだ採用テイクが無い行の数。**残量の見積もりに使う**（`REQ-REC-110`）。
+    /// まだ採用テイクが無い行の数。残量の見積もりに使う（`REQ-REC-110`）。
     #[tracing::instrument(skip(self), err)]
     pub fn remaining_rows(&mut self) -> Result<u64> {
         let n: i64 = rows::table
@@ -781,7 +781,7 @@ impl Ledger {
 
     /// テイクの計測値を保存する（`TR-REC-16`, `TR-REC-07`, `TR-REC-19`, `TR-REC-38`）。
     ///
-    /// **測った値で自動的に無効化しない。** 自動無効化は取りこぼし（`TR-REC-07`）と
+    /// 測った値で自動的に無効化しない。 自動無効化は取りこぼし（`TR-REC-07`）と
     /// デバイス消失（`TR-REC-04`）の2つだけで、それは呼び出し側が
     /// [`Ledger::invalidate_take`] を明示的に呼ぶ。
     #[tracing::instrument(skip(self, m), fields(take_id), err)]
@@ -793,7 +793,7 @@ impl Ledger {
         preroll_frames: usize,
         guide_offset_frames: Option<i64>,
     ) -> Result<()> {
-        // **SQLite に -inf は入らない。** 無音のピークを -1000 dBFS で表す。
+        // SQLite に -inf は入らない。 無音のピークを -1000 dBFS で表す。
         let peak = if m.peak_dbfs.is_finite() {
             m.peak_dbfs
         } else {
@@ -809,7 +809,7 @@ impl Ledger {
             take_metrics::trailing_margin_ms.eq(m.trailing_margin_ms),
             take_metrics::discontinuities.eq(i32::try_from(discontinuities).unwrap_or(i32::MAX)),
             take_metrics::preroll_frames.eq(i32::try_from(preroll_frames).unwrap_or(i32::MAX)),
-            // **参考値**（TR-REC-26）。切り出しの根拠にしない。
+            // 参考値（`TR-REC-26`）。切り出しの根拠にしない。
             take_metrics::guide_offset_frames.eq(guide_offset_frames),
         );
         diesel::insert_into(take_metrics::table)
@@ -859,7 +859,7 @@ impl Ledger {
 
     /// 採用テイクのうち、フルスケールに達しているものを挙げる（`TR-REC-16`）。
     ///
-    /// **書き出しの直前に一度だけ呼ぶ。** 収録中には呼ばない
+    /// 書き出しの直前に一度だけ呼ぶ。 収録中には呼ばない
     /// ——リアルタイムの判定はスコープ外で、ここは「壊れた成果物が完成に
     /// 到達する経路を塞ぐ」ためだけの関門。
     #[tracing::instrument(skip(self), err)]
@@ -883,7 +883,7 @@ impl Ledger {
 
     /// 校正の結果を保存する（`TR-REC-15`）。
     ///
-    /// **デバイスごとに1つ。** 同じプロジェクトを別のマイクで続けることがあり、
+    /// デバイスごとに1つ。 同じプロジェクトを別のマイクで続けることがあり、
     /// そのときに前のマイクの値を当てはめても意味が無い。
     #[tracing::instrument(skip(self, c), err)]
     pub fn put_calibration(&mut self, c: &Calibration, measured_at: &str) -> Result<()> {
@@ -909,7 +909,7 @@ impl Ledger {
         Ok(())
     }
 
-    /// そのデバイスの校正結果を引く。**まだ校正していなければ `None`。**
+    /// そのデバイスの校正結果を引く。まだ校正していなければ `None`。
     #[tracing::instrument(skip(self), err)]
     pub fn calibration_of(&mut self, device_id: &str) -> Result<Option<Calibration>> {
         let row = calibrations::table
@@ -943,7 +943,7 @@ impl Ledger {
 
     /// 課題曲を入れる（`TR-RCL-12`）。
     ///
-    /// **同じ id なら差し替える。** 同梱曲を毎回入れ直せるようにしておく。
+    /// 同じ id なら差し替える。 同梱曲を毎回入れ直せるようにしておく。
     #[tracing::instrument(skip(self, song), fields(id, notes = song.notes.len()), err)]
     pub fn put_song(&mut self, id: &str, song: &Song, bundled: bool, added_at: &str) -> Result<()> {
         self.conn
@@ -984,7 +984,7 @@ impl Ledger {
 
     /// 曲バンクの中身（`TR-RCL-12`）。
     ///
-    /// **バンクが空でも成立する。** そのとき進捗はカバレッジだけで読む。
+    /// バンクが空でも成立する。 そのとき進捗はカバレッジだけで読む。
     #[tracing::instrument(skip(self), err)]
     pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
         let heads = songs::table
@@ -1023,7 +1023,7 @@ impl Ledger {
 
     /// 曲をバンクから外す／戻す（`TR-RCL-12`）。
     ///
-    /// **曲そのものは消さない。** 同梱分も本人が外せる。
+    /// 曲そのものは消さない。 同梱分も本人が外せる。
     #[tracing::instrument(skip(self), err)]
     pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
         diesel::update(songs::table.filter(songs::id.eq(id)))
@@ -1035,9 +1035,9 @@ impl Ledger {
 
     /// その収録単位を鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
     ///
-    /// **採用テイクだけ。** 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
-    /// 同じ単位を複数の行が持つときは、**先に来る行のものを使う**（決定的にする）。
-    #[tracing::instrument(skip(self), err)]
+    /// 採用テイクだけ。 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
+    /// 同じ単位を複数の行が持つときは、先に来る行のものを使う（決定的にする）。
+    #[tracing::instrument(skip(self, kana), err)]
     pub fn take_for_unit(&mut self, kana: &str) -> Result<Option<Take>> {
         let row = row_units::table
             .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
@@ -1070,7 +1070,7 @@ impl Ledger {
         )
     }
 
-    /// テイクを1件引く。**無ければ `None`。**
+    /// テイクを1件引く。無ければ `None`。
     #[tracing::instrument(skip(self), fields(take_id), err)]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
         takes::table
@@ -1098,8 +1098,8 @@ impl Ledger {
             })
     }
 
-    /// テイクに紐づく oto の5値を引く。**まだ無ければ `None`。**
-    #[tracing::instrument(skip(self), fields(take_id), err)]
+    /// テイクに紐づく oto の5値を引く。まだ無ければ `None`。
+    #[tracing::instrument(skip(self, alias), fields(take_id), err)]
     /// そのテイクのエイリアスに対する oto（`DEC-ALN-013`）。
     pub fn oto_of(&mut self, take_id: i32, alias: &str) -> Result<Option<koeru_oto::Oto>> {
         oto_values::table
@@ -1132,7 +1132,7 @@ impl Ledger {
 
     /// そのテイクに紐づく oto を全部（`DEC-ALN-013`）。
     ///
-    /// **並びはエイリアス順で常に同じ**（`TR-ALN-29` の決定性）。
+    /// 並びはエイリアス順で常に同じ（`TR-ALN-29` の決定性）。
     pub fn otos_of(&mut self, take_id: i32) -> Result<Vec<(String, koeru_oto::Oto)>> {
         oto_values::table
             .filter(oto_values::take_id.eq(take_id))
@@ -1198,7 +1198,7 @@ pub mod koeru_oto {
 
 /// 保存されていた方式名を戻す。
 ///
-/// **知らない名前でも履歴を落とさない。** その回に何を配ったかが辿れなくなるほうが痛い。
+/// 知らない名前でも履歴を落とさない。 その回に何を配ったかが辿れなくなるほうが痛い。
 fn parse_method_or_single(s: &str) -> Method {
     match s {
         "sequential" => Method::Sequential,
@@ -1267,7 +1267,7 @@ mod tests {
         assert_eq!(text, list[0].text);
     }
 
-    /// **確定済みのテイクだけが台帳に載る**（DEC-REC-004）。
+    /// 確定済みのテイクだけが台帳に載る（`DEC-REC-004`）。
     #[test]
     fn テイクを確定させると行が録音済みになる() {
         let (mut l, sid, list) = ready();
@@ -1277,7 +1277,7 @@ mod tests {
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Recorded);
     }
 
-    /// **台帳に無い行のテイクは受け付けない。**
+    /// 台帳に無い行のテイクは受け付けない。
     #[test]
     fn 知らない行のテイクは弾く() {
         let (mut l, sid, _) = ready();
@@ -1287,7 +1287,7 @@ mod tests {
         ));
     }
 
-    /// **録り直しは上書きせず、世代として積む**（TR-REC-21）。
+    /// 録り直しは上書きせず、世代として積む（`TR-REC-21`）。
     #[test]
     fn 録り直しても過去のテイクが残る() {
         let (mut l, sid, list) = ready();
@@ -1301,10 +1301,10 @@ mod tests {
         assert_ne!(first, second);
     }
 
-    /// **一度録った行も一覧に出る**（`TR-REC-21`, `TR-RCL-25`）。
+    /// 一度録った行も一覧に出る（`TR-REC-21`, `TR-RCL-25`）。
     ///
     /// `next_row` は未収録しか返さないので、これが無いと
-    /// **録り直しの入口が存在しない。** 実際に無くて困った。
+    /// 録り直しの入口が存在しない。 実際に無くて困った。
     #[test]
     fn 録り直しの一覧に全部の行が出る() {
         let (mut l, sid, list) = ready();
@@ -1322,7 +1322,7 @@ mod tests {
         assert_eq!(r.takes[1].generation, 2);
         assert_eq!(r.adopted, Some(second), "採用は新しい方（TR-REC-21）");
 
-        // **採用を戻せる。**
+        // 採用を戻せる。
         l.adopt_take(row, first).expect("戻せる");
         let rows = l.rows_with_takes().expect("引ける");
         let r = rows.iter().find(|r| &r.row_id == row).expect("ある");
@@ -1335,7 +1335,7 @@ mod tests {
         assert_eq!(other.adopted, None);
     }
 
-    /// **一覧は並び順で返す。** 画面が並べ直さなくてよい。
+    /// 一覧は並び順で返す。 画面が並べ直さなくてよい。
     #[test]
     fn 録り直しの一覧は並び順() {
         let (mut l, _, list) = ready();
@@ -1345,7 +1345,7 @@ mod tests {
         assert_eq!(ids, want);
     }
 
-    /// **採用テイクを切り替えてもカバレッジは変わらない**（TR-RCL-25）。
+    /// 採用テイクを切り替えてもカバレッジは変わらない（`TR-RCL-25`）。
     #[test]
     fn 採用を切り替えてもカバレッジが変わらない() {
         let (mut l, sid, list) = ready();
@@ -1357,7 +1357,7 @@ mod tests {
         assert_eq!(l.covered_units().expect("引ける"), after_second);
     }
 
-    /// **収録済み単位は採用テイクを持つ行から導出する**（TR-RCL-18）。
+    /// 収録済み単位は採用テイクを持つ行から導出する（`TR-RCL-18`）。
     #[test]
     fn カバレッジは採用テイクのある行から導かれる() {
         let (mut l, sid, list) = ready();
@@ -1369,7 +1369,7 @@ mod tests {
         assert_eq!(covered, expected, "その行が生む単位だけが入る");
     }
 
-    /// **無効にしたテイクはカバレッジから外れる**（TR-REC-07）。
+    /// 無効にしたテイクはカバレッジから外れる（`TR-REC-07`）。
     #[test]
     fn 無効にしたテイクは被覆に数えない() {
         let (mut l, sid, list) = ready();
@@ -1385,7 +1385,7 @@ mod tests {
         );
     }
 
-    /// **孤児を見つけて提示する。消さない**（DEC-REC-004）。
+    /// 孤児を見つけて提示する。消さない（`DEC-REC-004`）。
     #[test]
     fn 台帳に無い確定済みファイルを孤児として挙げる() {
         let (mut l, sid, list) = ready();
@@ -1399,7 +1399,7 @@ mod tests {
         assert_eq!(orphans, vec!["masters/落ちて残ったもの.wav".to_string()]);
     }
 
-    /// **次の行は未録音のうち並び順が最も早いもの**（TR-REC-18）。
+    /// 次の行は未録音のうち並び順が最も早いもの（`TR-REC-18`）。
     #[test]
     fn 録るたびに次の行が進む() {
         let (mut l, sid, list) = ready();
@@ -1426,7 +1426,7 @@ mod tests {
         l.put_oto(id, "か", &o, 0.9, false).expect("保存できる");
         l.put_oto(id, "か", &o, 0.5, true).expect("上書きできる");
 
-        // **1テイクに複数のエントリを持てる**（`DEC-ALN-013`）。
+        // 1テイクに複数のエントリを持てる（`DEC-ALN-013`）。
         // 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03`）。
         let mut o2 = o;
         o2.offset_ms = 500.0;
@@ -1435,12 +1435,12 @@ mod tests {
 
         let all = l.otos_of(id).expect("引ける");
         assert_eq!(all.len(), 2, "1テイクに2つ入っている");
-        // **並びはエイリアス順で常に同じ**（`TR-ALN-29`）。
+        // 並びはエイリアス順で常に同じ（`TR-ALN-29`）。
         assert_eq!(all[0].0, "か");
         assert_eq!(all[1].0, "き");
         assert!((all[1].1.offset_ms - 500.0).abs() < 1e-9);
 
-        // **名前で引ける。**
+        // 名前で引ける。
         assert!(
             (l.oto_of(id, "き").expect("引ける").expect("ある").offset_ms - 500.0).abs() < 1e-9
         );
@@ -1460,15 +1460,15 @@ mod tests {
         ));
     }
 
-    /// **行が生む単位は行が持ち、テイクに依らない。**
+    /// 行が生む単位は行が持ち、テイクに依らない。
     #[test]
     fn 行の単位はテイクと独立している() {
         let (mut l, _sid, list) = ready();
         let before = l.units_of(&list[0].id).expect("引ける");
         assert_eq!(before.len(), list[0].units.len());
     }
-    /// **解析値を録音時に確定させ、書き出しと再開で WAV を読み直さない**
-    /// （TR-PKG-05, TR-PKG-42）。
+    /// 解析値を録音時に確定させ、書き出しと再開で WAV を読み直さない
+    /// （`TR-PKG-05`, `TR-PKG-42`）。
     #[test]
     fn 解析値が往復する() {
         let (mut l, sid, list) = ready();
@@ -1488,7 +1488,7 @@ mod tests {
         assert_eq!(got.thumbnail, a.thumbnail);
     }
 
-    /// **解析がまだ無いことは失敗ではない。**
+    /// 解析がまだ無いことは失敗ではない。
     #[test]
     fn 解析が無いテイクは無しを返す() {
         let (mut l, sid, list) = ready();
@@ -1544,7 +1544,7 @@ mod tests {
         );
     }
 
-    /// **過去のバージョンの ZIP を上書きしない**（TR-PKG-44）。
+    /// 過去のバージョンの ZIP を上書きしない（`TR-PKG-44`）。
     /// 同じバージョン文字列で二度書き出しても、名前が別になる。
     #[test]
     fn 同じバージョン文字列でも書き出し先が衝突しない() {
@@ -1560,7 +1560,7 @@ mod tests {
         assert_eq!(b.archive_name, "000002-v1.0.zip");
     }
 
-    /// **リリースレコードは不変**（TR-PKG-44）。規律ではなくトリガが止める。
+    /// リリースレコードは不変（`TR-PKG-44`）。規律ではなくトリガが止める。
     #[test]
     fn リリースレコードは書き換えられない() {
         let (mut l, _sid, _list) = ready();
@@ -1603,7 +1603,7 @@ mod tests {
         );
     }
 
-    /// **書き出し履歴は完成判定と直交する**（TR-PKG-33, TR-PKG-36）。
+    /// 書き出し履歴は完成判定と直交する（`TR-PKG-33`, `TR-PKG-36`）。
     #[test]
     fn 書き出し履歴の有無だけが手渡し状態を決める() {
         let (mut l, _sid, _list) = ready();
@@ -1613,7 +1613,7 @@ mod tests {
         assert!(l.has_been_exported().expect("引ける"));
     }
 
-    /// **知らない方式名でも履歴を落とさない。**
+    /// 知らない方式名でも履歴を落とさない。
     #[test]
     fn 読めない方式名でも履歴が残る() {
         let (mut l, _sid, _list) = ready();

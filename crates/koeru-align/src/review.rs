@@ -1,24 +1,24 @@
 //! 確認キューと、人の編集の扱い（`TR-ALN-25`〜`27`, `TR-ALN-30`）。
 //!
-//! **[`specs/requirements/align-review.fsl`] の写し。** 状態・遷移・不変条件は
-//! あちらが正本で、ここはその Rust 実装。**片方だけ直さない。**
+//! [`specs/requirements/align-review.fsl`] の写し。 状態・遷移・不変条件は
+//! あちらが正本で、ここはその Rust 実装。片方だけ直さない。
 //!
 //! # 何を守っているか
 //!
-//! - **人が直した値を、自動が上書きしない**（`INV-ALN-001`）。固定は
-//!   エントリ単位ではなく**値単位**（`TR-ALN-30`）——「オフセットだけ直した」が表せる
-//! - **固定されている値は、人が入れた値である**（`INV-ALN-002`）
-//! - **確認が残っているうちは書き出せない**（`INV-ALN-003`, `REQ-PKG-003`）
-//! - **個別確認をやめるのは、上限を超えたときだけ**（`INV-ALN-004`）
+//! - 人が直した値を、自動が上書きしない（`INV-ALN-001`）。固定は
+//!   エントリ単位ではなく値単位（`TR-ALN-30`）——「オフセットだけ直した」が表せる
+//! - 固定されている値は、人が入れた値である（`INV-ALN-002`）
+//! - 確認が残っているうちは書き出せない（`INV-ALN-003`, `REQ-PKG-003`）
+//! - 個別確認をやめるのは、上限を超えたときだけ（`INV-ALN-004`）
 //!
 //! # 上限は件数ではなく時間
 //!
-//! `TR-ALN-25` が「切り方を件数から**確認の合計所要時間の上限**に変える」と定め、
-//! `DEC-ALN-003` が通常モードを合計5分とした。**方式ごとに件数を持たずに済み、
-//! 多音階で上限が膨らむ問題が消える。**
+//! `TR-ALN-25` が「切り方を件数から確認の合計所要時間の上限に変える」と定め、
+//! `DEC-ALN-003` が通常モードを合計5分とした。方式ごとに件数を持たずに済み、
+//! 多音階で上限が膨らむ問題が消える。
 //!
 //! 1件あたりの確認時間は未実測（`TGT-ALN-007` の note）。[`ReviewQueue::new`] に
-//! 見積もりを渡す形にして、**実測が出たら呼び出し側だけ直せばよい**ようにしてある。
+//! 見積もりを渡す形にして、実測が出たら呼び出し側だけ直せばよいようにしてある。
 //!
 //! [`specs/requirements/align-review.fsl`]: https://github.com/dino3616/koeru/blob/main/specs/requirements/align-review.fsl
 
@@ -32,7 +32,7 @@ use crate::confidence::{Cause, Confidence};
 /// 通常モードで人に確認させる合計時間の上限（`DEC-ALN-003`, `TGT-ALN-008`）。
 pub const REVIEW_BUDGET: Duration = Duration::from_secs(5 * 60);
 
-/// 5値のどれか。**固定は値単位で持つ**（`TR-ALN-30`）。
+/// 5値のどれか。固定は値単位で持つ（`TR-ALN-30`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Slot {
     /// 左ブランク。
@@ -48,7 +48,7 @@ pub enum Slot {
 }
 
 impl Slot {
-    /// 5値すべて。**並びは常に同じ**（`TR-ALN-29` の決定性）。
+    /// 5値すべて。並びは常に同じ（`TR-ALN-29` の決定性）。
     pub const ALL: [Self; 5] = [
         Self::Offset,
         Self::Consonant,
@@ -96,20 +96,20 @@ impl Slot {
 /// エントリの状態（`align-review.fsl` の `EntryState`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryState {
-    /// まだ推定していない。**録り直した直後もここへ戻る。**
+    /// まだ推定していない。録り直した直後もここへ戻る。
     NotEstimated,
     /// 自動で確定した。
     AutoConfirmed,
     /// 確認キューに入っている。
     InQueue,
-    /// 書き出しを塞いでいる。**検証で修復できない違反があった**（`TR-ALN-20`）。
+    /// 書き出しを塞いでいる。検証で修復できない違反があった（`TR-ALN-20`）。
     Blocked,
 }
 
 /// 確認のさせ方（`align-review.fsl` の `ReviewMode`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewMode {
-    /// 1件ずつ確認させる。**既定。**
+    /// 1件ずつ確認させる。既定。
     Individual,
     /// まとめて確認させる。
     Batch,
@@ -120,11 +120,9 @@ pub enum ReviewMode {
 /// 1エントリ。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
-    /// 状態。
     pub state: EntryState,
-    /// いまの5値。
     pub oto: Oto,
-    /// 値ごとの固定（`TR-ALN-30`）。**`Slot::ALL` と同じ並び。**
+    /// 値ごとの固定（`TR-ALN-30`）。`Slot::ALL` と同じ並び。
     pinned: [bool; 5],
     /// 確信度。推定していなければ `None`。
     pub confidence: Option<Confidence>,
@@ -161,7 +159,7 @@ impl Entry {
 
 /// キューへの操作が通らなかった理由。
 ///
-/// **状態機械の遷移条件を満たしていないだけで、異常ではない。**
+/// 状態機械の遷移条件を満たしていないだけで、異常ではない。
 /// 画面は押せないボタンとして出せばよい。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ReviewError {
@@ -181,7 +179,7 @@ pub enum ReviewError {
     #[error("個別確認モードではない")]
     NotIndividualMode,
 
-    /// **上限を超えていないのに、個別確認をやめようとした**（`INV-ALN-004`）。
+    /// 上限を超えていないのに、個別確認をやめようとした（`INV-ALN-004`）。
     #[error("確認の上限を超えていない")]
     BudgetNotExceeded,
 
@@ -214,14 +212,14 @@ type Result<T> = std::result::Result<T, ReviewError>;
 
 /// 1プロジェクトの確認キュー。
 ///
-/// **`align-review.fsl` の状態そのもの。** 追加した状態は無い。
+/// `align-review.fsl` の状態そのもの。 追加した状態は無い。
 #[derive(Debug, Clone)]
 pub struct ReviewQueue {
     entries: BTreeMap<String, Entry>,
     mode: ReviewMode,
     over_budget: bool,
     exported: bool,
-    /// 1件あたりの確認にかかる見積もり時間。**未実測**（`TGT-ALN-007`）。
+    /// 1件あたりの確認にかかる見積もり時間。未実測（`TGT-ALN-007`）。
     per_item: Duration,
     /// 合計時間の上限（`DEC-ALN-003`）。
     budget: Duration,
@@ -230,7 +228,7 @@ pub struct ReviewQueue {
 impl ReviewQueue {
     /// 空のキュー。
     ///
-    /// `per_item` は1件あたりの確認時間の見積もり。**実測に置き換わるまでは仮の値。**
+    /// `per_item` は1件あたりの確認時間の見積もり。実測に置き換わるまでは仮の値。
     #[must_use]
     pub fn new(per_item: Duration) -> Self {
         Self {
@@ -243,7 +241,7 @@ impl ReviewQueue {
         }
     }
 
-    /// エントリを足す。**同じ鍵なら差し替える。**
+    /// エントリを足す。同じ鍵なら差し替える。
     pub fn insert(&mut self, id: impl Into<String>, entry: Entry) {
         self.entries.insert(id.into(), entry);
     }
@@ -295,7 +293,7 @@ impl ReviewQueue {
 
     /// 確認キューの中身を、手が届く順に返す（`TR-ALN-26`）。
     ///
-    /// **確信度の低い順。** 同点なら鍵の順で、**並びは常に同じ**（`TR-ALN-29`）。
+    /// 確信度の低い順。 同点なら鍵の順で、並びは常に同じ（`TR-ALN-29`）。
     #[must_use]
     pub fn queued(&self) -> Vec<(&str, &Entry)> {
         let mut v: Vec<(&str, &Entry)> = self
@@ -368,7 +366,7 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 人が値を編集した。**その値だけを固定する**（`REQ-ALN-005`, `TR-ALN-30`）。
+    /// 人が値を編集した。その値だけを固定する（`REQ-ALN-005`, `TR-ALN-30`）。
     ///
     /// # Errors
     ///
@@ -395,7 +393,7 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 固定を解く。**本人が明示的に「自動に戻す」を選んだときだけ**（`REQ-ALN-006`）。
+    /// 固定を解く。本人が明示的に「自動に戻す」を選んだときだけ（`REQ-ALN-006`）。
     ///
     /// # Errors
     ///
@@ -409,7 +407,7 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 再推定する。**固定されていない値だけを書き換える**（`REQ-ALN-007`, `INV-ALN-001`）。
+    /// 再推定する。固定されていない値だけを書き換える（`REQ-ALN-007`, `INV-ALN-001`）。
     ///
     /// # Errors
     ///
@@ -445,7 +443,7 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// まとめて確認する。**個別確認をやめたあとだけ**（`REQ-ALN-010`）。
+    /// まとめて確認する。個別確認をやめたあとだけ（`REQ-ALN-010`）。
     ///
     /// # Errors
     ///
@@ -469,7 +467,7 @@ impl ReviewQueue {
 
     /// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
     ///
-    /// **固定した値は残る**（`REQ-ALN-007`）。録り直しても、人が決めた値は人のもの。
+    /// 固定した値は残る（`REQ-ALN-007`）。録り直しても、人が決めた値は人のもの。
     ///
     /// # Errors
     ///
@@ -509,7 +507,7 @@ impl ReviewQueue {
         if self.over_budget || !self.needs_review() {
             return Err(ReviewError::WrongState);
         }
-        // **個別確認をやめるのは、上限を超えたときだけ**（INV-ALN-004）。
+        // 個別確認をやめるのは、上限を超えたときだけ（INV-ALN-004）。
         if !self.exceeds_budget() {
             return Err(ReviewError::BudgetNotExceeded);
         }
@@ -518,7 +516,7 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 書き出す。**確認が残っている間は通らない**（`REQ-PKG-003`, `INV-ALN-003`）。
+    /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。
     ///
     /// # Errors
     ///
@@ -596,7 +594,7 @@ mod tests {
         assert!(q.needs_review());
     }
 
-    /// **テキスト逸脱は oto を自動確定させない**（`REQ-ALN-003`, `TR-ALN-09`）。
+    /// テキスト逸脱は oto を自動確定させない（`REQ-ALN-003`, `TR-ALN-09`）。
     #[test]
     fn テキスト逸脱は確認キューへ回る() {
         let mut q = queue(1);
@@ -604,7 +602,7 @@ mod tests {
         assert_eq!(q.get("e000").unwrap().state, EntryState::InQueue);
     }
 
-    /// **INV-ALN-001。** ここが破れると、人が直した値が自動で消える。
+    /// INV-ALN-001。 ここが破れると、人が直した値が自動で消える。
     #[test]
     fn 再推定は固定した値に触れない() {
         let mut q = queue(1);
@@ -618,7 +616,7 @@ mod tests {
         assert_eq!(e.oto.consonant_ms, 9.0, "固定していない値は書き換わる");
     }
 
-    /// **固定は値単位**（`TR-ALN-30`）。エントリ単位だと、
+    /// 固定は値単位（`TR-ALN-30`）。エントリ単位だと、
     /// オフセットを直しただけで他の4値も自動から外れてしまう。
     #[test]
     fn 固定は値ごとに持つ() {
@@ -632,7 +630,7 @@ mod tests {
         assert_eq!(e.pinned_count(), 1);
     }
 
-    /// **REQ-ALN-006。** 固定が解けるのは明示的な操作だけ。
+    /// `REQ-ALN-006`。 固定が解けるのは明示的な操作だけ。
     #[test]
     fn 自動に戻すまで固定は解けない() {
         let mut q = queue(1);
@@ -650,7 +648,7 @@ mod tests {
         assert_eq!(q.get("e000").unwrap().oto.offset_ms, 9.0);
     }
 
-    /// **外部ツールの変更は固定として取り込む**（`TR-ALN-30`）。
+    /// 外部ツールの変更は固定として取り込む（`TR-ALN-30`）。
     #[test]
     fn 外部の編集も固定になる() {
         let mut q = queue(1);
@@ -662,7 +660,7 @@ mod tests {
         assert_eq!(q.get("e000").unwrap().oto.cutoff_ms, -700.0);
     }
 
-    /// **録り直しても固定した値は残る**（`REQ-ALN-007`, `REQ-ALN-009`）。
+    /// 録り直しても固定した値は残る（`REQ-ALN-007`, `REQ-ALN-009`）。
     #[test]
     fn 録り直しても固定は残る() {
         let mut q = queue(1);
@@ -677,7 +675,7 @@ mod tests {
         assert_eq!(e.oto.offset_ms, 42.0);
     }
 
-    /// **INV-ALN-004。** 上限を超えていないのに個別確認をやめられない。
+    /// INV-ALN-004。 上限を超えていないのに個別確認をやめられない。
     #[test]
     fn 上限を超えるまで個別確認をやめられない() {
         let mut q = queue(2);
@@ -691,7 +689,7 @@ mod tests {
         assert_eq!(q.mode(), ReviewMode::Individual);
     }
 
-    /// **上限を超えたら、まとめて確認か録り直し提案へ切り替えられる**（`TR-ALN-25`）。
+    /// 上限を超えたら、まとめて確認か録り直し提案へ切り替えられる（`TR-ALN-25`）。
     #[test]
     fn 上限を超えたらまとめて確認へ切り替わる() {
         let mut q = queue(11); // 30秒 × 11件 = 5分30秒 > 5分
@@ -701,7 +699,7 @@ mod tests {
         }
         assert!(q.exceeds_budget());
 
-        // **個別確認は、切り替える前しかできない**（REQ-ALN-008）。
+        // 個別確認は、切り替える前しかできない（`REQ-ALN-008`）。
         q.switch_to_batch().unwrap();
         assert_eq!(q.mode(), ReviewMode::Batch);
         assert_eq!(q.confirm("e000"), Err(ReviewError::NotIndividualMode));
@@ -721,7 +719,7 @@ mod tests {
         assert_eq!(q.mode(), ReviewMode::SuggestRerecord);
     }
 
-    /// **INV-ALN-003 / REQ-PKG-003。** 確認が残っている間は書き出せない。
+    /// INV-ALN-003 / `REQ-PKG-003`。 確認が残っている間は書き出せない。
     #[test]
     fn 確認が残っているうちは書き出せない() {
         let mut q = queue(2);
@@ -736,7 +734,7 @@ mod tests {
         assert!(q.is_exported());
     }
 
-    /// **修復できない違反は書き出しを塞ぐ**（`REQ-ALN-004`, `TR-ALN-20`）。
+    /// 修復できない違反は書き出しを塞ぐ（`REQ-ALN-004`, `TR-ALN-20`）。
     #[test]
     fn 修復できない違反は書き出しを塞ぐ() {
         let mut q = queue(1);
@@ -745,7 +743,7 @@ mod tests {
 
         assert_eq!(q.get("e000").unwrap().state, EntryState::Blocked);
         assert_eq!(q.export(), Err(ReviewError::ReviewPending));
-        // **Blocked は個別確認では抜けられない。** 直すか録り直すか。
+        // Blocked は個別確認では抜けられない。 直すか録り直すか。
         assert_eq!(q.confirm("e000"), Err(ReviewError::WrongState));
         q.rerecord("e000").unwrap();
     }
@@ -764,7 +762,7 @@ mod tests {
         assert_eq!(q.export(), Err(ReviewError::AlreadyExported));
     }
 
-    /// **並びは常に同じ**（`TR-ALN-29`）。確信度の低い順、同点なら鍵の順。
+    /// 並びは常に同じ（`TR-ALN-29`）。確信度の低い順、同点なら鍵の順。
     #[test]
     fn 確認キューは確信度の低い順に並ぶ() {
         let mut q = queue(3);

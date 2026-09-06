@@ -21,13 +21,13 @@ supports_requirements = [
 ]
 findings = [
   'いずれも一次情報で確認済みで、選択の余地がない。',
-  '**[Fact] resampler は WORLD（BSD-3-Clause）ベースを自前ビルドする以外に選択肢がない。** 外部 `.exe` resampler（moresampler、UTAU 同梱 resampler.exe）は Windows 専用で、macOS / Linux では Wine を要し「単一のネイティブアプリケーション」と両立しない。',
-  '**[Fact] Python / Conda ランタイムは配布物に含められない。** したがってアライナは、ネイティブ実装または ONNX 推論に落とせるものだけが候補になる。',
-  '**[Fact] AGPL-3.0 により GPL 系のコードを取り込める。** worldline（GPL-2.0-or-later）をそのまま使えるため `@spline` の自前実装は不要。Slint（GPLv3 オプション）、Qt（GPLv3）、Rubber Band Library（GPL）も候補に入る。',
-  '**[Fact] 音声 I/O は miniaudio（パブリックドメインまたは MIT-0）を FFI で使う。** 必要なのは「**OS 側の音声加工を無効化する経路へ到達できること**」であって、特定のモードではない。Windows でその経路は2つある。(1) 排他モード、(2) 共有モード＋ `AUDCLNT_STREAMOPTIONS_RAW`。KOERU は **(2) を既定に採る**（フォーマット一致を取りやすく、他アプリの音を止めないため。TR-REC-05 / TR-REC-09）。**cpal はどちらにも到達できない。** 排他モードに未対応で（2020年に報告された未対応項目）、`SetClientProperties` のようなバックエンド固有の制御も露出していない。miniaudio は WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱いつつ、ネイティブハンドルとバックエンド固有設定へ降りられる。',
-  '**[Fact] Windows では WebView2 を固定バージョンで同梱でき、環境依存を排除できる。** 配布サイズは約180MB 増える。macOS の WKWebView は OS 同梱。Linux の WebKitGTK はディストロ依存が残るが、Flatpak の runtime に含めることで緩和できる。Linux が中核機能のみの第三対応環境である位置づけと整合する。',
-  '**[Fact] SwiftF0 は onnxruntime だけで動き PyTorch を要しない。** コードは MIT。入力仕様は 16kHz / ホップ256サンプル、対応周波数は 46.875〜2093.75 Hz（G1〜C7）で歌声の音域を覆う。パラメータ 95,842個、CPU で5秒の音声を 132.6ms（CREPE の42.4倍速）、10dB SNR のノイズ下で調和平均 91.80%（CREPE 78.97% / pYIN 79.99%）。**したがって2つの統合作業が要る。** (1) 録音は 44.1kHz なので 16kHz へのリサンプリング、(2) SwiftF0 のフレーム周期（16ms）から WORLD のフレーム周期（既定5ms）への F0 内挿。',
-  '**[Unknown] SwiftF0 の学習済み重みのライセンスは、リポジトリに明記されていない。** 論文側に CC BY 4.0 の記載があるだけで、重みとコードを分けた表示がない。学習データに MDB-STEM-Synth など非商用限定の可能性があるものが含まれることと合わせ、**コーパス監査は採用の前提条件。** 不合格なら WORLD の Harvest に戻る。**重みの表示ライセンスは上流コーパスの条件を上書きできない。**',
-  '**[Assumption] エディタの描画データはタイル化して raw bytes で受け渡す。** Tauri のフロントは WebView なので、Rust 側が持つ全解像度データから可視域のタイルだけを渡す。JSON シリアライズを通す経路は使えない（custom protocol か IPC の raw チャネル）。これにより1フレームあたりのデータ量は画面サイズで上限が決まり、プロジェクト規模に依存しなくなる。TR-PLT-04 の「可視域のみ計算・可視域のみ描画」の具体化にあたる。',
-  '**[Fact] 依存ライセンスの手確認は不要。** `deny.toml` に AGPL-3.0-or-later へ取り込めるライセンスの許可リストを置き、CI の `cargo deny check` が依存全体を機械判定する。許可リストに無いものは「不明」として失敗するので、非商用限定・再配布禁止・独自条項は自動的に弾かれる。外部からの PR に対する防波堤も同じ仕組みで働く。',
+  '[Fact] resampler は WORLD（BSD-3-Clause）ベースを自前ビルドする以外に選択肢がない。 外部 `.exe` resampler（moresampler、UTAU 同梱 resampler.exe）は Windows 専用で、macOS / Linux では Wine を要し「単一のネイティブアプリケーション」と両立しない。',
+  '[Fact] Python / Conda ランタイムは配布物に含められない。 したがってアライナは、ネイティブ実装または ONNX 推論に落とせるものだけが候補になる。',
+  '[Fact] AGPL-3.0 により GPL 系のコードを取り込める。 worldline（GPL-2.0-or-later）をそのまま使えるため `@spline` の自前実装は不要。Slint（GPLv3 オプション）、Qt（GPLv3）、Rubber Band Library（GPL）も候補に入る。',
+  '[Fact] 音声 I/O は miniaudio（パブリックドメインまたは MIT-0）を FFI で使う。 必要なのは「OS 側の音声加工を無効化する経路へ到達できること」であって、特定のモードではない。Windows でその経路は2つある。(1) 排他モード、(2) 共有モード＋ `AUDCLNT_STREAMOPTIONS_RAW`。KOERU は (2) を既定に採る（フォーマット一致を取りやすく、他アプリの音を止めないため。TR-REC-05 / TR-REC-09）。cpal はどちらにも到達できない。 排他モードに未対応で（2020年に報告された未対応項目）、`SetClientProperties` のようなバックエンド固有の制御も露出していない。miniaudio は WASAPI / CoreAudio / ALSA / PulseAudio を1つの API で扱いつつ、ネイティブハンドルとバックエンド固有設定へ降りられる。',
+  '[Fact] Windows では WebView2 を固定バージョンで同梱でき、環境依存を排除できる。 配布サイズは約180MB 増える。macOS の WKWebView は OS 同梱。Linux の WebKitGTK はディストロ依存が残るが、Flatpak の runtime に含めることで緩和できる。Linux が中核機能のみの第三対応環境である位置づけと整合する。',
+  '[Fact] SwiftF0 は onnxruntime だけで動き PyTorch を要しない。 コードは MIT。入力仕様は 16kHz / ホップ256サンプル、対応周波数は 46.875〜2093.75 Hz（G1〜C7）で歌声の音域を覆う。パラメータ 95,842個、CPU で5秒の音声を 132.6ms（CREPE の42.4倍速）、10dB SNR のノイズ下で調和平均 91.80%（CREPE 78.97% / pYIN 79.99%）。したがって2つの統合作業が要る。 (1) 録音は 44.1kHz なので 16kHz へのリサンプリング、(2) SwiftF0 のフレーム周期（16ms）から WORLD のフレーム周期（既定5ms）への F0 内挿。',
+  '[Unknown] SwiftF0 の学習済み重みのライセンスは、リポジトリに明記されていない。 論文側に CC BY 4.0 の記載があるだけで、重みとコードを分けた表示がない。学習データに MDB-STEM-Synth など非商用限定の可能性があるものが含まれることと合わせ、コーパス監査は採用の前提条件。 不合格なら WORLD の Harvest に戻る。重みの表示ライセンスは上流コーパスの条件を上書きできない。',
+  '[Assumption] エディタの描画データはタイル化して raw bytes で受け渡す。 Tauri のフロントは WebView なので、Rust 側が持つ全解像度データから可視域のタイルだけを渡す。JSON シリアライズを通す経路は使えない（custom protocol か IPC の raw チャネル）。これにより1フレームあたりのデータ量は画面サイズで上限が決まり、プロジェクト規模に依存しなくなる。TR-PLT-04 の「可視域のみ計算・可視域のみ描画」の具体化にあたる。',
+  '[Fact] 依存ライセンスの手確認は不要。 `deny.toml` に AGPL-3.0-or-later へ取り込めるライセンスの許可リストを置き、CI の `cargo deny check` が依存全体を機械判定する。許可リストに無いものは「不明」として失敗するので、非商用限定・再配布禁止・独自条項は自動的に弾かれる。外部からの PR に対する防波堤も同じ仕組みで働く。',
 ]

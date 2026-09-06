@@ -1,9 +1,9 @@
 //! 周波数表（`.frq`）の書き出し（`TR-PKG-05`, `TR-SYN-23`, `TR-SYN-24`）。
 //!
-//! **用途を分ける**（`TR-SYN-24`）。ここが書くのは**配布用**で、
-//! 試唱が使う F0 は同じ系列を台帳から読む——**推定を二度走らせない。**
+//! 用途を分ける（`TR-SYN-24`）。ここが書くのは配布用で、
+//! 試唱が使う F0 は同じ系列を台帳から読む——推定を二度走らせない。
 //!
-//! **書き出しのために F0 を推定し直さない。** 即時試唱のために録音時点で
+//! 書き出しのために F0 を推定し直さない。 即時試唱のために録音時点で
 //! 走らせた解析の副産物として作る（`docs/product-vision.md`）。
 //! この層が持つのは書式だけで、推定は `koeru-synth` が持つ。
 //!
@@ -18,8 +18,8 @@
 //! | 36 | int32 フレーム数 |
 //! | 40 | double f0 と double amp の対 × フレーム数 |
 //!
-//! **36 バイト目の int32 はフレーム数（＝ f0/amp の対の数）であって、
-//! WAV のサンプル数ではない。** ここにサンプル数を書くと、読み手は 256 倍の
+//! 36 バイト目の int32 はフレーム数（＝ f0/amp の対の数）であって、
+//! WAV のサンプル数ではない。 ここにサンプル数を書くと、読み手は 256 倍の
 //! 要素を確保しようとして EOF に当たる。`TR-PKG-05` の字面は「サンプル数」だが、
 //! 直後に「フレーム数ぶんの f0/amp を用意」とあり、書式として成立するのは
 //! フレーム数のほうだけ。
@@ -27,13 +27,13 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
-/// `.frq` の hop（サンプル）。**UTAU 側の固定値**（`TR-PKG-05`）。
+/// `.frq` の hop（サンプル）。UTAU 側の固定値（`TR-PKG-05`）。
 pub const HOP_SIZE: u32 = 256;
 
 /// 書式の識別子。
 const MAGIC: &[u8; 8] = b"FREQ0003";
 
-/// 無声・無音を表す F0。**内部で補間している連続 F0 をここに書かない**（`TR-PKG-05`）。
+/// 無声・無音を表す F0。内部で補間している連続 F0 をここに書かない（`TR-PKG-05`）。
 pub const UNVOICED: f64 = 0.0;
 
 /// 周波数表を作るときの失敗。
@@ -52,7 +52,7 @@ pub enum FrqError {
 }
 
 impl FrqError {
-    /// 送信してよい種別文字列。**`Display` は送らない。**
+    /// 送信してよい種別文字列。`Display` は送らない。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -67,7 +67,7 @@ type Result<T> = std::result::Result<T, FrqError>;
 
 /// hop=256 の格子に載せた周波数表。
 ///
-/// **これを録音停止時に作って DB へ入れる。** 書き出し時に WAV を再走査しない
+/// これを録音停止時に作って DB へ入れる。 書き出し時に WAV を再走査しない
 /// （`TR-PKG-05`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frq {
@@ -81,11 +81,11 @@ impl Frq {
     /// 内部の F0 系列と波形から、hop=256 の格子へ載せ替える（`TR-PKG-05`）。
     ///
     /// `source_f0` は `source_period_s` 秒ごと、無声は [`UNVOICED`]。
-    /// **フレーム数は WAV 全長を覆う数にする。** 端が欠けると、読み手が
+    /// フレーム数は WAV 全長を覆う数にする。 端が欠けると、読み手が
     /// 最後のフレームの手前で止まる。
     ///
     /// 有声どうしの間だけ線形で埋め、片側が無声なら近いほうを採る。
-    /// **有声と無声をまたいで補間すると、無声フレームに音高が生えてしまう。**
+    /// 有声と無声をまたいで補間すると、無声フレームに音高が生えてしまう。
     #[must_use]
     pub fn from_analysis(
         samples: &[f32],
@@ -102,7 +102,7 @@ impl Frq {
             let t = (i * hop) as f64 / f64::from(rate_hz);
             f0.push(sample_f0(source_f0, source_period_s, t));
 
-            // 振幅は窓の RMS。**WAV を書き出し時に読み直さないために、ここで確定させる。**
+            // 振幅は窓の RMS。WAV を書き出し時に読み直さないために、ここで確定させる。
             let start = i * hop;
             let end = (start + hop).min(samples.len());
             let win = samples.get(start..end).unwrap_or(&[]);
@@ -120,7 +120,7 @@ impl Frq {
 
     /// 有声フレームだけの平均 F0。
     ///
-    /// **無声の 0 を混ぜて平均すると、値が音楽的な意味を失う。**
+    /// 無声の 0 を混ぜて平均すると、値が音楽的な意味を失う。
     /// 有声が1つも無ければ 0 を返す。
     #[must_use]
     pub fn average_f0(&self) -> f64 {
@@ -152,8 +152,8 @@ impl Frq {
         Ok(out)
     }
 
-    /// ファイルへ書く。**fsync してから rename**（途中で落ちても半端な表を残さない）。
-    #[tracing::instrument(skip(self), err)]
+    /// ファイルへ書く。fsync してから rename（途中で落ちても半端な表を残さない）。
+    #[tracing::instrument(skip(self, path), err)]
     pub fn write(&self, path: &Path) -> Result<()> {
         let bytes = self.to_bytes()?;
         let tmp = path.with_extension("frq.part");
@@ -169,7 +169,7 @@ impl Frq {
 
 /// WAV 名から `.frq` 名を作る（`TR-PKG-05`）。
 ///
-/// **拡張子のドットをアンダースコアに置き換えて `.frq` を付ける。**
+/// 拡張子のドットをアンダースコアに置き換えて `.frq` を付ける。
 /// `あ.wav` → `あ_wav.frq`。この規則を外すと UTAU 側が表を見つけられない。
 pub fn frq_path(wav: &Path) -> Result<PathBuf> {
     let name = wav
@@ -242,7 +242,7 @@ mod tests {
         assert!((avg - 441.0).abs() < 1e-9, "有声だけの平均であること");
         assert_eq!(&b[20..36], &[0_u8; 16], "予約領域はゼロ");
 
-        // **ここはフレーム数。サンプル数ではない。**
+        // ここはフレーム数。サンプル数ではない。
         assert_eq!(i32::from_le_bytes([b[36], b[37], b[38], b[39]]), 3);
         assert_eq!(b.len(), 40 + 3 * 16);
     }
@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(f.amp.len(), 4);
     }
 
-    /// **有声と無声をまたいで補間しない**（`TR-PKG-05`）。
+    /// 有声と無声をまたいで補間しない（`TR-PKG-05`）。
     /// 内部で連続にしている F0 をそのまま書くと、無声フレームに音高が生える。
     #[test]
     fn unvoiced_frames_stay_at_zero() {

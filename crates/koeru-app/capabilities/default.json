@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "KOERU の本体ウィンドウ。**処理はローカル完結で、声をサーバへ送らない。**",
+  "description": "KOERU の本体ウィンドウ。処理はローカル完結で、声をサーバへ送らない。",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

@@ -1,19 +1,19 @@
 //! 本人が指した resampler を呼ぶ（`TR-SYN-35`）。
 //!
-//! **これが唯一、外部プロセスを起動する場所。**
+//! これが唯一、外部プロセスを起動する場所。
 //! `TR-SYN-01` は「外部プロセス（`.exe`、Wine、Python インタプリタ）の起動と
 //! ネットワーク通信を一切行わない」と定めているが、
-//! **本人が明示的に指した resampler だけは別**（`TR-SYN-35`）。
+//! 本人が明示的に指した resampler だけは別（`TR-SYN-35`）。
 //!
 //! # 探さない・入れない・更新しない
 //!
-//! **KOERU は候補を探索せず、自動導入もせず、更新もしない**（`TR-SYN-35`）。
+//! KOERU は候補を探索せず、自動導入もせず、更新もしない（`TR-SYN-35`）。
 //! 指すのは常に本人の明示的な操作。勝手に見つけて使うと、
-//! **どのエンジンで鳴っているか分からないまま声を評価させることになる。**
+//! どのエンジンで鳴っているか分からないまま声を評価させることになる。
 //!
 //! # プロジェクトに焼き付けない
 //!
-//! **実行可能ファイルはアプリ設定として持ち、プロジェクトに絶対パスで記録しない**
+//! 実行可能ファイルはアプリ設定として持ち、プロジェクトに絶対パスで記録しない
 //! （`TR-SYN-35`）。プロジェクトを別のマシンや別の OS で開いたとき、
 //! 解決できなければ**既定のコアへ戻し、そのことを提示する。黙って別の音で鳴らさない。**
 
@@ -40,7 +40,7 @@ pub enum ExternalError {
 }
 
 impl ExternalError {
-    /// 送信してよい種別文字列。**パスは送らない**（利用者名を含む）。
+    /// 送信してよい種別文字列。パスは送らない（利用者名を含む）。
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
@@ -53,18 +53,15 @@ impl ExternalError {
 
 /// UTAU classic resampler の引数（`TR-SYN-08`, `TR-SYN-35`）。
 ///
-/// **KOERU 独自の引数を足さない。** 足すと、既存の resampler が受け取れない。
+/// KOERU 独自の引数を足さない。 足すと、既存の resampler が受け取れない。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassicArgs {
-    /// 素材の WAV。
     pub input: PathBuf,
-    /// 出力先の WAV。
     pub output: PathBuf,
     /// 音名（`C4` のような）。
     pub tone: String,
     /// 子音速度。
     pub velocity: f64,
-    /// フラグ文字列。
     pub flags: String,
     /// oto の5値。
     pub oto: Oto,
@@ -92,7 +89,7 @@ impl ClassicArgs {
             format!("{:.3}", self.length_ms),
             format!("{:.3}", self.oto.consonant_ms),
             format!("{:.3}", self.oto.cutoff_ms),
-            // 音量は 100 固定。**試唱のフラグは既定に固定する**（TR-SYN-09）。
+            // 音量は 100 固定。試唱のフラグは既定に固定する（`TR-SYN-09`）。
             "100".to_owned(),
             format!("{:.0}", self.modulation),
             // テンポ。UTAU は `!120.0` の形で渡す。
@@ -104,7 +101,7 @@ impl ClassicArgs {
 
 /// MIDI ノート番号を UTAU の音名にする。
 ///
-/// **UTAU は `C4` = 60。** MIDI の慣例（C4 = 60）と同じ。
+/// UTAU は `C4` = 60。 MIDI の慣例（C4 = 60）と同じ。
 #[must_use]
 pub fn tone_name(midi: i32) -> String {
     const NAMES: [&str; 12] = [
@@ -128,7 +125,7 @@ pub fn is_usable(path: Option<&Path>) -> bool {
 
 /// 外部 resampler を1音ぶん呼ぶ（`TR-SYN-35`）。
 ///
-/// **ここだけが外部プロセスを起動する。** 呼ぶのは本人が指したときだけ。
+/// ここだけが外部プロセスを起動する。 呼ぶのは本人が指したときだけ。
 ///
 /// # Errors
 ///
@@ -186,7 +183,7 @@ mod tests {
         assert_eq!(tone_name(61), "C#4");
     }
 
-    /// **KOERU 独自の引数を足さない**（TR-SYN-35）。
+    /// KOERU 独自の引数を足さない（`TR-SYN-35`）。
     /// classic resampler の順序どおり13個。
     #[test]
     fn 引数の並びが_classic_と同じ() {
@@ -200,7 +197,7 @@ mod tests {
         assert_eq!(v[11], "!120.0");
     }
 
-    /// **解決できなければ使わない**（TR-SYN-35）。
+    /// 解決できなければ使わない（`TR-SYN-35`）。
     #[test]
     fn 見つからなければ使えない() {
         assert!(!is_usable(None));
@@ -215,7 +212,7 @@ mod tests {
         assert_eq!(e.kind(), "external.not_found");
     }
 
-    /// **本人が指すまで使わない。** 既定は「指されていない」。
+    /// 本人が指すまで使わない。 既定は「指されていない」。
     #[test]
     fn 既定では指されていない() {
         let nothing: Option<&Path> = None;

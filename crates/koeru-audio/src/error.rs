@@ -1,13 +1,13 @@
 //! 収録セッションの失敗。
 //!
-//! **ドメイン層なので `anyhow::Error` を返さない。** 呼び出し側が `match` で
+//! ドメイン層なので `anyhow::Error` を返さない。 呼び出し側が `match` で
 //! 網羅的に分岐できることが、回復の前提になる。
 
 use crate::session::{Device, Effects, Gain, Liveness};
 
 /// 収録セッションの状態遷移が拒まれた理由。
 ///
-/// **`#[non_exhaustive]` を付けない。** 網羅性チェックを効かせるため、
+/// `#[non_exhaustive]` を付けない。 網羅性チェックを効かせるため、
 /// バリアントの追加は破壊的変更として扱う。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SessionError {
@@ -54,7 +54,7 @@ pub enum SessionError {
     #[error("ガイドはすでに鳴らしている")]
     GuideAlreadyEnabled,
 
-    /// 残量を見積もっていない、または足りない（TR-REC-41）。
+    /// 残量を見積もっていない、または足りない（`TR-REC-41`）。
     #[error("保存先の残量が確かめられていない、または足りない")]
     NotEnoughSpace,
 }
@@ -62,7 +62,7 @@ pub enum SessionError {
 impl SessionError {
     /// 送信層へ載せてよい固定文字列。
     ///
-    /// **`Display` を送らない。** `Display` にはデバイス名やパスが入りうる。
+    /// `Display` を送らない。 `Display` にはデバイス名やパスが入りうる。
     /// 送ってよいのはこの固定語彙だけで、ホワイトリストはここが唯一の出どころ。
     #[must_use]
     pub const fn kind(&self) -> &'static str {

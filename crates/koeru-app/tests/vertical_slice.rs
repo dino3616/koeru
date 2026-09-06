@@ -1,19 +1,22 @@
-//! **縦切りを1本通す実機ハーネス。**
+//! 縦切りを1本通す実機ハーネス。
 //!
 //! プロジェクトを作る → デバイスを開く → 1行録る → 確定 → 解析 → `.frq` →
 //! 境界 → oto → 目標音高で合成 → 鳴らす。
 //!
-//! **これは回帰テストではない。** マイクが無い環境では途中で戻る。
+//! これは回帰テストではない。 マイクが無い環境では途中で戻る。
 //! 何が起きたかを読むために標準出力を使う。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
-// **macOS 専用。** 他 OS のバックエンドはまだ無い（DEC-REC-001）。
+// macOS 専用。 他 OS のバックエンドはまだ無い（`DEC-REC-001`）。
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_app_lib::Studio;
 use koeru_audio::backend::macos as mac;
 
-/// 収録する長さ。**短くする。** 通ることを確かめるのが目的。
+/// 収録する長さ。短くする。 通ることを確かめるのが目的。
 const RECORD_MS: u64 = 900;
 
 #[test]
@@ -35,20 +38,20 @@ fn 録って聴けるところまで一本で通す() {
     assert!(before.required > 0, "必要な単位があること");
     assert!(before.next_row.is_some(), "次に録る行があること");
 
-    // **権限が無いと macOS は無音を返す**（TR-REC-17）。
+    // 権限が無いと macOS は無音を返す（`TR-REC-17`）。
     // ここを見ないと「マイクが壊れている」と読み違える。
     let perm = mac::microphone_permission();
     println!("マイク権限: {perm:?}");
     if !matches!(perm, mac::MicPermission::Granted) {
         println!(
-            "**この実行ファイルにマイク権限が無い。** \
+            "この実行ファイルにマイク権限が無い。 \
              cargo test のバイナリは毎回パスが変わるので、TCC の許可が引き継がれない。\n\
              設定 → プライバシーとセキュリティ → マイク で許可すると通る: {}",
             mac::privacy_settings_url()
         );
     }
 
-    // ── 信号が届いているデバイスを選ぶ ──
+    // ## 信号が届いているデバイスを選ぶ
     // **既定が無音のことがある**（実機で踏んだ）。
     let devices = Studio::devices().expect("デバイスを挙げられる");
     let mut chosen = None;
@@ -60,7 +63,7 @@ fn 録って聴けるところまで一本で通す() {
         }
         let peak = studio.probe_input(250).unwrap_or(0.0);
         println!("  候補 {:?}: ピーク {peak:.6}", d.id);
-        // **一番よく聞こえているものを採る。** 最初に閾値を超えたもので決めると、
+        // 一番よく聞こえているものを採る。 最初に閾値を超えたもので決めると、
         // わずかに乗っているだけのデバイスを掴んで、ほぼ無音を録ることになる（踏んだ）。
         if peak > best {
             best = peak;
@@ -74,7 +77,7 @@ fn 録って聴けるところまで一本で通す() {
     studio.arm_device(&device).expect("開き直せる");
     studio.probe_input(200).expect("生死を判定できる");
 
-    // **プリロールが溜まるまで待つ**（TR-REC-19）。
+    // プリロールが溜まるまで待つ（`TR-REC-19`）。
     // 収録画面に入った直後は、まだ遡れる分が無い。
     std::thread::sleep(std::time::Duration::from_millis(
         koeru_app_lib::pump::PREROLL_MS + 200,
@@ -89,7 +92,7 @@ fn 録って聴けるところまで一本で通す() {
         "収録画面にいる間ストリームが止まっていないこと"
     );
 
-    // ── 1行録る ──
+    // ## 1行録る
     let row = studio.start_take().expect("収録を始められる");
     println!("収録中: {row}");
     std::thread::sleep(std::time::Duration::from_millis(RECORD_MS));
@@ -129,7 +132,7 @@ fn 録って聴けるところまで一本で通す() {
         koeru_core::analysis::THUMBNAIL_BUCKETS
     );
 
-    // **押した瞬間より前から録れていること**（TR-REC-19）。
+    // 押した瞬間より前から録れていること（`TR-REC-19`）。
     let want_preroll = koeru_app_lib::pump::PREROLL_MS as f64;
     assert!(
         (take.preroll_ms - want_preroll).abs() < 30.0,
@@ -137,7 +140,7 @@ fn 録って聴けるところまで一本で通す() {
         take.preroll_ms
     );
 
-    // 全体は「遡り + 指示の間 + 末尾の延長」。**指示の長さより必ず長い。**
+    // 全体は「遡り + 指示の間 + 末尾の延長」。指示の長さより必ず長い。
     let want_total = want_preroll + RECORD_MS as f64 + koeru_app_lib::pump::TAIL_MS as f64;
     assert!(
         take.duration_ms > RECORD_MS as f64,
@@ -149,14 +152,14 @@ fn 録って聴けるところまで一本で通す() {
         take.duration_ms
     );
 
-    // **取りこぼしたテイクは自動的に無効になる**（TR-REC-07）。
+    // 取りこぼしたテイクは自動的に無効になる（`TR-REC-07`）。
     assert_eq!(
         take.invalidated,
         take.discontinuities > 0,
         "無効化は取りこぼしと1対1であること"
     );
 
-    // ── ファイルが実際にあること（DEC-REC-004 の順序）──
+    // ## ファイルが実際にあること（`DEC-REC-004` の順序）
     let dir = studio.project_dir().expect("ディレクトリを引ける").clone();
     let wavs: Vec<_> = std::fs::read_dir(dir.audio_dir())
         .expect("audio を読める")
@@ -167,22 +170,22 @@ fn 録って聴けるところまで一本で通す() {
     assert!(wavs.iter().any(|n| n.ends_with(".wav")), "WAV が残ること");
     assert!(
         wavs.iter().any(|n| n.ends_with(".frq")),
-        "**周波数表を録音停止時に書くこと**（TR-PKG-05）"
+        "周波数表を録音停止時に書くこと（TR-PKG-05）"
     );
     assert!(
         !wavs.iter().any(|n| n.ends_with(".part")),
         "書きかけが残らないこと"
     );
 
-    // ── 進み具合が動くこと ──
+    // ## 進み具合が動くこと
     let after = studio.progress().expect("進み具合を引ける");
     println!("被覆: {} → {}", before.covered, after.covered);
     assert!(after.covered > before.covered, "収録済み単位が増えること");
     assert_ne!(after.next_row, before.next_row, "次の行へ進むこと");
 
-    // ── 試唱。**縦切りの終点** ──
+    // ## 試唱。縦切りの終点
     let Some(oto) = take.oto else {
-        println!("**発声を見つけられなかった。** 無音を録った可能性がある");
+        println!("発声を見つけられなかった。 無音を録った可能性がある");
         return;
     };
     println!(
@@ -195,9 +198,9 @@ fn 録って聴けるところまで一本で通す() {
         take.confidence
     );
 
-    // ── 試唱 ──
+    // ## 試唱
     //
-    // **音高が渡っているかの回帰テストは、ここには置けない。**
+    // 音高が渡っているかの回帰テストは、ここには置けない。
     // 素材に有声フレームが無いと、目標 F0 は全フレーム 0 になり、
     // どの音高を頼んでも同じ波形が返る。静かな部屋では毎回そうなる。
     // 決定的な検査は `koeru-synth` の `別の音高を頼めば別の音が返る` に置いてある。
@@ -210,15 +213,15 @@ fn 録って聴けるところまで一本で通す() {
         rendered.push((midi, pcm, rate));
     }
 
-    // **ここでは音高を断定しない。**
+    // ここでは音高を断定しない。
     //
     // このハーネスは部屋にある音をそのまま録る。歌ではないので、
-    // 何を録ったかによって出る F0 は変わる。**閾値を置いても、
-    // 部屋が静かか騒がしいかで通ったり落ちたりするだけ**（実際に両方見た）。
+    // 何を録ったかによって出る F0 は変わる。閾値を置いても、
+    // 部屋が静かか騒がしいかで通ったり落ちたりするだけ（実際に両方見た）。
     //
     // 音高が正しく渡ることの検査は `koeru-synth` の
-    // `別の音高を頼めば別の音が返る` に置いてある。**あちらは決定的で、
-    // わざと壊して捕まえることを確かめてある。**
+    // `別の音高を頼めば別の音が返る` に置いてある。あちらは決定的で、
+    // わざと壊して捕まえることを確かめてある。
     let confidence = take.confidence.unwrap_or(0.0);
     println!("  ピーク {:.4} / 境界の確信度 {confidence:.2}", take.peak);
     for (midi, pcm, rate) in &rendered {
@@ -236,12 +239,12 @@ fn 録って聴けるところまで一本で通す() {
     }
     studio.stop_preview();
 
-    // 後片付け。**元のライブラリは temp なので消してよい。**
+    // 後片付け。元のライブラリは temp なので消してよい。
     drop(studio);
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 合成結果の平均 F0（Hz）。**有声フレームだけを見る。**
+/// 合成結果の平均 F0（Hz）。有声フレームだけを見る。
 fn measure_hz(pcm: &[f32], rate: u32) -> f64 {
     let x: Vec<f64> = pcm.iter().map(|s| f64::from(*s)).collect();
     let (f0, _) = koeru_synth::world::estimate_f0(
@@ -274,7 +277,7 @@ fn プロジェクトを作ると録音リストが入る() {
     assert!(p.required >= 100, "中核インベントリぶんの単位があること");
     assert!(p.next_row.is_some());
 
-    // **一覧に出ること。**
+    // 一覧に出ること。
     let listed = studio.projects().expect("挙げられる");
     assert_eq!(listed.len(), 1);
     assert_eq!(
@@ -290,10 +293,10 @@ fn プロジェクトを作ると録音リストが入る() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// **「あと何項目で歌えるか」が録るたびに動く**（`TR-RCL-17`, `TR-RCL-19`）。
+/// 「あと何項目で歌えるか」が録るたびに動く（`TR-RCL-17`, `TR-RCL-19`）。
 ///
 /// 音声デバイスを要らない。台帳の上だけで確かめる。
-/// **`test-hooks` が要る。** 収録を通さずに台帳を進める入口は、既定では出さない。
+/// `test-hooks` が要る。 収録を通さずに台帳を進める入口は、既定では出さない。
 #[cfg(feature = "test-hooks")]
 #[test]
 fn 録るほど歌える曲に近づく() {
@@ -307,7 +310,7 @@ fn 録るほど歌える曲に近づく() {
     let id = studio.create_project("曲の進み方").expect("作れる");
     studio.open_project(id).expect("開ける");
 
-    // **同梱曲が初期メンバとして入っている**（TR-RCL-12）。
+    // 同梱曲が初期メンバとして入っている（`TR-RCL-12`）。
     let before = studio.song_status().expect("引ける");
     assert_eq!(before.len(), 1, "曲バンクを持たない。同梱は最小限");
     println!(
@@ -319,7 +322,7 @@ fn 録るほど歌える曲に近づく() {
         before[0].required,
         before[0].covered
     );
-    // **あと何行かも出る**（TR-RCL-16, TR-RCL-17）。
+    // あと何行かも出る（`TR-RCL-16`, `TR-RCL-17`）。
     assert!(before[0].missing_rows > 0, "行数でも数えること");
     assert!(before[0].seconds > 0.0, "所要時間も出すこと");
     assert!(before[0].missing_units > 0, "まだ何も録っていない");

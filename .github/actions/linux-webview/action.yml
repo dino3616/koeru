@@ -6,7 +6,7 @@ description: >
 runs:
   using: composite
   steps:
-    # **入れないと glib-sys のビルドが pkg-config で落ちる**（DEC-PLT-014）。
+    # 入れないと glib-sys のビルドが pkg-config で落ちる（DEC-PLT-014）。
     # Tauri が前提として挙げている組み合わせをそのまま採る。
     # 個別に削ると、どれが要るかを自分で追うことになり、CI が1往復ずつ遅れる。
     - shell: bash

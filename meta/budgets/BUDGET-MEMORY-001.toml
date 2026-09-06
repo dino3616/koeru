@@ -1,20 +1,20 @@
 schema = 'budget'
-id = "BUDGET-MEMORY-001"
-title = "プロセス全体のピークメモリ"
+id = 'BUDGET-MEMORY-001'
+title = 'プロセス全体のピークメモリ'
 limit = 1500
 unit = "MB"
 scope = "SCALE-REF-001 の代表プロジェクトを開いた状態（8GB 搭載機で他アプリと共存）"
 derives_from = ["SCALE-REF-001"]
 source_requirements = ["TR-PLT-19"]
 note = """
-**実行モードで分ける。** 収録中と編集中は同時に成り立たないので、足し合わせない。
+実行モードで分ける。 収録中と編集中は同時に成り立たないので、足し合わせない。
 以前は4つの領域キャップを単純に足して 1,724MB になり、上限を 15% 超えていた（Q-PLT-001）。
 `mode` を持たない行はどのモードにも乗る共通分で、上限と比べるのはモードごとの合計の最大値。
 
-**align の 160MB は DEC-ALN-008 で MFA を同梱したことによる。** editor から 96MB 回している。
+align の 160MB は DEC-ALN-008 で MFA を同梱したことによる。 editor から 96MB 回している。
 
-**残っている未実測は WebView プロセスの常駐分。** ここが空欄のまま他を詰めても意味がないので、
-**共通分に枠として置いた**（DEC-PLT-012）。実測が枠を超えたら、editor の 512MB を
+残っている未実測は WebView プロセスの常駐分。 ここが空欄のまま他を詰めても意味がないので、
+共通分に枠として置いた（DEC-PLT-012）。実測が枠を超えたら、editor の 512MB を
 ディスクキャッシュ前提で削る（Q-EDT-001）。
 """
 
@@ -24,7 +24,7 @@ name = "WebView プロセス（常駐）"
 kind = "step"
 value = 400
 measured = false
-note = "**未実測。** Tauri のフロントは OS の WebView を別プロセスで持つ（DEC-PLT-001 の帰結）。400MB は枠であって実測値ではない"
+note = '未実測。 Tauri のフロントは OS の WebView を別プロセスで持つ（DEC-PLT-001 の帰結）。400MB は枠であって実測値ではない'
 
 [[allocations]]
 name = "Rust ランタイム + GUI レンダリング面"
@@ -43,7 +43,7 @@ name = "align（アライナのモデルと推論）"
 kind = "step"
 value = 160
 measured = false
-note = """**MFA の2つのモデルを常駐させる枠**（DEC-ALN-008）。`final.alimdl` と `final.mdl` が
+note = """MFA の2つのモデルを常駐させる枠（DEC-ALN-008）。`final.alimdl` と `final.mdl` が
 展開後それぞれ 47.9MiB で、合わせて 95.8MiB（EVID-ALN-001 の実測）。残りは tree / lda.mat /
 phone_lm.fst で 1.2MiB。**逐次ロードなら 112MB で足りるが、TR-ALN-10 の逐次推定で
 テイクごとに 48MiB を読み直すことになり TGT-ALN-001 と TGT-ALN-005 を割る。**
@@ -78,10 +78,10 @@ kind = "step"
 mode = "編集中"
 value = 416
 measured = false
-note = """Q-EDT-001 によりディスクキャッシュ前提へ変更が必要。**枠を割るならここから削る。**
-**96MB を align へ回した**（DEC-ALN-008）——MFA のモデル 95.8MiB を常駐させるため。
+note = """Q-EDT-001 によりディスクキャッシュ前提へ変更が必要。枠を割るならここから削る。
+96MB を align へ回した（DEC-ALN-008）——MFA のモデル 95.8MiB を常駐させるため。
 編集中の山は 1456MB のまま変わらず、上限 1500MB と scope の「8GB 搭載機」は動かしていない。
-**M6 のディスクキャッシュ化が、この削減ぶんだけ先に縛られる**"""
+M6 のディスクキャッシュ化が、この削減ぶんだけ先に縛られる"""
 
 [[allocations]]
 name = "editor（undo 履歴）"
@@ -96,4 +96,4 @@ kind = "step"
 mode = "編集中"
 value = 128
 measured = false
-note = "editor が前面のとき 512MB から縮退させる。モード遷移時に解放する"
+note = 'editor が前面のとき 512MB から縮退させる。モード遷移時に解放する'

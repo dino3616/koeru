@@ -1,22 +1,22 @@
 //! アプリケーション境界の失敗。
 //!
-//! **ここより先に回復の余地は無い**ので、下の層の列挙体をここで畳む
-//! （`rust-conventions`）。ただし畳むときに**2つに分ける。**
+//! ここより先に回復の余地は無いので、下の層の列挙体をここで畳む
+//! （`rust-conventions`）。ただし畳むときに2つに分ける。
 //!
-//! - `kind` — 送信層へ載せてよい固定文字列。**種別だけ。**
-//! - `message` — 画面に出す日本語。**パスも音源名も入りうる。**
+//! - `kind` — 送信層へ載せてよい固定文字列。種別だけ。
+//! - `message` — 画面に出す日本語。パスも音源名も入りうる。
 //!
 //! IPC の相手は同じ端末のウィンドウなので、`message` を渡してよい。
-//! **送信層へ渡してよいのは `kind` だけ**（`TR-TEL` 系）。
+//! 送信層へ渡してよいのは `kind` だけ（`TR-TEL` 系）。
 
 use serde::Serialize;
 
 /// 画面へ返す失敗。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct AppError {
     /// 送信してよい種別文字列。
     pub kind: String,
-    /// 画面に出す説明。**送信層へ載せない。**
+    /// 画面に出す説明。送信層へ載せない。
     pub message: String,
 }
 
@@ -40,7 +40,7 @@ impl AppError {
 
 /// `kind()` を持つ下の層のエラーを畳む。
 ///
-/// **`kind()` を実装していない型は畳めない。** 種別文字列を持たない失敗が
+/// `kind()` を実装していない型は畳めない。 種別文字列を持たない失敗が
 /// 境界を越えると、送信層に何を載せてよいか決められなくなる。
 macro_rules! from_domain {
     ($($t:ty),* $(,)?) => {
@@ -66,7 +66,7 @@ from_domain!(
     koeru_synth::resampler::RenderError,
 );
 
-// **どの OS でも同じ形で畳む。** 書いていない OS では、
+// どの OS でも同じ形で畳む。 書いていない OS では、
 // これらは「この OS の音声入出力はまだ書いていない」1つの型に潰れている。
 from_domain!(koeru_audio::backend::current::CaptureError);
 

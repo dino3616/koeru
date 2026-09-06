@@ -1,24 +1,27 @@
-//! **マスターは常に 44100 Hz で書かれる**（`TR-REC-01`, `TR-REC-02`）。
+//! マスターは常に 44100 Hz で書かれる（`TR-REC-01`, `TR-REC-02`）。
 //!
 //! > キャプチャは 32bit float・デバイスのネイティブレートで受ける。
-//! > **44100 Hz でない場合はアプリ内の固定リサンプラで1回だけ変換し、
-//! > 44100 Hz / 32bit float の WAV（マスター）として保存する**
+//! > 44100 Hz でない場合はアプリ内の固定リサンプラで1回だけ変換し、
+//! > 44100 Hz / 32bit float の WAV（マスター）として保存する
 //!
 //! # なぜここで見るのか
 //!
-//! **変換そのものが抜けていた**（`DEC-REC-006`）。48000 Hz のデバイスで録ると
+//! 変換そのものが抜けていた（`DEC-REC-006`）。48000 Hz のデバイスで録ると
 //! 48000 Hz のマスターが書かれ、試唱が「素材のサンプルレートが合わない」で止まる。
-//! `write_distribution` はヘッダに 44100 と書くだけなので、**そのまま配れば
-//! 44100 と名乗る 48000 の音**になる。
+//! `write_distribution` はヘッダに 44100 と書くだけなので、そのまま配れば
+//! 44100 と名乗る 48000 の音になる。
 //!
-//! **実機は要らない。** リングへ直接流し込めば、pump の経路をそのまま通せる。
+//! 実機は要らない。 リングへ直接流し込めば、pump の経路をそのまま通せる。
 
+// 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
+// 走らせた本人が数値を見て判断する。`tracing` へ出すと、
+// 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
 
 use koeru_app_lib::pump::Pump;
 use koeru_audio::{ring, wav};
 
-/// 倍音のある音を作る。**無音だと、変換が効いているか見えない。**
+/// 倍音のある音を作る。無音だと、変換が効いているか見えない。
 fn tone(hz: f64, rate: u32, ms: u64) -> Vec<f32> {
     let n = (u64::from(rate) * ms / 1000) as usize;
     (0..n)
@@ -67,7 +70,7 @@ fn record_at(device_rate_hz: u32) -> wav::Wav {
     let (producer, consumer) = ring::channel(device_rate_hz as usize * 4);
     let pump = Pump::start(consumer, device_rate_hz);
 
-    // **押す前の音も流しておく**（プリロールが要る）。
+    // 押す前の音も流しておく（プリロールが要る）。
     let lead = tone(440.0, device_rate_hz, 600);
     for c in lead.chunks(1024) {
         producer.push_or_drop(c);
@@ -80,7 +83,7 @@ fn record_at(device_rate_hz: u32) -> wav::Wav {
         producer.push_or_drop(c);
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    // 末尾ぶんも流す（**フレームで数えているので、足りないと確定しない**）。
+    // 末尾ぶんも流す（フレームで数えているので、足りないと確定しない）。
     let tail = tone(440.0, device_rate_hz, 700);
     std::thread::spawn(move || {
         for c in tail.chunks(1024) {
@@ -99,7 +102,7 @@ fn record_at(device_rate_hz: u32) -> wav::Wav {
     wav::read(&f.path).expect("読める")
 }
 
-/// **48000 Hz のデバイスでも、マスターは 44100 Hz。**
+/// 48000 Hz のデバイスでも、マスターは 44100 Hz。
 #[test]
 fn ネイティブが48kでもマスターは44100() {
     let w = record_at(48_000);
@@ -110,7 +113,7 @@ fn ネイティブが48kでもマスターは44100() {
         "マスターが 44100 Hz で書かれていない（TR-REC-02）"
     );
 
-    // **音の高さが変わっていない。** 変換を飛ばしてヘッダだけ書き換えると、
+    // 音の高さが変わっていない。 変換を飛ばしてヘッダだけ書き換えると、
     // 440Hz が 404Hz（8.8% 低い）になる。
     let hz = measure_hz(&w.samples, w.rate_hz);
     println!("  基本周波数 {hz:.1} Hz");
@@ -120,7 +123,7 @@ fn ネイティブが48kでもマスターは44100() {
     );
 }
 
-/// **44100 Hz のデバイスなら素通しする。** 要らない変換で鈍らせない。
+/// 44100 Hz のデバイスなら素通しする。 要らない変換で鈍らせない。
 #[test]
 fn ネイティブが44100なら素通し() {
     let w = record_at(44_100);

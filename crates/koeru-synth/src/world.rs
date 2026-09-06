@@ -1,8 +1,8 @@
 //! WORLD の束縛。
 //!
-//! **同梱した C++（`vendor/world`）を `extern "C"` で直接叩く**（`DEC-SYN-001`）。
+//! 同梱した C++（`vendor/world`）を `extern "C"` で直接叩く（`DEC-SYN-001`）。
 //! `Rust-WORLD` のような既存の束縛を採らないのは、必要な関数が5つしかなく、
-//! **束ねる相手を組織メンテのものに限るという方針**（`DEC-REC-001`）に対して、
+//! 束ねる相手を組織メンテのものに限るという方針（`DEC-REC-001`）に対して、
 //! この規模のものに例外を作らないため。
 //!
 //! ## 使う工程
@@ -10,12 +10,12 @@
 //! | 工程 | 関数 | 役割 |
 //! |---|---|---|
 //! | F0 推定 | `Dio` + `StoneMask` | 退避経路。既定は SwiftF0（`DEC-SYN-004`） |
-//! | F0 推定 | `Harvest` | 同上。話者音域が判明したあとに引き直す（TR-SYN-22） |
+//! | F0 推定 | `Harvest` | 同上。話者音域が判明したあとに引き直す（`TR-SYN-22`） |
 //! | スペクトル包絡 | `CheapTrick` | |
 //! | 非周期性指標 | `D4C` | |
 //! | 合成 | `Synthesis` | |
 //!
-//! **CheapTrick・D4C・合成は WORLD のまま**（`DEC-SYN-001`）。
+//! CheapTrick・D4C・合成は WORLD のまま（`DEC-SYN-001`）。
 
 use std::os::raw::{c_double, c_int};
 
@@ -139,9 +139,9 @@ pub const DEFAULT_FRAME_PERIOD_MS: f64 = 5.0;
 /// F0 推定の手法（`TR-SYN-22`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum F0Method {
-    /// 速い。**最初の数テイクはこれで即座に `.frq` を確定させる。**
+    /// 速い。最初の数テイクはこれで即座に `.frq` を確定させる。
     DioStoneMask,
-    /// 精度が高い。**話者音域が判明したあとに静かに引き直す。**
+    /// 精度が高い。話者音域が判明したあとに静かに引き直す。
     Harvest,
 }
 
@@ -161,9 +161,9 @@ pub struct Analysis {
     pub sample_rate_hz: u32,
 }
 
-/// F0 だけを推定する（`.frq` の生成に使う。TR-SYN-21）。
+/// F0 だけを推定する（`.frq` の生成に使う。`TR-SYN-21`）。
 ///
-/// `floor_hz` / `ceil_hz` は探索範囲。**話者音域が判明したら下限を引き上げる**（TR-SYN-22）。
+/// `floor_hz` / `ceil_hz` は探索範囲。話者音域が判明したら下限を引き上げる（`TR-SYN-22`）。
 #[tracing::instrument(skip(samples), fields(len = samples.len()))]
 #[must_use]
 pub fn estimate_f0(
@@ -260,7 +260,7 @@ pub fn estimate_f0(
 
 /// 与えた F0 でスペクトル包絡と非周期性指標を求める。
 ///
-/// **F0 は外から渡す。** 既定は SwiftF0（`DEC-SYN-004`）で、WORLD の推定は退避経路。
+/// F0 は外から渡す。 既定は SwiftF0（`DEC-SYN-004`）で、WORLD の推定は退避経路。
 #[tracing::instrument(skip(samples, f0, time_axis), fields(frames = f0.len()))]
 #[must_use]
 pub fn analyze_with_f0(
@@ -286,7 +286,7 @@ pub fn analyze_with_f0(
     ct.fft_size = fft_size;
     let width = (fft_size / 2 + 1) as usize;
 
-    // **C 側は `double**` を要求する。** 行ごとの Vec を作り、その先頭ポインタの配列を渡す。
+    // C 側は `double` を要求する。 行ごとの Vec を作り、その先頭ポインタの配列を渡す。
     let mut spec: Vec<Vec<f64>> = vec![vec![0.0; width]; n];
     let mut spec_ptrs: Vec<*mut c_double> = spec.iter_mut().map(|r| r.as_mut_ptr()).collect();
     // SAFETY: spec_ptrs は n 本のポインタで、それぞれ width 要素を指す。
@@ -337,7 +337,7 @@ pub fn analyze_with_f0(
 
 /// 分析結果から波形を合成する。
 ///
-/// `f0` を差し替えるとピッチが変わる。**resampler はここを使う**（`DEC-SYN-005`）。
+/// `f0` を差し替えるとピッチが変わる。resampler はここを使う（`DEC-SYN-005`）。
 #[tracing::instrument(skip(analysis, f0), fields(frames = f0.len()))]
 #[must_use]
 pub fn synthesize(analysis: &Analysis, f0: &[f64], out_len: usize) -> Vec<f64> {
@@ -378,9 +378,9 @@ mod tests {
 
     /// 倍音を持つ信号を作る。
     ///
-    /// **純粋な正弦波はボコーダの入力として非現実的。** 倍音が1本しか無いと、
+    /// 純粋な正弦波はボコーダの入力として非現実的。 倍音が1本しか無いと、
     /// スペクトル包絡がほぼ点になり、ピッチを変えて合成し直した結果から
-    /// 基本周波数を引き直せない。**実際に踏んだ。** 声は倍音を持つ。
+    /// 基本周波数を引き直せない。実際に踏んだ。 声は倍音を持つ。
     fn voiced(hz: f64, secs: f64, fs: u32) -> Vec<f64> {
         let n = (secs * f64::from(fs)) as usize;
         (0..n)
@@ -395,7 +395,7 @@ mod tests {
             .collect()
     }
 
-    /// **440 Hz の正弦波から 440 Hz が出る。** FFI の引数順が合っていることの確認。
+    /// 440 Hz の正弦波から 440 Hz が出る。 FFI の引数順が合っていることの確認。
     #[test]
     fn 有声音の基本周波数を当てられる() {
         let fs = 44_100;
@@ -410,7 +410,7 @@ mod tests {
         );
     }
 
-    /// Harvest でも同じ答えになる（TR-SYN-22 の退避経路）。
+    /// Harvest でも同じ答えになる（`TR-SYN-22` の退避経路）。
     #[test]
     fn harvest_でも基本周波数を当てられる() {
         let fs = 44_100;
@@ -422,7 +422,7 @@ mod tests {
         assert!((mean - 220.0).abs() < 10.0, "平均 {mean:.1} Hz");
     }
 
-    /// **分析して合成し直すと、元に近い波形が返る。** 工程が繋がっていることの確認。
+    /// 分析して合成し直すと、元に近い波形が返る。 工程が繋がっていることの確認。
     #[test]
     fn 分析してから合成し直せる() {
         let fs = 44_100;
@@ -447,7 +447,7 @@ mod tests {
         );
     }
 
-    /// **F0 を2倍にすると1オクターブ上がる。** resampler のピッチ変更がここに乗る。
+    /// F0 を2倍にすると1オクターブ上がる。 resampler のピッチ変更がここに乗る。
     #[test]
     fn 基本周波数を差し替えると音高が変わる() {
         let fs = 44_100;
