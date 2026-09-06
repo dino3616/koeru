@@ -1,4 +1,4 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQueries, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useCallback, useState } from "react";
 
@@ -15,7 +15,7 @@ import { cx } from "~/lib/tv";
 import { useScreenFocus } from "~/lib/use-screen-focus";
 import { useRecorder } from "~/lib/use-recorder";
 import { api, errorMessage, type ProgressView } from "~/lib/ipc";
-import { ledgerKey, openProjectQuery, progressQuery } from "~/lib/queries";
+import { autoAdvanceQuery, ledgerKey, openProjectQuery, progressQuery } from "~/lib/queries";
 
 /** 試唱の基準音（MIDI）。C4。フォールバックもここを参照する。 */
 const BASE_MIDI = 60;
@@ -37,14 +37,11 @@ const PREVIEW_LENGTH_MS = 800;
  *
  * 録る → 波形が出る → その場で歌わせて聴く、までをここで完結させる。
  * パスを画面に出さない（`TR-PKG-45`）。保存先も、ファイル名も見せない。
- */
-/**
- * 収録画面。縦切りの本体。
  *
  * 開くまでと開いたあとを別の部品に分ける。 `open_project` を先に
- * 済ませないと、台帳を読む子が `app.no_project` を受ける——同じ部品に
- * 両方の `useSuspenseQuery` を並べると、React Query は2つを同時に投げるので
- * 順番が保てない。境界を挟んで、親が解けてから子を出す。
+ * 済ませないと、台帳を読む子が `app.no_project` を受ける。順番を
+ * フックの並び順に頼らない——並べ替えても型は通り、`app.no_project` が
+ * 出て初めて分かる。境界で分けておけば、順序が木の形として残る。
  */
 export const RecordScreen = () => {
   const navigate = useNavigate();
@@ -83,17 +80,22 @@ export const RecordScreen = () => {
 /**
  * プロジェクトを開くところまで。
  *
- * 子を返すだけの層に見えるが、`useSuspenseQuery` が解けるまで子は描かれない
- * ——React は親が中断した時点で降りるのをやめる。これが「開いてから読む」の
- * 保証になっている。
+ * 子を返すだけの層に見えるが、中断が解けるまで子は描かれない——React は
+ * 親が中断した時点で降りるのをやめる。これが「開いてから読む」の保証になっている。
+ *
+ * 1フレーズの長さはここで一緒に取る。 開くのとは関係が無いので、
+ * `useSuspenseQueries` で束ねて並行に投げる。`useSuspenseQuery` を2つ並べると
+ * 順に取りに行く（`EVID-PLT-001` で実測）。
  */
 const RecordSession = ({ id }: { id: string }) => {
-  useSuspenseQuery(openProjectQuery(id));
-  return <RecordBody />;
+  const [, advance] = useSuspenseQueries({
+    queries: [openProjectQuery(id), autoAdvanceQuery()],
+  });
+  return <RecordBody advanceMs={advance.data} />;
 };
 
 /** 開いたあとの収録画面。 */
-const RecordBody = () => {
+const RecordBody = ({ advanceMs }: { advanceMs: number }) => {
   const navigate = useNavigate();
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
@@ -111,10 +113,13 @@ const RecordBody = () => {
   /**
    * 確定したら、進み具合と一覧を同時に進める。片方だけ動くと数が合わない。
    *
-   * 進み具合は確定が返した値をそのまま書く。 取り直しを待つと、
-   * 数字だけが一拍遅れて動く。そのうえで台帳全体を無効化して、
-   * 一覧を取り直させる——カバレッジでは代用できない。採用テイクを
-   * 切り替えても録り直しても、カバレッジは変わらない（`TR-RCL-25`）。
+   * 進み具合は確定が返した値をそのまま書く。 無効化だけにすると、
+   * 取り直しが返るまで数字が一拍遅れて動く——連続収録では数秒ごとに起きる。
+   * 書いたうえで台帳全体を無効化し、一覧を取り直させる。進み具合も
+   * 同じ鍵の下なので取り直されるが、返るのは今書いたのと同じ値になる。
+   *
+   * カバレッジでは代用できない。 採用テイクを切り替えても録り直しても、
+   * カバレッジは変わらない（`TR-RCL-25`）。
    */
   const onSettled = useCallback(
     ({ progress: p }: { progress: ProgressView }) => {
@@ -129,13 +134,13 @@ const RecordBody = () => {
     recording,
     settling,
     continuous,
-    advanceMs,
     start,
     stop,
     retake,
     runContinuous,
     pauseContinuous,
   } = useRecorder({
+    advanceMs,
     onSettled,
     onStatus: setStatus,
     onError: fail,

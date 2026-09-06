@@ -1,8 +1,6 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type ProgressView, type TakeView } from "~/lib/ipc";
-import { autoAdvanceQuery } from "~/lib/queries";
 
 /** テイクが1つ確定したときに呼び側へ渡すもの。 */
 type Settled = {
@@ -12,6 +10,15 @@ type Settled = {
 };
 
 type RecorderOptions = {
+  /**
+   * 連続収録の1フレーズの長さ（`TR-REC-20`）。
+   *
+   * ここでは読まない。 読むと、呼び側が既に中断している問い合わせの
+   * うしろに並んでしまう——同じ描画の中で `useSuspenseQuery` を2つ通すと、
+   * 1つ目で中断した時点で2つ目のフックまで降りないので、順に取りに行く
+   * （`EVID-PLT-001` で実測）。呼び側が `useSuspenseQueries` で束ねて渡す。
+   */
+  advanceMs: number;
   /** テイクが確定した。台帳が変わっているので、一覧は作り直す。 */
   onSettled: (s: Settled) => void;
   /** 本人へ出す1行。画面の読み上げ領域へそのまま渡る。 */
@@ -37,7 +44,13 @@ type RecorderOptions = {
  * `takeSeq` と `arming` は描画に出ないから。 出ないものを state にすると、
  * 押すたびに描き直すことになる。
  */
-export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderOptions) => {
+export const useRecorder = ({
+  advanceMs,
+  onSettled,
+  onStatus,
+  onError,
+  onRetry,
+}: RecorderOptions) => {
   const [take, setTake] = useState<TakeView | null>(null);
   const [recording, setRecording] = useState(false);
   const [continuous, setContinuous] = useState(false);
@@ -49,14 +62,6 @@ export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderO
    * `recording` を下ろしてから結果が返るまでの間を、これで埋める。
    */
   const [settling, setSettling] = useState(false);
-  /**
-   * 1フレーズの長さ（`TR-REC-20`）。
-   *
-   * 仮の値を置いて後から差し替えない。 画面には秒数がそのまま出るし、
-   * 連続収録はこの長さで進むので、読めていない間の値で始められると
-   * 実際とは違う長さで録れる。読めるまでは上の `Suspense` が受ける。
-   */
-  const { data: advanceMs } = useSuspenseQuery(autoAdvanceQuery());
 
   /**
    * いま録っているテイクの番号。
@@ -251,7 +256,6 @@ export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderO
     recording,
     settling,
     continuous,
-    advanceMs,
     start,
     stop,
     retake,

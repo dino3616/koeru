@@ -1,0 +1,36 @@
+schema = 'evidence'
+id = 'EVID-PLT-001'
+title = 'useSuspenseQuery の取りに行く順序（同じ部品・useSuspenseQueries・兄弟の境界）'
+kind = 'measurement'
+source = '@tanstack/react-query 5.102.8 / React 19.2.8 / Chromium（Playwright）'
+provenance = '''
+実測。 `queryFn` が走り始めた時刻と終わった時刻を配列へ積む部品を3つ用意し、
+story として実ブラウザで描いて順序を読んだ。各 `queryFn` は 50ms 眠るだけ。
+推測ではない——**書く前に立てていた予想は逆だった。**
+
+計測用の部品は測ったあと消してある。 残すと `check:stories` の数に混ざり、
+「部品」として扱われる。再現したいときはこの記録から組み直す。
+'''
+confidence = 'Fact'
+supports_decisions = ['DEC-PLT-023']
+
+measured = '''
+| 置き方 | 観測した順序 | 結論 |
+|---|---|---|
+| 同じ部品に `useSuspenseQuery` を2つ | `start:a, end:a, start:b, end:b` | **直列** |
+| `useSuspenseQueries` で2つ束ねる | `start:pa, start:pb, end:pa, end:pb` | 並行 |
+| 兄弟3つを別々の `Suspense` で包む | `start:s1, start:s2, start:s3, end:s1, end:s2, end:s3` | 並行 |
+
+[Fact] 同じ部品に `useSuspenseQuery` を並べると直列になる。 1つ目が中断した時点で
+React はその描画から降りるので、2つ目のフックまで到達しない。1つ目が解けてから
+描き直され、そこで初めて2つ目が投げられる。並行に取りたいなら `useSuspenseQueries`。
+
+[Fact] 兄弟はそれぞれの境界で並行に動く。 1つが中断しても、React は残りの兄弟を
+描き続ける。画面の区画ごとに境界を置くのは、それだけで並行になる。
+
+これが意味すること。 「同じ部品に並べたら同時に投げられるので順序が保てない」は
+**誤り**で、実際には順序が保たれる。ただし保たれるのはフックの並び順によってなので、
+順序に意味があるもの（`open_project` → 台帳の読み）を並び順に頼らせない。
+並べ替えても型は通り、`app.no_project` が出て初めて分かる。境界で分けておけば、
+順序が木の形として残る。
+'''
