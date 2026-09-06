@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fn, mocked } from "storybook/test";
+import { expect, fn, mocked, waitFor } from "storybook/test";
 
 import { LeakCard } from "~/components/leak-card";
 import { api } from "~/lib/ipc";
@@ -36,6 +36,31 @@ export const 漏れていない: Story = {
   },
   play: async ({ canvasElement, userEvent }) => {
     await userEvent.click(canvasElement.querySelectorAll("button")[0] as HTMLElement);
-    await expect(canvasElement.textContent).toContain("回り込み");
+    /*
+     * 結果固有の文言まで見る。
+     *
+     * 「回り込み」だけだと見出しにも一致するので、API が答えなくても通る。
+     * 結果でしか出ない語を選ぶ。
+     */
+    await waitFor(async () => {
+      await expect(canvasElement.textContent).toContain("入っていません");
+    });
+  },
+};
+
+/** 漏れている側。音高は鳴らさない、と伝える（`TR-REC-24`）。 */
+export const 漏れている: Story = {
+  beforeEach: () => {
+    mocked(api.checkGuideLeak).mockResolvedValue({
+      leaking: true,
+      correlation: 0.81,
+      lag_ms: 12,
+    });
+  },
+  play: async ({ canvasElement, userEvent }) => {
+    await userEvent.click(canvasElement.querySelectorAll("button")[0] as HTMLElement);
+    await waitFor(async () => {
+      await expect(canvasElement.textContent).toContain("マイクに入っています");
+    });
   },
 };

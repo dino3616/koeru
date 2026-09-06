@@ -15,6 +15,13 @@ type RecorderOptions = {
   /** 本人へ出す1行。画面の読み上げ領域へそのまま渡る。 */
   onStatus: (message: string) => void;
   onError: (cause: unknown) => void;
+  /**
+   * 前の失敗を消す。
+   *
+   * 録り直すときに呼ぶ。 呼ばないと、成功しても前の赤い文言が残り、
+   * 直ったのに直っていないように見える。画面が持っているので、呼んで知らせる。
+   */
+  onRetry: () => void;
 };
 
 /**
@@ -28,7 +35,7 @@ type RecorderOptions = {
  * `takeSeq` と `arming` は描画に出ないから。 出ないものを state にすると、
  * 押すたびに描き直すことになる。
  */
-export const useRecorder = ({ onSettled, onStatus, onError }: RecorderOptions) => {
+export const useRecorder = ({ onSettled, onStatus, onError, onRetry }: RecorderOptions) => {
   const [take, setTake] = useState<TakeView | null>(null);
   const [recording, setRecording] = useState(false);
   const [continuous, setContinuous] = useState(false);
@@ -132,8 +139,9 @@ export const useRecorder = ({ onSettled, onStatus, onError }: RecorderOptions) =
    * 「あ い う え お」と「ん」を同じ長さで切る理由が無い。
    */
   const start = useCallback(() => {
+    onRetry();
     beginTake(() => api.startTake()).catch(onError);
-  }, [beginTake, onError]);
+  }, [beginTake, onError, onRetry]);
 
   /**
    * 行を指定して録り直す（`TR-REC-21`、`TR-RCL-25`、`TR-ALN-27`）。
@@ -142,11 +150,12 @@ export const useRecorder = ({ onSettled, onStatus, onError }: RecorderOptions) =
    */
   const retake = useCallback(
     (rowId: string) => {
+      onRetry();
       beginTake(() => api.startRetake(rowId))
         .then(() => onStatus(`${rowId} を録り直しています。終わったら「止める」`))
         .catch(onError);
     },
-    [beginTake, onError, onStatus],
+    [beginTake, onError, onStatus, onRetry],
   );
 
   /**
@@ -217,13 +226,20 @@ export const useRecorder = ({ onSettled, onStatus, onError }: RecorderOptions) =
    * 連続収録をやめる。
    *
    * 番号を進めてから止める。 進めておかないと、待っている確定が
-   * 自分のものだと思って走る。開いたままのテイクは `settle` が畳む。
+   * 自分のものだと思って走る。
+   *
+   * 途中のテイクを確定させない。 固定長の途中で止めたぶんは切れた発声なので、
+   * 確定させると台帳へ積まれ、進み具合がその部分的なテイクで進む——
+   * 「止めたフレーズは未収録のまま残る」という約束と食い違う。
+   *
+   * 開いたままのストリームは、次に録りはじめるときの `start_take` が畳む。
+   * Rust 側に「捨てる」口は無いので、ここで確定させないことが唯一の手当て。
    */
   const pauseContinuous = useCallback(() => {
     continuing.current = false;
+    // 番号を進めて、待っている自動終了を自分のものでなくする（`TR-REC-42`）。
     takeSeq.current += 1;
-    if (recording) settle().catch(onError);
-  }, [recording, settle, onError]);
+  }, []);
 
   return {
     take,

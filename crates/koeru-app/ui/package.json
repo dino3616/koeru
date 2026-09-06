@@ -5,7 +5,7 @@
   "sideEffects": false,
   "scripts": {
     "dev": "vp dev",
-    "build": "vp build && tsc --noEmit && bun run check:licenses",
+    "build": "vp build && tsc --build --force && bun run check:licenses",
     "preview": "vp preview",
     "check": "vp check --fix",
     "check:ci": "vp check && bun run check:stories && bun run test",

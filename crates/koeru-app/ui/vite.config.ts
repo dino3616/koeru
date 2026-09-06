@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
@@ -96,8 +97,17 @@ const config = defineConfig({
   resolve: {
     tsconfigPaths: true,
     alias: {
-      // `node:url` を引かない。 `URL` は標準で、`pathname` で足りる。
-      "~": new URL("./src", import.meta.url).pathname,
+      /*
+       * `pathname` で済ませない。
+       *
+       * チェックアウト先に空白や非 ASCII が入ると `%20` のまま返り、
+       * Windows では `/C:/…` になる。どちらもファイル系の実体ではないので、
+       * `~/…` の解決が静かに外れる。`fileURLToPath` が実体へ直す。
+       *
+       * ここだけ `node:url` を引く。 設定ファイルを読むのは vite-plus で、
+       * Bun ではない——`Bun.fileURLToPath` は「Bun is not defined」で落ちる。
+       */
+      "~": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
   // 外へ出ない。 処理はローカル完結で、声をサーバへ送らない。

@@ -55,28 +55,63 @@ const NO_FIELD_OK: readonly { prefix: string; why: string }[] = [
   { prefix: "@yuku-parser/binding-", why: "@yuku-parser（MIT）の OS 別バイナリ" },
 ];
 
-const ROOT = new URL("../node_modules", import.meta.url).pathname;
+// `pathname` にしない。空白や非 ASCII が `%20` のまま残る。
+const ROOT = Bun.fileURLToPath(new URL("../node_modules", import.meta.url));
 
 type Pkg = { name: string; license: string | null };
 
 /*
- * `node_modules/＊/package.json` と `node_modules/@＊/＊/package.json` を挙げる。
+ * インストール済みのすべての manifest を挙げる。
  *
- * 深さを2段までに切る。 入れ子の `node_modules`（版が衝突したときにできる）は
- * 数えない——同じパッケージを二度数えることになり、件数が実態と合わなくなる。
+ * 直下の2段だけを見ない。 版が衝突すると bun は入れ子の `node_modules` へ
+ * 実体を置く。手元では 27 件あり、そこは丸ごと検査から漏れていた——
+ * 版が違えばライセンスも違いうるので、漏れたぶんは素通りする。
+ *
+ * 名前と版で重複を落とす。 同じ実体が複数の場所に居ることはあるが、
+ * 版が違えば別物として数える。
  */
-const manifests = [
-  ...new Bun.Glob("*/package.json").scanSync({ cwd: ROOT, absolute: true }),
-  ...new Bun.Glob("@*/*/package.json").scanSync({ cwd: ROOT, absolute: true }),
-].sort();
+const manifests = [...new Bun.Glob("**/package.json").scanSync({ cwd: ROOT, absolute: true })]
+  /*
+   * 配られていないものを外す。
+   *
+   * パッケージが自分の試験用に置いた固定物（`resolve/test/resolver/baz`）や、
+   * 雛形（`vite-plus-*-template`）は、依存として解決されたものではない。
+   * 数えると、実体の無いものにライセンスを求めることになる。
+   *
+   * 判定は「パスに `node_modules` 以外の段が挟まっているか」。
+   * 本物の依存は必ず `node_modules/<名前>/package.json` の形で置かれ、
+   * 入れ子でも `node_modules/…/node_modules/<名前>/package.json` になる。
+   */
+  .filter((path) => {
+    const rel = path.slice(ROOT.length + 1, -"/package.json".length);
+    const segments = rel.split("/");
+    // スコープ付きは1段深い。`node_modules` で区切って、各区間を見る。
+    for (const part of rel.split("node_modules/")) {
+      const depth = part.split("/").filter((x) => x !== "").length;
+      if (depth > 2) return false;
+    }
+    return segments.length > 0;
+  })
+  .sort();
 
+const seen = new Set<string>();
 const packages: Pkg[] = [];
+
 for (const path of manifests) {
-  const j = (await Bun.file(path).json()) as {
-    name?: string;
-    license?: unknown;
-    licenses?: unknown;
-  };
+  let j: { name?: string; version?: string; license?: unknown; licenses?: unknown };
+  try {
+    j = (await Bun.file(path).json()) as typeof j;
+  } catch {
+    // 壊れた manifest（型定義だけの入れ物など）は数えない。
+    continue;
+  }
+  // 名前を名乗らないものは package ではない。
+  if (typeof j.name !== "string") continue;
+
+  const key = `${j.name}@${j.version ?? "?"}`;
+  if (seen.has(key)) continue;
+  seen.add(key);
+
   // 古い形は `licenses: [{ type }]`。
   const legacy = Array.isArray(j.licenses)
     ? j.licenses
@@ -86,7 +121,7 @@ for (const path of manifests) {
         .join(" OR ")
     : null;
   const license = typeof j.license === "string" ? j.license : legacy;
-  packages.push({ name: j.name ?? path, license });
+  packages.push({ name: j.name, license });
 }
 
 const bad: string[] = [];

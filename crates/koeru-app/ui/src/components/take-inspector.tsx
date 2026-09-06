@@ -29,12 +29,34 @@ const MIN_SPAN_MS = 20;
  * Radix は16進で持っているので、そこから読む。
  * 読めなければ黒に倒す——描かないより、暗く出たほうが気づける。
  */
+/**
+ * CSS のカスタムプロパティを RGB の3値にする。
+ *
+ * 16進だけを見ない。 Radix Colors 3 は `@supports (color: color(display-p3 …))`
+ * と `@media (color-gamut: p3)` の中で段を上書きするので、macOS の画面では
+ * `color(display-p3 0.1 0.2 0.3)` が返る。16進で決め打つと解析に失敗して
+ * 黒になり、スペクトログラムが真っ黒に描かれる——主対象の環境で。踏んだ。
+ *
+ * 形を数えない。 ブラウザに解決させる。 1×1 の canvas へその色で塗り、
+ * 塗れた画素を読む。どの記法で来ても、実際に画面へ出る色そのものが返る。
+ */
 const readRgb = (styles: CSSStyleDeclaration, name: string): [number, number, number] => {
-  const hex = styles.getPropertyValue(name).trim();
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (m?.[1] === undefined) return [0, 0, 0];
-  const n = Number.parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const value = styles.getPropertyValue(name).trim();
+  if (value === "") return [0, 0, 0];
+
+  const probe = document.createElement("canvas");
+  probe.width = 1;
+  probe.height = 1;
+  const ctx = probe.getContext("2d", { willReadFrequently: true });
+  if (ctx === null) return [0, 0, 0];
+
+  ctx.fillStyle = value;
+  // 読めない記法だと `fillStyle` は既定（黒）のまま。塗らずに返す。
+  if (ctx.fillStyle === "#000000" && value !== "#000000") return [0, 0, 0];
+  ctx.fillRect(0, 0, 1, 1);
+
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return [r ?? 0, g ?? 0, b ?? 0];
 };
 
 const usableSpan = (o: OtoView, fileMs: number): [number, number] => {
@@ -58,8 +80,16 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
   const waveRef = useRef<HTMLCanvasElement>(null);
   const spectroRef = useRef<HTMLCanvasElement>(null);
   /** いま有効な描画か。外れたら、届いた応答を捨てる。 */
-  const alive = useRef(true);
-  const aliveSpectro = useRef(true);
+  /**
+   * 要求ごとの通し番号。
+   *
+   * 生死の札1つでは足りない。 拡大縮小を続けて押すと要求が重なり、
+   * 古いほうが後に返ることがある。片付けが札を下ろしても、次の効果が
+   * すぐ上げ直すので、古い応答は「生きている」と読んで古い範囲を描く。
+   * 自分の番号が最新のときだけ描く形にする（`DEC-PLT-017` と同じ理由）。
+   */
+  const waveSeq = useRef(0);
+  const spectroSeq = useRef(0);
   /**
    * いま見ている時間の範囲。
    *
@@ -112,11 +142,14 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
     /** ミリ秒を画素へ。 */
     const at = (ms: number) => ((ms - span[0]) / (span[1] - span[0])) * w;
 
+    waveSeq.current += 1;
+    const mine = waveSeq.current;
     setDrawing(true);
     api
       .waveformWindow({ takeId, fromMs: span[0], toMs: span[1], pixels: w })
       .then((points) => {
-        if (!alive.current) return;
+        // 自分より新しい要求が出ていたら描かない。
+        if (mine !== waveSeq.current) return;
         ctx.clearRect(0, 0, w, h);
 
         /*
@@ -174,7 +207,8 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
       .catch((e: unknown) => setError(errorMessage(e)))
       // 失敗しても下ろす。下ろさないと、印が出たまま止まる。
       .finally(() => {
-        if (alive.current) setDrawing(false);
+        // 印を下ろすのも最新のものだけ。古い応答が新しい待ちを消さない。
+        if (mine === waveSeq.current) setDrawing(false);
       });
   }, [takeId, span, peak, otos, durationMs]);
 
@@ -183,6 +217,9 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
     if (canvas === null || !showSpectro) return;
     const ctx = canvas.getContext("2d");
     if (ctx === null) return;
+
+    spectroSeq.current += 1;
+    const mine = spectroSeq.current;
 
     const styles = getComputedStyle(document.documentElement);
     const rect = canvas.getBoundingClientRect();
@@ -199,7 +236,7 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
     api
       .spectrogramWindow({ takeId, fromMs: span[0], toMs: span[1], columns, rows: SPECTRO_ROWS })
       .then((s) => {
-        if (!aliveSpectro.current) return;
+        if (mine !== spectroSeq.current) return;
         const image = ctx.createImageData(s.columns, s.rows);
 
         /*
@@ -237,18 +274,17 @@ export const TakeInspector = ({ takeId, durationMs, peak }: TakeInspectorProps) 
   // 古い応答で描かない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、
   // 拡大縮小を続けて押すと、前の範囲の応答が後から届いて古い時間窓を描く。
   useEffect(() => {
-    alive.current = true;
     draw();
     return () => {
-      alive.current = false;
+      // 番号を進めて、走っている要求の結果を捨てる。
+      waveSeq.current += 1;
     };
   }, [draw]);
 
   useEffect(() => {
-    aliveSpectro.current = true;
     drawSpectro();
     return () => {
-      aliveSpectro.current = false;
+      spectroSeq.current += 1;
     };
   }, [drawSpectro]);
 

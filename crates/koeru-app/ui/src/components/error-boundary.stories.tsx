@@ -28,6 +28,13 @@ export const 受け止めた: Story = {
   play: async ({ canvasElement }) => {
     // やり直す手段がその場にあること。無いと戻れない。
     await expect(canvasElement.querySelectorAll("button").length).toBeGreaterThan(0);
+    /*
+     * 画面を見ていない人にも届くこと。
+     *
+     * ここは `Announcer` ごと置き換わった後なので、読み上げ領域は
+     * 木に居ない。これが唯一の通知経路になる（`TR-PLT-29`）。
+     */
+    await expect(canvasElement.querySelector("[role='alert']")).not.toBeNull();
   },
 };
 

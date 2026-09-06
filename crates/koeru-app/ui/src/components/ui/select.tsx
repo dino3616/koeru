@@ -10,8 +10,20 @@ import type { ComponentProps } from "react";
  * どれも `className` を受け取らない。 見た目は部品が持つ（`~/lib/tv` の冒頭）。
  */
 
-export const Select = SelectPrimitive.Root;
-export const SelectValue = SelectPrimitive.Value;
+/*
+ * `Root` と `Value` も包む。
+ *
+ * そのまま再輸出すると Radix の `className` が props に出て、
+ * 「どれも `className` を受け取らない」（`DEC-PLT-020`）に反する。
+ * 見た目を持たない部品でも、口が開いていれば差し込まれる。
+ */
+export const Select = (props: Omit<ComponentProps<typeof SelectPrimitive.Root>, "className">) => (
+  <SelectPrimitive.Root {...props} />
+);
+
+export const SelectValue = (
+  props: Omit<ComponentProps<typeof SelectPrimitive.Value>, "className">,
+) => <SelectPrimitive.Value {...props} />;
 
 export const SelectTrigger = ({
   children,

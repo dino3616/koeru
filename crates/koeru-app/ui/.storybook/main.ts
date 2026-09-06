@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { StorybookConfig } from "@storybook/react-vite";
 
 /*
@@ -56,7 +57,9 @@ const config: StorybookConfig = {
       ...config.resolve,
       alias: {
         ...(config.resolve?.alias as Record<string, string> | undefined),
-        "~/lib/ipc": new URL("../src/lib/ipc.mock.ts", import.meta.url).pathname,
+        // `pathname` にしない。空白や非 ASCII、Windows のドライブ文字で外れる。
+        // `node:url` を引くのは、設定を読むのが Bun ではないから。
+        "~/lib/ipc": fileURLToPath(new URL("../src/lib/ipc.mock.ts", import.meta.url)),
       },
     },
     plugins: (config.plugins ?? []).flat(9).filter((p) => {

@@ -74,7 +74,13 @@ export const RecordScreen = () => {
     retake,
     runContinuous,
     pauseContinuous,
-  } = useRecorder({ onSettled, onStatus: setStatus, onError: fail });
+  } = useRecorder({
+    onSettled,
+    onStatus: setStatus,
+    onError: fail,
+    // 録り直すときに前の失敗を消す。残すと、直ったのに直っていないように見える。
+    onRetry: useCallback(() => setError(null), []),
+  });
 
   /** デバイスを選べているか。選ぶまでは録らせない。 */
   const ready = deviceId !== undefined;

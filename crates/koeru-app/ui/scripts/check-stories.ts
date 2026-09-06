@@ -8,7 +8,8 @@
  * 部品とみなすのは、大文字で始まる名前を輸出している `.tsx`。
  * `~/lib` の関数やフックは対象外——描くものではないので story を持てない。
  */
-const SRC = new URL("../src", import.meta.url).pathname;
+// `pathname` にしない。空白や非 ASCII が `%20` のまま残る。
+const SRC = Bun.fileURLToPath(new URL("../src", import.meta.url));
 
 /** story を持たなくてよいもの。理由を書いて足す。 */
 const EXEMPT = new Map([

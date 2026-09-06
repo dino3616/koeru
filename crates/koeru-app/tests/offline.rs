@@ -233,7 +233,7 @@ fn walk(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
 /// 数・寸法・列挙・ID だけ。自由文を入れない。
 /// 音源名・ファイルパス・歌詞・プロジェクト名が入ると、
 /// 「非公開のまま完成できる」という製品の前提が崩れる。
-const TRACE_FIELDS_ALLOWED: [&str; 38] = [
+const TRACE_FIELDS_ALLOWED: [&str; 43] = [
     "added_at",
     "bundled",
     "columns",
@@ -244,11 +244,19 @@ const TRACE_FIELDS_ALLOWED: [&str; 38] = [
     //（「ホワイトリストに載せたいフィールドが識別子として機能しうると判明したとき」）
     // に当たったら見直す。
     "device_id",
+    "dim",
+    // 特徴の次元数。40 のような数。モデルの形であって本人のものではない。
     "dither",
+    "effects",
+    // OS 側の効果の列挙結果（`TR-REC-08`）。固定の種別が並ぶだけ。
     "enc",
     // 書き出しの拡張子。固定の語彙。
     "ext",
     "files",
+    "floor_hz",
+    // 探索の下限（Hz）。話者音域から決まる数で、声そのものではない。
+    "found",
+    // 見つかった件数。数だけ。
     "frames",
     "id",
     "in_bank",
@@ -267,6 +275,8 @@ const TRACE_FIELDS_ALLOWED: [&str; 38] = [
     "per_row",
     "pixels",
     "rate_hz",
+    "reason",
+    // 打ち切りや失敗の理由。`as_str` / `kind()` が返す固定語に限る。
     "ring_capacity",
     "row",
     // 同梱の録音リストの行を指す。利用者の創作物ではないので載せてよい
@@ -306,6 +316,16 @@ fn トレースのフィールドが許可リストに収まっている() {
         walk(&src, &mut |path, text| {
             let lines: Vec<&str> = text.lines().collect();
             for (i, line) in lines.iter().enumerate() {
+                // `info!(reason = …)` のように、イベントへ直接付けたフィールド。
+                //
+                // `#[instrument]` だけ見ていた頃は、この経路が丸ごと素通りだった。
+                // 実際に `device = ?id` がデバイス識別子を載せていた。
+                for name in event_fields(line) {
+                    if !TRACE_FIELDS_ALLOWED.contains(&name.as_str()) {
+                        leaked.push(format!("{}:{}: イベントの `{name}`", path.display(), i + 1));
+                    }
+                }
+
                 if !line.contains("tracing::instrument") {
                     continue;
                 }
@@ -479,6 +499,48 @@ fn 境界のenumがバックエンドの綴りを網羅している() {
             );
         }
     }
+}
+
+/// イベントマクロに直接書かれたフィールド名を拾う。
+///
+/// `info!(reason = e.kind(), "…")` の `reason`。 名前だけを見る——
+/// 値が何であれ、許可リストに無い名前は送信層へ載せない（禁止事項3）。
+///
+/// `%` と `?` の前置きも同じ扱い。`?id` は `Debug` を載せる形なので、
+/// むしろ危ないほうに入る。
+fn event_fields(line: &str) -> Vec<String> {
+    let trimmed = line.trim_start();
+    // コメント行は対象外。例の記述で落とさない。
+    if trimmed.starts_with("//") {
+        return Vec::new();
+    }
+    let Some(open) = ["info!(", "warn!(", "error!(", "debug!(", "trace!("]
+        .iter()
+        .find_map(|m| line.find(m).map(|i| i + m.len()))
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let rest = &line[open..];
+    for part in rest.split(',') {
+        let Some((lhs, _)) = part.split_once('=') else {
+            continue;
+        };
+        // `==` や `>=` は比較。フィールドではない。
+        if lhs.ends_with(['=', '!', '<', '>']) {
+            continue;
+        }
+        let name = lhs.trim().trim_start_matches(['%', '?']).trim();
+        // 識別子だけを採る。`e.kind()` のような右辺は来ない。
+        if !name.is_empty()
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !name.starts_with(|c: char| c.is_ascii_digit())
+        {
+            out.push(name.to_owned());
+        }
+    }
+    out
 }
 
 /// `as_str` の本体に現れる文字列リテラルを拾う。

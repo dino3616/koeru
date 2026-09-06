@@ -579,8 +579,22 @@ fn index_decisions(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode 
     }
     rows.sort();
 
+    // 行継続（`\` 改行）で書かない。 続けた行の字下げがそのまま文字列に入り、
+    // Markdown が9スペース分をコードブロックとして読む——説明も表の見出しも
+    // コードとして描かれ、表が組まれない。生の文字列で、字下げせずに書く。
     let mut out = String::from(
-        "# 判断記録の索引\n\n         `schema = 'decision'` のファイルの一覧。この索引は手で書かない。\n         `cargo xtask index-decisions` が `meta/decisions/*.toml` から作る。\n         中身を直すのは各 TOML 側で、索引は作り直す。\n\n         読み方と規律は [../README.md](../README.md)。置き換えの関係（`supersedes` /\n         `superseded_by` / `status = 'superseded'`）は `cargo xtask check-meta` が双方向で検査する。\n\n         | ID | 何についての判断か | 決めたこと | 状態 |\n         |---|---|---|---|\n",
+        r"# 判断記録の索引
+
+`schema = 'decision'` のファイルの一覧。この索引は手で書かない。
+`cargo xtask index-decisions` が `meta/decisions/*.toml` から作る。
+中身を直すのは各 TOML 側で、索引は作り直す。
+
+読み方と規律は [../README.md](../README.md)。置き換えの関係（`supersedes` /
+`superseded_by` / `status = 'superseded'`）は `cargo xtask check-meta` が双方向で検査する。
+
+| ID | 何についての判断か | 決めたこと | 状態 |
+|---|---|---|---|
+",
     );
     for (id, label, title, status) in &rows {
         out.push_str(&format!(
@@ -744,8 +758,13 @@ fn id_tokens(line: &str) -> Vec<String> {
 /// 位置が要るのは引用の検査だけ。`ID の「…」` の形かどうかは、
 /// ID がどこで終わるかを知らないと判定できない。
 fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
+    // FSL と meta が使う名前空間を全部挙げる。
+    //
+    // 挙げ漏らすと、その名前空間の打ち間違いが誰にも見えない
+    // ——存在しない `AC-*` を書いても、`AC` を知らなければ ID として拾わない。
     const PREFIX: &[&str] = &[
-        "DEC", "TR", "Q", "EVID", "REQ", "PROFILE", "BUDGET", "SCALE", "INV", "CMP",
+        "DEC", "TR", "Q", "EVID", "REQ", "PROFILE", "BUDGET", "SCALE", "INV", "CMP", "AC", "FB",
+        "TGT", "MODEL",
     ];
     let b = line.as_bytes();
     let mut out = Vec::new();
@@ -775,7 +794,13 @@ fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
             continue;
         }
         let end = i + p.len() + 1 + area.len() + 1 + num.len();
-        if b.get(end).is_some_and(|c| c.is_ascii_alphanumeric()) {
+        // 末尾もハイフンで切らない。
+        //
+        // 英数字だけを見ていると `TR-REC-02-extra` が `TR-REC-02` として通り、
+        // 打ち間違いが実在する ID に化ける。前後で同じ規則にする。
+        if b.get(end)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'-')
+        {
             continue;
         }
         out.push((format!("{p}-{area}-{num}"), i, end));

@@ -1,14 +1,14 @@
 # 判断記録の索引
 
-         `schema = 'decision'` のファイルの一覧。この索引は手で書かない。
-         `cargo xtask index-decisions` が `meta/decisions/*.toml` から作る。
-         中身を直すのは各 TOML 側で、索引は作り直す。
+`schema = 'decision'` のファイルの一覧。この索引は手で書かない。
+`cargo xtask index-decisions` が `meta/decisions/*.toml` から作る。
+中身を直すのは各 TOML 側で、索引は作り直す。
 
-         読み方と規律は [../README.md](../README.md)。置き換えの関係（`supersedes` /
-         `superseded_by` / `status = 'superseded'`）は `cargo xtask check-meta` が双方向で検査する。
+読み方と規律は [../README.md](../README.md)。置き換えの関係（`supersedes` /
+`superseded_by` / `status = 'superseded'`）は `cargo xtask check-meta` が双方向で検査する。
 
-         | ID | 何についての判断か | 決めたこと | 状態 |
-         |---|---|---|---|
+| ID | 何についての判断か | 決めたこと | 状態 |
+|---|---|---|---|
 | [DEC-ALL-001](DEC-ALL-001.toml) | 学習済みモデルの許諾 | 配布モデルの再配布許諾が確認できない部品は採らない | accepted |
 | [DEC-ALL-002](DEC-ALL-002.toml) | ライセンス不明・非商用 | ライセンス不明または非商用限定の部品は採らない | accepted |
 | [DEC-ALL-003](DEC-ALL-003.toml) | コピーレフトと代替 | コピーレフトの部品は、同等の代替があるなら代替を採る | accepted |

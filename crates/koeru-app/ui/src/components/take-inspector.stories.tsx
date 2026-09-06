@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { mocked } from "storybook/test";
+import { expect, mocked } from "storybook/test";
 
 import { TakeInspector } from "~/components/take-inspector";
 import { api } from "~/lib/ipc";
@@ -46,5 +46,32 @@ export const 割れている: Story = { args: { peak: 1 } };
 export const 原音設定がまだ無い: Story = {
   beforeEach: () => {
     mocked(api.otosOfTake).mockResolvedValue([]);
+  },
+};
+
+/*
+ * 色の解決が記法に依らないこと。
+ *
+ * Radix は P3 の画面で `color(display-p3 …)` を返す。 16進で決め打っていた
+ * ころは解析に失敗して黒になり、スペクトログラムが真っ黒に描かれていた。
+ * 記法を変えても同じ絵が出ることを、ここで固定する。
+ */
+export const P3の記法でも色が解決する: Story = {
+  play: async ({ canvasElement }) => {
+    const probe = document.createElement("canvas");
+    probe.width = 1;
+    probe.height = 1;
+    const ctx = probe.getContext("2d", { willReadFrequently: true });
+    if (ctx === null) throw new Error("2d の文脈を取れない");
+
+    // 16進と P3 の同じ色。どちらも解決でき、黒に落ちない。
+    for (const notation of ["#0d74ce", "color(display-p3 0.15 0.44 0.78)"]) {
+      ctx.fillStyle = "#000000";
+      ctx.fillStyle = notation;
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      await expect(`${notation}: ${r},${g},${b}`).not.toBe(`${notation}: 0,0,0`);
+    }
+    await expect(canvasElement.querySelectorAll("canvas").length).toBeGreaterThan(0);
   },
 };

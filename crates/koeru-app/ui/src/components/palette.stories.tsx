@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect } from "storybook/test";
 
 /*
  * 配色の段を、実際に描いて axe に測らせる（`TR-PLT-25`）。
@@ -99,3 +100,77 @@ const Borders = () => (
 );
 
 export const 境界とフォーカス: Story = { render: () => <Borders /> };
+
+/*
+ * 非テキストのコントラスト（`TR-PLT-28`）。
+ *
+ * axe は文字にしか当たらない。 波形・フォーカス環・境界・メーターは
+ * 「文字ではない要素」なので `color-contrast` の対象外で、放っておくと
+ * 3:1 を割っても CI は緑のまま——以前の `check-contrast.ts` が見ていた分が、
+ * そのまま抜け落ちる（`DEC-PLT-022`）。
+ *
+ * 計算色から測る。 段の値を写さないので、Radix の版が上がって
+ * 段がずれれば、そのまま比に出る。
+ */
+
+/** 3:1 を要る組み合わせ。段ではなく、実際に使っているクラスで書く。 */
+const NON_TEXT = [
+  { fg: "bg-cyan-11", bg: "bg-slate-3", label: "波形 / 部品" },
+  { fg: "bg-red-11", bg: "bg-slate-3", label: "割れた波形 / 部品" },
+  { fg: "bg-cyan-11", bg: "bg-slate-1", label: "フォーカス環 / 地" },
+  { fg: "bg-cyan-11", bg: "bg-slate-2", label: "フォーカス環 / 面" },
+  { fg: "bg-cyan-11", bg: "bg-slate-3", label: "フォーカス環 / 部品" },
+  { fg: "bg-slate-11", bg: "bg-slate-2", label: "強い境界 / 面" },
+  { fg: "bg-jade-11", bg: "bg-slate-3", label: "メーターの良 / 部品" },
+  { fg: "bg-red-11", bg: "bg-slate-3", label: "メーターの割れ / 部品" },
+  { fg: "bg-slate-11", bg: "bg-slate-3", label: "メーターの弱 / 部品" },
+  { fg: "bg-amber-11", bg: "bg-slate-3", label: "境界の印 / 部品" },
+] as const;
+
+/** 計算済みの背景色を [0,1] の3値で取る。 */
+const rgbOf = (el: Element): [number, number, number] => {
+  const m = /rgba?\(([^)]+)\)/.exec(getComputedStyle(el).backgroundColor);
+  const parts = (m?.[1] ?? "0,0,0").split(",").map((x) => Number.parseFloat(x) / 255);
+  return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+};
+
+/** WCAG の相対輝度。 */
+const luminance = ([r, g, b]: [number, number, number]): number => {
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+};
+
+const ratio = (a: Element, b: Element): number => {
+  const [x, y] = [luminance(rgbOf(a)), luminance(rgbOf(b))];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+
+export const 非テキストの比: Story = {
+  render: () => (
+    <div className="flex gap-4">
+      {(["light", "dark"] as const).map((theme) => (
+        <div key={theme} className={`${theme} bg-slate-1 p-3`}>
+          <p className="pb-2 text-sm text-slate-12">{theme === "light" ? "明るい面" : "暗い面"}</p>
+          {NON_TEXT.map(({ fg, bg, label }) => (
+            <div key={label} className={`${bg} mb-1 flex items-center gap-2 p-2`} data-bg={label}>
+              <span className={`${fg} inline-block size-4 rounded`} data-fg={label} />
+              <span className="text-xs text-slate-12">{label}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const failures: string[] = [];
+    for (const { label } of NON_TEXT) {
+      for (const fg of [...canvasElement.querySelectorAll(`[data-fg="${label}"]`)]) {
+        const bg = fg.closest(`[data-bg="${label}"]`);
+        if (bg === null) continue;
+        const r = ratio(fg, bg);
+        if (r < 3) failures.push(`${label}: ${r.toFixed(2)}:1（要 3）`);
+      }
+    }
+    await expect(failures).toEqual([]);
+  },
+};

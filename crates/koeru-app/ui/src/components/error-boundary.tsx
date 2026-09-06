@@ -32,8 +32,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <main className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center gap-4 p-8">
+        {/*
+          ここは `Announcer` ごと置き換わった後の画面。 読み上げ領域が
+          木ごと外れているので、これが唯一の通知経路になる（`TR-PLT-29`）。
+          `role="alert"` にして、画面を見ていない人にも届かせる。
+        */}
         <Card title="画面を描けませんでした">
-          <p className="mt-3 text-sm text-slate-11">
+          <p role="alert" className="mt-3 text-sm text-slate-11">
             録れたものは失われていません。やり直しても直らないときは、
             この文言を添えて報告してください。
           </p>
