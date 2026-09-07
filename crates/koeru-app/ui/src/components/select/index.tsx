@@ -30,7 +30,7 @@ export const SelectTrigger = ({
   ...props
 }: Omit<ComponentProps<typeof SelectPrimitive.Trigger>, "className">) => (
   <SelectPrimitive.Trigger
-    className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-slate-11 bg-slate-3 px-3 text-sm text-slate-12 disabled:opacity-45 data-[placeholder]:text-slate-11"
+    className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-slate-7 bg-slate-3 px-3 text-sm text-slate-12 disabled:opacity-45 data-[placeholder]:text-slate-11"
     {...props}
   >
     {children}
@@ -46,7 +46,7 @@ export const SelectContent = ({
     <SelectPrimitive.Content
       position="popper"
       sideOffset={4}
-      className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-6 bg-slate-2 p-1 shadow-xl"
+      className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-7 bg-slate-2 p-1"
       {...props}
     >
       <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
@@ -59,7 +59,7 @@ export const SelectItem = ({
   ...props
 }: Omit<ComponentProps<typeof SelectPrimitive.Item>, "className">) => (
   <SelectPrimitive.Item
-    className="flex h-10 cursor-default select-none items-center rounded-md px-3 text-sm data-[highlighted]:bg-slate-3 data-[highlighted]:outline-hidden"
+    className="flex h-10 cursor-default select-none items-center rounded-md px-3 text-sm text-slate-12 data-[highlighted]:bg-slate-3 data-[highlighted]:outline-hidden"
     {...props}
   >
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

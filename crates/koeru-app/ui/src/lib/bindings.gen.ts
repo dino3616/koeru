@@ -6,14 +6,43 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**  入力デバイスを挙げる。 */
 	listDevices: () => typedError<DeviceView[], AppError>(__TAURI_INVOKE("list_devices")),
-	/**  ライブラリの中身を挙げる。 */
+	/**
+	 *  ライブラリの中身を挙げる。
+	 * 
+	 *  音源ごとに台帳を読む（`Q-RCL-004`）。 名前と項目数だけを返していたときは、
+	 *  一覧に到達度も歌える曲も無く、どれを再開すべきかが開くまで分からなかった。
+	 */
 	listProjects: () => typedError<ProjectView[], AppError>(__TAURI_INVOKE("list_projects")),
+	/**
+	 *  選べる作り方（`TR-RCL-11`）。
+	 * 
+	 *  **いまは単独音だけ。** 連続音と CVVC は `PROFILE-M5` で足す。
+	 *  作れないものを灰色で並べない——欠けを失敗として描かない
+	 *  （`docs/design/direction.md`）ので、席は空けるが的は出さない。
+	 * 
+	 *  数は録音リストから作る。 見積もりの係数は `koeru_core::plan` が持つ。
+	 */
+	methodPresets: () => typedError<MethodPresetView[], AppError>(__TAURI_INVOKE("method_presets")),
 	/**  プロジェクトを作る。 */
 	createProject: (displayName: string) => typedError<string, AppError>(__TAURI_INVOKE("create_project", { displayName })),
+	/**
+	 *  表示名を変える（`DEC-PKG-007`）。
+	 * 
+	 *  動くのは表示名だけ。 ディレクトリ名は不変の UUID なので、パスは動かない。
+	 */
+	renameProject: (id: string, displayName: string) => typedError<null, AppError>(__TAURI_INVOKE("rename_project", { id, displayName })),
+	/**  開いている音源の環と色（`DEC-PLT-025`, `DEC-PLT-027`）。 */
+	voiceState: () => typedError<VoiceStateView, AppError>(__TAURI_INVOKE("voice_state")),
 	/**  プロジェクトを開く。 */
 	openProject: (id: string) => typedError<ProgressView, AppError>(__TAURI_INVOKE("open_project", { id })),
 	/**  いまの進み具合。 */
 	progress: () => typedError<ProgressView, AppError>(__TAURI_INVOKE("progress")),
+	/**
+	 *  この音源で選ばれているマイク。
+	 * 
+	 *  開いたあとに呼ぶ。 台帳から引くので、音源が開いていないと読めない。
+	 */
+	chosenDevice: () => typedError<ChosenDeviceView, AppError>(__TAURI_INVOKE("chosen_device")),
 	/**
 	 *  デバイスを選び、ストリームを開く。
 	 * 
@@ -118,6 +147,12 @@ export const commands = {
 	playPitch: (midi: number) => typedError<null, AppError>(__TAURI_INVOKE("play_pitch", { midi })),
 	/**  曲ごとの状態を、手が届く順に返す（`TR-RCL-17`）。 */
 	songStatus: () => typedError<SongView[], AppError>(__TAURI_INVOKE("song_status")),
+	/**
+	 *  その曲を歌うために、あと録る行（`TR-RCL-17`）。
+	 * 
+	 *  曲から、その行の収録へ直接入るための口（`DEC-PLT-024` の横移動）。
+	 */
+	songPlan: (id: string) => typedError<SongPlanView, AppError>(__TAURI_INVOKE("song_plan", { id })),
 	/**  UST を取り込む（`TR-RCL-12`）。主経路はこれ。 */
 	importUst: (bytes: number[], title: string) => typedError<string, AppError>(__TAURI_INVOKE("import_ust", { bytes, title })),
 	/**  曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。 */
@@ -185,6 +220,14 @@ export type CalibrationView = {
 	peak_dbfs: number | null,
 	/**  目標範囲（-12〜-6 dBFS）に入ったか。入らなくても収録には進める。 */
 	settled: boolean,
+};
+
+/**  この音源で選ばれているマイク（`TR-REC-03`）。 */
+export type ChosenDeviceView = {
+	/**  選ばれているマイクの識別子。一度も選んでいなければ `None`。 */
+	id: string | null,
+	/**  いまストリームが開いているか。開いていなければ、録る前に開き直す。 */
+	armed: boolean,
 };
 
 /**  画面へ返すデバイス。 */
@@ -266,6 +309,32 @@ export type LeakView = {
 };
 
 /**
+ *  画面へ返す方式プリセット1つ（`TR-RCL-11`）。
+ * 
+ *  選ぶときだけオブジェクトになるもの（`docs/design/ooui-model.md`）。
+ *  選ばれたら音源の属性に落ちるので、永続する実体を持たない。
+ */
+export type MethodPresetView = {
+	/**  方式の識別子。画面に出さない——出すのは `label` のほう。 */
+	id: string,
+	label: string,
+	/**  ひとことで何をする方式か。 */
+	summary: string,
+	/**  読み上げる行の数。 */
+	rows: number,
+	/**  そこから取れる音の数。カバレッジの分母になる。 */
+	units: number,
+	/**  全部読み終えるまでの見積もり（秒、`TR-RCL-09`）。 */
+	seconds: number,
+	/**  何周録るか。音階の数（`TR-RCL-26`）。 */
+	passes: number,
+	/**  読み終えると何ができるか（`TR-RCL-11` の到達点）。 */
+	reach: string,
+	/**  読み上げの難しさ（`TR-RCL-11`）。良し悪しではなく、何が起きるかを書く。 */
+	reading: string,
+};
+
+/**
  *  OS 側の音声加工の状態（`TR-REC-11`）。
  * 
  *  バックエンドの `MicrophoneMode` を写さず、ここで定義する。
@@ -306,6 +375,16 @@ export type OutputKindView =
 "Speakers" | 
 /**  判定できなかった。 */
 "Unknown";
+
+/**  画面へ返す「あと録る行」1件（`TR-RCL-17`）。 */
+export type PlanRowView = {
+	/**  行の識別子。**画面に出さない**（`TR-REC-18`）——録りに行くときに渡すだけ。 */
+	row_id: string,
+	/**  読み上げる文字列。 */
+	text: string,
+	/**  この行から取れる音の数。 */
+	units: number,
+};
 
 /**  画面へ返す書き出し前の関門（`TR-REC-16`, `TR-REC-32`）。 */
 export type PreflightView = {
@@ -352,6 +431,19 @@ export type ProjectView = {
 	method: string | null,
 	/**  項目数。 */
 	item_count: number | null,
+	/**  育ち具合。台帳を読めなければ `None`。 */
+	state: VoiceStateView | null,
+};
+
+/**
+ *  環1本（`DEC-PLT-025`）。五十音の行ごとの被覆。
+ * 
+ *  名前を持たない。 環に要るのは順番と数だけで、行の名前は画面に出す
+ *  文字列ではない（`TR-REC-18`）。
+ */
+export type RingView = {
+	covered: number,
+	total: number,
 };
 
 /**  画面へ返す「行と、その行のテイク」（`TR-REC-21`, `TR-RCL-25`）。 */
@@ -361,10 +453,23 @@ export type RowTakesView = {
 	text: string,
 	/**  `unrecorded` / `recorded` / `needs_retake` / `excluded`。 */
 	state: string,
+	/**  この行から取れる音の数。カバレッジは行ではなくこれで数える（`TR-RCL-19`）。 */
+	units: number,
 	/**  世代順。非採用も含む——いつでも採用を戻せる（`TR-REC-21`）。 */
 	takes: TakeSummaryView[],
 	/**  いま採用しているテイクの ID。 */
 	adopted: number | null,
+};
+
+/**  画面へ返す「その曲を歌うための計画」（`TR-RCL-16`, `TR-RCL-17`）。 */
+export type SongPlanView = {
+	rows: PlanRowView[],
+	/**  これで埋まる音の数。 */
+	covers: number,
+	/**  どの行にも無くて埋まらない音の数。0 でなければ、その作り方では歌えない。 */
+	unreachable: number,
+	/**  読むのに掛かる見積もり（秒、`TR-RCL-09`）。 */
+	seconds: Finite,
 };
 
 /**  画面へ返す曲の状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。 */
@@ -446,6 +551,8 @@ export type TakeSummaryView = {
 	take_id: number,
 	/**  何本目か（1 始まり）。 */
 	generation: number,
+	/**  波形のピーク（0.0〜1.0）。解析がまだなら `null`。 */
+	peak: Finite | null,
 	duration_ms: number,
 	/**  取りこぼしで自動的に無効にした（`TR-REC-07`）。 */
 	invalid: boolean,
@@ -482,6 +589,44 @@ export type TakeView = {
 	 *  足りなくてもテイクは有効。 事実を伝えるだけ。
 	 */
 	has_required_margins: boolean,
+};
+
+/**  画面へ返す音源のいまの姿。 */
+export type VoiceStateView = {
+	/**  表示名。一覧では manifest から別に読むので、そこでは空文字。 */
+	display_name: string,
+	/**  作り方。同上。 */
+	method: string,
+	/**  録音リストの行の数。同上。 */
+	rows: number,
+	/**  収録済み単位。 */
+	covered: number,
+	/**  必要な単位。 */
+	required: number,
+	/**  いま歌える曲の数（`TR-RCL-19`）。 */
+	singable_songs: number,
+	/**  バンクに入っている曲の数。 */
+	songs_in_bank: number,
+	/**  内側から順の環。 */
+	rings: RingView[],
+	/**  声の色。1つも録れていなければ `None`——空いた席に色を付けない。 */
+	color: VoiceView | null,
+};
+
+/**
+ *  声から作った色（`DEC-PLT-027`）。
+ * 
+ *  彩度と明度をここで確定させない。 暗い面と明るい面で幅が違うので
+ *  （明るい面のほうが sRGB に収まる彩度が狭い）、返すのは 0〜1 の位置だけに
+ *  して、面ごとの幅への写しは CSS が持つ。
+ */
+export type VoiceView = {
+	/**  色相（度）。 */
+	hue: Finite,
+	/**  彩度の位置（0〜1）。 */
+	chroma: Finite,
+	/**  明度の位置（0〜1）。 */
+	lightness: Finite,
 };
 
 /* Tauri Specta runtime */

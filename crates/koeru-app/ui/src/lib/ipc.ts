@@ -19,24 +19,31 @@ export { Channel };
 export type {
   AppError,
   CalibrationView,
+  ChosenDeviceView,
   DeviceView,
   EnvelopeView,
   GainControlView,
   LatencyView,
   LeakView,
+  MethodPresetView,
   MicModeView,
   OtoView,
   OutputKindView,
+  PlanRowView,
   PreflightView,
   ProgressView,
   ProjectView,
+  RingView,
   RowTakesView,
+  SongPlanView,
   SongView,
   SpaceView,
   SpectrogramView,
   SungSongView,
   TakeSummaryView,
   TakeView,
+  VoiceStateView,
+  VoiceView,
 } from "~/lib/bindings.gen";
 
 import type { AppError, EnvelopeView, MicModeView } from "~/lib/bindings.gen";
@@ -87,9 +94,18 @@ export const api = {
 
   listDevices: () => unwrap(commands.listDevices()),
   listProjects: () => unwrap(commands.listProjects()),
+  /** 選べる作り方（`TR-RCL-11`）。いまは単独音だけ。 */
+  methodPresets: () => unwrap(commands.methodPresets()),
   createProject: (displayName: string) => unwrap(commands.createProject(displayName)),
+  /** 表示名を変える（`DEC-PKG-007`）。空にはできない。 */
+  renameProject: (id: string, displayName: string) =>
+    unwrap(commands.renameProject(id, displayName)),
   openProject: (id: string) => unwrap(commands.openProject(id)),
+  /** 開いている音源の環と色（`DEC-PLT-025`）。 */
+  voiceState: () => unwrap(commands.voiceState()),
   progress: () => unwrap(commands.progress()),
+  /** この音源で選ばれているマイク（`TR-REC-03`）。選択の持ち主は Rust 側。 */
+  chosenDevice: () => unwrap(commands.chosenDevice()),
   /** OS 側の音声加工の状態（`TR-REC-11`）。`Standard` 以外は録った音が本人の声でなくなる。 */
   armDevice: (deviceId: string) => unwrap(commands.armDevice(deviceId)),
   probeInput: (ms: number) => unwrap(commands.probeInput(ms)),
@@ -123,6 +139,8 @@ export const api = {
   checkGuideLeak: (midi: number) => unwrap(commands.checkGuideLeak(midi)),
   playPitch: (midi: number) => unwrap(commands.playPitch(midi)),
   songStatus: () => unwrap(commands.songStatus()),
+  /** その曲を歌うために、あと録る行（`TR-RCL-17`）。 */
+  songPlan: (id: string) => unwrap(commands.songPlan(id)),
   singSong: (id: string) => unwrap(commands.singSong(id)),
   pendingWork: () => unwrap(commands.pendingWork()),
   latencyReport: () => unwrap(commands.latencyReport()),

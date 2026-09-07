@@ -1940,5 +1940,4 @@ domains = [
 ]
 supports_requirements = [
   'TR-PLT-09',
-  'TR-PLT-34',
 ]

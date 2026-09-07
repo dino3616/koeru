@@ -107,6 +107,15 @@ pub struct DeviceView {
     pub name: String,
 }
 
+/// この音源で選ばれているマイク（`TR-REC-03`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ChosenDeviceView {
+    /// 選ばれているマイクの識別子。一度も選んでいなければ `None`。
+    pub id: Option<String>,
+    /// いまストリームが開いているか。開いていなければ、録る前に開き直す。
+    pub armed: bool,
+}
+
 /// 画面へ返すプロジェクト。
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ProjectView {
@@ -117,6 +126,83 @@ pub struct ProjectView {
     pub method: Option<String>,
     /// 項目数。
     pub item_count: Option<u32>,
+    /// 育ち具合。台帳を読めなければ `None`。
+    pub state: Option<VoiceStateView>,
+}
+
+/// 環1本（`DEC-PLT-025`）。五十音の行ごとの被覆。
+///
+/// 名前を持たない。 環に要るのは順番と数だけで、行の名前は画面に出す
+/// 文字列ではない（`TR-REC-18`）。
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
+pub struct RingView {
+    pub covered: u32,
+    pub total: u32,
+}
+
+/// 声から作った色（`DEC-PLT-027`）。
+///
+/// 彩度と明度をここで確定させない。 暗い面と明るい面で幅が違うので
+/// （明るい面のほうが sRGB に収まる彩度が狭い）、返すのは 0〜1 の位置だけに
+/// して、面ごとの幅への写しは CSS が持つ。
+#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
+pub struct VoiceView {
+    /// 色相（度）。
+    pub hue: Finite,
+    /// 彩度の位置（0〜1）。
+    pub chroma: Finite,
+    /// 明度の位置（0〜1）。
+    pub lightness: Finite,
+}
+
+/// 画面へ返す音源のいまの姿。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct VoiceStateView {
+    /// 表示名。一覧では manifest から別に読むので、そこでは空文字。
+    pub display_name: String,
+    /// 作り方。同上。
+    pub method: String,
+    /// 録音リストの行の数。同上。
+    pub rows: u32,
+    /// 収録済み単位。
+    pub covered: u32,
+    /// 必要な単位。
+    pub required: u32,
+    /// いま歌える曲の数（`TR-RCL-19`）。
+    pub singable_songs: u32,
+    /// バンクに入っている曲の数。
+    pub songs_in_bank: u32,
+    /// 内側から順の環。
+    pub rings: Vec<RingView>,
+    /// 声の色。1つも録れていなければ `None`——空いた席に色を付けない。
+    pub color: Option<VoiceView>,
+}
+
+impl From<crate::studio::VoiceState> for VoiceStateView {
+    fn from(v: crate::studio::VoiceState) -> Self {
+        Self {
+            display_name: v.display_name,
+            method: v.method,
+            rows: v.rows,
+            covered: count(v.covered),
+            required: count(v.required),
+            singable_songs: count(v.singable_songs),
+            songs_in_bank: count(v.songs_in_bank),
+            rings: v
+                .rings
+                .iter()
+                .map(|(covered, total)| RingView {
+                    covered: *covered,
+                    total: *total,
+                })
+                .collect(),
+            color: v.color.map(|c| VoiceView {
+                hue: Finite(c.hue),
+                chroma: Finite(c.chroma_t),
+                lightness: Finite(c.lightness_t),
+            }),
+        }
+    }
 }
 
 /// 画面へ返す進み具合。
@@ -200,6 +286,8 @@ pub struct RowTakesView {
     pub text: String,
     /// `unrecorded` / `recorded` / `needs_retake` / `excluded`。
     pub state: String,
+    /// この行から取れる音の数。カバレッジは行ではなくこれで数える（`TR-RCL-19`）。
+    pub units: u32,
     /// 世代順。非採用も含む——いつでも採用を戻せる（`TR-REC-21`）。
     pub takes: Vec<TakeSummaryView>,
     /// いま採用しているテイクの ID。
@@ -212,6 +300,8 @@ pub struct TakeSummaryView {
     pub take_id: i32,
     /// 何本目か（1 始まり）。
     pub generation: i32,
+    /// 波形のピーク（0.0〜1.0）。解析がまだなら `null`。
+    pub peak: Option<Finite>,
     #[specta(type = specta_typescript::Number)]
     pub duration_ms: f64,
     /// 取りこぼしで自動的に無効にした（`TR-REC-07`）。
@@ -224,12 +314,14 @@ impl From<koeru_core::db::RowTakes> for RowTakesView {
             row_id: r.row_id,
             text: r.text,
             state: r.state.as_str().to_owned(),
+            units: r.units,
             takes: r
                 .takes
                 .into_iter()
                 .map(|t| TakeSummaryView {
                     take_id: t.id,
                     generation: t.generation,
+                    peak: t.peak.map(|p| Finite(f64::from(p))),
                     #[allow(
                         clippy::cast_precision_loss,
                         reason = "テイクの長さは表示用。桁は十分に収まる"
@@ -320,19 +412,103 @@ pub fn list_devices() -> Result<Vec<DeviceView>> {
 }
 
 /// ライブラリの中身を挙げる。
+///
+/// 音源ごとに台帳を読む（`Q-RCL-004`）。 名前と項目数だけを返していたときは、
+/// 一覧に到達度も歌える曲も無く、どれを再開すべきかが開くまで分からなかった。
 #[tauri::command(async)]
 #[specta::specta]
 pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectView>> {
     Ok(lock(&state)?
-        .projects()?
+        .library()?
         .into_iter()
-        .map(|(id, m)| ProjectView {
-            id: id.to_string(),
-            display_name: m.as_ref().map(|m| m.display_name.clone()),
-            method: m.as_ref().map(|m| m.method.as_str().to_owned()),
-            item_count: m.as_ref().map(|m| m.item_count),
+        .map(|e| ProjectView {
+            id: e.id.to_string(),
+            display_name: e.manifest.as_ref().map(|m| m.display_name.clone()),
+            method: e.manifest.as_ref().map(|m| m.method.as_str().to_owned()),
+            item_count: e.manifest.as_ref().map(|m| m.item_count),
+            state: e.state.map(Into::into),
         })
         .collect())
+}
+
+/// 表示名を変える（`DEC-PKG-007`）。
+///
+/// 動くのは表示名だけ。 ディレクトリ名は不変の UUID なので、パスは動かない。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn rename_project(state: State<'_, AppState>, id: String, display_name: String) -> Result<()> {
+    let uuid = id
+        .parse()
+        .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
+    lock(&state)?.rename_project(uuid, &display_name)
+}
+
+/// 開いている音源の環と色（`DEC-PLT-025`, `DEC-PLT-027`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn voice_state(state: State<'_, AppState>) -> Result<VoiceStateView> {
+    Ok(lock(&state)?.voice_state()?.into())
+}
+
+/// 画面へ返す方式プリセット1つ（`TR-RCL-11`）。
+///
+/// 選ぶときだけオブジェクトになるもの（`docs/design/ooui-model.md`）。
+/// 選ばれたら音源の属性に落ちるので、永続する実体を持たない。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct MethodPresetView {
+    /// 方式の識別子。画面に出さない——出すのは `label` のほう。
+    pub id: String,
+    pub label: String,
+    /// ひとことで何をする方式か。
+    pub summary: String,
+    /// 読み上げる行の数。
+    pub rows: u32,
+    /// そこから取れる音の数。カバレッジの分母になる。
+    pub units: u32,
+    /// 全部読み終えるまでの見積もり（秒、`TR-RCL-09`）。
+    pub seconds: u32,
+    /// 何周録るか。音階の数（`TR-RCL-26`）。
+    pub passes: u32,
+    /// 読み終えると何ができるか（`TR-RCL-11` の到達点）。
+    pub reach: String,
+    /// 読み上げの難しさ（`TR-RCL-11`）。良し悪しではなく、何が起きるかを書く。
+    pub reading: String,
+}
+
+/// 選べる作り方（`TR-RCL-11`）。
+///
+/// **いまは単独音だけ。** 連続音と CVVC は `PROFILE-M5` で足す。
+/// 作れないものを灰色で並べない——欠けを失敗として描かない
+/// （`docs/design/direction.md`）ので、席は空けるが的は出さない。
+///
+/// 数は録音リストから作る。 見積もりの係数は `koeru_core::plan` が持つ。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn method_presets() -> Result<Vec<MethodPresetView>> {
+    let rows = koeru_core::reclist::generate_single(
+        koeru_core::inventory::UnitSet::Core,
+        koeru_core::reclist::DEFAULT_UNITS_PER_ROW,
+    )
+    .map_err(|e| AppError::new(e.kind(), e))?;
+    let units: usize = rows.iter().map(|r| r.units.len()).sum();
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "見積もりは秒。u32 に収まらない長さの録音リストは作れない"
+    )]
+    let seconds = koeru_core::plan::estimate_seconds(&rows).max(0.0) as u32;
+
+    Ok(vec![MethodPresetView {
+        id: "single".to_owned(),
+        label: "単独音".to_owned(),
+        summary: "1音ずつ、間をあけて読む".to_owned(),
+        rows: count(rows.len()),
+        units: count(units),
+        seconds,
+        passes: 1,
+        reach: "ゆっくりした曲が歌えます。".to_owned(),
+        reading: "1音ずつ読むので、読み間違えにくい。".to_owned(),
+    }])
 }
 
 /// プロジェクトを作る。
@@ -366,6 +542,16 @@ pub fn open_project(state: State<'_, AppState>, id: String) -> Result<ProgressVi
 #[specta::specta]
 pub fn progress(state: State<'_, AppState>) -> Result<ProgressView> {
     Ok(lock(&state)?.progress()?.into())
+}
+
+/// この音源で選ばれているマイク。
+///
+/// 開いたあとに呼ぶ。 台帳から引くので、音源が開いていないと読めない。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn chosen_device(state: State<'_, AppState>) -> Result<ChosenDeviceView> {
+    let (id, armed) = lock(&state)?.chosen_device()?;
+    Ok(ChosenDeviceView { id, armed })
 }
 
 /// デバイスを選び、ストリームを開く。
@@ -775,6 +961,52 @@ pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
             total_moras: count(s.total_moras),
         })
         .collect())
+}
+
+/// 画面へ返す「あと録る行」1件（`TR-RCL-17`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PlanRowView {
+    /// 行の識別子。**画面に出さない**（`TR-REC-18`）——録りに行くときに渡すだけ。
+    pub row_id: String,
+    /// 読み上げる文字列。
+    pub text: String,
+    /// この行から取れる音の数。
+    pub units: u32,
+}
+
+/// 画面へ返す「その曲を歌うための計画」（`TR-RCL-16`, `TR-RCL-17`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct SongPlanView {
+    pub rows: Vec<PlanRowView>,
+    /// これで埋まる音の数。
+    pub covers: u32,
+    /// どの行にも無くて埋まらない音の数。0 でなければ、その作り方では歌えない。
+    pub unreachable: u32,
+    /// 読むのに掛かる見積もり（秒、`TR-RCL-09`）。
+    pub seconds: Finite,
+}
+
+/// その曲を歌うために、あと録る行（`TR-RCL-17`）。
+///
+/// 曲から、その行の収録へ直接入るための口（`DEC-PLT-024` の横移動）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn song_plan(state: State<'_, AppState>, id: String) -> Result<SongPlanView> {
+    let plan = lock(&state)?.song_plan(&id)?;
+    Ok(SongPlanView {
+        rows: plan
+            .rows
+            .into_iter()
+            .map(|r| PlanRowView {
+                row_id: r.id,
+                text: r.text,
+                units: count(r.units.len()),
+            })
+            .collect(),
+        covers: count(plan.covers),
+        unreachable: count(plan.unreachable.len()),
+        seconds: Finite(plan.seconds),
+    })
 }
 
 /// UST を取り込む（`TR-RCL-12`）。主経路はこれ。

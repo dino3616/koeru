@@ -22,4 +22,5 @@ pub mod schema;
 pub mod song;
 pub mod text;
 pub mod ust;
+pub mod voice;
 pub mod waveform;

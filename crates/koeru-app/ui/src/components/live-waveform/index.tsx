@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import { LevelMeter } from "~/components/level-meter";
+import { InputLevel } from "~/components/input-level";
+import { CLIP_THRESHOLD } from "~/lib/levels";
 import { Channel, type EnvelopeView, api } from "~/lib/ipc";
 
 /**
- * いま入ってきている音の波形（`TR-REC-43`）。
+ * いま入ってきている音（`TR-REC-43`）。
  *
- * 録る前から動く。 ストリームは収録画面に入った時点で開いていて（`TR-REC-19`）、
+ * 録る前から動く。 ストリームは音源を開いた時点で開いていて（`TR-REC-19`）、
  * 「マイクが拾っているか」は録る前に知りたい。
  *
  * 評価はしない（`TR-REC-16`）。出すのは観測だけで、良し悪しを付けない。
@@ -27,6 +28,8 @@ export const LiveWaveform = () => {
    */
   const waveColor = useRef("");
   const [peak, setPeak] = useState(0);
+  /** 割れた回数。数えるだけで、止めも警告もしない（`DEC-REC-008`）。 */
+  const [clipped, setClipped] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -46,7 +49,6 @@ export const LiveWaveform = () => {
         canvas.width = w;
         canvas.height = h;
       }
-
       ctx.clearRect(0, 0, w, h);
 
       const v = data.current;
@@ -66,7 +68,7 @@ export const LiveWaveform = () => {
        * 入れ替わるたびに目盛りと列の対応がずれて**絵が揺れる**——
        * 「速度が一定じゃない」に見える。1本1列なら、10 本ずれれば 10 列ずれるだけ。
        *
-       * 計算量は目盛りの本数（300 本、1.5 秒ぶんで固定）に比例する（`TR-PLT-04`）。
+       * 計算量は目盛りの本数に比例する（`TR-PLT-04`）。
        */
       const barW = w / v.length;
       for (let i = 0; i < v.length; i += 1) {
@@ -82,7 +84,7 @@ export const LiveWaveform = () => {
     // そこだけを見て読み直す。
     const readColor = () => {
       waveColor.current = getComputedStyle(document.documentElement)
-        .getPropertyValue("--cyan-11")
+        .getPropertyValue("--slate-11")
         .trim();
     };
     readColor();
@@ -96,9 +98,12 @@ export const LiveWaveform = () => {
     channel.onmessage = (frame) => {
       if (!alive) return;
       data.current = frame.steps;
+      const top = frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
       // Rust 側の Channel から届いた値を反映する。外部の仕組みとの同期。
       // oxlint-disable-next-line react/set-state-in-effect
-      setPeak(frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0));
+      setPeak(top);
+      // oxlint-disable-next-line react/set-state-in-effect
+      if (top >= CLIP_THRESHOLD) setClipped((n) => n + 1);
       draw();
     };
 
@@ -126,18 +131,18 @@ export const LiveWaveform = () => {
     <div className="flex flex-col gap-3">
       {/*
         同じ購読からメーターも駆動する。 canvas は `role="img"` なので、
-        支援技術へ値を届けるのは `<meter>` のほう（TR-PLT-29）。
+        支援技術へ値を届けるのはメーターのほう（`TR-PLT-29`）。
         別の経路にすると、目に見える波形だけが動いてメーターが止まる。
       */}
-      <LevelMeter peak={peak} />
       <canvas
         ref={ref}
         role="img"
         // 毎フレーム書き換えない。 ここは「何の絵か」を言うだけにして、
         // 動く値はメーターが持つ。名前が 20Hz で変わると読み上げが追えない。
-        aria-label="いま入っている音の波形"
+        aria-label="いま入っている音の形"
         className="h-20 w-full rounded-lg bg-slate-3"
       />
+      <InputLevel peak={peak} clipped={clipped} />
     </div>
   );
 };

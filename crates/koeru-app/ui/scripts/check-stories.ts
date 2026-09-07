@@ -15,7 +15,8 @@ const SRC = Bun.fileURLToPath(new URL("../src", import.meta.url));
 const EXEMPT = new Map([
   ["src/routes/__root.tsx", "ルータの殻。`<html>` ごと出すので story にならない"],
   ["src/routes/index.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
-  ["src/routes/record.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
+  ["src/routes/voice.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
+  ["src/routes/take.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
   ["src/lib/story-router.tsx", "story のための道具。それ自身は部品ではない"],
 ]);
 

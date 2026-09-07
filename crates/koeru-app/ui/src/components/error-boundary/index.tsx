@@ -50,21 +50,20 @@ export class ErrorBoundary extends Component<Props, State> {
     if (caught === null) return this.props.children;
 
     return (
-      <main className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center gap-4 p-8">
+      <main className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center p-8">
         {/*
           `role="alert"` にする（`TR-PLT-29`）。 常設の読み上げ領域は
           `aria-live="polite"` なので、割り込んでまでは読まれない。
           画面が丸ごと入れ替わったことは、待たせずに伝える。
         */}
-        <Card title="画面を描けませんでした">
-          <p role="alert" className="mt-3 text-sm text-slate-11">
-            録れたものは失われていません。やり直しても直らないときは、
-            この文言を添えて報告してください。
+        <Card title="この画面を描けませんでした">
+          <p role="alert" className="text-sm text-slate-12">
+            録れたものは残っています。もう一度やって直らないときは、下の文言を添えて報告してください。
           </p>
-          <p className="mt-3 select-text rounded-lg bg-slate-3 px-4 py-3 font-mono text-xs text-slate-11">
+          <p className="select-text rounded-lg bg-slate-3 px-3 py-2 font-mono text-xs text-slate-11">
             {errorMessage(caught.error)}
           </p>
-          <div className="mt-4 flex gap-2">
+          <div className="flex gap-2">
             <Button
               variant="primary"
               onClick={() => {
@@ -72,10 +71,10 @@ export class ErrorBoundary extends Component<Props, State> {
                 this.setState({ caught: null });
               }}
             >
-              やり直す
+              もう一度やる
             </Button>
             <Button variant="ghost" onClick={() => window.location.assign("/")}>
-              一覧へ戻る
+              声へ戻る
             </Button>
           </div>
         </Card>

@@ -23,19 +23,22 @@
  * # KOERU が段 9 / 10 を塗りに使わない理由
  *
  * 段 9・10 は「字が載る塗り」としては使えない（`TR-PLT-25`、`TR-PLT-28`）。
- * `slate-1` を字に載せたときの比を実測すると:
+ * `slate-1` を字に載せたときの比を実測すると、明るい面で 4.5:1 に届くのは
+ * 段 11 以上だけだった。だから塗りは段 11、その hover は段 12（暗くなる＝
+ * 字とのコントラストが上がる）。`brightness()` フィルタで作らない——
+ * 塗りと字の両方が明るくなり、字は 255 で頭打ちになるので比が下がる。
  *
- * |         | 明るい面 | 暗い面 |
- * |---------|---------|-------|
- * | cyan-9  | 2.93    | 6.28  |
- * | cyan-10 | 3.34    | 7.29  |
- * | cyan-11 | 4.65    | 9.96  |
- * | cyan-12 | 11.66   | 14.67 |
+ * 実測の表は `src/styles/palette.story.tsx` が持つ。 数値をここに写さない
+ * ——写しは片方だけ古くなる。あちらは計算済みの色を実ブラウザで測るので、
+ * Radix の版が上がれば結果もついてくる。
  *
- * 明るい面で 4.5:1 に届くのは段 11 以上だけ。 だから塗りは段 11、
- * その hover は段 12（暗くなる＝字とのコントラストが上がる）。
- * `brightness()` フィルタで作らない——塗りと字の両方が明るくなり、
- * 字は 255 で頭打ちになるので比が下がる（明るい面で 4.65 → 4.05）。
+ * # 色相を持ってよいものは3つだけ
+ *
+ * 声・危険（red）・注意（amber）。 それ以外はすべて無彩色にする
+ * （`docs/design/direction.md`、`DEC-PLT-022` に追記）。**押せるものにも
+ * 色相を与えない**ので、塗りは `slate-11`、フォーカス環も `slate-12`。
+ * cyan と jade はもう読んでいないので、束ねるのをやめた——
+ * 段だけ用意しておくと、使ってよいものに見える。
  *
  * # 明暗の切り替え
  *
@@ -47,6 +50,14 @@
  * 持っているので、CSS だけで差し替えるには60個の値を手で写すことになる——
  * 写しは必ず片方だけ古くなる（禁止事項6）。切り替えは `theme.js` 1箇所に集める。
  *
+ * # 大きさは決まった段だけを使う
+ *
+ * 余白は4段（`docs/design/direction.md`）。Tailwind のユーティリティでは
+ * `2`（0.5rem）/ `3`（0.75rem）/ `5`（1.25rem）/ `8`（2rem）に当たる。
+ * 文字は4段で、`text-4xl`（2.25rem・読み上げるフレーズ）/ `text-xl`（画面の名前）/
+ * `text-sm`（本文と領域の名前）/ `text-xs`（補助と単位）。
+ * ここで新しいトークンを作らない——同じ規則が2箇所に書かれることになる。
+ *
  * # 相対単位
  *
  * 相対単位を既定にする（`TR-PLT-34`）。文字を拡大しても行間を広げても、
@@ -54,18 +65,34 @@
  */
 @import "@radix-ui/colors/slate.css";
 @import "@radix-ui/colors/slate-dark.css";
-@import "@radix-ui/colors/cyan.css";
-@import "@radix-ui/colors/cyan-dark.css";
 @import "@radix-ui/colors/red.css";
 @import "@radix-ui/colors/red-dark.css";
-@import "@radix-ui/colors/jade.css";
-@import "@radix-ui/colors/jade-dark.css";
 @import "@radix-ui/colors/amber.css";
 @import "@radix-ui/colors/amber-dark.css";
 
+/*
+ * 本文の書体を同梱する（`DEC-PLT-026`、台帳は `CMP-131`）。
+ *
+ * 3 OS で顔を揃えるために持ち込む。 OS の既定に任せると、同じ画面が
+ * ヒラギノ・游ゴシック・Noto の3つの顔で出る。
+ *
+ * `font-display: swap` にする。 4.3MB あるので、読み終わるまで
+ * 字が出ないと起動が黙る。先に代替で描いて、届いたら差し替える。
+ *
+ * 外部から読まない。 処理はローカル完結で、Tauri の CSP も `'self'` しか許さない。
+ */
+@font-face {
+  font-family: "Noto Sans JP";
+  src: url("/fonts/noto-sans-jp.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
+  /* 同梱した書体が先頭。 届く前と、届かなかったときだけ OS の顔で出る。 */
   --font-sans:
-    "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", ui-sans-serif, system-ui, sans-serif;
+    "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "SF Mono", "Cascadia Mono", ui-monospace, monospace;
 }
 
@@ -90,19 +117,6 @@
   --color-slate-11: var(--slate-11);
   --color-slate-12: var(--slate-12);
 
-  --color-cyan-1: var(--cyan-1);
-  --color-cyan-2: var(--cyan-2);
-  --color-cyan-3: var(--cyan-3);
-  --color-cyan-4: var(--cyan-4);
-  --color-cyan-5: var(--cyan-5);
-  --color-cyan-6: var(--cyan-6);
-  --color-cyan-7: var(--cyan-7);
-  --color-cyan-8: var(--cyan-8);
-  --color-cyan-9: var(--cyan-9);
-  --color-cyan-10: var(--cyan-10);
-  --color-cyan-11: var(--cyan-11);
-  --color-cyan-12: var(--cyan-12);
-
   --color-red-1: var(--red-1);
   --color-red-2: var(--red-2);
   --color-red-3: var(--red-3);
@@ -116,19 +130,6 @@
   --color-red-11: var(--red-11);
   --color-red-12: var(--red-12);
 
-  --color-jade-1: var(--jade-1);
-  --color-jade-2: var(--jade-2);
-  --color-jade-3: var(--jade-3);
-  --color-jade-4: var(--jade-4);
-  --color-jade-5: var(--jade-5);
-  --color-jade-6: var(--jade-6);
-  --color-jade-7: var(--jade-7);
-  --color-jade-8: var(--jade-8);
-  --color-jade-9: var(--jade-9);
-  --color-jade-10: var(--jade-10);
-  --color-jade-11: var(--jade-11);
-  --color-jade-12: var(--jade-12);
-
   --color-amber-1: var(--amber-1);
   --color-amber-2: var(--amber-2);
   --color-amber-3: var(--amber-3);
@@ -141,6 +142,44 @@
   --color-amber-10: var(--amber-10);
   --color-amber-11: var(--amber-11);
   --color-amber-12: var(--amber-12);
+}
+
+/*
+ * 声の色（`DEC-PLT-025`、`DEC-PLT-027`）。
+ *
+ * **色は `lib/voice-color.ts` が組み立てる。** ここが持つのは、明暗どちらを
+ * 使うかの選択だけ。
+ *
+ * 幅をここに置かない。 **彩度の上限は色相ごとに違う**（sRGB に収まる最大値が
+ * 色相で変わる）ので、以前は全色相で一律にしていた——いちばん狭い色相に
+ * 合わせた値なので、**明るい面では灰色に見える彩度になっていた。**
+ * 上限を色相ごとに出すには明度が要り、CSS には「この色相で収まる最大の彩度」を
+ * 問う式が無い。だから幅と上限をまとめて TS 側へ移した。理由の全文はあちら。
+ *
+ * **面ごとの色を要素の上で受ける。** カスタムプロパティは宣言した要素で値が
+ * 確定するので、`:root` で組み立てると音源ごとに差した値が届かず、
+ * **全部が同じ色になる**（踏んだ）。`--voice-light` / `--voice-dark` は
+ * 環の `<svg>` に差してあり、下の宣言はその子で解決される。
+ *
+ * 声が無い音源には class を付けない。 そのとき環は描かれないので、
+ * 下の既定値は画面に出ない。
+ */
+.koeru-voice-stroke,
+.koeru-voice-fill {
+  --voice: var(--voice-light, currentColor);
+}
+
+.dark .koeru-voice-stroke,
+.dark .koeru-voice-fill {
+  --voice: var(--voice-dark, currentColor);
+}
+
+.koeru-voice-stroke {
+  stroke: var(--voice);
+}
+
+.koeru-voice-fill {
+  background-color: var(--voice);
 }
 
 html,
@@ -161,8 +200,10 @@ body {
 /*
  * フォーカスは常に見える（`TR-PLT-27`）。既定の outline を消さない。
  *
- * 段 11 を使う。段 8 は Radix が「フォーカス環」に充てている段だが、
- * 面 1〜3 のどれに乗っても 3:1 を満たすのは 11 のほう（`TR-PLT-28`）。
+ * 段 12 を使う。 Radix が「フォーカス環」に充てているのは段 8 だが、
+ * 面 1〜3 のどれに乗っても 3:1 を満たすのは上の段のほう（`TR-PLT-28`）。
+ * 色相は持たせない——画面上で色相を持つのは声と状態色だけ
+ * （`docs/design/direction.md`）。以前は `cyan-11` だった。
  *
  * `border-radius` をここで指定しない。 指定すると `rounded-lg` などの
  * ユーティリティを上書きして、フォーカスした瞬間に要素の角丸が変わる。
@@ -173,16 +214,20 @@ body {
  */
 @layer base {
   :focus-visible {
-    outline: 2px solid var(--cyan-11);
+    outline: 2px solid var(--slate-12);
     outline-offset: 2px;
   }
 }
 
 /*
- * 入力レベル（`<meter>`）。
+ * 入力レベル（`<meter>`、`components/input-level`）。
  *
- * 判断は HTML 側の `low` / `high` / `optimum` が持つ。
- * ここは色を当てるだけで、閾値を二重に書かない。
+ * `low` / `high` / `optimum` を持たせない（`Q-REC-004`）。 持たせると
+ * 支援技術に「よい範囲かどうか」が届き、`DEC-REC-008` の「観測をフラットに
+ * 報告するだけ」と食い違う。**確定したテイクは判定しないのに、鳴っている音だけ
+ * 判定される**状態を無くすため、区分ごと外した。
+ *
+ * だから色も1色。 割れたかどうかは、別に置いた回数のほうが持つ。
  */
 .koeru-meter {
   appearance: none;
@@ -199,33 +244,61 @@ body {
 }
 
 .koeru-meter::-webkit-meter-optimum-value {
-  background: var(--jade-11);
-}
-
-/* 小さすぎる（`low` を下回る）。目立たせない。 */
-.koeru-meter::-webkit-meter-suboptimum-value {
   background: var(--slate-11);
-}
-
-/* 割れている（`high` を超える）。 */
-.koeru-meter::-webkit-meter-even-less-good-value {
-  background: var(--red-11);
 }
 
 .koeru-meter::-moz-meter-bar {
+  background: var(--slate-11);
   border-radius: 9999px;
 }
 
-.koeru-meter:-moz-meter-optimum::-moz-meter-bar {
-  background: var(--jade-11);
+/*
+ * 息の抑揚（`components/breath`）。
+ *
+ * **各面につき、主となる動きは1つ**（`docs/design/direction.md`）。
+ * この動きは「押してから鳴るまで」の待ちにだけ使う。
+ *
+ * 濃さと横幅で息をつける。 上下に動かさない——3本が別々に上下すると、
+ * 声ではなく機械の指標に見える。
+ */
+@keyframes koeru-breath {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scaleX(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 
-.koeru-meter:-moz-meter-sub-optimum::-moz-meter-bar {
-  background: var(--slate-11);
+.koeru-breath {
+  animation: koeru-breath 1.8s ease-in-out infinite;
+  transform-origin: 50% 50%;
 }
 
-.koeru-meter:-moz-meter-sub-sub-optimum::-moz-meter-bar {
-  background: var(--red-11);
+/*
+ * 環が伸びる（`components/voice-rings`、`DEC-PLT-025`）。
+ *
+ * 伸びた先が閉じていなくても、そこで止める。 テイクが確定したときだけ
+ * 走らせたいので、行を差し替える側が `key` を変えて描き直させる。
+ *
+ * `stroke-dashoffset` を動かす。 `stroke-dasharray` を動かすと、
+ * 破線の周期そのものが変わって環が点線に割れる。
+ *
+ * 止めた先が到達した状態になる。 `globals.css` の `prefers-reduced-motion` は
+ * `animation-duration` を潰すだけなので、`from` を持つこの形なら
+ * 即座に「伸びきった」状態に落ちる。
+ */
+@keyframes koeru-ring-grow {
+  from {
+    stroke-dashoffset: var(--ring-from);
+  }
+}
+
+.koeru-ring-grow {
+  animation: koeru-ring-grow 400ms ease-out 1;
 }
 
 /*
@@ -233,6 +306,11 @@ body {
  *
  * ここの `!important` は意図的。利用者の設定が、どの宣言よりも強い
  * べき場所なので、詳細度で負ける余地を残さない。
+ *
+ * 止めた先が「到達した状態」になるようにする。 環が伸びる動きも
+ * 息の抑揚も、`animation` を潰すと最後のキーフレームではなく
+ * 元の値へ戻る。だから動く部品の側は、動かない状態が正しい絵に
+ * なるように書く（`components/voice-rings`、`components/breath`）。
  */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -248,11 +326,12 @@ body {
  * 強制カラーモード（Windows のハイコントラスト）。
  *
  * canvas は取り残される。 OS が色を差し替えるのは CSS の色だけで、
- * `<canvas>` へ描いたピクセルには触らない——波形と原音設定の線が、
- * 差し替わった背景の上に元の色のまま残る。
+ * `<canvas>` へ描いたピクセルには触らない——波形が、差し替わった背景の上に
+ * 元の色のまま残る。輪郭を付けて、少なくとも「そこに図がある」ことと
+ * 範囲を伝える。図の中身は数値で併記してあるので（`TR-PLT-28`）、読む手段は残る。
  *
- * 輪郭を付けて、少なくとも「そこに図がある」ことと範囲を伝える。
- * 図の中身は数値で併記してあるので（`TR-PLT-28`）、読む手段は残る。
+ * 声の形は SVG で描くので、ここには要らない（`DEC-PLT-025`）。
+ * `stroke` は CSS の色なので OS が差し替え、環の形はそのまま残る。
  */
 @media (forced-colors: active) {
   canvas {

@@ -1,19 +1,27 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, mocked } from "storybook/test";
 
-import { LiveWaveform } from "~/components/live-waveform";
+import { LiveWaveform } from ".";
+import { api } from "~/lib/ipc";
 
-/*
- * いま入ってきている音の波形（`TR-REC-43`）。
- *
- * 中身は Channel から届く。 story では届かないので、絵は空のままになる
- * ——見たいのは、届く前でも枠と入力レベルが出て、名前が付いていること。
- * 動いている絵は実機で見る（`verify-koeru`）。
- */
 const meta = {
   title: "部品/LiveWaveform",
   component: LiveWaveform,
+  decorators: [(Story) => <div className="w-96">{Story()}</div>],
+  beforeEach: () => {
+    // 開く前は空で正しい。番号だけ返して、フレームは送らない。
+    mocked(api.streamEnvelope).mockResolvedValue(1);
+    mocked(api.stopEnvelopeStream).mockResolvedValue(undefined);
+  },
 } satisfies Meta<typeof LiveWaveform>;
 
 export default meta;
+type Story = StoryObj<typeof meta>;
 
-export const 届く前: StoryObj<typeof meta> = {};
+export const 開いた直後: Story = {
+  play: async ({ canvasElement }) => {
+    // canvas は読み上げに何も出さない。値はメーターが持つ（`TR-PLT-29`）。
+    await expect(canvasElement.querySelector("canvas")?.getAttribute("role")).toBe("img");
+    await expect(canvasElement.querySelector("meter")).not.toBeNull();
+  },
+};

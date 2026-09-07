@@ -174,7 +174,9 @@ pub struct FinalizedTake {
 }
 
 /// テイク1件の読み出し結果。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Eq` を持たない。 [`Self::peak`] が浮動小数で、全順序を持たないため。
+#[derive(Debug, Clone, PartialEq)]
 pub struct Take {
     pub id: i32,
     pub row_id: String,
@@ -182,22 +184,53 @@ pub struct Take {
     pub frames: i64,
     pub invalid: bool,
     pub generation: i32,
+    /// 波形のピーク（0.0〜1.0）。解析がまだなら `None`。
+    ///
+    /// 割れているかを画面で言うのに要る（`koeru_core::analysis::CLIP_THRESHOLD`）。
+    /// 波形を読み直して測らない——解析は録音停止時に済んでいる（`TR-PKG-42`）。
+    pub peak: Option<f32>,
 }
 
 /// 行と、その行に積んだテイク（`TR-REC-21`, `TR-RCL-25`）。
 ///
 /// 録り直しは上書きしない。 世代として積み、採用テイクだけが
 /// 配布パッケージのファイル名（＝行テキスト）を持つ。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RowTakes {
     pub row_id: String,
     /// 読み上げる文字列。
     pub text: String,
     pub state: RowState,
+    /// この行から取れる収録単位の数。
+    ///
+    /// 読み上げ文字列から数えない。 空白の数で割ると、方式が増えたときに
+    /// 合わなくなる（`TR-RCL-05` の CVVC は1行から CV・VC・語尾を同時に回収する）。
+    pub units: u32,
     /// 世代順。非採用も含む——いつでも採用を戻せる（`TR-REC-21`）。
     pub takes: Vec<Take>,
     /// いま採用しているテイク。無ければ未収録。
     pub adopted: Option<i32>,
+}
+
+/// 問い合わせの行を [`Take`] へ組む。
+///
+/// 3箇所で同じ組み立てをしていた。 列を1つ足すたびに3箇所を直すことになり、
+/// 1つ直し忘れても型は通る——`peak` を足したときに実際そうなりかけた。
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "peak は 0.0..=1.0 付近。f32 で保つ"
+)]
+fn build_take(row: (i32, String, String, i64, i32, i32, Option<f64>)) -> Take {
+    let (id, row_id, rel_path, frames, invalid, generation, peak) = row;
+    Take {
+        id,
+        row_id,
+        rel_path,
+        frames,
+        invalid: invalid != 0,
+        generation,
+        peak: peak.map(|p| p as f32),
+    }
 }
 
 /// プロジェクトの台帳。
@@ -299,6 +332,20 @@ impl Ledger {
                     .first::<i32>(c)
             })
             .map_err(db("start_session"))
+    }
+
+    /// 最後に使ったマイク。まだ一度も開いていなければ `None`。
+    ///
+    /// マイクは音源に固定される（`TR-REC-03`）。 起動し直しても選び直させないため、
+    /// セッションの記録から引く——専用の欄を足さない。セッションは録音条件の
+    /// スナップショット（`TR-REC-30`）で、そこに既に device_id が入っている。
+    pub fn last_device(&mut self) -> Result<Option<String>> {
+        sessions::table
+            .select(sessions::device_id)
+            .order(sessions::id.desc())
+            .first::<String>(&mut self.conn)
+            .optional()
+            .map_err(db("last_device"))
     }
 
     /// 確定済みのテイクを台帳へ載せる。
@@ -412,6 +459,7 @@ impl Ledger {
     /// 行のテイクを世代順に引く。
     pub fn takes_of(&mut self, row_id: &str) -> Result<Vec<Take>> {
         takes::table
+            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
             .filter(takes::row_id.eq(row_id))
             .order(takes::generation.asc())
             .select((
@@ -421,20 +469,10 @@ impl Ledger {
                 takes::frames,
                 takes::invalid,
                 takes::generation,
+                take_analysis::peak.nullable(),
             ))
-            .load::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
-            .map(|v| {
-                v.into_iter()
-                    .map(|(id, row_id, rel_path, frames, invalid, generation)| Take {
-                        id,
-                        row_id,
-                        rel_path,
-                        frames,
-                        invalid: invalid != 0,
-                        generation,
-                    })
-                    .collect()
-            })
+            .load::<(i32, String, String, i64, i32, i32, Option<f64>)>(&mut self.conn)
+            .map(|v| v.into_iter().map(build_take).collect())
             .map_err(db("takes_of"))
     }
 
@@ -449,6 +487,103 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map(|v| v.into_iter().collect())
             .map_err(db("covered_units"))
+    }
+
+    /// 五十音の行ごとの被覆（`DEC-PLT-025` の環）。
+    ///
+    /// 並びは五十音順（`crate::inventory::KANA_ROWS`）。 録音リストの並びで返さない
+    /// ——あれは presamp から機械的に導いた順で、内側から 母音・ち・ぎ・つ・ぴ……
+    /// となり、**どの環がどの行かを人が数えられない。**
+    ///
+    /// **音素ではなく行で畳む。** 音素だと 28 本になり、同心の線がその密度では
+    /// 閉じ具合を読めない（`crate::inventory::kana_row`）。
+    ///
+    /// 行の名前は返さない。 環に要るのは順番と数だけで、行の名前は
+    /// 画面に出す文字列ではない（`TR-REC-18`）。
+    ///
+    /// 五十音の行に属さない単位は、最後にまとめて1本の環になる。 拡張セットの
+    /// ヴだけが当たる。落とさないのは、分母が合わなくなるため。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    #[tracing::instrument(skip(self), err)]
+    pub fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
+        let all = row_units::table
+            .select((row_units::consonant, row_units::kana))
+            .load::<(String, String)>(&mut self.conn)
+            .map_err(db("coverage_by_kana_row"))?;
+        let covered = self.covered_units()?;
+
+        let mut counts: std::collections::HashMap<String, (u32, u32)> =
+            std::collections::HashMap::new();
+        // 同じ仮名を二度数えない。 行が2つ同じ単位を生むことはありうるが、
+        // 被覆は単位の集合なので（`TR-RCL-19`）、環の分母も集合で数える。
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        // 五十音の行に入らないものの並び。初出の順で足す。
+        let mut orphans: Vec<String> = Vec::new();
+
+        for (consonant, kana) in all {
+            if !seen.insert(kana.clone()) {
+                continue;
+            }
+            let key = crate::inventory::kana_row(&consonant).map_or_else(
+                || {
+                    if !orphans.contains(&consonant) {
+                        orphans.push(consonant.clone());
+                    }
+                    consonant.clone()
+                },
+                ToOwned::to_owned,
+            );
+            let slot = counts.entry(key).or_insert((0, 0));
+            slot.1 += 1;
+            if covered.contains(&kana) {
+                slot.0 += 1;
+            }
+        }
+
+        Ok(crate::inventory::KANA_ROWS
+            .iter()
+            .map(|r| (*r).to_owned())
+            .chain(orphans)
+            .filter_map(|k| counts.get(&k).copied())
+            .collect())
+    }
+
+    /// 採用テイクの観測（`DEC-PLT-027` の声の色）。
+    ///
+    /// 採用しているものだけを見る。 非採用まで混ぜると、切り替えても色が
+    /// 変わらない——採用の切り替えは「声の表情を選ぶ」操作なので
+    /// （`DEC-PLT-025`）、色が動かないと選んだことにならない。
+    ///
+    /// `rate_hz` は F0 のフレーム長を出すためだけに要る。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    #[tracing::instrument(skip(self), err)]
+    pub fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
+        let rows = take_analysis::table
+            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(take_analysis::take_id)))
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select((
+                take_analysis::f0,
+                take_analysis::centroid_hz,
+                take_analysis::hop_size,
+            ))
+            .load::<(Vec<u8>, Option<f64>, i32)>(&mut self.conn)
+            .map_err(db("adopted_voice"))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(f0, centroid_hz, hop)| crate::voice::TakeVoice {
+                f0: bytes_to_f64s(&f0),
+                centroid_hz,
+                frame_ms: f64::from(hop.max(1)) * 1000.0 / f64::from(rate_hz.max(1)),
+            })
+            .collect())
     }
 
     /// 次に録る行（`TR-REC-18`）。未録音のうち並び順が最も早いもの。
@@ -480,6 +615,7 @@ impl Ledger {
             .map_err(db("rows_with_takes.rows"))?;
 
         let takes = takes::table
+            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
             .order((takes::row_id.asc(), takes::generation.asc()))
             .select((
                 takes::id,
@@ -488,8 +624,9 @@ impl Ledger {
                 takes::frames,
                 takes::invalid,
                 takes::generation,
+                take_analysis::peak.nullable(),
             ))
-            .load::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .load::<(i32, String, String, i64, i32, i32, Option<f64>)>(&mut self.conn)
             .map_err(db("rows_with_takes.takes"))?;
 
         let adopted = adopted_takes::table
@@ -497,19 +634,24 @@ impl Ledger {
             .load::<(String, i32)>(&mut self.conn)
             .map_err(db("rows_with_takes.adopted"))?;
 
+        let units = row_units::table
+            .select(row_units::row_id)
+            .load::<String>(&mut self.conn)
+            .map_err(db("rows_with_takes.units"))?;
+
         let mut by_row: std::collections::HashMap<String, Vec<Take>> =
             std::collections::HashMap::new();
-        for (id, row_id, rel_path, frames, invalid, generation) in takes {
-            by_row.entry(row_id.clone()).or_default().push(Take {
-                id,
-                row_id,
-                rel_path,
-                frames,
-                invalid: invalid != 0,
-                generation,
-            });
+        for raw in takes {
+            let take = build_take(raw);
+            by_row.entry(take.row_id.clone()).or_default().push(take);
         }
         let adopted: std::collections::HashMap<String, i32> = adopted.into_iter().collect();
+
+        let mut unit_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        for row_id in units {
+            *unit_counts.entry(row_id).or_default() += 1;
+        }
 
         Ok(rows
             .into_iter()
@@ -517,6 +659,7 @@ impl Ledger {
                 takes: by_row.remove(&row_id).unwrap_or_default(),
                 adopted: adopted.get(&row_id).copied(),
                 state: RowState::parse(&state),
+                units: unit_counts.get(&row_id).copied().unwrap_or(0),
                 row_id,
                 text,
             })
@@ -600,6 +743,7 @@ impl Ledger {
                 take_analysis::f0.eq(&f0),
                 take_analysis::amp.eq(&amp),
                 take_analysis::thumbnail.eq(&a.thumbnail),
+                take_analysis::centroid_hz.eq(a.centroid_hz),
             ))
             .on_conflict(take_analysis::take_id)
             .do_update()
@@ -609,6 +753,7 @@ impl Ledger {
                 take_analysis::f0.eq(&f0),
                 take_analysis::amp.eq(&amp),
                 take_analysis::thumbnail.eq(&a.thumbnail),
+                take_analysis::centroid_hz.eq(a.centroid_hz),
             ))
             .execute(&mut self.conn)
             .map_err(db("put_analysis"))?;
@@ -626,8 +771,9 @@ impl Ledger {
                 take_analysis::f0,
                 take_analysis::amp,
                 take_analysis::thumbnail,
+                take_analysis::centroid_hz,
             ))
-            .first::<(f64, Vec<u8>, Vec<u8>, Vec<u8>)>(&mut self.conn)
+            .first::<(f64, Vec<u8>, Vec<u8>, Vec<u8>, Option<f64>)>(&mut self.conn)
             .optional()
             .map_err(db("analysis_of"))?;
 
@@ -635,14 +781,17 @@ impl Ledger {
             clippy::cast_possible_truncation,
             reason = "peak は 0.0..=1.0 付近。f32 で保つ"
         )]
-        Ok(row.map(|(peak, f0, amp, thumbnail)| TakeAnalysis {
-            peak: peak as f32,
-            frq: Frq {
-                f0: bytes_to_f64s(&f0),
-                amp: bytes_to_f64s(&amp),
-            },
-            thumbnail,
-        }))
+        Ok(
+            row.map(|(peak, f0, amp, thumbnail, centroid_hz)| TakeAnalysis {
+                peak: peak as f32,
+                frq: Frq {
+                    f0: bytes_to_f64s(&f0),
+                    amp: bytes_to_f64s(&amp),
+                },
+                thumbnail,
+                centroid_hz,
+            }),
+        )
     }
 
     /// 書き出しを1件記録する（`TR-PKG-44`）。
@@ -1043,6 +1192,7 @@ impl Ledger {
             .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
             .filter(row_units::kana.eq(kana))
             .filter(takes::invalid.eq(0))
             .order(rows::ordinal.asc())
@@ -1053,27 +1203,20 @@ impl Ledger {
                 takes::frames,
                 takes::invalid,
                 takes::generation,
+                take_analysis::peak.nullable(),
             ))
-            .first::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .first::<(i32, String, String, i64, i32, i32, Option<f64>)>(&mut self.conn)
             .optional()
             .map_err(db("take_for_unit"))?;
 
-        Ok(
-            row.map(|(id, row_id, rel_path, frames, invalid, generation)| Take {
-                id,
-                row_id,
-                rel_path,
-                frames,
-                invalid: invalid != 0,
-                generation,
-            }),
-        )
+        Ok(row.map(build_take))
     }
 
     /// テイクを1件引く。無ければ `None`。
     #[tracing::instrument(skip(self), fields(take_id), err)]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
         takes::table
+            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
             .filter(takes::id.eq(take_id))
             .select((
                 takes::id,
@@ -1082,20 +1225,12 @@ impl Ledger {
                 takes::frames,
                 takes::invalid,
                 takes::generation,
+                take_analysis::peak.nullable(),
             ))
-            .first::<(i32, String, String, i64, i32, i32)>(&mut self.conn)
+            .first::<(i32, String, String, i64, i32, i32, Option<f64>)>(&mut self.conn)
             .optional()
             .map_err(db("take"))
-            .map(|o| {
-                o.map(|(id, row_id, rel_path, frames, invalid, generation)| Take {
-                    id,
-                    row_id,
-                    rel_path,
-                    frames,
-                    invalid: invalid != 0,
-                    generation,
-                })
-            })
+            .map(|o| o.map(build_take))
     }
 
     /// テイクに紐づく oto の5値を引く。まだ無ければ `None`。

@@ -28,28 +28,15 @@ export class Channel<T> {
   /** 本物は Rust が採番する。story では番号を持つ意味が無い。 */
   id = 0;
 }
-export type {
-  AppError,
-  CalibrationView,
-  DeviceView,
-  EnvelopeView,
-  GainControlView,
-  LatencyView,
-  LeakView,
-  MicModeView,
-  OtoView,
-  OutputKindView,
-  PreflightView,
-  ProgressView,
-  ProjectView,
-  RowTakesView,
-  SongView,
-  SpaceView,
-  SpectrogramView,
-  SungSongView,
-  TakeSummaryView,
-  TakeView,
-} from "./ipc";
+/*
+ * 型はまとめて通す。
+ *
+ * `export type *` にする。 素の `export *` だと `AppError` などが値として
+ * 解決されて「そんな輸出は無い」で落ちるが、型だけと明示すれば通る。
+ * 1つずつ書き出すと、Rust 側に型を足すたびにここへ足すのを忘れ、
+ * story だけが「そんな型は無い」で落ちる。
+ */
+export type * from "./ipc";
 
 /** 既定は「呼ばれたら黙って待ち続ける」。story が明示したものだけ答える。 */
 const pending = () => new Promise<never>(() => {});

@@ -1,30 +1,29 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
-import { Announcer } from "~/components/announcer";
+import { Announcer } from ".";
 import { withRouter } from "~/lib/story-router";
 
-/*
- * 常設の読み上げ領域（`TR-PLT-29`）。
- *
- * 見えない。 目視では確かめられないので、`aria-live` が中身より先に
- * DOM へ居ることを機械で見る——文言と一緒に挿し込むと、支援技術が
- * 変化として拾えず読まれない。
- */
-const meta = {
-  title: "部品/Announcer",
-  component: Announcer,
-  render: () => withRouter(<Announcer />),
-} satisfies Meta<typeof Announcer>;
+const meta = { title: "部品/Announcer", component: Announcer } satisfies Meta<typeof Announcer>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const 常設されている: Story = {
+export const 一覧へ来た: Story = {
+  render: () => withRouter(<Announcer />, "/"),
   play: async ({ canvasElement }) => {
-    const live = canvasElement.querySelector("[aria-live='polite']");
-    await expect(live).not.toBeNull();
-    // 文言ごと挿し込む形になっていないこと。領域は常に居る。
-    await expect(live?.getAttribute("aria-atomic")).toBe("true");
+    // 領域は空のまま先に居る。文言はあとから入る。
+    const region = canvasElement.querySelector("[aria-live]");
+    await expect(region).not.toBeNull();
+    await waitFor(() => expect(region?.textContent).toContain("声"));
+  },
+};
+
+export const 音源へ来た: Story = {
+  render: () => withRouter(<Announcer />, "/voice"),
+  play: async ({ canvasElement }) => {
+    await waitFor(() =>
+      expect(canvasElement.querySelector("[aria-live]")?.textContent).toContain("音源"),
+    );
   },
 };

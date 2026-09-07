@@ -1,7 +1,7 @@
 schema = 'question'
 id = 'Q-RCL-004'
 title = '音源一覧に到達度を出すか'
-status = 'open'
+status = 'resolved'
 owner = 'dino3616'
 why_it_matters = '''
 `LibraryScreen` は音源ごとに項目数だけを出す。カバレッジも「いま歌える曲の数」も無い。
@@ -17,10 +17,13 @@ why_it_matters = '''
 一覧に出すなら、音源ごとに台帳を読むことになる。 いまの `list_projects` は項目数しか返さない。
 '''
 how_to_close = '''
-`TR-RCL-19` の適用範囲を決める。一覧にも掛けるなら、`ProjectView` に何を足すかを決め、
-`list_projects` が音源ごとの台帳を読む費用を実測する（音源が増えたときの一覧の表示時間）。
-Phase 3 のコレクションビュー設計と同時に決める。
+`DEC-RCL-006` で閉じた。一覧にも掛ける。`ProjectView` に到達度・歌える曲の数・
+子音行ごとの被覆・声の色を足し、`list_projects` が音源ごとに台帳を開く。
+
+**費用の実測はまだ取っていない。** 音源が数十を超えたときに待たされるなら、
+環と色だけ後から差し込む形へ移る（`DEC-RCL-006` の撤回条件）。
 '''
+resolved_by = 'DEC-RCL-006'
 blocks_profiles = []
 affects_requirements = [
   'TR-RCL-19',

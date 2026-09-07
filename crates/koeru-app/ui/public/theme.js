@@ -20,8 +20,14 @@
     try {
       return window.matchMedia("(prefers-color-scheme: dark)").matches;
     } catch {
-      // `matchMedia` が無い環境。明るい面を既定にする。
-      return false;
+      /*
+       * `matchMedia` が無い環境。暗い面を既定にする。
+       *
+       * `docs/design/direction.md` が既定を暗い面と決めている。
+       * ここだけ明るい面へ落ちていたので、**文書が言う既定が
+       * どの経路にも無かった。**
+       */
+      return true;
     }
   };
 
