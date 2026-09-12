@@ -5,6 +5,7 @@ import { Card } from "~/components/card";
 import { LiveWaveform } from "~/components/live-waveform";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/select";
 import { api, errorMessage, micModeLabel } from "~/lib/ipc";
+import { PROBE_MS } from "~/lib/levels";
 import { devicesQuery } from "~/lib/queries";
 
 type DeviceCardProps = {
@@ -53,7 +54,7 @@ export const DeviceCard = ({
   const arm = useMutation({
     mutationFn: async (id: string) => {
       const mode = await api.armDevice(id);
-      const peak = await api.probeInput(400);
+      const peak = await api.probeInput(PROBE_MS);
       const space = await api.estimateSpace();
       return { mode, peak, space };
     },

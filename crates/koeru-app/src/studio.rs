@@ -516,20 +516,35 @@ impl Studio {
 
     /// プロジェクトを開く。収録セッションを1つ始める（`TR-REC-30`）。
     ///
-    /// **別の音源へ移るときは、開いているストリームを落とす。**
-    /// セッションは音源ごとの台帳に属する（`TR-REC-30`）ので、`session_id` は
-    /// 新しい台帳では 0 に戻る。落とさずにいると、`chosen_device` が前の音源の
-    /// デバイスを「開いている」と答え、画面は `arm_device` を飛ばし、
-    /// **最初のテイクの確定が `session_id = 0` で `takes.session_id` の
+    /// **同じ音源を開き直すときは、何もしない。** 画面は経路を移るたびに
+    /// ここを通る（`queries.ts` の `openProjectQuery` は `gcTime: 0`）。
+    /// 毎回 `Open` を作り直すと `session_id` が 0 に戻るので、
+    /// **開いたままのストリームで録った次のテイクが、`takes.session_id` の
     /// 外部キーに当たって落ちる。WAV を確定させたあとに落ちる**
     /// （`finish_take` の「ここまででファイルは確定している」より下）。
+    /// 音・曲・テイクの面を行き来するだけで起きる。**踏んだ。**
     ///
-    /// 同じ音源を開き直すときは落とさない。 画面は経路を移るたびにここを
-    /// 通る（`queries.ts` の `openProjectQuery` は `gcTime: 0`）ので、
-    /// 毎回落とすと収録の途中でストリームが開き直り、セッションが分かれる。
+    /// **別の音源へ移るときは、開いているストリームを落とす。**
+    /// セッションは音源ごとの台帳に属する（`TR-REC-30`）ので、前の音源の
+    /// ストリームを残したままだと、`chosen_device` がそれを「開いている」と
+    /// 答えて `arm_device` を飛ばさせ、同じ外部キーに当たる。
+    ///
+    /// 収録中は移らせない。 途中のテイクを捨てるしかなくなるが、
+    /// 排出スレッドは止められると書きかけを確定させる（`pump` の
+    /// 「書きかけを捨てない」）。台帳に載らない WAV だけが残り、
+    /// それを掃除する経路はまだ無い（`Ledger::find_orphans` は呼ばれていない）。
     #[tracing::instrument(skip(self), err)]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
-        if self.open.as_ref().is_some_and(|o| o.dir.id() != id) {
+        if let Some(open) = &self.open {
+            if open.dir.id() == id {
+                return Ok(());
+            }
+            if self.recording.is_some() {
+                return Err(AppError::new(
+                    "app.already_recording",
+                    "収録中は別の声を開けない。止めてから移ってほしい",
+                ));
+            }
             self.disarm();
         }
         let dir = self.library.open_project(id)?;
@@ -547,16 +562,15 @@ impl Studio {
     /// 排出スレッドが先。 Consumer を握ったまま Capture を捨てない
     /// （`arm_device` と同じ順序）。
     ///
-    /// **収録中の札も下ろす。** 下ろさないと `start_take_for` が
-    /// 「すでに収録中」で断り続け、二度と録れなくなる。途中のテイクは
-    /// 捨てる——ファイルを確定させていないので台帳には何も入っていない。
+    /// 収録中に呼ばない。 呼び側が先に断る（[`Self::open_project`]）。
+    /// 排出スレッドは止められると書きかけを確定させるので、ここで落とすと
+    /// 台帳に載らない WAV が残る。
     fn disarm(&mut self) {
         self.pump = None;
         self.capture = None;
         // 状態機械も作り直す。 未選択からしか `select_device` へ進めない。
         self.session = Session::new();
         self.device = None;
-        self.recording = None;
     }
 
     /// いまの進み具合。
@@ -672,10 +686,21 @@ impl Studio {
     /// 選択の持ち主はこちら側になる。**踏んだ。**
     #[tracing::instrument(skip(self), err)]
     pub fn chosen_device(&mut self) -> Result<(Option<String>, bool)> {
-        if let Some(d) = &self.device {
-            return Ok((Some(d.as_str().to_owned()), true));
-        }
-        Ok((self.opened_mut()?.ledger.last_device()?, false))
+        /*
+         * 開いているかは、ストリームの実体で見る。
+         *
+         * `self.device` で判定しない。 `arm_device` は開き直す前に
+         * `pump` と `capture` を落とすが、そのあとの手順（校正の読み出し、
+         * デバイスを開く、セッションを始める）はどれも失敗しうる。
+         * 途中で失敗すると**ストリームが無いのに前のデバイスが残る**ので、
+         * 「開いている」と答えてしまい、次の収録が `app.no_stream` で落ちる。
+         */
+        let armed = self.capture.is_some() && self.pump.is_some();
+        let id = match &self.device {
+            Some(d) => Some(d.as_str().to_owned()),
+            None => self.opened_mut()?.ledger.last_device()?,
+        };
+        Ok((id, armed))
     }
 
     /// デバイスを選び、ストリームを開く（`recording-input.fsl` の手順）。
@@ -2242,4 +2267,46 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 同じ音源を開き直しても、収録セッションを作り直さない。
+    ///
+    /// 作り直すと `session_id` が 0 に戻り、**開いたままのストリームで録った
+    /// 次のテイクが `takes.session_id` の外部キーに当たって落ちる。**
+    /// しかも落ちるのは WAV を確定させたあとで、ファイルだけが残る。
+    ///
+    /// 画面は面を移るたびにここを通る（`queries.ts` の `openProjectQuery` は
+    /// `gcTime: 0`）ので、音・曲・テイクを行き来するだけで起きる。**踏んだ。**
+    #[test]
+    fn 同じ音源を開き直してもセッションを作り直さない() {
+        let root = std::env::temp_dir().join(format!("koeru-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("試験用の音源").expect("作れる");
+        studio.open_project(id).expect("開ける");
+
+        // セッションを1つ始めさせる。
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.mark_recorded_for_test(&row).expect("印を付けられる");
+        let started = studio.opened().expect("開いている").session_id;
+        assert_ne!(started, 0, "セッションが始まっていること");
+
+        studio.open_project(id).expect("開き直せる");
+        assert_eq!(
+            studio.opened().expect("開いている").session_id,
+            started,
+            "同じ音源を開き直したら、セッションは同じであること"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

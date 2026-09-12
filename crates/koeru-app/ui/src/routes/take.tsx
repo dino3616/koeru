@@ -16,6 +16,17 @@ import { TakeScreen } from "~/screens/take-screen";
 const searchSchema = v.object({
   id: v.optional(v.pipe(v.string(), v.uuid("音源の識別子が UUID ではない"))),
   row: v.optional(v.string()),
+  /*
+   * どの面から来たか。戻るときにそこへ返す。
+   *
+   * 既定は「音」。 音源の面を経由しない入口（`TR-PKG-51`、`TR-ALN-27`）では
+   * 戻り先が無いので、収録の面へ返す。
+   *
+   * **持たないと、配り物から開いたテイクが音の面へ戻る。** 面を検索引数に
+   * 置いたのは「戻ってきたときに別の面にいない」ためなので、ここで落とすと
+   * その意図が半分しか効かない。
+   */
+  from: v.optional(v.picklist(["sound", "songs", "package", "settings"], "その面は無い")),
 });
 
 export const Route = createFileRoute("/take")({

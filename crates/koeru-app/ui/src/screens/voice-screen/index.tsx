@@ -20,6 +20,7 @@ import { VoiceHeader, type VoiceTab } from "~/components/voice-header";
 import { VoicePortrait } from "~/components/voice-portrait";
 import { VoiceSettings } from "~/components/voice-settings";
 import { api, errorMessage, type ProgressView } from "~/lib/ipc";
+import { PROBE_MS } from "~/lib/levels";
 import {
   autoAdvanceQuery,
   chosenDeviceQuery,
@@ -186,6 +187,16 @@ const VoiceBody = ({
       throw new Error("設定でマイクを選ぶと録れます。");
     }
     await api.armDevice(now.id);
+    /*
+     * 開いただけでは録れない。 `Session` は「届いているか未確認」のままで、
+     * `probe_input` が通るまで `start_take` を受け付けない（`REQ-REC-106`）。
+     * **開くだけにしていたので、選択を戻した最初の1本が必ず失敗していた。**
+     * 設定の面の手順（開く → 確かめる）と同じものを、ここでも通す。
+     */
+    const peak = await api.probeInput(PROBE_MS);
+    if (peak <= 0) {
+      throw new Error("マイクから音が届いていません。設定で確かめてください。");
+    }
     setArmed(true);
   }, []);
 
@@ -304,7 +315,9 @@ const VoiceBody = ({
    */
   const listenable = songs.find((s) => s.singable) ?? songs[0] ?? null;
 
-  const openTake = (rowId: string) => void navigate({ to: "/take", search: { id, row: rowId } });
+  // どの面から開いたかを運ぶ。戻るときにそこへ返す。
+  const openTake = (rowId: string) =>
+    void navigate({ to: "/take", search: { id, row: rowId, from: tab } });
 
   return (
     <main className="flex h-full flex-col overflow-hidden">

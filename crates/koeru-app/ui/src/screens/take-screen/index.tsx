@@ -8,6 +8,7 @@ import { Card } from "~/components/card";
 import { TakeGenerations } from "~/components/take-generations";
 import { TakeValues } from "~/components/take-values";
 import { TakeWaveform } from "~/components/take-waveform";
+import type { VoiceTab } from "~/components/voice-header";
 import { api, errorMessage } from "~/lib/ipc";
 import { ledgerKey, openProjectQuery, otosQuery, rowsWithTakesQuery } from "~/lib/queries";
 import { useScreenFocus } from "~/lib/use-screen-focus";
@@ -44,7 +45,7 @@ const PREVIEW_LENGTH_MS = 800;
  */
 export const TakeScreen = () => {
   const navigate = useNavigate();
-  const { id, row } = useSearch({ from: "/take" });
+  const { id, row, from } = useSearch({ from: "/take" });
 
   if (id === undefined || row === undefined) {
     return (
@@ -69,7 +70,7 @@ export const TakeScreen = () => {
         </main>
       }
     >
-      <OpenTake id={id} rowId={row} />
+      <OpenTake id={id} rowId={row} from={from ?? "sound"} />
     </Suspense>
   );
 };
@@ -83,12 +84,12 @@ export const TakeScreen = () => {
  * 順序が木の形として残る（`react-conventions` の「順に解かせたいものは
  * 部品を分けて境界を挟む」、音源の面は既にそうしている）。
  */
-const OpenTake = ({ id, rowId }: { id: string; rowId: string }) => {
+const OpenTake = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceTab }) => {
   useSuspenseQuery(openProjectQuery(id));
-  return <TakeBody id={id} rowId={rowId} />;
+  return <TakeBody id={id} rowId={rowId} from={from} />;
 };
 
-const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
+const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceTab }) => {
   const navigate = useNavigate();
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
@@ -156,7 +157,7 @@ const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
         <p className="text-sm text-slate-11">その行はこの声にありません。</p>
         <Button
           variant="primary"
-          onClick={() => navigate({ to: "/voice", search: { id, tab: "sound" } })}
+          onClick={() => navigate({ to: "/voice", search: { id, tab: from } })}
         >
           音へ戻る
         </Button>
@@ -169,7 +170,7 @@ const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
       <header className="flex h-16 flex-shrink-0 items-center gap-5 border-slate-6 border-b px-8">
         <Button
           variant="ghost"
-          onClick={() => navigate({ to: "/voice", search: { id, tab: "sound" } })}
+          onClick={() => navigate({ to: "/voice", search: { id, tab: from } })}
         >
           <svg
             width="16"
