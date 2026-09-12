@@ -23,11 +23,11 @@ const EXEMPT = new Map([
     "Channel の開閉（`DEC-PLT-017`）。問い合わせではないので、取り直しも重複排除も意味を持たない",
   ],
   [
-    "src/components/take-inspector/index.tsx",
+    "src/components/take-waveform/index.tsx",
     "描画要求の幅を canvas の実測から決めるので、鍵を描画前に作れない。順序は世代番号で捨てる",
   ],
   [
-    "src/components/song-list/index.tsx",
+    "src/components/pending-work/index.tsx",
     "待ち数の予約（`DEC-PLT-017`）。返ってきてから次を予約する形を、間隔ではなく完了で回す",
   ],
 ]);

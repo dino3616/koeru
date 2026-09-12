@@ -99,6 +99,7 @@ diesel::table! {
         f0 -> Binary,
         amp -> Binary,
         thumbnail -> Binary,
+        centroid_hz -> Nullable<Double>,
     }
 }
 

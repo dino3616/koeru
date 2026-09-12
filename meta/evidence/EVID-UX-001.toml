@@ -1,0 +1,68 @@
+schema = 'evidence'
+id = 'EVID-UX-001'
+title = '現行フロントエンドの実装棚卸し（画面・部品・要件参照・実寸描画）'
+kind = 'implementation_survey'
+source = 'crates/koeru-app/ui/src の全ソース、bindings.gen.ts の型定義、Storybook の story を実ブラウザで描画した観察'
+provenance = '''
+要件の参照は grep で機械的に集計した（`TR-*` / `DEC-*` / `EVID-*` の出現をファイル単位で重複除去）。
+`PROFILE-M2` の `includes_requirements` との差分も同じ集計から取った。
+
+見た目は Playwright（Chromium、1280×1000、`fullPage`）で story を描いて観察した。
+擬似 DOM ではなく実ブラウザで、`.storybook/preview.tsx` が与える明配色。
+
+`ProgressView` のフィールドは `bindings.gen.ts` の型定義と、その参照箇所の grep で確かめた。
+
+説明と読みどころは `docs/design/inventory.md`。 ここは観察した事実だけを持つ。
+'''
+confidence = 'Fact'
+
+observed_structure = '''
+画面は2つ。 `/` が音源一覧、`/record?id=` が収録。
+
+収録画面はカード5枚を縦に積む。上から「マイク」「いま録るところ」「録れたもの」
+「録れたもの一覧」「歌える曲」。「録れたもの」は直前のテイクがあるときだけ出る。
+「マイク」の中に「入力レベル」と「音の回り込み」が入れ子で入る。
+
+部品は18個。 うち `Elapsed` と `Select` 一式だけが要件 ID を引いていない。
+'''
+
+requirement_coverage = '''
+`PROFILE-M2` の要件のうち、画面側のソースが引いているのは3分の1弱。 残りは音声 I/O・合成・
+パッケージングの内部で、画面に出る面を持たない。
+
+`PROFILE-M2` の外を4件引いている。`TR-ALN-27` `TR-ALN-33` `TR-RCL-09` は録り直しと
+原音設定の読み出しで、収録の縦切りが必然的に触る。`TR-PLT-32` は M2 の適合範囲に
+入っていないが `TakeInspector` が先に満たしている。
+'''
+
+observed_appearance = '''
+収録画面は、上半分を「マイク」の設定が占める。 「いま録るところ」はその下、画面の
+3番目の要素として現れる。準備は一度で済むが、置き場所は毎回同じ。
+
+進捗（`covered / required` とパーセント、歌える曲数）は見出し直下の等幅小文字で、
+画面上でもっとも小さい要素のひとつ。`TR-RCL-19` の「常時両方出す」は満たしているが、
+大きさの規定は要件に無い。
+
+カードは1種類。 準備・録音・確認・一覧・報酬が、同じ枠線・同じ角丸・同じ背景に載る。
+段の違いを示すのは見出しの文字だけ。
+
+音源一覧が持つ情報は名前と項目数だけ。 到達度も、歌える曲も、最後に触った時期も無い。
+
+ロゴもワードマークも無い。 Radix Colors の slate と cyan、OS の既定書体だけで構成されている。
+'''
+
+dropped_data = '''
+`ProgressView` は `coverage`（完成状態）と `handoff`（手渡し状態）を持ち、Rust から
+画面まで渡っている。**この2つを読んでいるのは `record-screen.story.tsx` の固定値だけで、
+どの部品も描いていない。** 受け取って捨てている。
+
+生成された commands に音源の改名が無い。 一方 `LibraryScreen` は
+「あとから変えられます」と表示している。
+'''
+
+affects_questions = [
+  'Q-REC-003',
+  'Q-RCL-004',
+  'Q-PKG-002',
+  'Q-PKG-003',
+]

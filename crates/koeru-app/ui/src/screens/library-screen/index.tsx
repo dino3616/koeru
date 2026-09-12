@@ -2,23 +2,84 @@ import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-q
 import { useNavigate } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 
-import { Button } from "~/components/button";
-import { Card, CardTitle } from "~/components/card";
-import { api, errorMessage } from "~/lib/ipc";
+import { AppMark } from "~/components/app-mark";
+import { Breath } from "~/components/breath";
+import { NewVoice } from "~/components/new-voice";
+import { VoiceTile } from "~/components/voice-tile";
+import { errorMessage } from "~/lib/ipc";
+import { api } from "~/lib/ipc";
 import { projectsQuery } from "~/lib/queries";
 import { useScreenFocus } from "~/lib/use-screen-focus";
 
 /**
- * プロジェクトの一覧。
+ * 声の並び（`DEC-PLT-024`）。
  *
- * ここに書き出し・公開・作者の語を出さない（`TR-PKG-35`）。
- * 完成しているかどうかだけを見せる。
+ * 一覧ではなく並び。 UTAU の音源はキャラクターとして記憶されている
+ * （`EVID-UX-004`）。名前と数字の行に畳むと、その位置に何も座らない。
+ *
+ * 「作りかけ」の見出しを置かない。 完成しているかどうかは環が言う
+ * （`DEC-PLT-025`、`DEC-PKG-007`）——被覆が満ちた瞬間には必ず完成しているので、
+ * 別の印も、完成／未完成で分けた見出しも要らない。
+ *
+ * 書き出し・公開・作者の語を出さない（`TR-PKG-35`）。
  */
 export const LibraryScreen = () => {
-  const navigate = useNavigate();
   const heading = useScreenFocus();
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <main className="flex h-full flex-col overflow-hidden">
+      <header className="flex h-16 flex-shrink-0 items-center gap-5 border-slate-6 border-b px-8">
+        <AppMark />
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-8">
+        <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8">
+          <div className="flex flex-col gap-2">
+            <h1
+              ref={heading}
+              tabIndex={-1}
+              className="text-xl font-semibold text-slate-12 outline-none"
+            >
+              声
+            </h1>
+            {/* 本文の段で置く。 補助の段（0.75rem）に落としていたので、
+                この画面でいちばん小さい字が、製品の言いたいことになっていた。 */}
+            <p className="text-sm text-slate-11">録っている途中でも、あなたの声が歌います。</p>
+          </div>
+
+          {/*
+            並びを先に出す。 中身の取得を待たせない
+            （`async-suspense-boundaries`）。まだ何も無い人にとっては、
+            待つ意味のあるものが1つも無い画面になる。
+          */}
+          <Suspense
+            fallback={
+              <p role="status" className="flex items-center gap-2 py-8 text-sm text-slate-11">
+                <Breath size="sm" />
+                読み込んでいます
+              </p>
+            }
+          >
+            <Gallery creating={creating} onCreating={setCreating} />
+          </Suspense>
+        </div>
+      </div>
+    </main>
+  );
+};
+
+/** 並びと、空いた席。失敗は上の `ErrorBoundary` が受ける。 */
+const Gallery = ({
+  creating,
+  onCreating,
+}: {
+  creating: boolean;
+  onCreating: (v: boolean) => void;
+}) => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
+  const { data: projects } = useSuspenseQuery(projectsQuery());
 
   /**
    * 作って、その場で開く。
@@ -29,108 +90,75 @@ export const LibraryScreen = () => {
   const create = useMutation({
     mutationFn: (displayName: string) => api.createProject(displayName),
     onSuccess: async (id) => {
-      setName("");
+      onCreating(false);
       void queryClient.invalidateQueries(projectsQuery());
-      await navigate({ to: "/record", search: { id } });
+      await navigate({ to: "/voice", search: { id, tab: "sound" } });
     },
   });
 
-  const submit = () => {
-    const trimmed = name.trim();
-    if (trimmed === "" || create.isPending) return;
-    create.mutate(trimmed);
-  };
-
-  return (
-    <main className="mx-auto flex h-full max-w-3xl flex-col gap-6 overflow-y-auto p-8">
-      <header>
-        <h1 ref={heading} tabIndex={-1} className="text-2xl font-semibold outline-none">
-          音源
-        </h1>
-        <p className="mt-1 text-sm text-slate-11">録音の途中でも、自分の声で歌を聴けます。</p>
-      </header>
-
-      <Card title="新しく作る">
-        <div className="mt-3 flex gap-2">
-          <label className="sr-only" htmlFor="new-name">
-            音源の名前
-          </label>
-          <input
-            id="new-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              // 変換確定の Enter で送信しない。 IME で変換しているあいだも
-              // `keydown` は `Enter` で飛ぶので、見ないと変換途中の名前で作ってしまう。
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) submit();
-            }}
-            placeholder="音源の名前"
-            autoComplete="off"
-            className="h-11 flex-1 select-text rounded-lg border border-slate-11 bg-slate-3 px-3 text-sm text-slate-12 placeholder:text-slate-11"
-          />
-          <Button
-            variant="primary"
-            onClick={submit}
-            disabled={name.trim() === "" || create.isPending}
-          >
-            作る
-          </Button>
-        </div>
-        <p className="mt-2 text-xs text-slate-11">あとから変えられます。絵文字や記号も使えます。</p>
-      </Card>
-
-      {create.error !== null && (
-        <p role="alert" className="rounded-lg bg-red-3 px-4 py-3 text-sm text-red-11">
-          {errorMessage(create.error)}
-        </p>
-      )}
-
-      <section className="flex flex-col gap-2" aria-labelledby="wip">
-        <CardTitle id="wip">作りかけ</CardTitle>
-        {/*
-          見出しと「新しく作る」を先に出す。 一覧の取得を待たせない
-          （`async-suspense-boundaries`）。まだ何も無い人にとっては、
-          待つ意味のあるものが1つも無い画面になる。
-        */}
+  if (creating) {
+    return (
+      <div className="flex justify-center py-8">
         <Suspense
           fallback={
-            <p role="status" className="py-8 text-center text-sm text-slate-11">
-              読み込み中
+            <p role="status" className="flex items-center gap-2 text-sm text-slate-11">
+              <Breath size="sm" />
+              読み込んでいます
             </p>
           }
         >
-          <ProjectList />
+          <NewVoice
+            creating={create.isPending}
+            onCreate={(name) => create.mutate(name)}
+            onClose={() => onCreating(false)}
+          />
         </Suspense>
-      </section>
-    </main>
-  );
-};
-
-/** 作りかけの一覧。失敗は上の `ErrorBoundary` が受ける。 */
-const ProjectList = () => {
-  const navigate = useNavigate();
-  const { data: projects } = useSuspenseQuery(projectsQuery());
-
-  if (projects.length === 0) {
-    return <p className="py-8 text-center text-sm text-slate-11">まだ何もありません。</p>;
+        {create.error !== null && (
+          <p role="alert" className="text-sm text-red-11">
+            {errorMessage(create.error)}
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="grid grid-cols-3 gap-8">
+      <li>
+        {/*
+          空いた席。 座っていないことを、そのまま席として置く。
+          「まだ何もありません」と書かない——**欠けを不足として書かない**
+          （`docs/design/direction.md`）。
+
+          先頭に置く。 末尾に置いていたので、声が3つを超えると
+          席が次の段へ回り、**作りはじめるのにスクロールが要った。**
+        */}
+        <button
+          type="button"
+          onClick={() => onCreating(true)}
+          className="flex size-full min-h-[280px] flex-col items-center justify-center gap-3 rounded-xl border border-slate-11 p-5 text-sm text-slate-11 hover:bg-slate-2 hover:text-slate-12"
+        >
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          新しく作る
+        </button>
+      </li>
       {projects.map((p) => (
         <li key={p.id}>
-          <button
-            type="button"
-            onClick={() => navigate({ to: "/record", search: { id: p.id } })}
-            className="flex w-full items-center justify-between rounded-xl border border-slate-6 bg-slate-2 px-5 py-4 text-left hover:bg-slate-3"
-          >
-            <span className="select-text font-medium">
-              {p.display_name ?? "（名前を読めませんでした）"}
-            </span>
-            <span className="font-mono text-xs text-slate-11 tabular-nums">
-              {p.item_count ?? "?"} 項目
-            </span>
-          </button>
+          <VoiceTile
+            project={p}
+            onOpen={() => void navigate({ to: "/voice", search: { id: p.id, tab: "sound" } })}
+          />
         </li>
       ))}
     </ul>

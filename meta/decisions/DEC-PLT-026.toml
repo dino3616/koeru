@@ -1,0 +1,65 @@
+schema = 'decision'
+id = 'DEC-PLT-026'
+constraint_label = '同梱する日本語書体'
+constraint = '3 OS で顔を揃え、AGPL-3.0-or-later の配布物に同梱できること'
+title = 'Noto Sans JP を1本だけ同梱する。カバレッジを個性より優先し、サブセット化しない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '顔のある書体を主にし、無い字だけ Noto Sans JP へ落とす',
+  'Noto Sans JP を1本だけ同梱する',
+  '面で使い分ける（提示は顔のある書体、本人が打つ文字列は Noto）',
+]
+selected = 'Noto Sans JP を1本だけ同梱する'
+rationale = '''
+候補は Zen Kaku Gothic New / M PLUS 2 / Murecho / Zen Maru Gothic / BIZ UDPGothic /
+Noto Sans JP の6つで、どれも SIL OFL 1.1。同じ収録画面の断片に当てて見比べた。
+
+**個性とカバレッジがまっすぐトレードオフになっていて、カバレッジを取った。**
+Noto Sans JP の cmap は 16,732 字で、うち非 BMP が 655 字。他の候補は常用域まで。
+音源名は本人が自由に打つので、**珍しい漢字で豆腐が出ないのはこれだけ。**
+ブランドの顔は配色・余白・声の形・ロゴで背負う。
+
+**この数は一度間違えていた。** 「非 BMP を 2000 字超持つ」と書いていたが、
+同梱したファイルの cmap を数えると 655 だった（`ui/public/fonts/README.md`）。
+**選んだ結論は動かない**——他の候補より広いことは変わらない——が、
+根拠にしていた数が違っていたので直した。
+
+**サブセット化しない。** 利用者が音源名・エイリアス・規約本文に何を打つか予測できない。
+削った字は豆腐になり、しかも豆腐が出るのは珍しい名前を付けた人だけなので、
+こちらの手元では再現しない。同梱するなら全字。
+
+可変フォントなので1本で全ウェイトを賄える。 非可変の候補は必要なウェイトの本数だけ
+同梱することになる。
+
+## 検査の穴
+
+**このフォントのライセンスは、いまの CI では誰も見ていない。**
+`cargo deny check` が見るのは Cargo の依存で、同梱するフォントファイルは crate ではない。
+`crates/koeru-app/ui/scripts/check-licenses.ts` が見るのは JS の依存。
+**再配布する成果物が増えるのに、それを検査する経路が無い。**
+
+`deny.toml` の allow に `OFL-1.1` は入っていない。 足しても `cargo deny` は
+このファイルに当たらないので、宣言としての意味しか持たない。
+
+そこで部品台帳へ載せる（`CMP-131`）。 台帳はライセンス監査の面として
+name / purpose / license / status を持ち、`check-meta` が `decided_by` の有無を検査する。
+**当面はここが唯一の検査点になる。** 同梱する非 crate の成果物が増えるなら、
+台帳を見る検査を CI に足すことを別途考える。
+'''
+review_triggers = [
+  '珍しい漢字でも豆腐が出ないという前提が崩れたとき（非 BMP の範囲外を使う人が出たとき）',
+  '同梱サイズが配布の障害になったとき',
+  '日本語 IME の変換中文字列が、この書体で正しく出ない OS が見つかったとき',
+  '同梱する非 crate の成果物が増えて、台帳だけでは追えなくなったとき',
+]
+affects_requirements = [
+  'TR-PLT-09',
+  'TR-PLT-22',
+  'TR-PLT-34',
+]
+affects_questions = []
+affects_decisions = [
+  'DEC-PLT-025',
+]
+supersedes = []

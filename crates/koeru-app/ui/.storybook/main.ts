@@ -56,10 +56,21 @@ const config: StorybookConfig = {
     resolve: {
       ...config.resolve,
       alias: {
-        ...(config.resolve?.alias as Record<string, string> | undefined),
+        /*
+         * 狭いほうを先に置く。 object 形式の alias は挿入順の前方一致で、
+         * 最初に当たったものが勝つ。開発サーバは `~` を alias に入れて
+         * 渡してくるので、後ろへ置くと `~/lib/ipc` は `~` に食われて
+         * 本物の `ipc.ts` へ解決される。story は `mocked()` に素の関数を渡し、
+         * `mockResolvedValue is not a function` で描画に失敗する。踏んだ。
+         *
+         * 試験側（`vitest.story.config.ts`）は `~` を alias に持たず
+         * `tsconfigPaths` で解決するので、順序を間違えても当たっていた。
+         * 検査は緑のまま、目視だけが死ぬ。
+         */
         // `pathname` にしない。空白や非 ASCII、Windows のドライブ文字で外れる。
         // `node:url` を引くのは、設定を読むのが Bun ではないから。
         "~/lib/ipc": fileURLToPath(new URL("../src/lib/ipc.mock.ts", import.meta.url)),
+        ...(config.resolve?.alias as Record<string, string> | undefined),
       },
     },
     plugins: (config.plugins ?? []).flat(9).filter((p) => {

@@ -133,7 +133,7 @@ const config = defineConfig({
         // Tauri はファイルをそのまま配るので、URL に対応する html が無いと
         // 再読み込みで 404 になる。普段は画面遷移がクライアント側で完結するので
         // 表に出ないが、Cmd+R 一発で見える。
-        pages: [{ path: "/" }, { path: "/record" }],
+        pages: [{ path: "/" }, { path: "/voice" }, { path: "/take" }],
         // 黙って諦めさせない。
         // Start は `ssr` 環境が走らせられないと判断すると、middleware を入れずに戻る。
         // そうなると `/` が 404 になり、**画面が「Cannot GET /」だけになる**（実際になった）。

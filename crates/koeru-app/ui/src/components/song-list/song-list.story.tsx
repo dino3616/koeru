@@ -1,88 +1,61 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { mocked } from "storybook/test";
+import { expect, fn } from "storybook/test";
 
-import { SongList } from "~/components/song-list";
-import { api } from "~/lib/ipc";
+import { SongList } from ".";
+import type { SongView } from "~/lib/ipc";
 
-/*
- * 歌える曲（`TR-RCL-19`）。
- *
- * 3つの状態を出す。 そのまま歌える・代替で歌える・まだ歌えない。
- * 代替ありは「歌えるが同じ音ではない」ことを伝える必要がある。
- */
+const song = (
+  id: string,
+  title: string,
+  singability: string,
+  singable: boolean,
+  missingUnits: number,
+  missingRows: number,
+): SongView => ({
+  id,
+  title,
+  singability,
+  singable,
+  covered: 24 - missingUnits,
+  required: 24,
+  missing_units: missingUnits,
+  missing_rows: missingRows,
+  seconds: 18.4,
+  total_moras: 24,
+});
+
+const songs = [
+  song("s1", "かえるの合唱", "Complete", true, 0, 0),
+  song("s2", "さくらさくら", "Unavailable", false, 12, 3),
+  song("s3", "ふるさと", "Unavailable", false, 33, 8),
+  song("s4", "よあけ", "WithFallback", true, 6, 2),
+];
+
 const meta = {
-  title: "部品/SongList",
+  title: "領域/SongList",
   component: SongList,
-  beforeEach: () => {
-    mocked(api.pendingWork).mockResolvedValue(0);
-  },
+  args: { songs, preparingId: null, onSing: fn() },
+  decorators: [(Story) => <div className="w-96">{Story()}</div>],
 } satisfies Meta<typeof SongList>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const 三つの状態: Story = {
-  beforeEach: () => {
-    mocked(api.songStatus).mockResolvedValue([
-      {
-        id: "s1",
-        title: "きらきら星",
-        singability: "Complete",
-        singable: true,
-        covered: 24,
-        required: 24,
-        missing_units: 0,
-        missing_rows: 0,
-        seconds: 18.4,
-        total_moras: 24,
-      },
-      {
-        id: "s2",
-        title: "さくらさくら",
-        singability: "WithFallback",
-        singable: true,
-        covered: 19,
-        required: 22,
-        missing_units: 3,
-        missing_rows: 1,
-        seconds: 26.1,
-        total_moras: 22,
-      },
-      {
-        id: "s3",
-        title: "夏の思い出",
-        singability: "Unavailable",
-        singable: false,
-        covered: 8,
-        required: 31,
-        missing_units: 23,
-        missing_rows: 5,
-        seconds: 41,
-        total_moras: 31,
-      },
-    ]);
+  play: async ({ canvasElement }) => {
+    /*
+     * 欠けを不足として書かない（`docs/design/direction.md`）。
+     * 「未達」「あと〇〇%」は出さない。
+     */
+    const text = canvasElement.textContent ?? "";
+    for (const word of ["未達", "未収録", "%"]) {
+      await expect(text).not.toContain(word);
+    }
   },
 };
 
-export const まだ1曲も無い: Story = {
-  beforeEach: () => {
-    mocked(api.songStatus).mockResolvedValue([]);
-  },
-};
+export const 用意している: Story = { args: { preparingId: "s1" } };
 
-/** 録った音の前処理が残っている（`TR-SYN-33`）。無言で待たせない。 */
-export const 前処理を待っている: Story = {
-  beforeEach: () => {
-    mocked(api.songStatus).mockResolvedValue([]);
-    mocked(api.pendingWork).mockResolvedValue(3);
-  },
-};
+export const 選べる: Story = { args: { onSelect: fn(), selectedId: "s2" } };
 
-export const 読み込みに失敗した: Story = {
-  beforeEach: () => {
-    mocked(api.songStatus).mockRejectedValue({
-      kind: "app.ledger_unreadable",
-      message: "台帳を読めませんでした",
-    });
-  },
-};
+export const 曲が無い: Story = { args: { songs: [] } };

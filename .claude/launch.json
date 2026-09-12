@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "storybook",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "crates/koeru-app/ui", "storybook"],
+      "port": 6006
+    }
+  ]
+}

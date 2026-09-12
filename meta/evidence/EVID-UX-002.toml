@@ -1,0 +1,78 @@
+schema = 'evidence'
+id = 'EVID-UX-002'
+title = '既存ツールの情報構造（OREMO / RecStar / vLabeler / setParam / OpenUtau）'
+kind = 'competitive_survey'
+source = 'UTAU 音源制作 wiki の OREMO 解説、nhp.utau.us の録音手順、nnwarks.com の制作レポ、RecStar の PC 版使用解説（note.com）、vLabeler の README-ja と公式文書、OpenUtau Wiki 日本語版とメインウィンドウ解説、setParam の公開された使用解説'
+provenance = '''
+公開文書の記述だけから組み立てた。 実機は動かしていない——OREMO・RecStar・setParam は
+手元の環境に無く、画面を自分で確かめていない。したがって「公開文書がそう書いている」ことは
+Fact だが、現行版の画面がそのとおりであることは確かめていない。
+
+**setParam はソースを読んでいない。** 公開された使用解説に載っている画面の文言と手順だけを
+見た（`meta/requirements/platform.toml` の domain_risks が定めた制約）。
+
+UTAU 音源制作 wiki の本文は取得できなかった。 Cloudflare の bot 判定に当たるため、
+回避せずに諦めた。OREMO の記述は同 wiki を引用している二次資料から取っている。
+'''
+confidence = 'Assumption'
+
+object_models = '''
+各ツールが扱う対象の階層。
+
+| ツール | 最上位 | 階層 | ナビゲーションの単位 |
+|---|---|---|---|
+| OREMO | フォルダ | 音名リスト → 行 → wav | 行（下矢印キーで次へ） |
+| RecStar | セッション | 録音リスト → 行 | 行（クリックでその行から録り直し） |
+| vLabeler | プロジェクト | サンプルファイル → エントリ → パラメータ | エントリ間とサンプル間の2軸 |
+| setParam | フォルダ | 音声ファイル → エイリアス → 5値 | 隣の音へ |
+| OpenUtau | プロジェクト | トラック → パート → ノート → 音素 | トラック面とピアノロールの2階層 |
+'''
+
+preparation_required = '''
+録音を始める前に利用者が自分で用意して読み込ませるもの。
+
+OREMO は3つ。 録音リスト（`[ファイル]` → 「音名リストの読み込み」）、ガイド BGM、
+そして BGM 設定ファイル（`[ガイドBGMファイル名.txt]`）。収録方法は
+`[オプション]` → 「収録方法の設定」で「自動録音その1」「自動録音その2」から選ぶ。
+録音は `R` キーで始まり、下矢印キーで次へ進む。出力は `result` フォルダに
+「"音名""発声タイプ".wav」の形で置かれる。
+
+RecStar は3つ。 録音リスト（モーラ数で選ぶ）、同じモーラ数のコメントファイル、ガイド BGM。
+そのあと入力デバイスを選ぶ。録音は赤い丸ボタンで開始・停止し、済んだ行にチェックが付く。
+
+vLabeler は2つ。 サンプルフォルダとラベラー種別。プロジェクト作成時に
+Sample Directory / Project Name / Labeler / Creation Method を指定する。
+
+setParam は1つ。 音声ファイルのフォルダを「フォルダーの選択」で指定し、
+「パラメータを自動的に生成する」でパラメータを起こす。
+
+**録音の工程を持つ2つ（OREMO・RecStar）は、どちらも利用者に3つのファイルを
+持ち込ませてから始まる。**
+'''
+
+per_item_state = '''
+項目ごとに保持している状態。
+
+vLabeler がいちばん多い。 Done（完了）、Star（スターマーク）、Tag（タグ）の3つを
+エントリごとに持ち、ショートカット（J / K / L）で切り替えられる。名前・サンプル・タグ・
+完了状態で絞り込める。ピン留めしたエントリ一覧が右側に常駐する。
+
+OREMO と RecStar は録れたかどうかだけ。 OREMO はファイルの有無、RecStar はチェックマーク。
+
+setParam と OpenUtau は項目ごとの状態を持たない。
+'''
+
+process_boundaries = '''
+工程が変わるとアプリが変わる。 録音（OREMO / RecStar）、原音設定（setParam / vLabeler）、
+歌わせる（OpenUtau）で別のアプリになり、フォルダとファイルだけが工程間を渡る。
+共有されるのは対象の同一性ではなく、ファイル名の一致。
+
+二階層のナビゲーションが共通形。 OpenUtau はトラック面とピアノロールをダブルクリックで
+行き来し、vLabeler はサンプルとエントリを別の軸で移動する。俯瞰する面と、
+1件を詳しく見る面が分かれている。
+'''
+
+affects_questions = [
+  'Q-REC-003',
+  'Q-RCL-004',
+]

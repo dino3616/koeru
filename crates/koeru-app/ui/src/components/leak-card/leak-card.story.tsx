@@ -1,66 +1,38 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fn, mocked, waitFor } from "storybook/test";
+import { expect, fn, mocked, userEvent, waitFor, within } from "storybook/test";
 
-import { LeakCard } from "~/components/leak-card";
+import { LeakCard } from ".";
 import { api } from "~/lib/ipc";
 
-/*
- * ガイドの回り込みを確かめる面（`TR-REC-24`）。
- *
- * 3つの結果を全部出す。 漏れている・漏れていない・判定できない。
- * 判定できないことも正規の結果なので、それも出す。
- */
 const meta = {
-  title: "部品/LeakCard",
+  title: "領域/LeakCard",
   component: LeakCard,
   args: { ready: true, midi: 60, onStatus: fn(), onChecked: fn() },
-  beforeEach: () => {
-    mocked(api.outputKind).mockResolvedValue("Headphones");
-  },
+  decorators: [(Story) => <div className="w-96">{Story()}</div>],
 } satisfies Meta<typeof LeakCard>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const 未確認: Story = {};
+export const 確かめる前: Story = {};
 
-export const デバイス未選択: Story = { args: { ready: false } };
-
-export const 漏れていない: Story = {
+export const 入っていない: Story = {
   beforeEach: () => {
-    mocked(api.checkGuideLeak).mockResolvedValue({
-      leaking: false,
-      correlation: 0.02,
-      lag_ms: 0,
-    });
+    mocked(api.checkGuideLeak).mockResolvedValue({ correlation: 0.02, lag_ms: 0, leaking: false });
   },
-  play: async ({ canvasElement, userEvent }) => {
-    await userEvent.click(canvasElement.querySelectorAll("button")[0] as HTMLElement);
-    /*
-     * 結果固有の文言まで見る。
-     *
-     * 「回り込み」だけだと見出しにも一致するので、API が答えなくても通る。
-     * 結果でしか出ない語を選ぶ。
-     */
-    await waitFor(async () => {
-      await expect(canvasElement.textContent).toContain("入っていません");
-    });
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "確かめる" }));
+    await waitFor(() => expect(canvasElement.textContent).toContain("入っていません"));
   },
 };
 
-/** 漏れている側。音高は鳴らさない、と伝える（`TR-REC-24`）。 */
-export const 漏れている: Story = {
+export const 入っている: Story = {
   beforeEach: () => {
-    mocked(api.checkGuideLeak).mockResolvedValue({
-      leaking: true,
-      correlation: 0.81,
-      lag_ms: 12,
-    });
+    mocked(api.checkGuideLeak).mockResolvedValue({ correlation: 0.61, lag_ms: 18, leaking: true });
   },
-  play: async ({ canvasElement, userEvent }) => {
-    await userEvent.click(canvasElement.querySelectorAll("button")[0] as HTMLElement);
-    await waitFor(async () => {
-      await expect(canvasElement.textContent).toContain("マイクに入っています");
-    });
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "確かめる" }));
+    // 止めない。回り込んでいても録れることを、その場に書く。
+    await waitFor(() => expect(canvasElement.textContent).toContain("このままでも録れます"));
   },
 };

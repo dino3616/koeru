@@ -19,3 +19,4 @@ crates/koeru-align/models/**   linguist-vendored=true
 *.icns binary
 *.pdf binary
 *.wav binary
+*.woff2 binary

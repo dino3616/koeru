@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { Button } from "~/components/button";
+import { Button } from ".";
 
 /*
- * 押せるもの。
+ * variant は全部出す（`DEC-PLT-022`）。
  *
- * variant と size の全組み合わせを出す。 axe がここでコントラストを測るので、
- * 出していない組み合わせは一度も検査されない——`variant` を足したら story も足す。
+ * 1つだけ出すと、残りの配色は axe に一度も当たらない。
+ * 押せない状態（`opacity-45` が掛かる）も出す。
  */
 const meta = {
   title: "部品/Button",
@@ -17,42 +17,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Primary: Story = { args: { variant: "primary" } };
-export const Secondary: Story = { args: { variant: "secondary" } };
-export const Ghost: Story = { args: { variant: "ghost" } };
-export const Danger: Story = { args: { variant: "danger", children: "止める" } };
-
-/** 44px を下回らない（`TR-PLT-28` の対象サイズ）。 */
-export const Sizes: Story = {
-  render: () => (
-    <div className="flex items-center gap-3">
-      <Button size="md">md</Button>
-      <Button size="lg">lg</Button>
-      <Button size="icon" aria-label="閉じる">
-        ✕
-      </Button>
-    </div>
-  ),
-};
-
-/**
- * 押せない状態。
- *
- * `opacity-45` を掛けるので、そのままでは字のコントラストが落ちる。
- * 実際に測らせるために出す。
- */
-export const Disabled: Story = {
-  render: () => (
-    <div className="flex items-center gap-3">
-      <Button variant="primary" disabled>
-        録る
-      </Button>
-      <Button variant="danger" disabled>
-        止める
-      </Button>
-      <Button variant="secondary" disabled>
-        やめる
-      </Button>
-    </div>
-  ),
-};
+export const 主: Story = { args: { variant: "primary" } };
+export const 副: Story = { args: { variant: "secondary" } };
+export const 地: Story = { args: { variant: "ghost" } };
+export const 危険: Story = { args: { variant: "danger", children: "止める" } };
+export const 押せない: Story = { args: { variant: "primary", disabled: true } };
+export const 小さい: Story = { args: { variant: "secondary", size: "sm", children: "聴く" } };

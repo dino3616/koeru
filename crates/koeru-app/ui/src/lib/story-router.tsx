@@ -23,19 +23,33 @@ import { RouteError } from "~/components/route-error";
 export const withRouter = (children: ReactNode, path = "/") => {
   const root = createRootRoute();
   const index = createRoute({ getParentRoute: () => root, path: "/", component: () => children });
-  const record = createRoute({
+  /*
+   * 画面が持つ経路をひととおり用意する。
+   *
+   * 検索引数はそのまま通す。 無いときの経路も story で出せるように、
+   * 本物のような検証をここでは掛けない。
+   */
+  const voice = createRoute({
     getParentRoute: () => root,
-    path: "/record",
+    path: "/voice",
     component: () => children,
-    // 画面は `id` を検索引数で受ける。無いときの経路も story で出せるように、
-    // 渡されたものをそのまま通す。
     validateSearch: (search: Record<string, unknown>) => ({
       id: search["id"] as string | undefined,
+      tab: (search["tab"] as string | undefined) ?? "sound",
+    }),
+  });
+  const take = createRoute({
+    getParentRoute: () => root,
+    path: "/take",
+    component: () => children,
+    validateSearch: (search: Record<string, unknown>) => ({
+      id: search["id"] as string | undefined,
+      row: search["row"] as string | undefined,
     }),
   });
 
   const router = createRouter({
-    routeTree: root.addChildren([index, record]),
+    routeTree: root.addChildren([index, voice, take]),
     history: createMemoryHistory({ initialEntries: [path] }),
     /*
      * 本物と同じ失敗の面を出す（`~/router`）。

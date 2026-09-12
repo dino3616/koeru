@@ -231,6 +231,45 @@ pub enum UnitSet {
     Extended,
 }
 
+/// 五十音の行（`DEC-PLT-025` の環）。内側から外側への並び。
+///
+/// 清音のうしろに、対応する濁音・半濁音を置く。 か → が、さ → ざ のように
+/// 隣り合わせにすると、環が1本ずれても隣が同じ行の仲間になる。
+pub const KANA_ROWS: [&str; 15] = [
+    "あ", "か", "が", "さ", "ざ", "た", "だ", "な", "は", "ば", "ぱ", "ま", "や", "ら", "わ",
+];
+
+/// 子音記号が属する五十音の行。
+///
+/// **拗音は親の行へ畳む。** `ky` は「か」、`sh` は「さ」。音素で数えると 28 種あり、
+/// 環にすると同心の線が 28 本になって、閉じ具合が読めない密度になる。
+/// `DEC-PLT-025` が言っているのは「あ行・か行・さ行……が環になり」で、
+/// 画面の言葉も「ら行を録ると歌えます」——どちらも行であって音素ではない。
+///
+/// 表に無いものは `None`。 拡張セットの `v`（ヴ）は五十音の行を持たない。
+/// 無理にどこかへ寄せず、呼び出し側が独立した環として扱う。
+#[must_use]
+pub fn kana_row(consonant: &str) -> Option<&'static str> {
+    Some(match consonant {
+        "" => "あ",
+        "k" | "ky" => "か",
+        "g" | "gy" => "が",
+        "s" | "sh" => "さ",
+        "z" | "j" => "ざ",
+        "t" | "ch" | "ts" | "ty" => "た",
+        "d" | "dy" => "だ",
+        "n" | "ny" => "な",
+        "h" | "hy" | "f" => "は",
+        "b" | "by" => "ば",
+        "p" | "py" => "ぱ",
+        "m" | "my" => "ま",
+        "y" => "や",
+        "r" | "ry" => "ら",
+        "w" => "わ",
+        _ => return None,
+    })
+}
+
 /// インベントリを引く。
 ///
 /// 並びは常に同じ（`TR-RCL-27` の決定性）。母音始まりが先、続いて子音行が揃う順。
@@ -286,6 +325,35 @@ mod tests {
             for u in units(set) {
                 assert!(seen.insert(u.kana), "{} が重複している", u.kana);
             }
+        }
+    }
+
+    /// 中核セットは五十音の行 15 本に畳める。 環の本数がこれで決まる。
+    #[test]
+    fn 中核セットは十五行に畳める() {
+        let mut rows: Vec<&str> = units(UnitSet::Core)
+            .iter()
+            .map(|u| kana_row(u.consonant).expect("中核セットの子音はすべて行を持つ"))
+            .collect();
+        rows.sort_unstable();
+        rows.dedup();
+        assert_eq!(rows.len(), KANA_ROWS.len());
+    }
+
+    /// 行へ畳んでも単位を落とさない。 落とすと分母が合わなくなる。
+    #[test]
+    fn 行へ畳んでも単位を落とさない() {
+        for set in [UnitSet::Core, UnitSet::Extended] {
+            let all = units(set);
+            let folded = all
+                .iter()
+                .filter(|u| kana_row(u.consonant).is_some())
+                .count();
+            let orphan = all
+                .iter()
+                .filter(|u| kana_row(u.consonant).is_none())
+                .count();
+            assert_eq!(folded + orphan, all.len());
         }
     }
 

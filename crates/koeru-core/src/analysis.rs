@@ -32,6 +32,11 @@ pub struct TakeAnalysis {
     pub frq: Frq,
     /// 波形サムネイル。バケットごとのピークを 0〜255 で持つ。
     pub thumbnail: Vec<u8>,
+    /// 倍音の重心（Hz）。声の色のもとの1つ（`DEC-PLT-025`）。
+    ///
+    /// 有声が見つからなければ `None`。 0.0 で埋めない——
+    /// 「重心が 0 Hz」と「測っていない」は違う。
+    pub centroid_hz: Option<f64>,
 }
 
 impl TakeAnalysis {
@@ -43,6 +48,7 @@ impl TakeAnalysis {
     pub fn compute(samples: &[f32], rate_hz: u32, source_f0: &[f64], source_period_s: f64) -> Self {
         Self {
             peak: peak(samples),
+            centroid_hz: spectral_centroid(samples, rate_hz),
             frq: Frq::from_analysis(samples, rate_hz, source_f0, source_period_s),
             thumbnail: thumbnail(samples, THUMBNAIL_BUCKETS),
         }
@@ -53,6 +59,108 @@ impl TakeAnalysis {
     pub const fn hop_size(&self) -> u32 {
         HOP_SIZE
     }
+}
+
+/// 重心を測る窓の長さ（サンプル）。
+///
+/// 44100 Hz で約 23ms。 これより短いと低い倍音が窓に入らず、重心が上へ寄る。
+const CENTROID_WINDOW: usize = 1024;
+
+/// 重心を測る上限（Hz）。
+///
+/// 声の倍音はここまでで足りる。 上を切らないと、息と摩擦音の帯域が
+/// そのまま重心を引き上げ、「声の明るさ」ではなく「s の多さ」を測ることになる。
+const CENTROID_MAX_HZ: f64 = 8000.0;
+
+/// 重心を測る周波数の刻み数。
+///
+/// 一様に割る。 対数で割ると、下の帯域に格子が集まって重心が下へ寄る——
+/// 重心は線形の周波数についての重み付き平均なので、格子も線形でなければ意味が変わる。
+const CENTROID_BINS: usize = 96;
+
+/// 重心を測るフレーム数。
+///
+/// 全フレームを見ない。 声の明るさは録音の中でほとんど動かないので、
+/// 均等に間引いた数フレームの中央値で足りる。全部見ると素朴な DFT が
+/// テイクの長さに比例して伸びる。
+const CENTROID_FRAMES: usize = 16;
+
+/// 倍音の重心（Hz）。声の色のもとの1つ（`DEC-PLT-025`）。
+///
+/// 大きく鳴っているフレームだけを見る。 無音区間まで混ぜると、
+/// ノイズフロアの平坦なスペクトルが重心を帯域の真ん中へ引き寄せる。
+///
+/// フレームごとに測って中央値を採る。 平均にすると、破裂音の1フレームが
+/// 全体を引き上げる。
+///
+/// 見つからなければ `None`。 無音のテイクに重心は無い。
+#[must_use]
+pub fn spectral_centroid(samples: &[f32], rate_hz: u32) -> Option<f64> {
+    if samples.len() < CENTROID_WINDOW || rate_hz == 0 {
+        return None;
+    }
+    let top = peak(samples);
+    if top <= 0.0 {
+        return None;
+    }
+    // 大きく鳴っているところ。ピークの 1/8 を境にする。
+    let floor = top / 8.0;
+    let starts: Vec<usize> = {
+        let last = samples.len() - CENTROID_WINDOW;
+        (0..=CENTROID_FRAMES)
+            .map(|i| last * i / CENTROID_FRAMES)
+            .filter(|s| {
+                samples[*s..*s + CENTROID_WINDOW]
+                    .iter()
+                    .any(|v| v.abs() >= floor)
+            })
+            .collect()
+    };
+
+    let mut per_frame: Vec<f64> = starts
+        .iter()
+        .filter_map(|s| centroid_of(&samples[*s..*s + CENTROID_WINDOW], rate_hz))
+        .collect();
+    if per_frame.is_empty() {
+        return None;
+    }
+    per_frame.sort_by(f64::total_cmp);
+    Some(per_frame[per_frame.len() / 2])
+}
+
+/// 1フレームぶんの重心。
+///
+/// 素朴な DFT で、要る周波数だけを直に求める（[`crate::waveform`] と同じ手）。
+/// 全ビンを回して大半を捨てるより速い。
+fn centroid_of(window: &[f32], rate_hz: u32) -> Option<f64> {
+    let n = window.len();
+    let nyquist = f64::from(rate_hz) / 2.0;
+    let top = CENTROID_MAX_HZ.min(nyquist);
+    let mut weighted = 0.0_f64;
+    let mut total = 0.0_f64;
+
+    for b in 0..CENTROID_BINS {
+        #[allow(clippy::cast_precision_loss, reason = "格子番号は 96 まで")]
+        let hz = top * (b as f64 + 0.5) / CENTROID_BINS as f64;
+        #[allow(clippy::cast_precision_loss, reason = "窓長は 1024")]
+        let w = 2.0 * std::f64::consts::PI * hz / f64::from(rate_hz);
+        let (mut re, mut im) = (0.0_f64, 0.0_f64);
+        for (i, v) in window.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss, reason = "窓長は 1024")]
+            let a = w * i as f64;
+            // ハン窓。矩形だと側帯が出て、重心が上へ滲む。
+            #[allow(clippy::cast_precision_loss, reason = "窓長は 1024")]
+            let h = 0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / n as f64).cos();
+            let s = f64::from(*v) * h;
+            re += s * a.cos();
+            im -= s * a.sin();
+        }
+        let mag = (re * re + im * im).sqrt();
+        weighted += mag * hz;
+        total += mag;
+    }
+
+    (total > 0.0).then(|| weighted / total)
 }
 
 /// 絶対値の最大。
@@ -127,6 +235,42 @@ const FULL_SCALE: f32 = 1.0 - 1.0 / 32_768.0;
 /// フルスケール到達とみなす連続長。
 const FULL_SCALE_RUN: usize = 3;
 
+/// フルスケール到達の回数を、流れてくる順に数える。
+///
+/// 定義は `TR-REC-16` の「`|x| >= 1.0 - 1LSB` が 3 サンプル以上連続した回数」。
+/// [`TakeMetrics::measure`] は確定したテイクを一度に測るが、こちらは
+/// **塊で届く音を数え続ける**ためのもの。塊の切れ目で連続が切れないよう、
+/// 連続長を持ち越す。
+///
+/// 単発のフルスケールは数えない。 歪みの証拠にならない。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FullScaleCounter {
+    /// 3つ以上続いた回数。
+    runs: u64,
+    /// いま何サンプル続いているか。塊をまたいで持ち越す。
+    run: usize,
+}
+
+impl FullScaleCounter {
+    /// 1サンプル進める。
+    pub fn push(&mut self, sample: f32) {
+        if sample.abs() >= FULL_SCALE {
+            self.run += 1;
+            if self.run == FULL_SCALE_RUN {
+                self.runs += 1;
+            }
+        } else {
+            self.run = 0;
+        }
+    }
+
+    /// ここまでの回数。
+    #[must_use]
+    pub const fn runs(self) -> u64 {
+        self.runs
+    }
+}
+
 impl TakeMetrics {
     /// 波形と、検出した発声区間から測る。
     ///
@@ -162,18 +306,11 @@ impl TakeMetrics {
 
         // 3サンプル以上続いたときだけ数える（`TR-REC-16`）。
         // 単発のフルスケールは歪みの証拠にならない。
-        let mut full_scale_runs = 0_u32;
-        let mut run = 0_usize;
+        let mut counter = FullScaleCounter::default();
         for s in samples {
-            if s.abs() >= FULL_SCALE {
-                run += 1;
-                if run == FULL_SCALE_RUN {
-                    full_scale_runs += 1;
-                }
-            } else {
-                run = 0;
-            }
+            counter.push(*s);
         }
+        let full_scale_runs = u32::try_from(counter.runs()).unwrap_or(u32::MAX);
 
         let leading_margin_ms = voice_start_ms.unwrap_or(0.0).max(0.0);
         let trailing_margin_ms = voice_end_ms.map_or(0.0, |e| (len_ms - e).max(0.0));

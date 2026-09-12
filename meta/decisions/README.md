@@ -37,6 +37,7 @@
 | [DEC-PKG-004](DEC-PKG-004.toml) | ファイル名 | 書き出すファイル名は ASCII 固定とし、読み込みは日本語にも対応する | accepted |
 | [DEC-PKG-005](DEC-PKG-005.toml) | 方式の関係 | 方式の上下関係を宣言せず、エイリアス被覆から導出する | accepted |
 | [DEC-PKG-006](DEC-PKG-006.toml) | プロジェクトの実体 | プロジェクトを UUID 名のディレクトリにし、人間可読な manifest を平文で添える | accepted |
+| [DEC-PKG-007](DEC-PKG-007.toml) | 完成の関門 | 完成の条件を先に満たさせる。名前は必須にし、あとから変えられるようにする | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -60,11 +61,18 @@
 | [DEC-PLT-021](DEC-PLT-021.toml) | 画面の分け方 | OOUI はカード（面）の単位で採る。ルートはオブジェクトごとに分けない | accepted |
 | [DEC-PLT-022](DEC-PLT-022.toml) | アクセシビリティの自動検査 | Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する | accepted |
 | [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | accepted |
+| [DEC-PLT-024](DEC-PLT-024.toml) | 画面の骨格 | 面を工程で切らず、オブジェクトで切る。詳細の主語はテイク、音高は第一級の軸 | accepted |
+| [DEC-PLT-025](DEC-PLT-025.toml) | 画面の重心と視覚言語 | 中央に「育っていく声」を置く。声から決定的に形を生成し、ロゴも同じ規則から作る | accepted |
+| [DEC-PLT-026](DEC-PLT-026.toml) | 同梱する日本語書体 | Noto Sans JP を1本だけ同梱する。カバレッジを個性より優先し、サブセット化しない | accepted |
+| [DEC-PLT-027](DEC-PLT-027.toml) | 声から色を導く規則 | 音高帯で色相の区画を選び、重心が区画の中の位置と彩度を決める。彩度の上限は色相ごとに sRGB から出す | accepted |
+| [DEC-PLT-028](DEC-PLT-028.toml) | 画面で色相を持ってよいもの | 押せるものの塗りとフォーカス環を無彩色へ移す。cyan と jade を画面から外す | accepted |
+| [DEC-PLT-029](DEC-PLT-029.toml) | 画面が成立する窓の範囲 | 3列に下限を持たせて 1200px で段を切る。マイクの選択は Rust が持つ | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
 | [DEC-RCL-004](DEC-RCL-004.toml) | 収録単位の数 | 収録単位の数を presamp からの導出結果に合わせ、141/168 という数字を捨てる | accepted |
 | [DEC-RCL-005](DEC-RCL-005.toml) | 辞書の同梱 | 歌詞の g2p を M2 から外す。UST は仮名を持っているので、主経路は g2p 無しで通る | accepted |
+| [DEC-RCL-006](DEC-RCL-006.toml) | 音源の一覧が持つ情報 | 一覧にも到達度を出す。音源ごとに台帳を開いて、環と色と数を作る | accepted |
 | [DEC-REC-001](DEC-REC-001.toml) | 音声 I/O | 音声 I/O は各 OS の API を直接叩く。抽象レイヤを挟まない | accepted |
 | [DEC-REC-002](DEC-REC-002.toml) | 録音条件 | 録音条件は、ある程度の品質のマイクと通常の声量を前提にする | accepted |
 | [DEC-REC-003](DEC-REC-003.toml) | 前処理 | 録音直後のオフライン前処理を、試唱と配布に同じく適用する | accepted |
@@ -72,6 +80,8 @@
 | [DEC-REC-005](DEC-REC-005.toml) | FSL の有界化を写さない | 検証用の有界化（MAX_TAKES）は写さない。テイク数に上限は無い | accepted |
 | [DEC-REC-006](DEC-REC-006.toml) | マスターのサンプルレート | キャプチャからマスターへの変換を pump に置く。レートを下流へ持ち回さない | accepted |
 | [DEC-REC-007](DEC-REC-007.toml) | リングバッファの位置の持ち方 | リングの位置は総数で持つ。剰余で持たない | accepted |
+| [DEC-REC-008](DEC-REC-008.toml) | 録音の観測をどこまで出すか | 機材と設定の不備も指摘しない。観測をフラットに報告するだけにする | accepted |
+| [DEC-REC-009](DEC-REC-009.toml) | 入力レベルの見せ方 | 入力レベルから区分ごと外す。行 ID は画面のどこにも出さない | accepted |
 | [DEC-SYN-001](DEC-SYN-001.toml) | 合成 | 合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える | accepted |
 | [DEC-SYN-002](DEC-SYN-002.toml) | 中核体験 | 録音の途中でも自分の声で歌を聴けることを中核体験に置く | accepted |
 | [DEC-SYN-003](DEC-SYN-003.toml) | 外部エンジン | 既定は同梱コア。本人がローカルに持つ resampler を指して使えるようにする | accepted |
@@ -83,4 +93,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-73 件。
+83 件。

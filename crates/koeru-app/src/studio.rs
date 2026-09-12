@@ -44,6 +44,7 @@ use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::ust;
+use koeru_core::voice::{self, VoiceColor};
 use koeru_core::waveform;
 use koeru_synth::f0;
 use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
@@ -172,6 +173,42 @@ pub struct Progress {
     pub singable_songs: usize,
     /// バンクに入っている曲の数。0 でも成立する。
     pub songs_in_bank: usize,
+}
+
+/// ライブラリに並ぶ音源1つ分（`DEC-PLT-024` の声の並び）。
+///
+/// 名前と数だけでは足りない。 一覧に環と色を出すので、音源ごとに台帳を読む
+/// （`Q-RCL-004`）。読めない音源も落とさず、読めたところまでを返す。
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryEntry {
+    pub id: Uuid,
+    /// manifest が読めなければ `None`。
+    pub manifest: Option<Manifest>,
+    /// 台帳から読めた到達度。読めなければ `None`。
+    pub state: Option<VoiceState>,
+}
+
+/// 音源のいまの姿。環と色に要るもの一式。
+#[derive(Debug, Clone, PartialEq)]
+pub struct VoiceState {
+    /// 表示名。ライブラリの一覧では manifest から別に読むので、そこでは空。
+    pub display_name: String,
+    /// 作り方。同上。
+    pub method: String,
+    /// 録音リストの行の数。同上。
+    pub rows: u32,
+    /// 収録済み単位の数。
+    pub covered: usize,
+    /// 必要な単位の数。
+    pub required: usize,
+    /// いま歌える曲の数（`TR-RCL-19`）。
+    pub singable_songs: usize,
+    /// バンクに入っている曲の数。
+    pub songs_in_bank: usize,
+    /// 五十音の行ごとの `(収録済み, 全体)`。環1本につき1組（`DEC-PLT-025`）。
+    pub rings: Vec<(u32, u32)>,
+    /// 声から作った色。1つも録れていなければ `None`（`DEC-PLT-027`）。
+    pub color: Option<VoiceColor>,
 }
 
 /// 縦切りの本体。
@@ -400,9 +437,116 @@ impl Studio {
         Ok(dir.id())
     }
 
+    /// ライブラリを、環と色まで含めて挙げる（`Q-RCL-004`）。
+    ///
+    /// 音源ごとに台帳を開く。 [`Self::projects`] は manifest しか読まないので、
+    /// 到達度も環も出せない——名前と数字の行になる。開いている音源の台帳とは別に、
+    /// ここで一時的に開いて読み、閉じる。
+    ///
+    /// 読めない音源も落とさない。 manifest が壊れていても席は残す
+    /// （`crate::studio::Studio::projects` と同じ扱い）。
+    ///
+    /// # Errors
+    ///
+    /// ライブラリのディレクトリを読めないとき。個々の音源の失敗では返らない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn library(&self) -> Result<Vec<LibraryEntry>> {
+        Ok(self
+            .library
+            .list()?
+            .into_iter()
+            .map(|(dir, manifest)| LibraryEntry {
+                id: dir.id(),
+                manifest: manifest.ok(),
+                state: Ledger::open(dir.db_path())
+                    .ok()
+                    .and_then(|mut l| voice_state(&mut l).ok()),
+            })
+            .collect())
+    }
+
+    /// 表示名を変える（`DEC-PKG-007`）。
+    ///
+    /// 動くのは表示名だけ。 ディレクトリ名は不変の UUID なので（`TR-PKG-37`）、
+    /// 改名でパスは動かず、録れたものも原音設定も触らない。
+    ///
+    /// 空にはできない。 表示名は完成の条件（`TR-PKG-34`）なので、
+    /// 空へ改名できると、完成していた音源を後から未完成に落とせてしまう。
+    ///
+    /// # Errors
+    ///
+    /// 名前が空のとき、音源が無いとき、manifest を書けないとき。
+    #[tracing::instrument(skip(self, display_name), err)]
+    pub fn rename_project(&mut self, id: Uuid, display_name: &str) -> Result<()> {
+        let name = display_name.trim();
+        if name.is_empty() {
+            return Err(AppError::new(
+                "app.empty_name",
+                "名前を空にはできない。1文字以上入れてほしい",
+            ));
+        }
+        let dir = self.library.open_project(id)?;
+        let manifest = Manifest {
+            display_name: name.to_owned(),
+            ..dir.read_manifest()?
+        };
+        dir.write_manifest(&manifest)?;
+        Ok(())
+    }
+
+    /// 開いている音源のいまの姿（`DEC-PLT-025`、`DEC-PLT-027`）。
+    ///
+    /// 名前と作り方も一緒に返す。 画面の帯にも設定の面にも要るので、
+    /// 分けると同じ音源のために2回往復することになる。改名で変わるが、
+    /// 改名も台帳を無効化する側の操作なので、取り直しの契機は同じ。
+    ///
+    /// # Errors
+    ///
+    /// 音源を開いていないとき、manifest か台帳を読めないとき。
+    #[tracing::instrument(skip(self), err)]
+    pub fn voice_state(&mut self) -> Result<VoiceState> {
+        let manifest = self.opened()?.dir.read_manifest()?;
+        let open = self.opened_mut()?;
+        let mut state = voice_state(&mut open.ledger)?;
+        state.display_name = manifest.display_name;
+        state.method = manifest.method.as_str().to_owned();
+        state.rows = count_rows(&mut open.ledger)?;
+        Ok(state)
+    }
+
     /// プロジェクトを開く。収録セッションを1つ始める（`TR-REC-30`）。
+    ///
+    /// **同じ音源を開き直すときは、何もしない。** 画面は経路を移るたびに
+    /// ここを通る（`queries.ts` の `openProjectQuery` は `gcTime: 0`）。
+    /// 毎回 `Open` を作り直すと `session_id` が 0 に戻るので、
+    /// **開いたままのストリームで録った次のテイクが、`takes.session_id` の
+    /// 外部キーに当たって落ちる。WAV を確定させたあとに落ちる**
+    /// （`finish_take` の「ここまででファイルは確定している」より下）。
+    /// 音・曲・テイクの面を行き来するだけで起きる。**踏んだ。**
+    ///
+    /// **別の音源へ移るときは、開いているストリームを落とす。**
+    /// セッションは音源ごとの台帳に属する（`TR-REC-30`）ので、前の音源の
+    /// ストリームを残したままだと、`chosen_device` がそれを「開いている」と
+    /// 答えて `arm_device` を飛ばさせ、同じ外部キーに当たる。
+    ///
+    /// 収録中は移らせない。 途中のテイクを捨てるしかなくなるが、
+    /// 排出スレッドは止められると書きかけを確定させる（`pump` の
+    /// 「書きかけを捨てない」）。台帳に載らない WAV だけが残り、
+    /// それを掃除する経路はまだ無い（`Ledger::find_orphans` は呼ばれていない）。
     #[tracing::instrument(skip(self), err)]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
+        if let Some(open) = &self.open {
+            if open.dir.id() == id {
+                return Ok(());
+            }
+            if self.recording.is_some() {
+                return Err(AppError::new(
+                    "app.already_recording",
+                    "収録中は別の声を開けない。止めてから移ってほしい",
+                ));
+            }
+            self.disarm();
+        }
         let dir = self.library.open_project(id)?;
         let ledger = Ledger::open(dir.db_path())?;
         self.open = Some(Open {
@@ -411,6 +555,22 @@ impl Studio {
             session_id: 0,
         });
         Ok(())
+    }
+
+    /// 開いているストリームを落とす。
+    ///
+    /// 排出スレッドが先。 Consumer を握ったまま Capture を捨てない
+    /// （`arm_device` と同じ順序）。
+    ///
+    /// 収録中に呼ばない。 呼び側が先に断る（[`Self::open_project`]）。
+    /// 排出スレッドは止められると書きかけを確定させるので、ここで落とすと
+    /// 台帳に載らない WAV が残る。
+    fn disarm(&mut self) {
+        self.pump = None;
+        self.capture = None;
+        // 状態機械も作り直す。 未選択からしか `select_device` へ進めない。
+        self.session = Session::new();
+        self.device = None;
     }
 
     /// いまの進み具合。
@@ -456,18 +616,37 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn song_status(&mut self) -> Result<Vec<SongStatus>> {
         let open = self.opened_mut()?;
+        song_status_of(&mut open.ledger)
+    }
+
+    /// その曲を歌うために、あと録る行（`TR-RCL-16`, `TR-RCL-17`）。
+    ///
+    /// フルリストの部分集合として選ぶ。 詰め直さない——必要単位専用の行を
+    /// 作り直すと、「曲のために録った分」がフルリストのどこにも当たらなくなり、
+    /// 同じ声をもう一度録ることになる。
+    ///
+    /// **曲から、その行の収録へ直接入るための口**（`DEC-PLT-024` の横移動）。
+    ///
+    /// # Errors
+    ///
+    /// 音源を開いていないとき、その曲がバンクに無いとき、台帳を読めないとき。
+    #[tracing::instrument(skip(self), err)]
+    pub fn song_plan(&mut self, id: &str) -> Result<koeru_core::plan::Plan> {
+        let open = self.opened_mut()?;
         let covered = open.ledger.covered_units()?;
-        let songs: Vec<(String, Song)> = open.ledger.songs_in_bank()?;
-        // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
-        // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
+        let song = open
+            .ledger
+            .songs_in_bank()?
+            .into_iter()
+            .find(|(sid, _)| sid == id)
+            .map(|(_, song)| song)
+            .ok_or_else(|| AppError::new("app.no_song", "その曲はバンクに無い"))?;
+
+        let required = song.required_aliases(koeru_core::alias::Method::Single, UnitSet::Core);
+        let missing: std::collections::BTreeSet<String> =
+            required.difference(&covered).cloned().collect();
         let full_list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
-        Ok(song::status_of(
-            &songs,
-            koeru_core::alias::Method::Single,
-            &covered,
-            UnitSet::Core,
-            &full_list,
-        ))
+        Ok(koeru_core::plan::rows_to_cover(&missing, &full_list))
     }
 
     /// UST を取り込む（`TR-RCL-12`）。
@@ -496,6 +675,44 @@ impl Studio {
         Ok(mac::enumerate_input_devices()?)
     }
 
+    /// この音源で選ばれているマイクと、いま開いているかどうか。
+    ///
+    /// マイクは音源に固定される（`TR-REC-03`）。 選び直させないために、
+    /// 開いていなければ台帳の最後のセッションから引く。
+    ///
+    /// **画面に state として持たせない。** 画面側の state は経路を移ると消えるので、
+    /// テイクの面へ入って戻るだけで選択が失われ、設定の面へ行き直すことになる。
+    /// 一度で済むものを毎回やらせないために面を分けた（`DEC-PLT-024`）ので、
+    /// 選択の持ち主はこちら側になる。**踏んだ。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn chosen_device(&mut self) -> Result<(Option<String>, bool, bool)> {
+        /*
+         * 開いているかは、ストリームの実体で見る。
+         *
+         * `self.device` で判定しない。 `arm_device` は開き直す前に
+         * `pump` と `capture` を落とすが、そのあとの手順（校正の読み出し、
+         * デバイスを開く、セッションを始める）はどれも失敗しうる。
+         * 途中で失敗すると**ストリームが無いのに前のデバイスが残る**ので、
+         * 「開いている」と答えてしまい、次の収録が `app.no_stream` で落ちる。
+         */
+        let armed = self.capture.is_some() && self.pump.is_some();
+        /*
+         * 収録中かも返す。
+         *
+         * **画面の state だけで持つと、面を移った先で止められなくなる。**
+         * 収録中に別の行のテイクを開くと、画面側のフックは作り直されて
+         * 「録っていない」から始まるので「止める」が出ない。一方 Rust は
+         * 録り続けているので、次に録ろうとすると `app.already_recording` で
+         * 断られる——**止めることも録ることもできなくなる。踏んだ。**
+         */
+        let recording = self.recording.is_some();
+        let id = match &self.device {
+            Some(d) => Some(d.as_str().to_owned()),
+            None => self.opened_mut()?.ledger.last_device()?,
+        };
+        Ok((id, armed, recording))
+    }
+
     /// デバイスを選び、ストリームを開く（`recording-input.fsl` の手順）。
     ///
     /// ストリームはテイクごとに開閉しない（`REQ-REC-102`）。
@@ -513,6 +730,15 @@ impl Studio {
         // 排出スレッドが先。Consumer を握ったまま Capture を捨てない。
         self.pump = None;
         self.capture = None;
+        /*
+         * 前のデバイスも忘れる。
+         *
+         * 残すと、**この先で失敗したときに「前のデバイスが選ばれている」と
+         * 答えてしまう。** 画面は新しく選んだほうを出したまま、録る手前の
+         * 開き直しが前のデバイスを開く——**別のマイクで録れてしまう。**
+         * 開けたときに下で入れ直す。
+         */
+        self.device = None;
 
         // 状態機械を作り直す。 `recording-input.fsl` の `select_device` は
         // 未選択からしか進めない（`proved`）。マイクの選び直しは、その機械から見れば
@@ -1936,6 +2162,53 @@ impl Studio {
     }
 }
 
+/// 曲ごとの状態を、開いた台帳から求める（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
+///
+/// [`Studio`] の外に置く。 ライブラリの一覧は、開いていない音源の台帳を
+/// その場で開いて読むので、`self` に紐づいていると呼べない。
+fn song_status_of(ledger: &mut Ledger) -> Result<Vec<SongStatus>> {
+    let covered = ledger.covered_units()?;
+    let songs: Vec<(String, Song)> = ledger.songs_in_bank()?;
+    // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
+    // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
+    let full_list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
+    Ok(song::status_of(
+        &songs,
+        koeru_core::alias::Method::Single,
+        &covered,
+        UnitSet::Core,
+        &full_list,
+    ))
+}
+
+/// 環と色を、開いた台帳から求める（`DEC-PLT-025`, `DEC-PLT-027`）。
+///
+/// 分母は環の総和で取る。 [`Progress`] はインベントリの件数を分母にしているが、
+/// 環は台帳の録音リストから作るので、別々に数えると一覧の「30 / 144 音」と
+/// 環の閉じ具合が食い違いうる。同じ出どころから両方を出す。
+fn voice_state(ledger: &mut Ledger) -> Result<VoiceState> {
+    let rings = ledger.coverage_by_kana_row()?;
+    let songs = song_status_of(ledger)?;
+    let traits = voice::traits_of(&ledger.adopted_voice(MASTER_RATE_HZ)?);
+    Ok(VoiceState {
+        // 名前と作り方は manifest 側。ここは台帳しか見ない。
+        display_name: String::new(),
+        method: String::new(),
+        rows: 0,
+        covered: rings.iter().map(|(c, _)| *c as usize).sum(),
+        required: rings.iter().map(|(_, t)| *t as usize).sum(),
+        singable_songs: song::singable_count(&songs),
+        songs_in_bank: songs.len(),
+        rings,
+        color: traits.as_ref().map(VoiceColor::from_traits),
+    })
+}
+
+/// 録音リストの行の数。
+fn count_rows(ledger: &mut Ledger) -> Result<u32> {
+    Ok(u32::try_from(ledger.rows_with_takes()?.len()).unwrap_or(u32::MAX))
+}
+
 fn no_stream() -> AppError {
     AppError::new("app.no_stream", "入力ストリームを開いていない")
 }
@@ -2013,4 +2286,46 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 同じ音源を開き直しても、収録セッションを作り直さない。
+    ///
+    /// 作り直すと `session_id` が 0 に戻り、**開いたままのストリームで録った
+    /// 次のテイクが `takes.session_id` の外部キーに当たって落ちる。**
+    /// しかも落ちるのは WAV を確定させたあとで、ファイルだけが残る。
+    ///
+    /// 画面は面を移るたびにここを通る（`queries.ts` の `openProjectQuery` は
+    /// `gcTime: 0`）ので、音・曲・テイクを行き来するだけで起きる。**踏んだ。**
+    #[test]
+    fn 同じ音源を開き直してもセッションを作り直さない() {
+        let root = std::env::temp_dir().join(format!("koeru-reopen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("試験用の音源").expect("作れる");
+        studio.open_project(id).expect("開ける");
+
+        // セッションを1つ始めさせる。
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.mark_recorded_for_test(&row).expect("印を付けられる");
+        let started = studio.opened().expect("開いている").session_id;
+        assert_ne!(started, 0, "セッションが始まっていること");
+
+        studio.open_project(id).expect("開き直せる");
+        assert_eq!(
+            studio.opened().expect("開いている").session_id,
+            started,
+            "同じ音源を開き直したら、セッションは同じであること"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

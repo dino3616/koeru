@@ -1927,3 +1927,17 @@ Apache-2.0 は `deny.toml` の allow に載っており、DEC-PLT-002（AGPL-3.0
 conda-forge のパッケージは linux-64 で約33MB / osx-arm64 で約28MB（圧縮）だが、
 同梱するのは GMM アライメントに要る部分だけ。 OpenFst（Apache-2.0）を推移的に引く。
 → EVID-ALN-001'''
+
+[[component]]
+id = 'CMP-131'
+name = 'Noto Sans JP（可変フォント）'
+purpose = 'UI に同梱する日本語の本文書体。3 OS で顔を揃え、珍しい漢字の音源名でも豆腐を出さない'
+license = 'SIL Open Font License 1.1'
+status = '採用'
+decided_by = 'DEC-PLT-026'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-09',
+]

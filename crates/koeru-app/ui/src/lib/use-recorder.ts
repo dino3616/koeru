@@ -31,6 +31,26 @@ type RecorderOptions = {
    * 直ったのに直っていないように見える。画面が持っているので、呼んで知らせる。
    */
   onRetry: () => void;
+  /**
+   * 録る前にマイクを開き直す（`TR-REC-03`）。
+   *
+   * 選択の持ち主は Rust 側（`chosen_device`）だが、**起動し直したあとは
+   * 選ばれているだけでストリームが開いていない。** 開くのを設定の面まで
+   * 引っ張らないために、最初のテイクの手前で開く。
+   *
+   * 開いてから始める。 開くのを待たずに `start_take` を呼ぶと、
+   * ストリームの無い状態への収録要求になる。
+   */
+  ensureArmed: () => Promise<void>;
+  /**
+   * マウントした時点で Rust が収録中か（`chosen_device`）。
+   *
+   * **画面の state だけで始めない。** 収録中に別の面へ移ると、このフックは
+   * 作り直されて「録っていない」から始まる。Rust は録り続けているので、
+   * 「止める」が出ないまま次の収録が `app.already_recording` で断られる
+   * ——**止めることも録ることもできなくなる。踏んだ。**
+   */
+  initiallyRecording: boolean;
 };
 
 /**
@@ -43,6 +63,21 @@ type RecorderOptions = {
  * 状態を1つに畳まないのは、`recording` が描画に要るのに対して
  * `takeSeq` と `arming` は描画に出ないから。 出ないものを state にすると、
  * 押すたびに描き直すことになる。
+ *
+ * # ここの `useCallback` は消せない
+ *
+ * **このファイルだけ React Compiler が素通りする。** 原因は `try` / `finally`
+ * で、これがあるとコンパイラはその関数を含むフック全体を丸ごと諦める。
+ * `try` / `catch` なら通るので、避けているのは `finally` のほう。
+ *
+ * **何も言わずに諦める。** 診断も警告も出ないので、`useCallback` を外すと
+ * 「コンパイラが見てくれる」つもりのまま、実際には毎回作り直される関数が
+ * `useEffect` の依存に載る。他の 37 ファイルは通っているので、
+ * ここだけ手で置いてあるのが正しい。
+ *
+ * 確かめ方。 `oxc-transform-react` の `transformSync` に
+ * `{ reactCompiler: {} }` で通し、出力に `_c(` が現れるかを見る。
+ * このファイルは0個、他は1関数につき1個出る。
  */
 export const useRecorder = ({
   advanceMs,
@@ -50,9 +85,11 @@ export const useRecorder = ({
   onStatus,
   onError,
   onRetry,
+  ensureArmed,
+  initiallyRecording,
 }: RecorderOptions) => {
   const [take, setTake] = useState<TakeView | null>(null);
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecording] = useState(initiallyRecording);
   const [continuous, setContinuous] = useState(false);
   /**
    * テイクを確定させている最中か。
@@ -62,6 +99,14 @@ export const useRecorder = ({
    * `recording` を下ろしてから結果が返るまでの間を、これで埋める。
    */
   const [settling, setSettling] = useState(false);
+  /**
+   * 確定させている最中か。React の外から読むので ref でも持つ。
+   *
+   * state と二重に持つ。 描画には state が要るが、連続収録のループは
+   * 描画とは別の寿命で回るので、閉じ込めた古い state を読んでしまう。
+   * 札の側を ref にすると、ループが「いまの」値を読める。
+   */
+  const settlingRef = useRef(false);
 
   /**
    * いま録っているテイクの番号。
@@ -99,9 +144,15 @@ export const useRecorder = ({
       // `await starter()` の間は `recording` がまだ false なので、ボタンが押せる
       // ままになる。ここで弾く。開けなかったときは `null` を返す——
       // 番号を返すと、呼び出し側が「自分が開いたテイク」と取り違えて確定させにいく。
-      if (arming.current) return null;
+      //
+      // 確定の途中も弾く（`TR-REC-42`）。 `finish_take` は解析とアライメントを
+      // 含むので数秒かかり、そのあいだ `arming` は下りている。**押せる的を
+      // 出さないだけでは足りない**——`続けて録る` は `settling` を見ていなかった。
+      if (arming.current || settlingRef.current) return null;
       arming.current = true;
       try {
+        // 選ばれているマイクを開き直す（`TR-REC-03`）。開いていれば何もしない。
+        await ensureArmed();
         // 直前のテイクを消さない。 録音の途中でも自分の声を聴けることが中核なので、
         // 次を録り始めた瞬間に前のものが画面から消える形にしない。
         // 確定したら `settle` が差し替える。
@@ -115,13 +166,14 @@ export const useRecorder = ({
         arming.current = false;
       }
     },
-    [onStatus],
+    [onStatus, ensureArmed],
   );
 
   /** テイクを確定させて、呼び側へ渡す。 */
   const settle = useCallback(async () => {
     setRecording(false);
     setSettling(true);
+    settlingRef.current = true;
     onStatus("録った音を確かめています");
     try {
       const t = await api.finishTake();
@@ -138,6 +190,7 @@ export const useRecorder = ({
     } finally {
       // 失敗しても必ず下ろす。下ろさないと、止めるボタンが戻らない。
       setSettling(false);
+      settlingRef.current = false;
     }
   }, [onSettled, onStatus]);
 
@@ -219,7 +272,14 @@ export const useRecorder = ({
       while (continuing.current) {
         const p = await api.progress();
         if (!continuing.current || p.next_row_id === null) break;
-        await recordOnce(advanceMs);
+        /*
+         * 始められなかったら、そこで抜ける。
+         *
+         * 回し続けない。 `recordOnce` が `null` を返すのは
+         * 「開こうとしている最中」か「確定の途中」で、どちらも次の周でも
+         * 同じままのことがある——**空回りのループになる。**
+         */
+        if ((await recordOnce(advanceMs)) === null) break;
         // フレーズ間の間。声を出し終える時間を残す。
         await sleepWhileRunning(400);
       }

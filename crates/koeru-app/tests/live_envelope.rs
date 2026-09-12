@@ -42,7 +42,7 @@ fn 通算フレーム数が流した量と一致する() {
     // 排出が追いつくのを待つ。
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    let (_, position) = pump.envelope();
+    let (_, position, _) = pump.envelope();
     // 44100 へ落としたぶん。端は目盛りの区切りで丸まる。
     let want = u64::from(wav::MASTER_RATE_HZ);
     println!("  流した 1000ms / 通算 {position} フレーム（44100 なら {want}）");
@@ -70,7 +70,7 @@ fn 通算フレーム数は巻き戻らない() {
 
     let mut last = 0_u64;
     for _ in 0..60 {
-        let (_, p) = pump.envelope();
+        let (_, p, _) = pump.envelope();
         assert!(p >= last, "巻き戻った: {last} → {p}");
         last = p;
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -107,7 +107,7 @@ fn 引き続けても実時間に追いつく() {
     feed.join().expect("流し終える");
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    let (_, position) = pump.envelope();
+    let (_, position, _) = pump.envelope();
     let want = u64::from(wav::MASTER_RATE_HZ) * 2;
     #[allow(clippy::cast_precision_loss)]
     let ratio = position as f64 / want as f64;
@@ -140,7 +140,7 @@ fn 目盛りより細かく流しても通算がずれない() {
     }
     std::thread::sleep(std::time::Duration::from_millis(300));
 
-    let (_, position) = pump.envelope();
+    let (_, position, _) = pump.envelope();
     let want = u64::from(wav::MASTER_RATE_HZ);
     #[allow(clippy::cast_precision_loss)]
     let off = (position as f64 - want as f64) / want as f64;
@@ -184,7 +184,7 @@ fn 環をまたいでも余分に排出しない() {
     let fed = feed.join().expect("流し終える");
     std::thread::sleep(std::time::Duration::from_millis(400));
 
-    let (_, drained) = pump.envelope();
+    let (_, drained, _) = pump.envelope();
     #[allow(clippy::cast_precision_loss)]
     let want = fed as f64 * 44_100.0 / 48_000.0;
     #[allow(clippy::cast_precision_loss)]
