@@ -114,6 +114,8 @@ pub struct ChosenDeviceView {
     pub id: Option<String>,
     /// いまストリームが開いているか。開いていなければ、録る前に開き直す。
     pub armed: bool,
+    /// いま収録中か。面を移った先でも「止める」を出すのに要る。
+    pub recording: bool,
 }
 
 /// 画面へ返すプロジェクト。
@@ -560,8 +562,12 @@ pub fn progress(state: State<'_, AppState>) -> Result<ProgressView> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn chosen_device(state: State<'_, AppState>) -> Result<ChosenDeviceView> {
-    let (id, armed) = lock(&state)?.chosen_device()?;
-    Ok(ChosenDeviceView { id, armed })
+    let (id, armed, recording) = lock(&state)?.chosen_device()?;
+    Ok(ChosenDeviceView {
+        id,
+        armed,
+        recording,
+    })
 }
 
 /// デバイスを選び、ストリームを開く。

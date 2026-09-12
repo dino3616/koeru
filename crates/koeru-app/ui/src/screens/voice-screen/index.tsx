@@ -183,10 +183,18 @@ const VoiceBody = ({
   const ensureArmed = async () => {
     const now = await api.chosenDevice();
     if (now.armed) return;
-    if (now.id === null) {
+    /*
+     * 画面で選んでいるほうを優先する。
+     *
+     * Rust が覚えているのは最後に開けたマイク。 新しいマイクを開こうとして
+     * 失敗すると、画面は新しいほうを出したまま Rust は古いほうを指す——
+     * **そのまま開き直すと、別のマイクで録れてしまう。**
+     */
+    const want = deviceId ?? now.id;
+    if (want === null || want === undefined) {
       throw new Error("設定でマイクを選ぶと録れます。");
     }
-    await api.armDevice(now.id);
+    await api.armDevice(want);
     /*
      * 開いただけでは録れない。 `Session` は「届いているか未確認」のままで、
      * `probe_input` が通るまで `start_take` を受け付けない（`REQ-REC-106`）。
@@ -234,6 +242,7 @@ const VoiceBody = ({
     // 録り直すときに前の失敗を消す。残すと、直ったのに直っていないように見える。
     onRetry: () => setError(null),
     ensureArmed,
+    initiallyRecording: chosen.recording,
   });
 
   /**
@@ -397,10 +406,20 @@ const VoiceBody = ({
               />
             )}
 
+            {/*
+              被覆が満ちることと完成を、同じものとして書かない。
+
+              `TR-PKG-34` の完成は3条件で、被覆はそのうちの1つ。
+              `DEC-PKG-007` は「被覆が満ちた瞬間には必ず完成している」形を
+              目指しているが、**原音設定の検証はまだ通していない**
+              （`progress` は `all_oto_validated` に `false` を渡している）ので、
+              いまは全部録れても `AwaitingOto` で止まる。
+              **満ちれば完成、と書くと約束が先走る。**
+            */}
             {tab === "package" && (
               <p className="max-w-80 text-center text-xs text-slate-11">
                 <span className="font-mono tabular-nums">{voice.required}</span>{" "}
-                音すべてが録れると、この声は完成になります。
+                音すべてを録るのが、完成までの最後の一歩です。
               </p>
             )}
           </div>

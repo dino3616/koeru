@@ -104,7 +104,18 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
 
   const fail = (e: unknown) => setError(errorMessage(e));
 
-  const shown = row?.takes.find((t) => t.take_id === shownId) ?? row?.takes.at(-1) ?? null;
+  /*
+   * 見せる回。選んでいなければ、採用している回。
+   *
+   * **最後の回へ落とさない。** 行を移ると `shownId` は空に戻るので、
+   * そこで末尾を選ぶと、見出しが「2 回目を使っています」と言いながら
+   * 波形と試唱は3回目、という食い違いが出る（採用を古い回へ戻した行）。
+   */
+  const shown =
+    row?.takes.find((t) => t.take_id === shownId) ??
+    row?.takes.find((t) => t.take_id === row.adopted) ??
+    row?.takes.at(-1) ??
+    null;
 
   /*
    * 重ねる目盛りは `useQuery` のまま。
@@ -148,7 +159,8 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
   const goto = (target: string) => {
     setShownId(null);
     setSelected(null);
-    void navigate({ to: "/take", search: { id, row: target } });
+    // 来た面を持ち続ける。 落とすと、行を移ったあとの「戻る」が音の面へ行く。
+    void navigate({ to: "/take", search: { id, row: target, from } });
   };
 
   if (row === null) {

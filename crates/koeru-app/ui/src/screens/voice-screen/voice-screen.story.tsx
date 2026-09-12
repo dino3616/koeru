@@ -114,7 +114,7 @@ const 台帳 = () => {
   mocked(api.songStatus).mockResolvedValue(songs);
   mocked(api.listDevices).mockResolvedValue([{ id: "builtin", name: "MacBook Pro のマイク" }]);
   // まだ一度も選んでいない音源（`TR-REC-03`）。「録る」は押せない姿で出る。
-  mocked(api.chosenDevice).mockResolvedValue({ id: null, armed: false });
+  mocked(api.chosenDevice).mockResolvedValue({ id: null, armed: false, recording: false });
   mocked(api.autoAdvanceMs).mockResolvedValue(3000);
   mocked(api.pendingWork).mockResolvedValue(0);
   mocked(api.streamEnvelope).mockResolvedValue(1);
@@ -178,6 +178,30 @@ export const 設定: Story = {
   render: () => withRouter(<VoiceScreen />, `/voice?id=${ID}&tab=settings`),
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.textContent).toContain("録るときの音"));
+  },
+};
+
+/**
+ * 収録中に面を移って戻ってきたとき。
+ *
+ * **「止める」が出ていること。** 画面の state だけで始めると
+ * 「録っていない」から始まり、Rust は録り続けているので、
+ * 止めることも録ることもできなくなる（`chosen_device` の `recording`）。
+ */
+export const 収録中に開き直した: Story = {
+  render: () => withRouter(<VoiceScreen />, `/voice?id=${ID}&tab=sound`),
+  beforeEach: () => {
+    台帳();
+    mocked(api.chosenDevice).mockResolvedValue({
+      id: "builtin",
+      armed: true,
+      recording: true,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.textContent).toContain("止める"));
+    // 収録中に「録る」を出さない（`TR-REC-42`）。
+    await expect(canvasElement.textContent).not.toContain("「録る」は止めるまで");
   },
 };
 

@@ -228,6 +228,8 @@ export type ChosenDeviceView = {
 	id: string | null,
 	/**  いまストリームが開いているか。開いていなければ、録る前に開き直す。 */
 	armed: boolean,
+	/**  いま収録中か。面を移った先でも「止める」を出すのに要る。 */
+	recording: boolean,
 };
 
 /**  画面へ返すデバイス。 */

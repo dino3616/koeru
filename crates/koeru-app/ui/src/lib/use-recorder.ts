@@ -42,6 +42,15 @@ type RecorderOptions = {
    * ストリームの無い状態への収録要求になる。
    */
   ensureArmed: () => Promise<void>;
+  /**
+   * マウントした時点で Rust が収録中か（`chosen_device`）。
+   *
+   * **画面の state だけで始めない。** 収録中に別の面へ移ると、このフックは
+   * 作り直されて「録っていない」から始まる。Rust は録り続けているので、
+   * 「止める」が出ないまま次の収録が `app.already_recording` で断られる
+   * ——**止めることも録ることもできなくなる。踏んだ。**
+   */
+  initiallyRecording: boolean;
 };
 
 /**
@@ -77,9 +86,10 @@ export const useRecorder = ({
   onError,
   onRetry,
   ensureArmed,
+  initiallyRecording,
 }: RecorderOptions) => {
   const [take, setTake] = useState<TakeView | null>(null);
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecording] = useState(initiallyRecording);
   const [continuous, setContinuous] = useState(false);
   /**
    * テイクを確定させている最中か。

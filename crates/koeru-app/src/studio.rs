@@ -685,7 +685,7 @@ impl Studio {
     /// 一度で済むものを毎回やらせないために面を分けた（`DEC-PLT-024`）ので、
     /// 選択の持ち主はこちら側になる。**踏んだ。**
     #[tracing::instrument(skip(self), err)]
-    pub fn chosen_device(&mut self) -> Result<(Option<String>, bool)> {
+    pub fn chosen_device(&mut self) -> Result<(Option<String>, bool, bool)> {
         /*
          * 開いているかは、ストリームの実体で見る。
          *
@@ -696,11 +696,21 @@ impl Studio {
          * 「開いている」と答えてしまい、次の収録が `app.no_stream` で落ちる。
          */
         let armed = self.capture.is_some() && self.pump.is_some();
+        /*
+         * 収録中かも返す。
+         *
+         * **画面の state だけで持つと、面を移った先で止められなくなる。**
+         * 収録中に別の行のテイクを開くと、画面側のフックは作り直されて
+         * 「録っていない」から始まるので「止める」が出ない。一方 Rust は
+         * 録り続けているので、次に録ろうとすると `app.already_recording` で
+         * 断られる——**止めることも録ることもできなくなる。踏んだ。**
+         */
+        let recording = self.recording.is_some();
         let id = match &self.device {
             Some(d) => Some(d.as_str().to_owned()),
             None => self.opened_mut()?.ledger.last_device()?,
         };
-        Ok((id, armed))
+        Ok((id, armed, recording))
     }
 
     /// デバイスを選び、ストリームを開く（`recording-input.fsl` の手順）。
@@ -720,6 +730,15 @@ impl Studio {
         // 排出スレッドが先。Consumer を握ったまま Capture を捨てない。
         self.pump = None;
         self.capture = None;
+        /*
+         * 前のデバイスも忘れる。
+         *
+         * 残すと、**この先で失敗したときに「前のデバイスが選ばれている」と
+         * 答えてしまう。** 画面は新しく選んだほうを出したまま、録る手前の
+         * 開き直しが前のデバイスを開く——**別のマイクで録れてしまう。**
+         * 開けたときに下で入れ直す。
+         */
+        self.device = None;
 
         // 状態機械を作り直す。 `recording-input.fsl` の `select_device` は
         // 未選択からしか進めない（`proved`）。マイクの選び直しは、その機械から見れば
