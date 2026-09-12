@@ -5,7 +5,7 @@ import { Button } from "~/components/button";
 import { Field } from "~/components/field";
 import { api, errorMessage } from "~/lib/ipc";
 import { methodLabel } from "~/lib/labels";
-import { projectsQuery } from "~/lib/queries";
+import { ledgerKey } from "~/lib/queries";
 
 type VoiceSettingsProps = {
   id: string;
@@ -41,7 +41,14 @@ export const VoiceSettings = ({ id, name, method, rows, onRenamed }: VoiceSettin
     mutationFn: (next: string) => api.renameProject(id, next),
     onSuccess: (_, next) => {
       onRenamed(next);
-      void queryClient.invalidateQueries(projectsQuery());
+      /*
+        台帳の鍵ごと無効化する。 一覧だけ無効化していたので、
+        `voice_state` が持つ表示名は溜まったまま残っていた——
+        **音源を開き直すと、画面の名前だけ古いほうへ戻る**
+        （`VoiceBody` は初期値としてそれを読む）。名前は manifest にあり、
+        `voice_state` も一覧も同じところから読む。
+      */
+      void queryClient.invalidateQueries({ queryKey: ledgerKey });
     },
   });
 

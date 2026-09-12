@@ -72,6 +72,16 @@ const IDLE_SLEEP_MS: u64 = 2;
 pub struct Envelope {
     /// 目盛りごとの min/max。古いものが先頭。
     pub steps: VecDeque<(f32, f32)>,
+    /// フルスケールに達した回数（`TR-REC-16` の定義）。
+    ///
+    /// **画面に数えさせない。** 目盛りは 1.5 秒ぶんの窓を丸ごと渡すので、
+    /// 1つの割れが 30 回ぶんの通知に残り続ける——画面側で「窓が割れているか」を
+    /// 通知ごとに数えると、**割れた回数ではなく更新の回数を数えることになる。**
+    /// ここは流れてくるサンプルを直接見ているので、連続長で正しく数えられる。
+    ///
+    /// 数えはじめはストリームを開いたとき。 テイクごとの数は
+    /// `TakeMetrics::full_scale_runs` が持つ（`TR-REC-16` の正本はあちら）。
+    pub clipped_runs: u64,
     /// 排出しはじめてからの通算フレーム数。単調に増える。
     ///
     /// 画面はこれで古い応答を捨てる。 問い合わせが重なると
@@ -92,8 +102,12 @@ impl Envelope {
     /// 画面は1本につき1列を描く。10 本ずれれば 10 列ずれるだけで、
     /// 位置の対応が毎回同じになる。
     #[must_use]
-    pub fn sample(&self) -> (Vec<(f32, f32)>, u64) {
-        (self.steps.iter().copied().collect(), self.position)
+    pub fn sample(&self) -> (Vec<(f32, f32)>, u64, u64) {
+        (
+            self.steps.iter().copied().collect(),
+            self.position,
+            self.clipped_runs,
+        )
     }
 }
 
@@ -228,10 +242,10 @@ impl Pump {
     /// 読んでも消えない。 ピーク（`TR-REC-17`）と違って、
     /// これは今の状態であって、区間の集計ではない。
     #[must_use]
-    pub fn envelope(&self) -> (Vec<(f32, f32)>, u64) {
+    pub fn envelope(&self) -> (Vec<(f32, f32)>, u64, u64) {
         self.envelope
             .lock()
-            .map_or_else(|_| (Vec::new(), 0), |g| g.sample())
+            .map_or_else(|_| (Vec::new(), 0, 0), |g| g.sample())
     }
 
     /// 包絡そのものの持ち手（`TR-REC-43`）。
@@ -373,6 +387,8 @@ fn run(
     // まだ公開していないフレーム数。 目盛りが揃った回にまとめて足す。
     // 揃わなかった回のぶんを落とすと、通算が実時間から少しずつずれる。
     let mut carried = 0_u64;
+    // 割れた回数（`TR-REC-16`）。塊の切れ目で連続を切らないよう持ち越す。
+    let mut clip = koeru_core::analysis::FullScaleCounter::default();
     let mut rec: Option<Recording> = None;
 
     while !stop.load(Ordering::Acquire) {
@@ -454,6 +470,8 @@ fn run(
         // 写すのは目盛りだけ。 生の音を写すと、排出が実時間に追いつかない。
         carried += got.len() as u64;
         for v in got {
+            // 割れた回数は連続長で数える（`TR-REC-16`）。塊をまたいで持ち越す。
+            clip.push(*v);
             step.0 = step.0.min(*v);
             step.1 = step.1.max(*v);
             step_filled += 1;
@@ -476,6 +494,7 @@ fn run(
             // 持ち越したぶんも足す。 目盛りが揃わなかった回を落とさない。
             g.position += carried;
             carried = 0;
+            g.clipped_runs = clip.runs();
         }
         if let Ok(mut g) = shared.peak.lock() {
             *g = got.iter().fold(*g, |m, v| m.max(v.abs()));

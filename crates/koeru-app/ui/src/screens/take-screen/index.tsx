@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQueries } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useCallback, useState } from "react";
 
@@ -69,9 +69,23 @@ export const TakeScreen = () => {
         </main>
       }
     >
-      <TakeBody id={id} rowId={row} />
+      <OpenTake id={id} rowId={row} />
     </Suspense>
   );
+};
+
+/**
+ * 音源を開くところまで。
+ *
+ * **`open_project` と台帳の読みを束ねない。** `useSuspenseQueries` は並行に
+ * 投げるので、`rows_with_takes` が開く前に着く——`app.no_project` で落ちるか、
+ * **前に開いていた音源の行を、この音源の鍵で溜める。** 境界で分けておけば、
+ * 順序が木の形として残る（`react-conventions` の「順に解かせたいものは
+ * 部品を分けて境界を挟む」、音源の面は既にそうしている）。
+ */
+const OpenTake = ({ id, rowId }: { id: string; rowId: string }) => {
+  useSuspenseQuery(openProjectQuery(id));
+  return <TakeBody id={id} rowId={rowId} />;
 };
 
 const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
@@ -79,9 +93,7 @@ const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
 
-  const [, { data: rows }] = useSuspenseQueries({
-    queries: [openProjectQuery(id), rowsWithTakesQuery(id)],
-  });
+  const { data: rows } = useSuspenseQuery(rowsWithTakesQuery(id));
 
   const row = rows.find((r) => r.row_id === rowId) ?? null;
   const [shownId, setShownId] = useState<number | null>(row?.adopted ?? null);
@@ -184,9 +196,16 @@ const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
             {row.text}
           </h1>
           <p className="font-mono text-xs text-slate-11 tabular-nums">
+            {/*
+              採用が無い行がある。 取りこぼしで無効になったテイクは
+              `takes` に残るが採用されない（`TR-REC-07`）。番号を数えると
+              **「1 回のうち 0 回目を使っています」**になっていた。
+            */}
             {row.takes.length === 0
               ? "まだ録っていません"
-              : `${row.takes.length} 回のうち ${row.takes.findIndex((t) => t.take_id === row.adopted) + 1} 回目を使っています`}
+              : row.adopted === null
+                ? `${row.takes.length} 回録ったが、まだどれも使っていません`
+                : `${row.takes.length} 回のうち ${row.takes.findIndex((t) => t.take_id === row.adopted) + 1} 回目を使っています`}
           </p>
         </div>
 
@@ -215,8 +234,13 @@ const TakeBody = ({ id, rowId }: { id: string; rowId: string }) => {
               setSelected(null);
             }}
             onAdopt={(takeId) => adopt.mutate(takeId)}
+            /*
+              録り直す行を運ぶ。 ただ戻るだけにしていたので、押した行が
+              `progress.next_row_id` でないときは**何も起きなかった**
+              ——戻った先の「録る」は次の行を録りはじめる。
+            */
             onRetake={() => {
-              void navigate({ to: "/voice", search: { id, tab: "sound" } });
+              void navigate({ to: "/voice", search: { id, tab: "sound", retake: rowId } });
             }}
             busy={adopt.isPending}
           />

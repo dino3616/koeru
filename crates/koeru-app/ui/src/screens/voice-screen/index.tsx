@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQueries } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
@@ -51,7 +51,7 @@ const GUIDE_MIDI = 60;
  */
 export const VoiceScreen = () => {
   const navigate = useNavigate();
-  const { id, tab } = useSearch({ from: "/voice" });
+  const { id, tab, retake: retakeRow } = useSearch({ from: "/voice" });
 
   // 識別子が無いまま開かれることがある（殻だけを先に出したときや、
   // 履歴から直接来たとき）。落とさず、戻る道を出す。
@@ -78,7 +78,7 @@ export const VoiceScreen = () => {
         </main>
       }
     >
-      <OpenVoice id={id} tab={tab} />
+      <OpenVoice id={id} tab={tab} retakeRow={retakeRow} />
     </Suspense>
   );
 };
@@ -93,15 +93,33 @@ export const VoiceScreen = () => {
  * `useSuspenseQueries` で束ねて並行に投げる。`useSuspenseQuery` を2つ並べると
  * 順に取りに行く（`EVID-PLT-001` で実測）。
  */
-const OpenVoice = ({ id, tab }: { id: string; tab: VoiceTab }) => {
+const OpenVoice = ({
+  id,
+  tab,
+  retakeRow,
+}: {
+  id: string;
+  tab: VoiceTab;
+  retakeRow: string | undefined;
+}) => {
   const [, advance] = useSuspenseQueries({
     queries: [openProjectQuery(id), autoAdvanceQuery()],
   });
-  return <VoiceBody id={id} tab={tab} advanceMs={advance.data} />;
+  return <VoiceBody id={id} tab={tab} advanceMs={advance.data} retakeRow={retakeRow} />;
 };
 
 /** 開いたあとの音源の面。 */
-const VoiceBody = ({ id, tab, advanceMs }: { id: string; tab: VoiceTab; advanceMs: number }) => {
+const VoiceBody = ({
+  id,
+  tab,
+  advanceMs,
+  retakeRow,
+}: {
+  id: string;
+  tab: VoiceTab;
+  advanceMs: number;
+  retakeRow: string | undefined;
+}) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -210,6 +228,23 @@ const VoiceBody = ({ id, tab, advanceMs }: { id: string; tab: VoiceTab; advanceM
     ensureArmed,
   });
 
+  /**
+   * 経路で運ばれてきた録り直しを、一度だけ走らせる。
+   *
+   * ルート遷移との同期なので effect で受ける（`react-conventions` の例外）。
+   * 札は `useRef`——描画に出ないので state にしない。
+   *
+   * 引数を先に落とす。 残したままだと、テイクの面へ入って戻るたびに
+   * また録りはじめる。
+   */
+  const retakeStarted = useRef(false);
+  useEffect(() => {
+    if (retakeRow === undefined || retakeStarted.current) return;
+    retakeStarted.current = true;
+    void navigate({ to: "/voice", search: { id, tab }, replace: true });
+    retake(retakeRow);
+  }, [retakeRow, retake, navigate, id, tab]);
+
   /*
    * 鳴らす操作はどれも `useMutation`。
    *
@@ -257,8 +292,17 @@ const VoiceBody = ({ id, tab, advanceMs }: { id: string; tab: VoiceTab; advanceM
     songs.find((s) => s.missing_units > 0) ??
     songs[0] ??
     null;
-  /** 中央の「聴く」で鳴らす曲。いま歌えるもののうち先頭。 */
-  const listenable = songs.find((s) => s.singable) ?? null;
+  /**
+   * 中央の「聴く」で鳴らす曲。
+   *
+   * 歌えるものを先に見るが、無ければ先頭を渡す。 `singable` が偽なのは
+   * 「フォールバックでも解決できない音符がある」だけで、`TR-SYN-18` は
+   * **鳴らせないフレーズを除いた短縮版として鳴らす**と定めている。
+   * ここで弾くと、被覆が満ちるまで中央の的が死ぬ——`DEC-PLT-025` の
+   * 「いつでも押せて、そのときは鳴らないことが返事になる」と食い違う。
+   * 短すぎるものは Rust が `synth.too_short` で断る。
+   */
+  const listenable = songs.find((s) => s.singable) ?? songs[0] ?? null;
 
   const openTake = (rowId: string) => void navigate({ to: "/take", search: { id, row: rowId } });
 
@@ -315,7 +359,7 @@ const VoiceBody = ({ id, tab, advanceMs }: { id: string; tab: VoiceTab; advanceM
               grow={grown > 0}
               onListen={() => {
                 if (listenable === null) {
-                  setStatus("まだ歌える曲がありません");
+                  setStatus("曲がありません");
                   return;
                 }
                 sing.mutate(listenable.id);

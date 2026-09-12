@@ -259,6 +259,16 @@ pub struct EnvelopeView {
     /// 44100 Hz でそこに届くのは 64 億年後なので、精度は落ちない。
     #[specta(type = f64)]
     pub position: u64,
+    /// ストリームを開いてから、フルスケールに達した回数（`TR-REC-16` の定義）。
+    ///
+    /// **画面に数えさせない。** `steps` は 1.5 秒ぶんの窓を丸ごと渡すので、
+    /// 1つの割れが 30 回ぶんの通知に残る——通知ごとに「窓が割れているか」を
+    /// 数えると、**割れた回数ではなく更新の回数**になる。**踏んだ。**
+    ///
+    /// `Number` を通す。 素の `f64` は `number | null` に写るので
+    /// （`react-conventions`）、回数としては受け取りにくい。
+    #[specta(type = specta_typescript::Number)]
+    pub clipped_runs: u64,
 }
 
 /// 画面へ返す原音設定の1件（`TR-ALN-33`）。5値をそのまま渡す。
@@ -1201,7 +1211,8 @@ pub fn stream_envelope(state: State<'_, AppState>, on_frame: Channel<EnvelopeVie
         while stream.load(Ordering::SeqCst) == generation {
             let handle = envelope.lock().ok().and_then(|g| g.clone());
             if let Some(e) = handle {
-                let (steps, position) = e.lock().map_or_else(|_| (Vec::new(), 0), |g| g.sample());
+                let (steps, position, clipped_runs) =
+                    e.lock().map_or_else(|_| (Vec::new(), 0, 0), |g| g.sample());
                 // 「進んだか」ではなく「変わったか」で見る。
                 // マイクを選び直すと `Pump` が作り直され、通算は 0 へ戻る。
                 // 進んだかだけで見ていると、そこから二度と送らなくなる。
@@ -1211,7 +1222,14 @@ pub fn stream_envelope(state: State<'_, AppState>, on_frame: Channel<EnvelopeVie
                         .into_iter()
                         .map(|(lo, hi)| (lo.into(), hi.into()))
                         .collect();
-                    if on_frame.send(EnvelopeView { steps, position }).is_err() {
+                    if on_frame
+                        .send(EnvelopeView {
+                            steps,
+                            position,
+                            clipped_runs,
+                        })
+                        .is_err()
+                    {
                         // 画面が居なくなった。騒がずに畳む。
                         break;
                     }

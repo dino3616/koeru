@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import { InputLevel } from "~/components/input-level";
-import { CLIP_THRESHOLD } from "~/lib/levels";
 import { Channel, type EnvelopeView, api } from "~/lib/ipc";
 
 /**
@@ -28,7 +27,14 @@ export const LiveWaveform = () => {
    */
   const waveColor = useRef("");
   const [peak, setPeak] = useState(0);
-  /** 割れた回数。数えるだけで、止めも警告もしない（`DEC-REC-008`）。 */
+  /**
+   * 割れた回数。数えるだけで、止めも警告もしない（`DEC-REC-008`）。
+   *
+   * **数えるのは Rust 側。** `steps` は 1.5 秒ぶんの窓を丸ごと運ぶので、
+   * 通知ごとに「窓が割れているか」を数えると1つの割れが約 30 回に膨らむ
+   * ——**割れた回数ではなく更新の回数**になっていた。**踏んだ。**
+   * 定義（3 サンプル以上の連続）は `TR-REC-16` が持つ。
+   */
   const [clipped, setClipped] = useState(0);
 
   useEffect(() => {
@@ -103,7 +109,7 @@ export const LiveWaveform = () => {
       // oxlint-disable-next-line react/set-state-in-effect
       setPeak(top);
       // oxlint-disable-next-line react/set-state-in-effect
-      if (top >= CLIP_THRESHOLD) setClipped((n) => n + 1);
+      setClipped(frame.clipped_runs);
       draw();
     };
 

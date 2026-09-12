@@ -73,21 +73,27 @@ export const SongList = ({
               </button>
             )}
 
-            {s.singable && (
-              /*
-                押したボタン自身を disabled にしない。 フォーカスが body へ落ちる。
-                `aria-busy` で状態を伝え、二重起動は呼び出し側が弾く。
-              */
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-busy={preparingId === s.id}
-                aria-label={`${s.title} を歌わせる`}
-                onClick={() => preparingId === null && onSing(s.id)}
-              >
-                {preparingId === s.id ? "用意しています" : "歌わせる"}
-              </Button>
-            )}
+            {/*
+              歌える曲だけに的を出さない（`TR-SYN-18`）。
+
+              `singable` が偽なのは「フォールバックでも解決できない音符がある」
+              だけで、要件は**鳴らせないフレーズを除いた短縮版として鳴らす**と
+              定めている。的を消していたので、**被覆が満ちるまで
+              「自分の声で歌を聴く」ができなかった**——製品の中核そのもの。
+              短すぎるものは Rust が `synth.too_short` で断る。
+
+              押したボタン自身を disabled にしない。 フォーカスが body へ落ちる。
+              `aria-busy` で状態を伝え、二重起動は呼び出し側が弾く。
+            */}
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-busy={preparingId === s.id}
+              aria-label={`${s.title} を歌わせる`}
+              onClick={() => preparingId === null && onSing(s.id)}
+            >
+              {preparingId === s.id ? "用意しています" : "歌わせる"}
+            </Button>
           </li>
         );
       })}

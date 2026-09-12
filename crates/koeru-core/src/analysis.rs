@@ -235,6 +235,42 @@ const FULL_SCALE: f32 = 1.0 - 1.0 / 32_768.0;
 /// フルスケール到達とみなす連続長。
 const FULL_SCALE_RUN: usize = 3;
 
+/// フルスケール到達の回数を、流れてくる順に数える。
+///
+/// 定義は `TR-REC-16` の「`|x| >= 1.0 - 1LSB` が 3 サンプル以上連続した回数」。
+/// [`TakeMetrics::measure`] は確定したテイクを一度に測るが、こちらは
+/// **塊で届く音を数え続ける**ためのもの。塊の切れ目で連続が切れないよう、
+/// 連続長を持ち越す。
+///
+/// 単発のフルスケールは数えない。 歪みの証拠にならない。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FullScaleCounter {
+    /// 3つ以上続いた回数。
+    runs: u64,
+    /// いま何サンプル続いているか。塊をまたいで持ち越す。
+    run: usize,
+}
+
+impl FullScaleCounter {
+    /// 1サンプル進める。
+    pub fn push(&mut self, sample: f32) {
+        if sample.abs() >= FULL_SCALE {
+            self.run += 1;
+            if self.run == FULL_SCALE_RUN {
+                self.runs += 1;
+            }
+        } else {
+            self.run = 0;
+        }
+    }
+
+    /// ここまでの回数。
+    #[must_use]
+    pub const fn runs(self) -> u64 {
+        self.runs
+    }
+}
+
 impl TakeMetrics {
     /// 波形と、検出した発声区間から測る。
     ///
@@ -270,18 +306,11 @@ impl TakeMetrics {
 
         // 3サンプル以上続いたときだけ数える（`TR-REC-16`）。
         // 単発のフルスケールは歪みの証拠にならない。
-        let mut full_scale_runs = 0_u32;
-        let mut run = 0_usize;
+        let mut counter = FullScaleCounter::default();
         for s in samples {
-            if s.abs() >= FULL_SCALE {
-                run += 1;
-                if run == FULL_SCALE_RUN {
-                    full_scale_runs += 1;
-                }
-            } else {
-                run = 0;
-            }
+            counter.push(*s);
         }
+        let full_scale_runs = u32::try_from(counter.runs()).unwrap_or(u32::MAX);
 
         let leading_margin_ms = voice_start_ms.unwrap_or(0.0).max(0.0);
         let trailing_margin_ms = voice_end_ms.map_or(0.0, |e| (len_ms - e).max(0.0));

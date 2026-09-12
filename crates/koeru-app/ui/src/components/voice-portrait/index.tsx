@@ -54,6 +54,16 @@ export const VoicePortrait = ({
       */}
       <div className="relative aspect-square h-75 max-h-[40vh] min-h-60 shrink">
         <VoiceRings
+          /*
+            伸びる動きを確定ごとに掛け直す。 `grow` は一度真になったら
+            そのままなので、**クラスも `key` も変わらず CSS が
+            アニメーションを再開しなかった**——2本目以降は伸びなかった。
+            被覆の数で `key` を替えると、環が作り直されて動きが始まる。
+
+            数が変わったときだけ動く。 取り直しが届いた合図でもあるので、
+            古い環の上で先に走ってしまうことも無い。
+          */
+          key={state.covered}
           rings={state.rings}
           color={state.color}
           grow={grow}

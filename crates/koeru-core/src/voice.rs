@@ -58,7 +58,17 @@ pub struct VoiceColor {
 pub const HUE_START: f64 = 110.0;
 
 /// 色相の幅（度）。[`HUE_START`] から一周の手前まで。
+///
+/// **上端は含めない。** 110 + 250 = 360 は CSS では 0 度、つまり
+/// ここが避けている red の帯そのものになる。音高も重心も上端に貼り付いた声が
+/// ちょうどそこへ落ちるので、[`hue_of`] は端をわずかに内側へ寄せる。
 pub const HUE_SPAN: f64 = 250.0;
+
+/// 上端から空けておく幅（度）。
+///
+/// 1 度あれば足りる。 色相の差として見えないうえ、359 度は red-11 の
+/// 20 度付近から十分に遠い。
+const HUE_EPSILON: f64 = 1.0;
 
 /// 音高帯の下端と上端（Hz）。
 ///
@@ -123,7 +133,8 @@ fn hue_of(pitch_hz: f64, centroid_t: f64) -> f64 {
 
     #[allow(clippy::cast_precision_loss, reason = "区画は 5 個")]
     let base = sector as f64 * width;
-    HUE_START + base + width * centroid_t
+    // 上端を含めない。 一周して red の帯に入るのを防ぐ。
+    (HUE_START + base + width * centroid_t).min(HUE_START + HUE_SPAN - HUE_EPSILON)
 }
 
 /// 値を対数の目盛りで 0〜1 へ写す。
@@ -240,7 +251,7 @@ mod tests {
                 voiced_ms: 600.0,
             });
             assert!(
-                (HUE_START..=HUE_START + HUE_SPAN).contains(&c.hue),
+                (HUE_START..HUE_START + HUE_SPAN).contains(&c.hue),
                 "{hz} Hz が {} 度になった",
                 c.hue
             );
@@ -285,7 +296,7 @@ mod tests {
                     voiced_ms: 600.0,
                 });
                 assert!(
-                    (HUE_START..=HUE_START + HUE_SPAN).contains(&c.hue),
+                    (HUE_START..HUE_START + HUE_SPAN).contains(&c.hue),
                     "{pitch} Hz / 比 {ratio} が {} 度になった",
                     c.hue
                 );

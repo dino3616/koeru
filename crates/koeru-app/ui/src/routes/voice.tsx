@@ -19,6 +19,15 @@ import { VoiceScreen } from "~/screens/voice-screen";
 const searchSchema = v.object({
   id: v.optional(v.pipe(v.string(), v.uuid("音源の識別子が UUID ではない"))),
   tab: v.optional(v.picklist(["sound", "songs", "package", "settings"], "その面は無い"), "sound"),
+  /*
+   * 開いた直後に録り直す行（`TR-ALN-27`、`TR-REC-21`）。
+   *
+   * テイクの面から「もう一度録る」で戻るときに要る。 押した行は
+   * `progress.next_row_id` とは限らないので、**行を運ばないと戻った先の
+   * 「録る」が別の行を録りはじめる。** 面と同じく検索引数で持つ——
+   * 状態にすると、経路をまたいだ時点で消える。
+   */
+  retake: v.optional(v.string()),
 });
 
 export const Route = createFileRoute("/voice")({

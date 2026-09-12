@@ -515,8 +515,23 @@ impl Studio {
     }
 
     /// プロジェクトを開く。収録セッションを1つ始める（`TR-REC-30`）。
+    ///
+    /// **別の音源へ移るときは、開いているストリームを落とす。**
+    /// セッションは音源ごとの台帳に属する（`TR-REC-30`）ので、`session_id` は
+    /// 新しい台帳では 0 に戻る。落とさずにいると、`chosen_device` が前の音源の
+    /// デバイスを「開いている」と答え、画面は `arm_device` を飛ばし、
+    /// **最初のテイクの確定が `session_id = 0` で `takes.session_id` の
+    /// 外部キーに当たって落ちる。WAV を確定させたあとに落ちる**
+    /// （`finish_take` の「ここまででファイルは確定している」より下）。
+    ///
+    /// 同じ音源を開き直すときは落とさない。 画面は経路を移るたびにここを
+    /// 通る（`queries.ts` の `openProjectQuery` は `gcTime: 0`）ので、
+    /// 毎回落とすと収録の途中でストリームが開き直り、セッションが分かれる。
     #[tracing::instrument(skip(self), err)]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
+        if self.open.as_ref().is_some_and(|o| o.dir.id() != id) {
+            self.disarm();
+        }
         let dir = self.library.open_project(id)?;
         let ledger = Ledger::open(dir.db_path())?;
         self.open = Some(Open {
@@ -525,6 +540,23 @@ impl Studio {
             session_id: 0,
         });
         Ok(())
+    }
+
+    /// 開いているストリームを落とす。
+    ///
+    /// 排出スレッドが先。 Consumer を握ったまま Capture を捨てない
+    /// （`arm_device` と同じ順序）。
+    ///
+    /// **収録中の札も下ろす。** 下ろさないと `start_take_for` が
+    /// 「すでに収録中」で断り続け、二度と録れなくなる。途中のテイクは
+    /// 捨てる——ファイルを確定させていないので台帳には何も入っていない。
+    fn disarm(&mut self) {
+        self.pump = None;
+        self.capture = None;
+        // 状態機械も作り直す。 未選択からしか `select_device` へ進めない。
+        self.session = Session::new();
+        self.device = None;
+        self.recording = None;
     }
 
     /// いまの進み具合。
