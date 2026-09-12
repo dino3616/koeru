@@ -54,6 +54,21 @@ type RecorderOptions = {
  * 状態を1つに畳まないのは、`recording` が描画に要るのに対して
  * `takeSeq` と `arming` は描画に出ないから。 出ないものを state にすると、
  * 押すたびに描き直すことになる。
+ *
+ * # ここの `useCallback` は消せない
+ *
+ * **このファイルだけ React Compiler が素通りする。** 原因は `try` / `finally`
+ * で、これがあるとコンパイラはその関数を含むフック全体を丸ごと諦める。
+ * `try` / `catch` なら通るので、避けているのは `finally` のほう。
+ *
+ * **何も言わずに諦める。** 診断も警告も出ないので、`useCallback` を外すと
+ * 「コンパイラが見てくれる」つもりのまま、実際には毎回作り直される関数が
+ * `useEffect` の依存に載る。他の 37 ファイルは通っているので、
+ * ここだけ手で置いてあるのが正しい。
+ *
+ * 確かめ方。 `oxc-transform-react` の `transformSync` に
+ * `{ reactCompiler: {} }` で通し、出力に `_c(` が現れるかを見る。
+ * このファイルは0個、他は1関数につき1個出る。
  */
 export const useRecorder = ({
   advanceMs,

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
@@ -102,7 +102,7 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
   const [raw, setRaw] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fail = useCallback((e: unknown) => setError(errorMessage(e)), []);
+  const fail = (e: unknown) => setError(errorMessage(e));
 
   const shown = row?.takes.find((t) => t.take_id === shownId) ?? row?.takes.at(-1) ?? null;
 

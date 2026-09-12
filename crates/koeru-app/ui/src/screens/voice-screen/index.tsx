@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient, useSuspenseQueries } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
@@ -170,7 +170,7 @@ const VoiceBody = ({
   /** 確定した直後だけ環を伸ばす（`DEC-PLT-025`）。 */
   const [grown, setGrown] = useState(0);
 
-  const fail = useCallback((e: unknown) => setError(errorMessage(e)), []);
+  const fail = (e: unknown) => setError(errorMessage(e));
 
   /**
    * 録る前にマイクを開き直す（`TR-REC-03`）。
@@ -180,7 +180,7 @@ const VoiceBody = ({
    * 閉じたことに追従できない。テイク1本は数秒かかる操作なので、
    * その手前の1往復は見えない。
    */
-  const ensureArmed = useCallback(async () => {
+  const ensureArmed = async () => {
     const now = await api.chosenDevice();
     if (now.armed) return;
     if (now.id === null) {
@@ -198,7 +198,7 @@ const VoiceBody = ({
       throw new Error("マイクから音が届いていません。設定で確かめてください。");
     }
     setArmed(true);
-  }, []);
+  };
 
   /**
    * 確定したら、進み具合と一覧を同時に進める。片方だけ動くと数が合わない。
@@ -210,14 +210,11 @@ const VoiceBody = ({
    * カバレッジでは代用できない。 採用テイクを切り替えても録り直しても、
    * カバレッジは変わらない（`TR-RCL-25`）。
    */
-  const onSettled = useCallback(
-    ({ progress: p }: { progress: ProgressView }) => {
-      queryClient.setQueryData(progressQuery(id).queryKey, p);
-      void queryClient.invalidateQueries({ queryKey: ledgerKey });
-      setGrown((n) => n + 1);
-    },
-    [queryClient, id],
-  );
+  const onSettled = ({ progress: p }: { progress: ProgressView }) => {
+    queryClient.setQueryData(progressQuery(id).queryKey, p);
+    void queryClient.invalidateQueries({ queryKey: ledgerKey });
+    setGrown((n) => n + 1);
+  };
 
   const {
     take,
@@ -235,7 +232,7 @@ const VoiceBody = ({
     onStatus: setStatus,
     onError: fail,
     // 録り直すときに前の失敗を消す。残すと、直ったのに直っていないように見える。
-    onRetry: useCallback(() => setError(null), []),
+    onRetry: () => setError(null),
     ensureArmed,
   });
 

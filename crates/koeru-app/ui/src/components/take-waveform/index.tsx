@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { CLIP_THRESHOLD } from "~/lib/levels";
@@ -84,7 +84,14 @@ export const TakeWaveform = ({
    */
   const [drawing, setDrawing] = useState(false);
 
-  const draw = useCallback(() => {
+  /*
+   * 描くのは effect の中だけ。
+   *
+   * 関数を切り出して依存に載せない。 `useCallback` を外すと毎描画で
+   * 別物になり、`react/exhaustive-deps` が「毎回走る」と正しく指摘する。
+   * **`useCallback` で包み直すより、依存を素の値にするほうが読める。**
+   */
+  useEffect(() => {
     const canvas = ref.current;
     if (canvas === null) return;
     const ctx = canvas.getContext("2d");
@@ -150,15 +157,12 @@ export const TakeWaveform = ({
         // 印を下ろすのも最新のものだけ。古い応答が新しい待ちを消さない。
         if (mine === seq.current) setDrawing(false);
       });
-  }, [takeId, durationMs, peak, otos]);
 
-  useEffect(() => {
-    draw();
     return () => {
       // 番号を進めて、走っている要求の結果を捨てる。
       seq.current += 1;
     };
-  }, [draw]);
+  }, [takeId, durationMs, peak, otos]);
 
   const seconds = (durationMs / 1000).toFixed(2);
   const level = Math.round(peak * 100);
