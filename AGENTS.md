@@ -83,6 +83,15 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
+**レビューに入る前に、変更が触れた契約を出す。** 検査ではなく、読む前の準備。
+
+```bash
+cargo xtask touched            # main との差分が引いている ID を、本文ごと
+```
+
+要件なら条文と確信度、判断なら選んだ案と覆る条件が出る。 引用の無い変更ファイルは
+別に並ぶ——そこは機械では対応が出ないので、読んで決める。詳細は `verify-koeru` skill。
+
 先に `git-lfs` を入れてから submodule を取る。 取らずに clone すると途中で死ぬ。
 
 書いていない OS 向けの組み立ても手元で通す。

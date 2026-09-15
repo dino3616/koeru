@@ -8,6 +8,7 @@
 //! - `check-budgets`  配分の合計が上限を超えていないかを確かめる
 //! - `check-profile`  未決の Question が塞いでいるリリースプロファイルを落とす
 //! - `dump-requirements`  要件の登録簿を区切り文字形式で書き出す（外部ツール向け）
+//! - `touched`        変更が触れた ID を、レビューに要る本文ごと出す
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -16,12 +17,50 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    process::ExitCode,
+    process::{Command, ExitCode},
 };
 
 const META_DIR: &str = "meta";
 const SPEC_DIR: &str = "specs";
 const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
+
+/// ID の正本が無いディレクトリ。走査からも変更の集計からも外す。
+///
+/// 生成物と調達物には ID の正本が無い。`.claude` を外す理由だけが違う。
+/// あの下には Claude Code がワークツリー——このリポジトリの別チェックアウト——を
+/// 生やす。ID の正本はそこにも在るが、それは別の版の正本で、いま読んだ `meta/` とは
+/// 揃わない。片方にしか無い ID が「実体が無い」として出る。見るのは手元の1本だけにする。
+///
+/// skill は落ちない。 `.claude/skills/` の中身は `.agents/skills/` への symlink で、
+/// 実体のほうは走査に残る。外すことで、同じ本文を2度数えていたのをやめることにもなる。
+const SKIPPED_DIRS: &[&str] = &[
+    ".git",
+    ".claude",
+    "target",
+    "node_modules",
+    "vendor",
+    "models",
+    "dist",
+    "generated",
+];
+
+/// ID を引きうる本文の拡張子。
+const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx"];
+
+/// 判断記録の索引。`index-decisions` が書く。
+///
+/// 中身は全判断の一覧なので、1件足すと差分がそこら中の ID を引く。
+/// 人が書いた引用ではないので、変更が触れた契約を数えるときは外す。
+const DECISION_INDEX: &str = "meta/decisions/README.md";
+
+/// 差分に付ける文脈の幅。**拡張子ごとに変える。**
+///
+/// コードの引用は変更した行ではなく、その関数や部品の doc コメントに書かれている。
+/// 既定の3行では届かないので広げる。
+///
+/// 文書は逆で、引用は箇条書きの行そのものにある。同じ幅で広げると隣の項目まで入る
+/// ——`AGENTS.md` を1行直しただけで、前後の箇条書きが引く ID が全部出た。
+const DIFF_SCOPES: &[(usize, &[&str])] = &[(25, &["*.rs", "*.ts", "*.tsx"]), (3, &["*.md"])];
 
 /// meta のファイル形式。ファイル自身が `schema` で名乗る。
 ///
@@ -219,6 +258,13 @@ fn main() -> ExitCode {
             }
         },
         Some("index-decisions") => index_decisions(&root, &entries, rep),
+        // 既定は `main`。PR レビューは main との差分を見るので、引数なしで足りる。
+        Some("touched") => touched(
+            &root,
+            &entries,
+            args.get(1).map_or("main", String::as_str),
+            rep,
+        ),
         Some("next-id") => match args.get(1) {
             Some(prefix) => next_id(&entries, prefix, rep),
             None => {
@@ -245,7 +291,7 @@ fn main() -> ExitCode {
         }
         _ => {
             println!(
-                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements>"
+                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements\n  touched [<base>]>"
             );
             ExitCode::FAILURE
         }
@@ -579,40 +625,13 @@ fn check_references(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode
             let name = e.file_name();
             let name = name.to_string_lossy();
             if p.is_dir() {
-                // 生成物と調達物は対象外。ここに ID の正本は無い。
-                //
-                // `.claude` を外す理由だけが違う。 あの下には Claude Code が
-                // ワークツリー——このリポジトリの別チェックアウト——を生やす。
-                // ID の正本はそこにも在るが、それは別の版の正本で、
-                // いま読んだ `meta/` とは揃わない。片方にしか無い ID が
-                // 「実体が無い」として出る。 見るのは手元の1本だけにする。
-                //
-                // skill は落ちない。 `.claude/skills/` の中身は
-                // `.agents/skills/` への symlink で、実体のほうは走査に残る。
-                // 外すことで、同じ本文を2度数えていたのをやめることにもなる。
-                if matches!(
-                    name.as_ref(),
-                    ".git"
-                        | ".claude"
-                        | "target"
-                        | "node_modules"
-                        | "vendor"
-                        | "models"
-                        | "dist"
-                        | "generated"
-                ) {
+                if SKIPPED_DIRS.contains(&name.as_ref()) {
                     continue;
                 }
                 stack.push(p);
                 continue;
             }
-            if !p
-                .extension()
-                .is_some_and(|x| matches!(x.to_string_lossy().as_ref(), "md" | "rs" | "ts" | "tsx"))
-            {
-                continue;
-            }
-            if name.ends_with(".gen.ts") {
+            if !scanned(&p) {
                 continue;
             }
             // symlink は辿らない。`CLAUDE.md` は `AGENTS.md` を指しているので、
@@ -696,12 +715,12 @@ fn index_decisions(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode 
     }
     out.push_str(&format!("\n{} 件。\n", rows.len()));
 
-    let dest = root.join("meta/decisions/README.md");
+    let dest = root.join(DECISION_INDEX);
     let current = fs::read_to_string(&dest).unwrap_or_default();
     if std::env::args().any(|a| a == "--check") {
         if current != out {
             rep.error(
-                "meta/decisions/README.md が古い。`cargo xtask index-decisions` で作り直す"
+                format!("{DECISION_INDEX} が古い。`cargo xtask index-decisions` で作り直す")
                     .to_owned(),
             );
         }
@@ -899,6 +918,266 @@ fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
         out.push((format!("{p}-{area}-{num}"), i, end));
     }
     out
+}
+
+/// ID を引きうるファイルか。ディレクトリの除外は呼び側が見る。
+fn scanned(path: &Path) -> bool {
+    if path
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().ends_with(".gen.ts"))
+    {
+        return false;
+    }
+    path.extension()
+        .is_some_and(|x| SCANNED_EXT.contains(&x.to_string_lossy().as_ref()))
+}
+
+/// ID から、それを持つ項目の本文を引く。
+///
+/// 1件1ファイルの形も、収集ファイルの中の1件も、同じ引き方で返す。
+/// どちらなのかは呼び側には関係がない——欲しいのは本文で、置き方ではない。
+fn id_index(entries: &[Entry]) -> BTreeMap<String, (&'static str, PathBuf, toml::Table)> {
+    let mut out = BTreeMap::new();
+    for e in entries {
+        if let Some(id) = str_of(&e.table, "id").map(str::to_owned) {
+            out.insert(id, (e.shape.schema, e.path.clone(), e.table.clone()));
+        }
+        for item in e.items() {
+            if let Some(id) = str_of(&item, "id").map(str::to_owned) {
+                out.insert(id, (e.shape.schema, e.path.clone(), item));
+            }
+        }
+    }
+    out
+}
+
+fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let out = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .map_err(|e| format!("git を起動できない: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "git {} が失敗した: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    String::from_utf8(out.stdout).map_err(|e| format!("git の出力が UTF-8 ではない: {e}"))
+}
+
+/// 変更が触れた ID を、レビューに要る本文ごと出す。
+///
+/// **レビューの入口を、読む人が思い出せるかどうかに委ねない。** 変更された
+/// ファイルが引いている ID を集めれば、その変更が何の契約に触れたかは機械的に決まる。
+/// 出すのは ID だけではなく本文まで——要件なら条文、判断なら選んだ案と覆る条件。
+/// 探しに行かせると、探さないまま読まれる。
+///
+/// **出るのはコメントが引いているものだけ。** 1つも引いていない変更ファイルは
+/// 別に並べる。そこが盲点で、盲点があること自体を見せるほうが、黙って0件を返すより良い。
+///
+/// 見るのは `<base>...HEAD` と、作業ツリーの未コミット分。
+///
+/// **ファイル単位では拾わない。** 変更されたファイルの ID を全部拾うと、
+/// `AGENTS.md` を2行直しただけでそこに並ぶ数十件が出る。拾うのは差分の
+/// hunk の中だけ——文脈を [`DIFF_CONTEXT`] 行広げてあるので、変更した行の
+/// 手前にある doc コメントの引用は入る。
+fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitCode {
+    let range = format!("{base}...HEAD");
+    let index = id_index(entries);
+    let in_specs = fsl_ids(root);
+    let mut cited: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // 変更ファイル → hunk の中で ID を引いていたか。
+    let mut files: BTreeMap<String, bool> = BTreeMap::new();
+    let mut changed: BTreeSet<String> = BTreeSet::new();
+
+    for spec in [range.as_str(), "HEAD"] {
+        match git(root, &["diff", "--name-only", spec]) {
+            Ok(out) => changed.extend(out.lines().map(str::to_owned)),
+            Err(e) => {
+                rep.error(e);
+                return rep.finish("touched");
+            }
+        }
+    }
+
+    for (context, globs) in DIFF_SCOPES {
+        let context = format!("-U{context}");
+        // 作業ツリーの未コミット分も見る。PR を出す前に手元で読ませるのが主な使い道で、
+        // コミットしてからでないと出ないのでは、書いている最中に使えない。
+        for spec in [range.as_str(), "HEAD"] {
+            let mut args = vec!["diff", context.as_str(), spec, "--"];
+            args.extend_from_slice(globs);
+            match git(root, &args) {
+                Ok(diff) => scan_diff(&diff, &mut cited, &mut files),
+                Err(e) => {
+                    rep.error(e);
+                    return rep.finish("touched");
+                }
+            }
+        }
+    }
+    let silent: Vec<&String> = files
+        .iter()
+        .filter(|(_, found)| !**found)
+        .map(|(rel, _)| rel)
+        .collect();
+
+    println!("# {range} が触れた契約\n");
+    for (id, at) in &cited {
+        match index.get(id) {
+            Some((schema, path, table)) => {
+                let rel = path.strip_prefix(root).unwrap_or(path);
+                println!(
+                    "## {id} — {}",
+                    str_of(table, "title").unwrap_or("（題が無い）")
+                );
+                println!("\n正本: `{}`", rel.display());
+                println!(
+                    "引いている場所: {}",
+                    at.iter().cloned().collect::<Vec<_>>().join(", ")
+                );
+                print_brief(schema, table);
+            }
+            None if in_specs.contains(id) => {
+                println!("## {id}\n\n正本は `specs/` の FSL。本文はそちらを見る。");
+                println!(
+                    "引いている場所: {}",
+                    at.iter().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+            None => {
+                println!("## {id}\n\n**実体が無い。**（`check-references` が落とす）");
+                println!(
+                    "引いている場所: {}",
+                    at.iter().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+        }
+        println!();
+    }
+
+    if !silent.is_empty() {
+        println!("## ID を1つも引いていない変更ファイル\n");
+        println!("ここは契約との対応が機械では出ない。読んで決める。\n");
+        for rel in &silent {
+            println!("- `{rel}`");
+        }
+        println!();
+    }
+
+    // 読めた範囲を数で出す。 **この道具が変更の何割を語れているかは、
+    // 読む側が知っていないと危ない。** 全部を見たつもりにさせない。
+    rep.note(format!(
+        "変更 {} ファイル、うち引用を読めたのは {}（引用があったのは {}）、触れた ID {} 件",
+        changed.len(),
+        files.len(),
+        files.values().filter(|found| **found).count(),
+        cited.len()
+    ));
+    rep.finish("touched")
+}
+
+/// 統合差分から、hunk の中に現れる ID を拾う。
+///
+/// 見るのは残る側の行（文脈と追加）だけ。 消した行にしか無い引用は、
+/// 消えた時点でその場所を指していない——変更後のどこを読めばよいかを出す道具なので、
+/// 無い場所を指さない。消したこと自体は差分そのものが見せる。
+fn scan_diff(
+    diff: &str,
+    cited: &mut BTreeMap<String, BTreeSet<String>>,
+    files: &mut BTreeMap<String, bool>,
+) {
+    let mut rel: Option<String> = None;
+    let mut line_no = 0usize;
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            let p = Path::new(path);
+            rel = if path == DECISION_INDEX
+                || p.components()
+                    .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
+                || !scanned(p)
+            {
+                None
+            } else {
+                files.entry(path.to_owned()).or_insert(false);
+                Some(path.to_owned())
+            };
+            continue;
+        }
+        let Some(rel) = rel.as_deref() else { continue };
+        // `@@ -12,7 +34,9 @@` の `34`。残る側の行番号はここから数える。
+        if let Some(rest) = line.strip_prefix("@@ ") {
+            line_no = rest
+                .split('+')
+                .nth(1)
+                .and_then(|x| x.split([',', ' ']).next())
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            continue;
+        }
+        let body = match line.as_bytes().first() {
+            Some(b' ' | b'+') => &line[1..],
+            _ => continue,
+        };
+        for id in id_tokens(body) {
+            cited
+                .entry(id)
+                .or_default()
+                .insert(format!("{rel}:{line_no}"));
+            files.insert(rel.to_owned(), true);
+        }
+        line_no += 1;
+    }
+}
+
+/// レビューで要るものだけを、形ごとに選んで出す。
+///
+/// 全部出すと本文が埋まる。要件なら条文、判断なら選んだ案と**覆る条件**
+/// ——この変更が引き金を引いていないかは、条件を並べないと誰も見ない。
+fn print_brief(schema: &str, t: &toml::Table) {
+    let field = |k: &str| str_of(t, k).unwrap_or_default().trim().to_owned();
+    match schema {
+        "requirement-set" => {
+            println!("確信度: {}\n", field("confidence"));
+            println!("{}", field("statement"));
+        }
+        "decision" => {
+            println!(
+                "状態: {} ／ 選んだ案: {}\n",
+                field("status"),
+                field("selected")
+            );
+            let triggers = list_of(t, "review_triggers");
+            if !triggers.is_empty() {
+                println!("覆る条件:");
+                for x in &triggers {
+                    println!("- {x}");
+                }
+            }
+        }
+        "question" => {
+            println!("状態: {}\n", field("status"));
+            println!("{}", field("why_it_matters"));
+            let how = field("how_to_close");
+            if !how.is_empty() {
+                println!("\n閉じ方: {how}");
+            }
+        }
+        "evidence" => {
+            println!("種別: {} ／ 確信度: {}", field("kind"), field("confidence"));
+        }
+        "component-ledger" => {
+            println!(
+                "{} ／ {} ／ {}",
+                field("name"),
+                field("license"),
+                field("status")
+            );
+        }
+        _ => {}
+    }
 }
 
 /// FSL 仕様が所有している要求 ID を集める。
@@ -1383,4 +1662,78 @@ fn check_profile(entries: &[Entry], profile_id: &str, mut rep: Report) -> ExitCo
         ));
     }
     rep.finish("check-profile")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scan(diff: &str) -> (BTreeMap<String, BTreeSet<String>>, BTreeMap<String, bool>) {
+        let mut cited = BTreeMap::new();
+        let mut files = BTreeMap::new();
+        scan_diff(diff, &mut cited, &mut files);
+        (cited, files)
+    }
+
+    /// 行番号は残る側で数える。消した行では進まない。
+    ///
+    /// ずれると、レビューを無関係な行へ案内する。案内先が違うことは
+    /// 引用が出ていること自体からは分からないので、ここで固定する。
+    #[test]
+    fn 行番号は残る側で数える() {
+        let (cited, _) = scan(
+            "diff --git a/src/a.rs b/src/a.rs\n\
+             --- a/src/a.rs\n\
+             +++ b/src/a.rs\n\
+             @@ -10,3 +20,4 @@\n\
+             \x20/// `TR-REC-02` を満たす。\n\
+             -old\n\
+             +new\n\
+             +// `DEC-PLT-030`\n",
+        );
+        assert_eq!(
+            cited["TR-REC-02"],
+            BTreeSet::from(["src/a.rs:20".to_owned()])
+        );
+        assert_eq!(
+            cited["DEC-PLT-030"],
+            BTreeSet::from(["src/a.rs:22".to_owned()])
+        );
+    }
+
+    /// ファイル名の行を本文として読まない。
+    ///
+    /// `+++ b/…` は `+` で始まる。本文と同じ扱いにすると、
+    /// パスに ID を含むファイルが自分自身を引用したことになる。
+    #[test]
+    fn ファイル名の行は本文ではない() {
+        let (cited, files) = scan(
+            "diff --git a/docs/TR-REC-02.md b/docs/TR-REC-02.md\n\
+             --- a/docs/TR-REC-02.md\n\
+             +++ b/docs/TR-REC-02.md\n\
+             @@ -1 +1 @@\n\
+             +本文\n",
+        );
+        assert!(cited.is_empty());
+        assert_eq!(files.get("docs/TR-REC-02.md"), Some(&false));
+    }
+
+    /// 生成物と走査対象外は読まない。
+    #[test]
+    fn 生成物と対象外は読まない() {
+        let diff = |path: &str| {
+            format!(
+                "diff --git a/{path} b/{path}\n\
+                 --- a/{path}\n\
+                 +++ b/{path}\n\
+                 @@ -1 +1 @@\n\
+                 +`TR-REC-02`\n"
+            )
+        };
+        for path in [DECISION_INDEX, "meta/requirements/recording.toml"] {
+            let (cited, files) = scan(&diff(path));
+            assert!(cited.is_empty(), "{path} を読んでいる");
+            assert!(files.is_empty(), "{path} を数えている");
+        }
+    }
 }
