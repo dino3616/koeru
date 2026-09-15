@@ -1,0 +1,44 @@
+schema = 'decision'
+id = 'DEC-ALL-009'
+constraint_label = 'レビュー基盤'
+constraint = 'レビューの義務と証拠の正本を、meta と FSL の外に増やさないこと'
+title = 'ReviewGraphen は今は採らない。設計を読む対象として残す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '採らない（設計だけ読む）',
+  'CLI と skill を入れてレビューに使う',
+  'meta を ReviewGraphen の入力として写す',
+]
+selected = '採らない（設計だけ読む）'
+rationale = '''
+実コードで発火するのは5規則のうち1つ。 本人の能力状況の記録が、残り4つは
+手書きの決済フィクスチャ専用で「任意の実コードでは発火しない」と書いている。
+モデル連携は未実装（登録されたモデル評価数 0）で、所見を人の見る面へ昇格できない。
+v0.1.0 の公開は 2026-09-15。
+
+読めるのは Rust の本番コードだけで、構文どまり。 型解決・trait・crate 跨ぎの
+参照は対象外。KOERU の WebView 側は最初から範囲の外にある。TypeScript 対応は
+着手されたと聞いているが、公開リポジトリにはまだ出ていない。
+
+持ち場が被る。 ReviewSpace と EvidenceSpace は、KOERU では `meta/` と FSL が
+持っている面。並べると同じ命題が2箇所に住み、片方だけが変わる。
+
+出自も違う。 KOERU の ID は人が採番する意図の台帳で、ReviewGraphen の obligation は
+正規化したタプルから決定論的に導出される。同じ空間に混ぜると ID の意味が壊れる。
+乗せるなら一方向——meta を入力（profile / policy）として写すだけで、
+出力を meta へ書き戻さない。ただし外部 TOML の形は未定義で、書くのは利用側になる。
+rule pack も今は固定なので、写す先が無い。
+
+作者への経路はある。 同じ Slack にいるので、詰まったら聞ける。これは alpha を
+触る判断では効く材料だが、今はまだ「触って得るもの」の側が無い。
+
+Apache-2.0。 取り込むなら `deny.toml` の許可リストに載っている。
+'''
+review_triggers = [
+  '手書きのフィクスチャ以外で、5つの規則が実コードに発火するようになったとき',
+  'TypeScript の ingest が公開されたとき',
+  '所見が人の見る面（CI のゲート、報告）へ出るようになったとき',
+]
+affects_requirements = []
+supersedes = []

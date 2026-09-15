@@ -1,0 +1,53 @@
+schema = 'decision'
+id = 'DEC-PLT-031'
+constraint_label = 'デザインシステムの規則の検査'
+constraint = '部品が守っている条件を、呼び出し側が黙って壊せないこと'
+title = 'デザインシステムの規則は `@shadcn/lint` を oxlint から呼んで見る。`components.json` を置く'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '@shadcn/lint を oxlint の JS plugin として呼ぶ',
+  '@shadcn/lint を ESLint から呼ぶ',
+  '自前の検査を `scripts/` に書く',
+  '入れない',
+]
+selected = '@shadcn/lint を oxlint の JS plugin として呼ぶ'
+rationale = '''
+ESLint 経路はこのリポジトリでは動かない。 `@shadcn/lint` は
+`@typescript-eslint/parser` を実依存に持つが、それが TypeScript 7.0 を拒否する
+（`typescript-eslint does not support TS 7.0`）。oxlint 経路だけが選択肢になる。
+oxlint の JS plugin API は alpha だが、`vite.config.ts` の `lint.jsPlugins` へ
+足すだけで規則が走ることを実測した。
+
+`components.json` が要る。 テーマの解決は `findUp("components.json")` が起点で、
+無いと `no-unknown-classes` と `no-raw-colors` が**黙って何もしない**。置いたことで
+`src/styles/globals.css` を辿り、Radix の段も `koeru-breath` のような素のクラスも
+認識した。shadcn に依存するわけではない（`DEC-PLT-015`）——レジストリも CLI も
+使わず、テーマの在処を指す目印として置く。
+
+入れたのは6規則すべて。 違反が無かったのは `no-unknown-classes`・`no-raw-colors`・
+`no-restyle`・`require-static-classes` の4つで、費用は実質ゼロ。`no-arbitrary-values`
+は尺度に載る4箇所を尺度で書き直し（`w-[640px]` → `w-160` など）、載らない7つを
+クラス名で列挙して許した。`no-inline-styles` は波形の帯の位置を CSS 変数へ逃がし、
+別ファイルの関数が返す style 2箇所を理由つきで外した——規則は関数の中身を読めない。
+
+注入の許可は contract が持つ。 既定は「何も通さない」で、通すものを部品ごとに
+列挙する。`Button` に通すのは幅と flex の中での振る舞いだけで、高さと内側の余白は
+通さない（`TR-PLT-31`）。畳みの側は `DEC-PLT-030`。
+
+費用は npm パッケージ 346 → 428。 `@typescript-eslint/parser` の peer として
+**使えない ESLint 一式が入る**。ライセンスはすべて AGPL-3.0-or-later に取り込める。
+
+版は 0.1.0、公開2日（2026-09-14）。 手元の supply-chain 検査が
+「最低公開経過日数」で一度止めた。承知の上で通している。
+'''
+review_triggers = [
+  'oxlint の JS plugin API が alpha を出て、規則の走り方が変わったとき',
+  '`@shadcn/lint` が ESLint 専用の機能を増やし、oxlint 経路が遅れはじめたとき',
+  'TypeScript と `@typescript-eslint` の非互換が解けて、経路を選べるようになったとき',
+  '`components.json` が shadcn の CLI 以外から読まれるようになり、意味が変わったとき',
+]
+affects_requirements = [
+  'TR-PLT-31',
+]
+supersedes = []
