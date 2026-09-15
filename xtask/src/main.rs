@@ -580,9 +580,26 @@ fn check_references(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode
             let name = name.to_string_lossy();
             if p.is_dir() {
                 // 生成物と調達物は対象外。ここに ID の正本は無い。
+                //
+                // `.claude` を外す理由だけが違う。 あの下には Claude Code が
+                // ワークツリー——このリポジトリの別チェックアウト——を生やす。
+                // ID の正本はそこにも在るが、それは別の版の正本で、
+                // いま読んだ `meta/` とは揃わない。片方にしか無い ID が
+                // 「実体が無い」として出る。 見るのは手元の1本だけにする。
+                //
+                // skill は落ちない。 `.claude/skills/` の中身は
+                // `.agents/skills/` への symlink で、実体のほうは走査に残る。
+                // 外すことで、同じ本文を2度数えていたのをやめることにもなる。
                 if matches!(
                     name.as_ref(),
-                    ".git" | "target" | "node_modules" | "vendor" | "models" | "dist" | "generated"
+                    ".git"
+                        | ".claude"
+                        | "target"
+                        | "node_modules"
+                        | "vendor"
+                        | "models"
+                        | "dist"
+                        | "generated"
                 ) {
                     continue;
                 }
