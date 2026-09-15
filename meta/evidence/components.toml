@@ -834,7 +834,7 @@ C++ ライブラリとして Rust からも呼べる（CMP-130）。PostgreSQL �
 
 [[component]]
 id = 'CMP-060'
-name = 'Rust 1.95 / edition 2024'
+name = 'Rust 1.98 / edition 2024'
 purpose = '実行基盤。FFI でネイティブライブラリを直接呼べる'
 license = 'MIT / Apache-2.0'
 status = '採用'

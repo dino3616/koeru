@@ -223,12 +223,16 @@ pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
     file.read_exact(&mut data).map_err(io("read_data"))?;
     let samples = match (fmt, bits) {
         (FMT_FLOAT, 32) => data
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f32::from_le_bytes(*c))
             .collect(),
         _ => data
-            .chunks_exact(2)
-            .map(|c| f32::from(i16::from_le_bytes([c[0], c[1]])) / 32768.0)
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| f32::from(i16::from_le_bytes(*c)) / 32768.0)
             .collect(),
     };
     Ok(Wav { samples, rate_hz })

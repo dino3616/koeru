@@ -366,8 +366,10 @@ pub fn f64s_to_bytes(xs: &[f64]) -> Vec<u8> {
 /// でたらめな値を作らない。
 #[must_use]
 pub fn bytes_to_f64s(b: &[u8]) -> Vec<f64> {
-    b.chunks_exact(8)
-        .map(|c| f64::from_le_bytes(c.try_into().unwrap_or([0; 8])))
+    b.as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| f64::from_le_bytes(*c))
         .collect()
 }
 
