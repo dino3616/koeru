@@ -47,6 +47,12 @@ const SKIPPED_DIRS: &[&str] = &[
 /// ID を引きうる本文の拡張子。
 const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx"];
 
+/// `touched` が本文として読む拡張子。
+///
+/// `check-references` の走査より1つ広い。 あちらは「引用が実体に解決するか」を
+/// 見るので FSL の原文は要らないが、こちらは**宣言そのものの変更**を見たい。
+const TOUCHED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "fsl"];
+
 /// 判断記録の索引。`index-decisions` が書く。
 ///
 /// 中身は全判断の一覧なので、1件足すと差分がそこら中の ID を引く。
@@ -60,7 +66,8 @@ const DECISION_INDEX: &str = "meta/decisions/README.md";
 ///
 /// 文書は逆で、引用は箇条書きの行そのものにある。同じ幅で広げると隣の項目まで入る
 /// ——`AGENTS.md` を1行直しただけで、前後の箇条書きが引く ID が全部出た。
-const DIFF_SCOPES: &[(usize, &[&str])] = &[(25, &["*.rs", "*.ts", "*.tsx"]), (3, &["*.md"])];
+const DIFF_SCOPES: &[(usize, &[&str])] =
+    &[(25, &["*.rs", "*.ts", "*.tsx"]), (3, &["*.md", "*.fsl"])];
 
 /// meta のファイル形式。ファイル自身が `schema` で名乗る。
 ///
@@ -1065,16 +1072,38 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
      * `meta/` の TOML は走査の対象ではない——ID を引いているのではなく、
      * ID を**持っている**。条文が書き換わったなら、その契約こそ読む対象なので、
      * 変わった行が属する項目を引き当てて並べる。
+     *
+     * **消した側も引き当てる。** 項目やファイルごと消すと、いまの版からは
+     * 引き当てられない。base の原文と旧側の行番号で拾う——契約を消す変更こそ、
+     * 出ないと困る。
      */
+    let base_rev = git(root, &["merge-base", base, "HEAD"])
+        .map(|x| x.trim().to_owned())
+        .unwrap_or_else(|_| base.to_owned());
+    let mut rewritten: BTreeSet<&str> = BTreeSet::new();
     for rel in changed
         .iter()
-        .filter(|r| r.starts_with("meta/") && r.ends_with(".toml") && !untracked.contains(r))
+        .filter(|r| r.starts_with("meta/") && r.ends_with(".toml"))
     {
-        let Ok(text) = fs::read_to_string(root.join(rel)) else {
+        rewritten.insert(rel.as_str());
+        // 未追跡のものは全体が追加。ファイルが持つ ID を全部数える。
+        if untracked.contains(rel) {
+            if let Ok(text) = fs::read_to_string(root.join(rel)) {
+                for (n, id) in owners(&text) {
+                    let _ = n;
+                    cited
+                        .entry(id)
+                        .or_default()
+                        .insert(format!("{rel}（追加）"));
+                }
+            }
             continue;
-        };
-        let owners = owners(&text);
-        for spec in [range.as_str(), "HEAD"] {
+        }
+        let now = fs::read_to_string(root.join(rel)).unwrap_or_default();
+        let own_now = owners(&now);
+        for (spec, rev) in [(range.as_str(), base_rev.as_str()), ("HEAD", "HEAD")] {
+            let was = git(root, &["show", &format!("{rev}:{rel}")]).unwrap_or_default();
+            let own_was = owners(&was);
             let Ok(diff) = git(root, &["diff", "-U0", spec, "--", rel]) else {
                 continue;
             };
@@ -1082,21 +1111,26 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
                 let Some(rest) = line.strip_prefix("@@ ") else {
                     continue;
                 };
-                let Some(head) = rest.split('+').nth(1) else {
-                    continue;
-                };
-                let mut it = head.split([',', ' ']);
-                let Some(at) = it.next().and_then(|x| x.parse::<usize>().ok()) else {
-                    continue;
-                };
-                let len = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(1);
-                // 消しただけの hunk は長さ 0。消えた位置の行を持ち主とする。
-                for n in at..=(at + len.max(1) - 1) {
-                    if let Some(id) = owner_at(&owners, n) {
-                        cited
-                            .entry(id.to_owned())
-                            .or_default()
-                            .insert(format!("{rel}:{n}（書き換え）"));
+                // 消した側と残る側の両方を見る。消しただけの hunk は長さ 0。
+                for (mark, owners, note) in [('-', &own_was, "削除"), ('+', &own_now, "書き換え")]
+                {
+                    let Some(head) = rest.split(mark).nth(1) else {
+                        continue;
+                    };
+                    let mut it = head.split([',', ' ']);
+                    let Some(at) = it.next().and_then(|x| x.parse::<usize>().ok()) else {
+                        continue;
+                    };
+                    let len = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(1);
+                    for n in at..=(at + len.max(1) - 1) {
+                        if let Some(id) = owner_at(owners, n) {
+                            // 行ごとには並べない。 書き換わったのは項目1件で、
+                            // どの行かは差分そのものが見せる。
+                            cited
+                                .entry(id.to_owned())
+                                .or_default()
+                                .insert(format!("{rel}（{note}）"));
+                        }
                     }
                 }
             }
@@ -1114,12 +1148,6 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
         .iter()
         .filter(|(_, found)| **found)
         .map(|(rel, _)| rel)
-        .collect();
-    let rewritten: BTreeSet<&str> = cited
-        .values()
-        .flatten()
-        .filter_map(|at| at.strip_suffix("（書き換え）"))
-        .filter_map(|at| at.rsplit_once(':').map(|(rel, _)| rel))
         .collect();
     let silent: Vec<&String> = changed
         .iter()
@@ -1155,6 +1183,15 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
                 println!("## {id}\n\n正本: `{}`（FSL）", in_specs[id]);
                 println!(
                     "引いている場所: {}",
+                    at.iter().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+            None if at.iter().all(|x| x.ends_with("（削除）")) => {
+                println!(
+                    "## {id}\n\n**この変更で消えた。** 元の本文は `git show {base_rev}:<path>`。"
+                );
+                println!(
+                    "消えた場所: {}",
                     at.iter().cloned().collect::<Vec<_>>().join(", ")
                 );
             }
@@ -1195,7 +1232,11 @@ fn readable(path: &str) -> Option<String> {
     if path == DECISION_INDEX
         || p.components()
             .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
-        || !scanned(p)
+        || p.file_name()
+            .is_some_and(|n| n.to_string_lossy().ends_with(".gen.ts"))
+        || !p
+            .extension()
+            .is_some_and(|x| TOUCHED_EXT.contains(&x.to_string_lossy().as_ref()))
     {
         return None;
     }
