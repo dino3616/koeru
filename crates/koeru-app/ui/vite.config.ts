@@ -95,6 +95,15 @@ const config = defineConfig({
        * `Button` に通すのは、置く側でなければ決められないものだけ——
        * 幅と、flex の中での振る舞い。 高さと内側の余白は通さない
        * （`TR-PLT-31` の操作対象の大きさを呼び出し側が壊せる）。
+       *
+       * **幅は語で許し、値では許さない。** `w-*` を開けると `w-0` が通り、
+       * `cn` の後勝ちで部品側の幅が消えて、24 CSS ピクセルを割る的ができる。
+       * 高さだけ塞いでも `TR-PLT-31` は守れない。`min-w-*` と `max-w-*` も
+       * 同じ理由で通さない（`max-w-0`、`min-w-0`）。
+       *
+       * `flex-1` と `grow-*` / `shrink-*` は残す。 縮んでも min-content
+       * ——文字と `px` の分——より下へは行かない。下限を外せるのは `min-w-0` で、
+       * それは上で塞いである。
        */
       "shadcn/no-restyle": [
         "error",
@@ -103,9 +112,9 @@ const config = defineConfig({
             {
               pattern: "^Button$",
               allow: [
-                "w-*",
-                "min-w-*",
-                "max-w-*",
+                "w-full",
+                "w-fit",
+                "w-auto",
                 "flex-1",
                 "grow-*",
                 "shrink-*",
