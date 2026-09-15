@@ -32,6 +32,16 @@ variants は同じ軸の中で排他なので畳む相手がいない。既定�
 畳みと許可は別の道具で、両方が要る——許可だけだと衝突の勝敗が順序任せになり、
 畳みだけだと `TR-PLT-31` の大きさを呼び出し側が壊せる。
 
+`DEC-PLT-020` を置き換える。 あちらの review_trigger は「部品に className を
+渡したくなる場面が繰り返し出たとき（variant が足りていない合図）」で、**引き金は引かれた**
+——`w-fit` と `w-full` を切り替えるだけで variant を足すか、包む `div` を置くことになっていた。
+variant が足りないのではなく、幅は置く側でなければ決められない。
+
+あちらから引き継ぐもの。 `base` と `slots` は使わない。静的なクラスは JSX に
+そのまま書く——`base` に移すと見た目を読むのに2箇所を行き来する。`slots` は1つの `tv` が
+複数要素の見た目を持つ形で、部品を分ける代わりにならない。`tv` を通すのは値で変わるものだけ。
+条件で足すだけで衝突しないなら `cx`。
+
 MIT、依存ゼロ。 `cn` は `tailwind-merge` と `clsx` の置き換えで、同じ API を持つ。
 '''
 review_triggers = [
@@ -40,6 +50,7 @@ review_triggers = [
   '`tailwind-variants/lite` が variants の機能で足りなくなったとき',
 ]
 affects_requirements = [
+  'TR-PLT-03',
   'TR-PLT-31',
 ]
-supersedes = []
+supersedes = ['DEC-PLT-020']

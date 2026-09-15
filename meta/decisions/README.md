@@ -59,7 +59,7 @@
 | [DEC-PLT-017](DEC-PLT-017.toml) | 画面へ流し続けるものの経路 | 流し続けるものは Channel で送る。画面から引きに行かせない | accepted |
 | [DEC-PLT-018](DEC-PLT-018.toml) | メモ化の置き場所 | React Compiler を通す。手でメモ化しない | accepted |
 | [DEC-PLT-019](DEC-PLT-019.toml) | 画面と Rust の型の一致 | tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない | accepted |
-| [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | accepted |
+| [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | superseded |
 | [DEC-PLT-021](DEC-PLT-021.toml) | 画面の分け方 | OOUI はカード（面）の単位で採る。ルートはオブジェクトごとに分けない | accepted |
 | [DEC-PLT-022](DEC-PLT-022.toml) | アクセシビリティの自動検査 | Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する | accepted |
 | [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | accepted |

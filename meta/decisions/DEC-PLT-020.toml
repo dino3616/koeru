@@ -3,7 +3,7 @@ id = 'DEC-PLT-020'
 constraint_label = 'クラス名の組み立て'
 constraint = '部品が守っている条件を、呼び出し側が黙って壊せないこと'
 title = 'tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない'
-status = 'accepted'
+status = 'superseded'
 owner = 'dino3616'
 options = [
   'tailwind-variants（twMerge 無効）＋ className を受けない',
@@ -41,3 +41,4 @@ affects_requirements = [
   'TR-PLT-28',
 ]
 supersedes = []
+superseded_by = 'DEC-PLT-030'
