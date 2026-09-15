@@ -49,9 +49,12 @@ const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx"];
 
 /// `touched` が本文として読む拡張子。
 ///
-/// `check-references` の走査より1つ広い。 あちらは「引用が実体に解決するか」を
-/// 見るので FSL の原文は要らないが、こちらは**宣言そのものの変更**を見たい。
-const TOUCHED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "fsl"];
+/// `check-references` の走査より広い。 あちらは手書き文書とソースの引用が
+/// 実体に解決するかを見るが、こちらは**変更が何に触れたか**を出すので、
+/// ID を引いているものは形を問わず読む——配色の CSS も workflow も引いている。
+const TOUCHED_EXT: &[&str] = &[
+    "md", "rs", "ts", "tsx", "fsl", "css", "yml", "yaml", "json", "toml",
+];
 
 /// 判断記録の索引。`index-decisions` が書く。
 ///
@@ -66,8 +69,15 @@ const DECISION_INDEX: &str = "meta/decisions/README.md";
 ///
 /// 文書は逆で、引用は箇条書きの行そのものにある。同じ幅で広げると隣の項目まで入る
 /// ——`AGENTS.md` を1行直しただけで、前後の箇条書きが引く ID が全部出た。
-const DIFF_SCOPES: &[(usize, &[&str])] =
-    &[(25, &["*.rs", "*.ts", "*.tsx"]), (3, &["*.md", "*.fsl"])];
+const DIFF_SCOPES: &[(usize, &[&str])] = &[
+    (25, &["*.rs", "*.ts", "*.tsx"]),
+    (
+        3,
+        &[
+            "*.md", "*.fsl", "*.css", "*.yml", "*.yaml", "*.json", "*.toml",
+        ],
+    ),
+];
 
 /// meta のファイル形式。ファイル自身が `schema` で名乗る。
 ///
@@ -967,9 +977,45 @@ fn id_index(entries: &[Entry]) -> BTreeMap<String, (&'static str, PathBuf, toml:
     out
 }
 
+/// NUL 区切りで返ってきたパスの並び。
+///
+/// 改行区切りで受けると、改行を含むパスで崩れる。 引用させない設定と
+/// 合わせて、Git が持っているとおりの名前をそのまま受け取る。
+fn nul_paths(out: &str) -> impl Iterator<Item = String> + '_ {
+    out.split('\0').filter(|s| !s.is_empty()).map(str::to_owned)
+}
+
+/// hunk の見出しから、片側の開始行と行数を読む。
+///
+/// **行数が明示の 0 なら、その側には行が無い。** 追加だけ・削除だけの hunk で
+/// 反対側を 1 行として数えると、触っていない項目を巻き込む。
+/// 行数が書かれていない形（`@@ -1 +1 @@`）は 1 行。
+fn hunk_span(head: &str, mark: char) -> Option<(usize, usize)> {
+    /*
+     * 数として読むのは、数字だけでできた字に限る。
+     *
+     * **`parse::<usize>()` は先頭の `+` を受ける。** `@@ -837 +837 @@` の
+     * `-` 側を読むと次の字が `+837` で、これが行数として通っていた。
+     * 1 行の書き換えが 837 行分に化けて、触っていない項目が何十件も並んだ。**踏んだ。**
+     */
+    let digits = |x: &&str| x.chars().all(|c| c.is_ascii_digit()) && !x.is_empty();
+    let mut it = head.split(mark).nth(1)?.split([',', ' ']);
+    let at = it.next().filter(digits)?.parse().ok()?;
+    // 行数が書かれていない形（`@@ -1 +1 @@`）は 1 行。
+    let len = it
+        .next()
+        .filter(digits)
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(1);
+    (len > 0).then_some((at, len))
+}
+
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .current_dir(root)
+        // 非 ASCII のパスを C 形式で引用させない。 引用されたまま使うと、
+        // 差分の見出しともファイル名とも一致せず、そのファイルが黙って落ちる。
+        .args(["-c", "core.quotePath=false"])
         .args(args)
         .output()
         .map_err(|e| format!("git を起動できない: {e}"))?;
@@ -1009,8 +1055,8 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
     let mut changed: BTreeSet<String> = BTreeSet::new();
 
     for spec in [range.as_str(), "HEAD"] {
-        match git(root, &["diff", "--name-only", spec]) {
-            Ok(out) => changed.extend(out.lines().map(str::to_owned)),
+        match git(root, &["diff", "--name-only", "-z", spec]) {
+            Ok(out) => changed.extend(nul_paths(&out)),
             Err(e) => {
                 rep.error(e);
                 return rep.finish("touched");
@@ -1025,8 +1071,8 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
      * **数からも引用なし一覧からも丸ごと消える。** 書いている最中に読ませるのが
      * 主な使い道なので、そこで見えないのでは使えない。全体が追加なので全行を見る。
      */
-    let untracked = match git(root, &["ls-files", "--others", "--exclude-standard"]) {
-        Ok(out) => out.lines().map(str::to_owned).collect::<Vec<_>>(),
+    let untracked = match git(root, &["ls-files", "--others", "--exclude-standard", "-z"]) {
+        Ok(out) => nul_paths(&out).collect::<Vec<_>>(),
         Err(e) => {
             rep.error(e);
             return rep.finish("touched");
@@ -1114,18 +1160,14 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
                 // 消した側と残る側の両方を見る。消しただけの hunk は長さ 0。
                 for (mark, owners, note) in [('-', &own_was, "削除"), ('+', &own_now, "書き換え")]
                 {
-                    let Some(head) = rest.split(mark).nth(1) else {
+                    let Some((at, len)) = hunk_span(rest, mark) else {
                         continue;
                     };
-                    let mut it = head.split([',', ' ']);
-                    let Some(at) = it.next().and_then(|x| x.parse::<usize>().ok()) else {
-                        continue;
-                    };
-                    let len = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(1);
-                    for n in at..=(at + len.max(1) - 1) {
+                    for n in at..at + len {
                         if let Some(id) = owner_at(owners, n) {
                             // 行ごとには並べない。 書き換わったのは項目1件で、
                             // どの行かは差分そのものが見せる。
+                            rewritten.insert(rel.as_str());
                             cited
                                 .entry(id.to_owned())
                                 .or_default()
@@ -1229,7 +1271,10 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
 /// ID を引いているかを読める形のパスか。生成物と対象外は `None`。
 fn readable(path: &str) -> Option<String> {
     let p = Path::new(path);
-    if path == DECISION_INDEX
+    // `meta/` の TOML は引用ではなく正本。 触れたことの数え方が違うので、
+    // ここでは読まない（`touched` が別に引き当てる）。
+    if (path.starts_with("meta/") && path.ends_with(".toml"))
+        || path == DECISION_INDEX
         || p.components()
             .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
         || p.file_name()
@@ -1990,6 +2035,28 @@ mod tests {
 
         let entity = owners("schema = 'decision'\nid = 'DEC-PLT-030'\n");
         assert_eq!(owner_at(&entity, 1), Some("DEC-PLT-030"));
+    }
+
+    /// 行数が 0 の側は、その hunk に行が無い。
+    ///
+    /// 追加だけ・削除だけの hunk で反対側を 1 行として数えると、
+    /// 触っていない項目まで「書き換え」に混ざる。
+    #[test]
+    fn 長さ0の側は数えない() {
+        assert_eq!(hunk_span("-3,4 +2,0 @@", '+'), None);
+        assert_eq!(hunk_span("-3,4 +2,0 @@", '-'), Some((3, 4)));
+        assert_eq!(hunk_span("-0,0 +1,5 @@", '+'), Some((1, 5)));
+        // 行数を書かない形は 1 行。
+        assert_eq!(hunk_span("-1 +1 @@", '+'), Some((1, 1)));
+        // 反対側の見出しを行数として読まない。`+837` は数ではなく次の側の印。
+        assert_eq!(
+            hunk_span("-837 +837 @@ id = 'CMP-060'", '-'),
+            Some((837, 1))
+        );
+        assert_eq!(
+            hunk_span("-837 +837 @@ id = 'CMP-060'", '+'),
+            Some((837, 1))
+        );
     }
 
     /// 生成物と走査対象外は読まない。
