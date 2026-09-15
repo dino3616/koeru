@@ -46,7 +46,7 @@ export const SelectContent = ({
     <SelectPrimitive.Content
       position="popper"
       sideOffset={4}
-      className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-slate-7 bg-slate-2 p-1"
+      className="z-50 min-w-(--radix-select-trigger-width) overflow-hidden rounded-lg border border-slate-7 bg-slate-2 p-1"
       {...props}
     >
       <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>

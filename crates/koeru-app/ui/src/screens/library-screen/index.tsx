@@ -34,7 +34,7 @@ export const LibraryScreen = () => {
       </header>
 
       <div className="flex-1 overflow-y-auto p-8">
-        <div className="mx-auto flex w-full max-w-[1152px] flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-288 flex-col gap-8">
           <div className="flex flex-col gap-2">
             <h1
               ref={heading}
@@ -136,7 +136,7 @@ const Gallery = ({
         <button
           type="button"
           onClick={() => onCreating(true)}
-          className="flex size-full min-h-[280px] flex-col items-center justify-center gap-3 rounded-xl border border-slate-11 p-5 text-sm text-slate-11 hover:bg-slate-2 hover:text-slate-12"
+          className="flex size-full min-h-70 flex-col items-center justify-center gap-3 rounded-xl border border-slate-11 p-5 text-sm text-slate-11 hover:bg-slate-2 hover:text-slate-12"
         >
           <svg
             width="24"

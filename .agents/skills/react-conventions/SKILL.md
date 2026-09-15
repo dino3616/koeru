@@ -1,6 +1,6 @@
 ---
 name: react-conventions
-description: KOERU のフロントエンド（React + TanStack Start + Tailwind）の規約。tailwind-variants の使い方と tailwind-merge を使わない理由、className を props で受けないこと、部品の粒度と状態の置き場所、Rust との境界（生成した bindings）、アクセシビリティと配色の段を定める。tsx / ts ファイルの追加・編集、部品の切り出し、スタイルの当て方、IPC の呼び出し、a11y の対応、PR レビューのときに使う。
+description: KOERU のフロントエンド（React + TanStack Start + Tailwind）の規約。tailwind-variants の使い方と、部品へ注入してよいクラスを lint の contract で決めること、畳みを 1 箇所に閉じること、部品の粒度と状態の置き場所、Rust との境界（生成した bindings）、アクセシビリティと配色の段を定める。tsx / ts ファイルの追加・編集、部品の切り出し、スタイルの当て方、IPC の呼び出し、a11y の対応、PR レビューのときに使う。
 ---
 
 # KOERU — React の規約
@@ -11,25 +11,33 @@ description: KOERU のフロントエンド（React + TanStack Start + Tailwind�
 
 ## スタイル
 
-### `className` を props で受けない
+### 注入してよいクラスは contract が決める
 
-部品の見た目は部品が持つ。外から差し込めるようにすると、同じ部品が呼ばれた場所ごとに違う姿になり、部品が守っているはずの条件を呼び出し側が黙って壊せる（`Button` の高さは `TR-PLT-28` の対象サイズ）。
+部品の見た目は部品が持つ。外から何でも差し込めるようにすると、部品が守っているはずの条件を呼び出し側が黙って壊せる（`Button` の高さは `TR-PLT-31` の操作対象の大きさ）。
 
-```tsx
-type ButtonProps = Omit<ComponentProps<"button">, "className"> & VariantProps<typeof button>;
+一方で、幅や flex の中での振る舞いは置く側でなければ決められない。型では「受け取るか否か」までしか言えず、「幅は良いが高さは駄目」が書けない。そこは `shadcn/no-restyle` の contract が持つ（`vite.config.ts`）。既定は「何も通さない」で、通すものを部品ごとに列挙する。
+
+```js
+{ pattern: "^Button$", allow: ["w-*", "min-w-*", "max-w-*", "flex-1", "self-*", "order-*"] }
 ```
 
-見た目を変える必要があるなら、variant を足す。余白は置く側が `flex` / `gap` で持つ——`<LiveWaveform className="mt-3" />` と書かない。
+contract に無い部品は `className` を受け取らない。開けるときは、型を開けるのと contract を書くのを同時にやる——片方だけだと、型が通るのに lint が落ちるか、その逆になる。
 
-### tailwind-merge を使わない
+見た目そのものを変える必要があるなら variant を足す。余白は置く側が `flex` / `gap` で持つ——`<LiveWaveform className="mt-3" />` と書かない。
 
-`~/lib/tv` の `tv` は `createTV({ twMerge: false })` で作ってある。`clsx` も `tailwind-merge` も依存に無い。
+### 畳むのは1箇所だけ
 
-畳む必要があるのは「外から `className` で上書きされる」部品だけで、上のとおり受け取らない。受け取らないなら衝突は起きず、畳む処理は毎回の描画で空回りする。
+`tv` は `tailwind-variants/lite` から取る。畳む実装を持たない入口で、variants は同じ軸の中で排他なので畳む相手がいない。既定の入口は分類表ごと畳む実装を抱えていて、切っても束に載ったまま残る。
 
-それ以上に、畳みに頼ると衝突が黙って解決される。どちらが勝つかは tailwind-merge の分類表が決めるので、Tailwind の版が上がって分類が変わると、何も書き換えていないのに見た目が変わる。
+衝突しうるのは外から `className` で入ったものだけなので、そこは `cn` が後勝ちで畳む。効かないなら受け取る意味が無い。
 
-条件でクラスを足すだけなら `cx`。畳まない。
+```tsx
+className={cn("inline-flex items-center rounded-lg", button({ variant, size }), className)}
+```
+
+**`size-*` は `w-*` に畳まれない。** 畳む側の分類は `size` が `w` / `h` を上書きする向きしか持たず、逆向きは衝突として扱われない。幅を注入させる部品は、幅と高さを分けて書く（`size-11` ではなく `h-11 w-11`）。分けないと、どちらが効くかを生成 CSS の順序が決める。
+
+条件でクラスを足すだけで、衝突しないと分かっているなら `cx`。畳まない。
 
 ```tsx
 className={cx("mt-3 text-5xl", allDone && "text-slate-11")}

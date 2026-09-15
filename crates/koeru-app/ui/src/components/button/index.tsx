@@ -1,7 +1,7 @@
 import { Slot } from "@radix-ui/react-slot";
 import type { ComponentProps } from "react";
 
-import { type VariantProps, tv } from "~/lib/tv";
+import { type VariantProps, cn, tv } from "~/lib/tv";
 
 /**
  * 見た目の切り替え。
@@ -22,7 +22,7 @@ const button = tv({
       danger: "bg-red-11 text-slate-1 hover:bg-red-12",
     },
     size: {
-      // 高さは 44px 以上を既定にする（`TR-PLT-28` の対象サイズ）。
+      // 高さは 44px 以上を既定にする（`TR-PLT-31` の操作対象の大きさ）。
       // 収録中は画面を見ずに押すことがあるので、小さい的にしない。
       md: "h-11 px-5 text-sm",
       /*
@@ -32,13 +32,18 @@ const button = tv({
        * 行ごとの「聴く」は、そのテイクを開けば大きい的で聴ける。
        */
       sm: "h-9 px-3 text-sm",
-      icon: "size-11",
+      /*
+       * 幅と高さを分けて書く。 `size-11` にすると、外から `w-full` が来ても
+       * 畳まれない——畳む側の分類では `size` が `w` を上書きする向きしか無く、
+       * 逆向きは衝突として扱われない。 どちらが効くかが生成 CSS の順序で決まる。
+       */
+      icon: "h-11 w-11",
     },
   },
   defaultVariants: { variant: "secondary", size: "md" },
 });
 
-type ButtonProps = Omit<ComponentProps<"button">, "className"> &
+type ButtonProps = ComponentProps<"button"> &
   VariantProps<typeof button> & {
     /** 別の要素として描く（リンクなど）。 */
     asChild?: boolean;
@@ -50,17 +55,23 @@ type ButtonProps = Omit<ComponentProps<"button">, "className"> &
  * キーボードだけで到達でき、閉じ込められない（`TR-PLT-26`）。
  * 素の `<button>` のまま出すので、Tab の順序も Enter / Space も既定のまま効く。
  *
- * `className` は受け取らない。 大きさと配色は `variant` / `size` で選ぶ。
- * 外から差し込めるようにすると、`TR-PLT-28` の対象サイズを呼び出し側が壊せる。
+ * `className` で入れてよいのは、置く側が決めるもの（幅と、flex の中での
+ * 振る舞い）だけ。 大きさと配色は `variant` / `size` で選ぶ——高さを
+ * 差し込めるようにすると、`TR-PLT-31` の操作対象の大きさを呼び出し側が壊せる。
+ * 何を通すかは `shadcn/no-restyle` の contract が持つ（`vite.config.ts`）。
  *
  * 色の遷移を持たない。 道具側は動かない（`docs/design/direction.md`）ので、
  * hover も即座に切り替わる。
  */
-export const Button = ({ variant, size, asChild = false, ...props }: ButtonProps) => {
+export const Button = ({ variant, size, asChild = false, className, ...props }: ButtonProps) => {
   const Comp = asChild ? Slot : "button";
   return (
     <Comp
-      className={`inline-flex items-center justify-center gap-2 rounded-lg font-semibold disabled:pointer-events-none disabled:opacity-45 ${button({ variant, size })}`}
+      className={cn(
+        "inline-flex items-center justify-center gap-2 rounded-lg font-semibold disabled:pointer-events-none disabled:opacity-45",
+        button({ variant, size }),
+        className,
+      )}
       {...props}
     />
   );
