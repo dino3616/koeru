@@ -898,14 +898,23 @@ fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
             continue;
         }
         let tail = &after[area.len()..];
-        if !tail.starts_with('-') {
-            continue;
-        }
-        let num: String = tail[1..].chars().take_while(char::is_ascii_digit).collect();
+        /*
+         * 番号の前のハイフンは、名前空間によって在ったり無かったりする。
+         *
+         * `TR-REC-02` には在り、`PROFILE-M1` には無い。無い形まで一律に許すと
+         * `TR-REC02` のような打ち間違いが実在する ID に化けるので、
+         * 無い形を許すのは実際にそう名乗っている名前空間だけにする。
+         */
+        let (sep, num) = match tail.strip_prefix('-') {
+            Some(rest) => (1, rest),
+            None if *p == "PROFILE" => (0, tail),
+            None => continue,
+        };
+        let num: String = num.chars().take_while(char::is_ascii_digit).collect();
         if num.is_empty() {
             continue;
         }
-        let end = i + p.len() + 1 + area.len() + 1 + num.len();
+        let end = i + p.len() + 1 + area.len() + sep + num.len();
         // 末尾もハイフンで切らない。
         //
         // 英数字だけを見ていると `TR-REC-02-extra` が `TR-REC-02` として通り、
@@ -915,7 +924,7 @@ fn id_spans(line: &str) -> Vec<(String, usize, usize)> {
         {
             continue;
         }
-        out.push((format!("{p}-{area}-{num}"), i, end));
+        out.push((line[i..end].to_owned(), i, end));
     }
     out
 }
@@ -986,7 +995,7 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitCode {
     let range = format!("{base}...HEAD");
     let index = id_index(entries);
-    let in_specs = fsl_ids(root);
+    let in_specs = fsl_sites(root);
     let mut cited: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     // 変更ファイル → hunk の中で ID を引いていたか。
     let mut files: BTreeMap<String, bool> = BTreeMap::new();
@@ -1018,10 +1027,26 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
             }
         }
     }
-    let silent: Vec<&String> = files
+    /*
+     * 引用が無い変更ファイルは、**変更された全部から作る。**
+     *
+     * 読める形（`SCANNED_EXT`）だけから作ると、`Cargo.toml` や CSS や
+     * workflow の YAML が一覧に出ない。出ないと「この道具は何も言っていない」
+     * ことすら見えず、見たつもりになる。生成物だけは外す。
+     */
+    let cited_in: BTreeSet<&String> = files
         .iter()
-        .filter(|(_, found)| !**found)
+        .filter(|(_, found)| **found)
         .map(|(rel, _)| rel)
+        .collect();
+    let silent: Vec<&String> = changed
+        .iter()
+        .filter(|rel| !cited_in.contains(rel) && rel.as_str() != DECISION_INDEX)
+        .filter(|rel| {
+            !Path::new(rel)
+                .components()
+                .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
+        })
         .collect();
 
     println!("# {range} が触れた契約\n");
@@ -1040,8 +1065,10 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
                 );
                 print_brief(schema, table);
             }
-            None if in_specs.contains(id) => {
-                println!("## {id}\n\n正本は `specs/` の FSL。本文はそちらを見る。");
+            None if in_specs.contains_key(id) => {
+                // 条文は FSL の正本にある。`fslc` を通さずに本文を写すと、
+                // 「書かれているもの」と「検証されているもの」がずれる。場所だけ指す。
+                println!("## {id}\n\n正本: `{}`（FSL）", in_specs[id]);
                 println!(
                     "引いている場所: {}",
                     at.iter().cloned().collect::<Vec<_>>().join(", ")
@@ -1070,10 +1097,9 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
     // 読めた範囲を数で出す。 **この道具が変更の何割を語れているかは、
     // 読む側が知っていないと危ない。** 全部を見たつもりにさせない。
     rep.note(format!(
-        "変更 {} ファイル、うち引用を読めたのは {}（引用があったのは {}）、触れた ID {} 件",
+        "変更 {} ファイル、うち引用があったのは {}、触れた ID {} 件",
         changed.len(),
-        files.len(),
-        files.values().filter(|found| **found).count(),
+        cited_in.len(),
         cited.len()
     ));
     rep.finish("touched")
@@ -1081,54 +1107,75 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
 
 /// 統合差分から、hunk の中に現れる ID を拾う。
 ///
-/// 見るのは残る側の行（文脈と追加）だけ。 消した行にしか無い引用は、
-/// 消えた時点でその場所を指していない——変更後のどこを読めばよいかを出す道具なので、
-/// 無い場所を指さない。消したこと自体は差分そのものが見せる。
+/// **消した側も拾う。** 契約を実装していた箇所を丸ごと消したとき、その契約は
+/// 残る側のどこにも現れない。レビューで一番見たいのはそこなので、
+/// 旧パスと旧行で指して「削除」と印を付ける。
 fn scan_diff(
     diff: &str,
     cited: &mut BTreeMap<String, BTreeSet<String>>,
     files: &mut BTreeMap<String, bool>,
 ) {
-    let mut rel: Option<String> = None;
-    let mut line_no = 0usize;
+    // 読める形のパスだけを持つ。生成物と対象外は `None`。
+    let take = |path: &str| -> Option<String> {
+        let p = Path::new(path);
+        if path == DECISION_INDEX
+            || p.components()
+                .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
+            || !scanned(p)
+        {
+            return None;
+        }
+        Some(path.to_owned())
+    };
+    let mut old_rel: Option<String> = None;
+    let mut new_rel: Option<String> = None;
+    let (mut old_no, mut new_no) = (0usize, 0usize);
+
     for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("--- a/") {
+            old_rel = take(path);
+            continue;
+        }
         if let Some(path) = line.strip_prefix("+++ b/") {
-            let p = Path::new(path);
-            rel = if path == DECISION_INDEX
-                || p.components()
-                    .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
-                || !scanned(p)
-            {
-                None
-            } else {
-                files.entry(path.to_owned()).or_insert(false);
-                Some(path.to_owned())
-            };
+            new_rel = take(path);
+            if let Some(rel) = new_rel.as_deref() {
+                files.entry(rel.to_owned()).or_insert(false);
+            }
             continue;
         }
-        let Some(rel) = rel.as_deref() else { continue };
-        // `@@ -12,7 +34,9 @@` の `34`。残る側の行番号はここから数える。
+        // `@@ -12,7 +34,9 @@` の `12` と `34`。両側の行番号をここから数える。
         if let Some(rest) = line.strip_prefix("@@ ") {
-            line_no = rest
-                .split('+')
-                .nth(1)
-                .and_then(|x| x.split([',', ' ']).next())
-                .and_then(|x| x.parse().ok())
-                .unwrap_or(0);
+            let at = |mark: char| {
+                rest.split(mark)
+                    .nth(1)
+                    .and_then(|x| x.split([',', ' ']).next())
+                    .and_then(|x| x.parse().ok())
+                    .unwrap_or(0)
+            };
+            (old_no, new_no) = (at('-'), at('+'));
             continue;
         }
-        let body = match line.as_bytes().first() {
-            Some(b' ' | b'+') => &line[1..],
+        let (rel, at, body) = match line.as_bytes().first() {
+            Some(b' ') => (new_rel.as_deref(), format!("{new_no}"), &line[1..]),
+            Some(b'+') => (new_rel.as_deref(), format!("{new_no}"), &line[1..]),
+            Some(b'-') => (old_rel.as_deref(), format!("{old_no}（削除）"), &line[1..]),
             _ => continue,
         };
-        for id in id_tokens(body) {
-            cited
-                .entry(id)
-                .or_default()
-                .insert(format!("{rel}:{line_no}"));
-            files.insert(rel.to_owned(), true);
+        if let Some(rel) = rel {
+            for id in id_tokens(body) {
+                cited.entry(id).or_default().insert(format!("{rel}:{at}"));
+                files.insert(rel.to_owned(), true);
+            }
         }
-        line_no += 1;
+        match line.as_bytes().first() {
+            Some(b' ') => {
+                old_no += 1;
+                new_no += 1;
+            }
+            Some(b'+') => new_no += 1,
+            Some(b'-') => old_no += 1,
+            _ => {}
+        }
     }
 }
 
@@ -1183,7 +1230,15 @@ fn print_brief(schema: &str, t: &toml::Table) {
 /// FSL 仕様が所有している要求 ID を集める。
 /// `fslc` に依存せず原文から拾う。ID 規約そのものの検査は `fslc lint --project` が担当する。
 fn fsl_ids(root: &Path) -> BTreeSet<String> {
-    let mut ids = BTreeSet::new();
+    fsl_sites(root).into_keys().collect()
+}
+
+/// FSL 仕様が所有している要求 ID を、書かれている場所とともに集める。
+///
+/// 本文は出さない。 条文の正本は FSL で、`fslc` を通さずに読むと
+/// 「書かれているもの」と「検証されているもの」がずれる。場所だけ指す。
+fn fsl_sites(root: &Path) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
     let mut stack = vec![root.join(SPEC_DIR)];
     while let Some(dir) = stack.pop() {
         let Ok(rd) = fs::read_dir(&dir) else { continue };
@@ -1191,15 +1246,25 @@ fn fsl_ids(root: &Path) -> BTreeSet<String> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "fsl") {
-                let Ok(text) = fs::read_to_string(&p) else {
-                    continue;
-                };
-                collect_ids(&text, &mut ids);
+                continue;
+            }
+            if !p.extension().is_some_and(|x| x == "fsl") {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&p) else {
+                continue;
+            };
+            let rel = p.strip_prefix(root).unwrap_or(&p).display().to_string();
+            for (n, line) in text.lines().enumerate() {
+                let mut ids = BTreeSet::new();
+                collect_ids(line, &mut ids);
+                for id in ids {
+                    out.entry(id).or_insert_with(|| format!("{rel}:{}", n + 1));
+                }
             }
         }
     }
-    ids
+    out
 }
 
 /// `@requirement("ID"` と、`acceptance ID` / `forbidden ID` の宣言 ID を拾う。
@@ -1716,6 +1781,38 @@ mod tests {
         );
         assert!(cited.is_empty());
         assert_eq!(files.get("docs/TR-REC-02.md"), Some(&false));
+    }
+
+    /// 消した側の引用も拾う。
+    ///
+    /// 契約を実装していた箇所を丸ごと消すと、残る側のどこにも現れない。
+    /// そこを落とすと、レビューで一番見たい変更が一覧から消える。
+    #[test]
+    fn 消した側の引用も拾う() {
+        let (cited, _) = scan(
+            "diff --git a/src/a.rs b/src/a.rs\n\
+             --- a/src/a.rs\n\
+             +++ b/src/a.rs\n\
+             @@ -10,2 +20,1 @@\n\
+             -// `TR-REC-38` を満たす\n\
+             -let margin = 300;\n\
+             +let margin = 0;\n",
+        );
+        assert_eq!(
+            cited["TR-REC-38"],
+            BTreeSet::from(["src/a.rs:10（削除）".to_owned()])
+        );
+    }
+
+    /// 番号の前のハイフンが無い名前空間も拾う。ただし勝手に補わない。
+    ///
+    /// `PROFILE-M1` には区切りが無い。無い形を一律に許すと `TR-REC02` が
+    /// `TR-REC-02` に化けるので、許すのはそう名乗っている名前空間だけ。
+    #[test]
+    fn 区切りの無い形は名前空間で決まる() {
+        assert_eq!(id_tokens("`PROFILE-M2` が塞いでいる"), ["PROFILE-M2"]);
+        assert!(id_tokens("TR-REC02 は打ち間違い").is_empty());
+        assert_eq!(id_tokens("`TR-REC-02` は実在する"), ["TR-REC-02"]);
     }
 
     /// 生成物と走査対象外は読まない。
