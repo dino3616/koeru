@@ -1011,6 +1011,38 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
         }
     }
 
+    /*
+     * まだ `git add` していないファイルも見る。
+     *
+     * `git diff` は未追跡を返さないので、書いたばかりの実装や文書が
+     * **数からも引用なし一覧からも丸ごと消える。** 書いている最中に読ませるのが
+     * 主な使い道なので、そこで見えないのでは使えない。全体が追加なので全行を見る。
+     */
+    let untracked = match git(root, &["ls-files", "--others", "--exclude-standard"]) {
+        Ok(out) => out.lines().map(str::to_owned).collect::<Vec<_>>(),
+        Err(e) => {
+            rep.error(e);
+            return rep.finish("touched");
+        }
+    };
+    for rel in &untracked {
+        changed.insert(rel.clone());
+        let Some(rel) = readable(rel) else { continue };
+        let Ok(text) = fs::read_to_string(root.join(&rel)) else {
+            continue;
+        };
+        files.entry(rel.clone()).or_insert(false);
+        for (n, line) in text.lines().enumerate() {
+            for id in id_tokens(line) {
+                cited
+                    .entry(id)
+                    .or_default()
+                    .insert(format!("{rel}:{}", n + 1));
+                files.insert(rel.clone(), true);
+            }
+        }
+    }
+
     for (context, globs) in DIFF_SCOPES {
         let context = format!("-U{context}");
         // 作業ツリーの未コミット分も見る。PR を出す前に手元で読ませるのが主な使い道で、
@@ -1028,6 +1060,50 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
         }
     }
     /*
+     * 正本そのものの書き換えは、引用ではなく変更対象として数える。
+     *
+     * `meta/` の TOML は走査の対象ではない——ID を引いているのではなく、
+     * ID を**持っている**。条文が書き換わったなら、その契約こそ読む対象なので、
+     * 変わった行が属する項目を引き当てて並べる。
+     */
+    for rel in changed
+        .iter()
+        .filter(|r| r.starts_with("meta/") && r.ends_with(".toml") && !untracked.contains(r))
+    {
+        let Ok(text) = fs::read_to_string(root.join(rel)) else {
+            continue;
+        };
+        let owners = owners(&text);
+        for spec in [range.as_str(), "HEAD"] {
+            let Ok(diff) = git(root, &["diff", "-U0", spec, "--", rel]) else {
+                continue;
+            };
+            for line in diff.lines() {
+                let Some(rest) = line.strip_prefix("@@ ") else {
+                    continue;
+                };
+                let Some(head) = rest.split('+').nth(1) else {
+                    continue;
+                };
+                let mut it = head.split([',', ' ']);
+                let Some(at) = it.next().and_then(|x| x.parse::<usize>().ok()) else {
+                    continue;
+                };
+                let len = it.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(1);
+                // 消しただけの hunk は長さ 0。消えた位置の行を持ち主とする。
+                for n in at..=(at + len.max(1) - 1) {
+                    if let Some(id) = owner_at(&owners, n) {
+                        cited
+                            .entry(id.to_owned())
+                            .or_default()
+                            .insert(format!("{rel}:{n}（書き換え）"));
+                    }
+                }
+            }
+        }
+    }
+
+    /*
      * 引用が無い変更ファイルは、**変更された全部から作る。**
      *
      * 読める形（`SCANNED_EXT`）だけから作ると、`Cargo.toml` や CSS や
@@ -1039,9 +1115,16 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
         .filter(|(_, found)| **found)
         .map(|(rel, _)| rel)
         .collect();
+    let rewritten: BTreeSet<&str> = cited
+        .values()
+        .flatten()
+        .filter_map(|at| at.strip_suffix("（書き換え）"))
+        .filter_map(|at| at.rsplit_once(':').map(|(rel, _)| rel))
+        .collect();
     let silent: Vec<&String> = changed
         .iter()
         .filter(|rel| !cited_in.contains(rel) && rel.as_str() != DECISION_INDEX)
+        .filter(|rel| !rewritten.contains(rel.as_str()))
         .filter(|rel| {
             !Path::new(rel)
                 .components()
@@ -1054,10 +1137,11 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
         match index.get(id) {
             Some((schema, path, table)) => {
                 let rel = path.strip_prefix(root).unwrap_or(path);
-                println!(
-                    "## {id} — {}",
-                    str_of(table, "title").unwrap_or("（題が無い）")
-                );
+                // 部品台帳は題を `name` で持つ。形ごとに名前の欄が違う。
+                let name = str_of(table, "title")
+                    .or_else(|| str_of(table, "name"))
+                    .unwrap_or("（題が無い）");
+                println!("## {id} — {name}");
                 println!("\n正本: `{}`", rel.display());
                 println!(
                     "引いている場所: {}",
@@ -1105,6 +1189,44 @@ fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Report) -> ExitC
     rep.finish("touched")
 }
 
+/// ID を引いているかを読める形のパスか。生成物と対象外は `None`。
+fn readable(path: &str) -> Option<String> {
+    let p = Path::new(path);
+    if path == DECISION_INDEX
+        || p.components()
+            .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
+        || !scanned(p)
+    {
+        return None;
+    }
+    Some(path.to_owned())
+}
+
+/// TOML の各項目が何行目から始まるか。行から所属する ID を引くために持つ。
+fn owners(text: &str) -> Vec<(usize, String)> {
+    text.lines()
+        .enumerate()
+        .filter_map(|(n, line)| {
+            let rest = line.trim_start().strip_prefix("id = ")?;
+            let rest = rest.trim().strip_prefix('\'')?;
+            let end = rest.find('\'')?;
+            Some((n + 1, rest[..end].to_owned()))
+        })
+        .collect()
+}
+
+/// その行が属する項目。
+///
+/// 手前に項目が無い行（`schema` の宣言など）は、1件1ファイルなら
+/// そのファイルの項目のものとして数える。 収集ファイルでは誰のものでもない。
+fn owner_at(owners: &[(usize, String)], line: usize) -> Option<&str> {
+    match owners.iter().rev().find(|(at, _)| *at <= line) {
+        Some((_, id)) => Some(id),
+        None if owners.len() == 1 => owners.first().map(|(_, id)| id.as_str()),
+        None => None,
+    }
+}
+
 /// 統合差分から、hunk の中に現れる ID を拾う。
 ///
 /// **消した側も拾う。** 契約を実装していた箇所を丸ごと消したとき、その契約は
@@ -1115,18 +1237,7 @@ fn scan_diff(
     cited: &mut BTreeMap<String, BTreeSet<String>>,
     files: &mut BTreeMap<String, bool>,
 ) {
-    // 読める形のパスだけを持つ。生成物と対象外は `None`。
-    let take = |path: &str| -> Option<String> {
-        let p = Path::new(path);
-        if path == DECISION_INDEX
-            || p.components()
-                .any(|c| SKIPPED_DIRS.contains(&c.as_os_str().to_string_lossy().as_ref()))
-            || !scanned(p)
-        {
-            return None;
-        }
-        Some(path.to_owned())
-    };
+    let take = |path: &str| readable(path);
     let mut old_rel: Option<String> = None;
     let mut new_rel: Option<String> = None;
     let (mut old_no, mut new_no) = (0usize, 0usize);
@@ -1214,6 +1325,9 @@ fn print_brief(schema: &str, t: &toml::Table) {
         }
         "evidence" => {
             println!("種別: {} ／ 確信度: {}", field("kind"), field("confidence"));
+        }
+        "profile" => {
+            println!("状態: {}", field("status"));
         }
         "component-ledger" => {
             println!(
@@ -1813,6 +1927,28 @@ mod tests {
         assert_eq!(id_tokens("`PROFILE-M2` が塞いでいる"), ["PROFILE-M2"]);
         assert!(id_tokens("TR-REC02 は打ち間違い").is_empty());
         assert_eq!(id_tokens("`TR-REC-02` は実在する"), ["TR-REC-02"]);
+    }
+
+    /// TOML の行から、その行が属する項目を引く。
+    ///
+    /// 収集ファイルでは、手前に項目が無い行は誰のものでもない。
+    /// 1件1ファイルでは、宣言の行もその項目のものとして数える。
+    #[test]
+    fn 行から持ち主を引く() {
+        let collection = owners(
+            "schema = 'requirement-set'\n\
+             [[requirement]]\n\
+             id = 'TR-REC-02'\n\
+             title = 'あ'\n\
+             [[requirement]]\n\
+             id = 'TR-REC-03'\n",
+        );
+        assert_eq!(owner_at(&collection, 1), None);
+        assert_eq!(owner_at(&collection, 4), Some("TR-REC-02"));
+        assert_eq!(owner_at(&collection, 6), Some("TR-REC-03"));
+
+        let entity = owners("schema = 'decision'\nid = 'DEC-PLT-030'\n");
+        assert_eq!(owner_at(&entity, 1), Some("DEC-PLT-030"));
     }
 
     /// 生成物と走査対象外は読まない。
