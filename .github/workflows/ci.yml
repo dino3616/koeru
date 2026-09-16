@@ -78,8 +78,8 @@ jobs:
       # 更新は Renovate 任せにせず、semantic diff を確認してから上げること。
       - name: Install fslc
         env:
-          FSL_VERSION: v4.5.0
-          FSL_SHA256: 205a69099f696e8b83234e1b0bc0f9d8c1352d8dd970ba71f86d0242a9c56259
+          FSL_VERSION: v4.6.0
+          FSL_SHA256: 98b60a9914bc06225a97a5e579aa409b04e9caaa468d59cd3a7e8da8aa902934
         run: |
           set -euo pipefail
           curl -fsSL -o fslc \
