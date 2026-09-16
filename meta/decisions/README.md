@@ -17,6 +17,8 @@
 | [DEC-ALL-006](DEC-ALL-006.toml) | ローカル完結と単一実装 | ローカル完結・単一実装の方針に反する部品は採らない | accepted |
 | [DEC-ALL-007](DEC-ALL-007.toml) | 配布形態との両立 | 署名配布と両立しない動的リンク前提の部品は、実行時 dlopen 経由でのみ到達する | accepted |
 | [DEC-ALL-008](DEC-ALL-008.toml) | ライセンスの示し方 | ファイル単位の SPDX ヘッダは置かない。示すのは LICENSE と Cargo.toml だけ | accepted |
+| [DEC-ALL-009](DEC-ALL-009.toml) | レビュー基盤 | ReviewGraphen は今は採らない。設計を読む対象として残す | accepted |
+| [DEC-ALL-010](DEC-ALL-010.toml) | 構造化の基盤 | HigherGraphen は採らない。触るなら上に載る ReviewGraphen の側 | accepted |
 | [DEC-ALN-001](DEC-ALN-001.toml) |  | 強制アライメントは Julius セグメンテーションキットを一次経路にする | accepted |
 | [DEC-ALN-002](DEC-ALN-002.toml) | 原音設定 | 原音設定は自動を既定とし、setParam / vLabeler と同等の編集機能を必ず持つ | accepted |
 | [DEC-ALN-003](DEC-ALN-003.toml) | 確認の上限 | 確認待ちの上限を件数ではなく合計所要時間で切り、通常モードは合計5分とする | accepted |
@@ -57,7 +59,7 @@
 | [DEC-PLT-017](DEC-PLT-017.toml) | 画面へ流し続けるものの経路 | 流し続けるものは Channel で送る。画面から引きに行かせない | accepted |
 | [DEC-PLT-018](DEC-PLT-018.toml) | メモ化の置き場所 | React Compiler を通す。手でメモ化しない | accepted |
 | [DEC-PLT-019](DEC-PLT-019.toml) | 画面と Rust の型の一致 | tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない | accepted |
-| [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | accepted |
+| [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | superseded |
 | [DEC-PLT-021](DEC-PLT-021.toml) | 画面の分け方 | OOUI はカード（面）の単位で採る。ルートはオブジェクトごとに分けない | accepted |
 | [DEC-PLT-022](DEC-PLT-022.toml) | アクセシビリティの自動検査 | Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する | accepted |
 | [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | accepted |
@@ -67,6 +69,8 @@
 | [DEC-PLT-027](DEC-PLT-027.toml) | 声から色を導く規則 | 音高帯で色相の区画を選び、重心が区画の中の位置と彩度を決める。彩度の上限は色相ごとに sRGB から出す | accepted |
 | [DEC-PLT-028](DEC-PLT-028.toml) | 画面で色相を持ってよいもの | 押せるものの塗りとフォーカス環を無彩色へ移す。cyan と jade を画面から外す | accepted |
 | [DEC-PLT-029](DEC-PLT-029.toml) | 画面が成立する窓の範囲 | 3列に下限を持たせて 1200px で段を切る。マイクの選択は Rust が持つ | accepted |
+| [DEC-PLT-030](DEC-PLT-030.toml) | クラス名の畳み | 畳むのは外から来たものとの突き合わせ1箇所だけ。`tv` は畳まない入口から取り、`cn` で後勝ちにする | accepted |
+| [DEC-PLT-031](DEC-PLT-031.toml) | デザインシステムの規則の検査 | デザインシステムの規則は `@shadcn/lint` を oxlint から呼んで見る。`components.json` を置く | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -93,4 +97,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-83 件。
+87 件。

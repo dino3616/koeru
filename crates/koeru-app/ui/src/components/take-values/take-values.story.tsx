@@ -23,7 +23,7 @@ const meta = {
     raw: false,
     onRaw: fn(),
   },
-  decorators: [(Story) => <div className="w-[640px]">{Story()}</div>],
+  decorators: [(Story) => <div className="w-160">{Story()}</div>],
 } satisfies Meta<typeof TakeValues>;
 
 export default meta;

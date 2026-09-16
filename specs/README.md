@@ -96,11 +96,10 @@ method-coverage 0.72 / editor-constraints 0.41 / song-coverage 0.54 / first-run 
 14 の操作に置いているが、そのうち13は消しても何も壊れない。良性の変異が母数を押し上げるので、
 仕様どうしで kill 率を比べない。比べるのは同じ仕様の基準線からの後退だけ。
 
-`fslc` の制約が3つある（4.0.0 時点）。
+`fslc` の制約が2つある（4.5.0 時点）。
 
 - `def` は `acceptance` / `forbidden` の中で展開されない。そこだけ式を書き下す
 - `relation` を `init` で初期化しないと、空ではなく任意の関係から始まる。空は `Set {}`
-- `relation` を持つ仕様は `fslc document generate` が通らない。CI は明示的に除外している
 
 Map を持つ仕様は検証が重い。 設計層と align-review は深さ 8 以下で回すこと。
 align-review は帰納法も深さ 8 で回す（深さ 12 では終わらない）。**帰納法が通れば

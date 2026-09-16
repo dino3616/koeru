@@ -6,6 +6,7 @@ node_modules/
 crates/koeru-app/ui/dist/
 crates/koeru-app/ui/.tanstack/
 crates/koeru-app/ui/.output/
+crates/koeru-app/ui/*.tsbuildinfo
 .vite-plus/
 
 # Tauri が生成する

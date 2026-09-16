@@ -346,6 +346,8 @@ export const 声の色: Story = {
                         key={hue}
                         data-fg={label}
                         className="koeru-voice-fill inline-block size-4 rounded"
+                        /* 返すのは `--voice-*` だけ。別ファイルの関数なので読めない。 */
+                        // oxlint-disable-next-line shadcn/no-inline-styles
                         style={voiceStyle({
                           hue,
                           chroma: position,

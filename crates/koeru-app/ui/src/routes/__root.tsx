@@ -2,6 +2,8 @@ import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-r
 
 import { QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 
+import { ViewTransition } from "react";
+
 import { Announcer } from "~/components/announcer";
 import { ErrorBoundary } from "~/components/error-boundary";
 import type { ReactNode } from "react";
@@ -65,7 +67,26 @@ export const Route = createRootRoute({
       <QueryErrorResetBoundary>
         {({ reset }) => (
           <ErrorBoundary onReset={reset}>
-            <Outlet />
+            {/*
+              画面が入れ替わったことを、入れ替わりそのもので伝える。
+              声の並び・声・テイクはどれも全面が差し替わるので、
+              切り替えだけだと「押せたのか」「別の画面なのか」が一瞬読めない。
+
+              名前を固定する。 中身の DOM が入れ替わっても同じ名前なら、
+              React は消滅と出現ではなく1つの領域の変化として扱い、
+              前後を重ねて溶かす。名前を外すと画面ごとに別の領域になり、
+              前の画面が消えてから次が出るまでの間に地の色が覗く。
+
+              ルータ側の `viewTransition` は使わない（既定で off のまま）。
+              あちらは `document.startViewTransition` を直接叩くので、
+              React が持つ木の更新と二重に走る。遷移は React に一本化する。
+
+              動きの量と、動かすかどうかは CSS 側（`globals.css`）。
+              `prefers-reduced-motion` の尊重も向こうに置く（`TR-PLT-33`）。
+            */}
+            <ViewTransition name="screen">
+              <Outlet />
+            </ViewTransition>
           </ErrorBoundary>
         )}
       </QueryErrorResetBoundary>

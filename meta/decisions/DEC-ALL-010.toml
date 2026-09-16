@@ -1,0 +1,36 @@
+schema = 'decision'
+id = 'DEC-ALL-010'
+constraint_label = '構造化の基盤'
+constraint = '同じ規律を2つの機械に持たせないこと'
+title = 'HigherGraphen は採らない。触るなら上に載る ReviewGraphen の側'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '採らない',
+  'architecture product に KOERU の層の規則を載せる',
+  'pr-review と test-gap の口だけ試す',
+]
+selected = '採らない'
+rationale = '''
+動く口のうち KOERU に当たるものが無い。 `architecture smoke direct-db-access` は
+外部ファイルを一切読まない決定論的なデモで、`architecture input lift` は
+利用側が書いた JSON を cells へ持ち上げる。残りは pr-review の対象推薦、
+test-gap、DDD レビューなど。
+
+中心の不変条件を KOERU は既に持っている。 architecture product が挙げるのは
+「文脈をまたぐ直接 DB アクセスの禁止」「要求は少なくとも1つの設計要素と
+1つのテストまたは受入に対応する」「射影は失われた情報を宣言する」の3つ。
+1つ目は DB が無いので当たらない。2つ目は FSL と `cargo xtask check-profile` が
+既に見ている。入力 JSON を `meta/` から書き起こす仕事だけが増える。
+
+基盤と製品の関係がある。 ReviewGraphen 側に HigherGraphen からの移行が
+文書として置かれている。基盤を直接積むより、上に載る側（`DEC-ALL-009`）を見る。
+
+Apache-2.0。 取り込むなら `deny.toml` の許可リストに載っている。
+'''
+review_triggers = [
+  'architecture product が、利用側の JSON を書かずにリポジトリを直接読めるようになったとき',
+  'KOERU の層の規則（ドメインとアプリケーションの境界）を機械で見たくなり、clippy と cargo-deny で書けないと分かったとき',
+]
+affects_requirements = []
+supersedes = []

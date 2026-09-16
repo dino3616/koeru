@@ -834,7 +834,7 @@ C++ ライブラリとして Rust からも呼べる（CMP-130）。PostgreSQL �
 
 [[component]]
 id = 'CMP-060'
-name = 'Rust 1.95 / edition 2024'
+name = 'Rust 1.98 / edition 2024'
 purpose = '実行基盤。FFI でネイティブライブラリを直接呼べる'
 license = 'MIT / Apache-2.0'
 status = '採用'
@@ -1941,3 +1941,36 @@ domains = [
 supports_requirements = [
   'TR-PLT-09',
 ]
+
+[[component]]
+id = 'CMP-132'
+name = 'cn'
+purpose = '外から入ったクラスと部品のクラスを、後勝ちで畳む'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-030'
+domains = [
+  'platform',
+]
+note = '''依存ゼロ。`tailwind-merge` と `clsx` の置き換えで、同じ API を持つ。
+畳むのは部品が `className` を受け取る口の1箇所だけ。 variants の組み立て
+（`tailwind-variants/lite`）は畳まない入口から取る'''
+
+[[component]]
+id = 'CMP-133'
+name = '@shadcn/lint'
+purpose = 'デザインシステムの規則を機械で見る。部品へ注入してよいクラスを contract で絞る'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-031'
+domains = [
+  'platform',
+]
+supports_requirements = [
+  'TR-PLT-31',
+]
+note = '''開発時のみ。配布物には入らない。 oxlint の JS plugin として走らせる
+——ESLint 経路は `@typescript-eslint/parser` が TypeScript 7.0 を拒否するので使えない。
+その parser が実依存にあるため、使わない ESLint 一式が dev の木に入る。
+テーマの解決は `components.json` を起点にする。 置かないと未知クラスと生の色の
+検査が黙って何もしない'''

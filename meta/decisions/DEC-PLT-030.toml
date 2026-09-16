@@ -1,0 +1,56 @@
+schema = 'decision'
+id = 'DEC-PLT-030'
+constraint_label = 'クラス名の畳み'
+constraint = '外から入ったクラスが効き、かつ部品が守る条件を呼び出し側が壊せないこと'
+title = '畳むのは外から来たものとの突き合わせ1箇所だけ。`tv` は畳まない入口から取り、`cn` で後勝ちにする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'tailwind-variants/lite + cn',
+  'tailwind-variants の既定入口（twMerge を有効にする）',
+  '`className` を受けず variant を足す',
+]
+selected = 'tailwind-variants/lite + cn'
+rationale = '''
+`tv` は `tailwind-variants/lite` から取る。 畳む実装を持たない入口で、
+variants は同じ軸の中で排他なので畳む相手がいない。既定の入口は畳む実装を
+分類表ごと自前で抱えており、`twMerge: false` で切っても束には載ったまま残る。
+入口を替えて実測したところ、client の JS が 606,529 → 577,091 バイト
+（gzip 195,254 → 186,074）に減り、`conflictingClassGroups` が束から消えた。
+
+畳む場所は1箇所に閉じる。 衝突しうるのは外から `className` で入ったものと
+部品が持つクラスだけなので、そこだけ `cn` が後勝ちで畳む。効かないなら
+受け取る意味が無い。variants を組み立てるたびに畳み直す必要は無い。
+
+**`size-*` は `w-*` に畳まれない。** 畳む側の分類は `size` が `w` / `h` を
+上書きする向きしか持たず、逆向きは衝突として扱われない。`cn("size-11", "w-full")`
+は両方を残すので、どちらが効くかは生成 CSS の順序が決める。幅を注入させる部品は
+幅と高さを分けて書く（`Button` の icon を `size-11` から `h-11 w-11` にした）。
+
+何を注入してよいかは型では書けない。 型で言えるのは「受け取るか否か」までで、
+「幅は良いが高さは駄目」が書けない。そこは `DEC-PLT-031` の lint が持つ。
+畳みと許可は別の道具で、両方が要る——許可だけだと衝突の勝敗が順序任せになり、
+畳みだけだと `TR-PLT-31` の大きさを呼び出し側が壊せる。
+
+`DEC-PLT-020` を置き換える。 あちらの review_trigger は「部品に className を
+渡したくなる場面が繰り返し出たとき（variant が足りていない合図）」で、**引き金は引かれた**
+——`w-fit` と `w-full` を切り替えるだけで variant を足すか、包む `div` を置くことになっていた。
+variant が足りないのではなく、幅は置く側でなければ決められない。
+
+あちらから引き継ぐもの。 `base` と `slots` は使わない。静的なクラスは JSX に
+そのまま書く——`base` に移すと見た目を読むのに2箇所を行き来する。`slots` は1つの `tv` が
+複数要素の見た目を持つ形で、部品を分ける代わりにならない。`tv` を通すのは値で変わるものだけ。
+条件で足すだけで衝突しないなら `cx`。
+
+MIT、依存ゼロ。 `cn` は `tailwind-merge` と `clsx` の置き換えで、同じ API を持つ。
+'''
+review_triggers = [
+  '注入を許す部品が増えて、部品ごとの事情を contract が写しきれなくなったとき',
+  '`cn` の分類表が Tailwind の版に追随しなくなり、畳みの結果が変わったとき',
+  '`tailwind-variants/lite` が variants の機能で足りなくなったとき',
+]
+affects_requirements = [
+  'TR-PLT-03',
+  'TR-PLT-31',
+]
+supersedes = ['DEC-PLT-020']

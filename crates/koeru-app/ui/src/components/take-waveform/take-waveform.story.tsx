@@ -26,7 +26,7 @@ const meta = {
   title: "領域/TakeWaveform",
   component: TakeWaveform,
   args: { takeId: 12, durationMs: 3100, peak: 0.71, otos, selected: "き" },
-  decorators: [(Story) => <div className="w-[640px]">{Story()}</div>],
+  decorators: [(Story) => <div className="w-160">{Story()}</div>],
   beforeEach: () => {
     mocked(api.waveformWindow).mockResolvedValue(points);
   },

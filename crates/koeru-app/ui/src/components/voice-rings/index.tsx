@@ -108,6 +108,11 @@ export const VoiceRings = ({ rings, color, label, grow = false }: VoiceRingsProp
       // 一辺は置く側の箱が決める。 音源の面では余った高さに合わせて縮む。
       className="size-full"
       {...described}
+      /*
+       * `voiceStyle` が返すのは `--voice-light` / `--voice-dark` の2つだけ。
+       * 別ファイルの関数なので、規則からは中身が読めず動的な塊に見える。
+       */
+      // oxlint-disable-next-line shadcn/no-inline-styles
       style={voiceStyle(color)}
     >
       <defs>

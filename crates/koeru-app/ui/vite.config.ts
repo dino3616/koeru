@@ -45,7 +45,10 @@ const config = defineConfig({
   },
   lint: {
     ignorePatterns: GENERATED,
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
+    jsPlugins: [
+      { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
+      { name: "shadcn", specifier: "@shadcn/lint" },
+    ],
     /*
      * react と jsx-a11y は oxlint の既定でオフ。**入れる。**
      * このリポジトリは a11y を `TR-PLT-25` / `28` / `29` で要求しているので、
@@ -75,6 +78,77 @@ const config = defineConfig({
       "typescript/no-explicit-any": "error",
       "typescript/no-non-null-assertion": "error",
       "typescript/switch-exhaustiveness-check": "error",
+      /*
+       * デザインシステムの規則を機械で見る。
+       * テーマは `components.json` が指す `src/styles/globals.css` から読む
+       * ——段の名前も自前のクラスも、そこを辿って認識される。
+       *
+       * いま違反が無いものだけ入れてある。`no-arbitrary-values` と
+       * `no-inline-styles` は違反が残っているので、直す範囲を決めてから入れる。
+       */
+      "shadcn/no-unknown-classes": "error",
+      "shadcn/no-raw-colors": "error",
+      /*
+       * 部品へ注入してよいクラス。 既定は「何も通さない」で、
+       * 通すものを部品ごとに列挙する。
+       *
+       * `Button` に通すのは、置く側でなければ決められないものだけ——
+       * 幅と、flex の中での振る舞い。 高さと内側の余白は通さない
+       * （`TR-PLT-31` の操作対象の大きさを呼び出し側が壊せる）。
+       *
+       * **幅は語で許し、値では許さない。** `w-*` を開けると `w-0` が通り、
+       * `cn` の後勝ちで部品側の幅が消えて、24 CSS ピクセルを割る的ができる。
+       * 高さだけ塞いでも `TR-PLT-31` は守れない。`min-w-*` と `max-w-*` も
+       * 同じ理由で通さない（`max-w-0`、`min-w-0`）。
+       *
+       * `flex-1` と `grow-*` / `shrink-*` は残す。 縮んでも min-content
+       * ——文字と `px` の分——より下へは行かない。下限を外せるのは `min-w-0` で、
+       * それは上で塞いである。
+       */
+      "shadcn/no-restyle": [
+        "error",
+        {
+          contracts: [
+            {
+              pattern: "^Button$",
+              allow: [
+                "w-full",
+                "w-fit",
+                "w-auto",
+                "flex-1",
+                "grow-*",
+                "shrink-*",
+                "self-*",
+                "order-*",
+              ],
+            },
+          ],
+        },
+      ],
+      "shadcn/require-static-classes": "error",
+      "shadcn/no-inline-styles": "error",
+      /*
+       * 任意値は尺度で書けるなら書く。 `w-[640px]` は `w-160` と同じ値で、
+       * 尺度から外れた値だけが残るようにしておかないと、
+       * 「4px 刻みのどこか」が読む側に分からなくなる。
+       *
+       * ここに並ぶのは尺度が持っていない形。 段組みの `auto`、
+       * 画面高に対する割合、字間、環の影、`koeru-breath` の遅れ。
+       */
+      "shadcn/no-arbitrary-values": [
+        "error",
+        {
+          allow: [
+            "grid-cols-[auto_1fr]",
+            "max-h-[40vh]",
+            "tracking-[0.18em]",
+            "tracking-[0.22em]",
+            "shadow-[inset_0_-2px_0_var(--slate-12)]",
+            "[animation-delay:0.3s]",
+            "[animation-delay:0.6s]",
+          ],
+        },
+      ],
     },
     options: { typeAware: true, typeCheck: true },
   },

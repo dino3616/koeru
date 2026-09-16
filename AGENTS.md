@@ -39,7 +39,7 @@ M2 を実装中。 録音 → テイク確定 → 試唱までが動く。実装
 |---|---|
 | `writing-comments` | コメントや説明文を書く・直すとき。言語を問わない。何を書き何を書かないか、要件の引用の形 |
 | `rust-conventions` | Rust のコードを書く・直す・レビューするとき。 エラー型、tracing、clippy、依存追加の方針 |
-| `react-conventions` | 画面を書く・直すとき。tailwind-variants、`className` を受けないこと、部品の粒度、Rust との境界 |
+| `react-conventions` | 画面を書く・直すとき。tailwind-variants、注入してよいクラスの決め方、部品の粒度、Rust との境界 |
 | `verify-koeru` | 変更を検証するとき。何をどの順に走らせるか、CI が何を見ているか |
 
 次の skill はリポジトリの外にある（保守者の環境やプラグイン由来）。clone しただけでは付いてこない。
@@ -83,6 +83,15 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
 
+**レビューに入る前に、変更が触れた契約を出す。** 検査ではなく、読む前の準備。
+
+```bash
+cargo xtask touched            # main との差分が引いている ID を、本文ごと
+```
+
+要件なら条文と確信度、判断なら選んだ案と覆る条件が出る。 引用の無い変更ファイルは
+別に並ぶ——そこは機械では対応が出ないので、読んで決める。詳細は `verify-koeru` skill。
+
 先に `git-lfs` を入れてから submodule を取る。 取らずに clone すると途中で死ぬ。
 
 書いていない OS 向けの組み立ても手元で通す。
@@ -116,7 +125,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - **`koeru-align` にも「書いていない OS」の席がある**（`src/mfa/unsupported.rs`）。**trait を足したら両方に実装すること。踏んだ**
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
-- 部品は `className` を props で受けない。tailwind-merge も使わない（`~/lib/tv` は `twMerge: false`）。受けないなら衝突が起きず、畳む処理は空回りする。詳細は `react-conventions` skill
+- 部品へ注入してよいクラスは lint の contract が決める（`shadcn/no-restyle`、`vite.config.ts`）。型で言えるのは「受け取るか否か」までで、「幅は良いが高さは駄目」が書けない。畳むのは外から来たものと突き合わせる1箇所だけ——`~/lib/tv` の `cn`。`tv` は畳まない入口（`tailwind-variants/lite`）から取る。詳細は `react-conventions` skill
 - 画面へ渡す型と呼び出し口は Rust から生成する（`DEC-PLT-019`）。`ui/src/lib/bindings.gen.ts` は手で直さない
 - 画面から Rust を読むのは TanStack Query（`DEC-PLT-023`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は `RouteError` と `ErrorBoundary`。鍵は `ui/src/lib/queries.ts` に集め、台帳は `ledgerKey` でまとめて無効化する。**`open_project` は台帳の鍵の下に置かない**——あれは収録セッションを始め直すので（`TR-REC-30`）、テイクのたびに呼ぶと録音の途中でセッションが切り替わる
 - 画面へ流し続けるものは Tauri の Channel で送る。`invoke` で引きに行かせない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。流し続けるものはアプリの状態ロックの外から読む（テイク確定中は数秒握られる）

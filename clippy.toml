@@ -1,5 +1,5 @@
 # clippy 自体の設定。lint の on/off は Cargo.toml の [workspace.lints] 側で行う。
-msrv = "1.95"
+msrv = "1.98"
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true

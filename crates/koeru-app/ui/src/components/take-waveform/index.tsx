@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { CLIP_THRESHOLD } from "~/lib/levels";
@@ -200,13 +200,14 @@ export const TakeWaveform = ({
         <div className={height === "sm" ? "relative h-7" : "relative h-9"}>
           {otos.map((o) => {
             const [from, to] = usableSpan(o, durationMs);
-            const box = `absolute flex items-center justify-center overflow-hidden rounded-lg ${
+            const box = `absolute left-(--oto-from) w-(--oto-span) flex items-center justify-center overflow-hidden rounded-lg ${
               height === "sm" ? "h-7 text-xs" : "h-9 text-sm"
             }`;
+            // 位置と幅は録れた音ごとに変わる。 変わる値は変数で渡し、当てるのはクラス。
             const place = {
-              left: `${(from / durationMs) * 100}%`,
-              width: `${((to - from) / durationMs) * 100}%`,
-            };
+              "--oto-from": `${(from / durationMs) * 100}%`,
+              "--oto-span": `${((to - from) / durationMs) * 100}%`,
+            } as CSSProperties;
             /*
               読むだけの帯は、枠も hover も持たない。 持たせると押せる的に
               見える——`LastTake` では選ぶ相手がいないので、押しても何も起きない。

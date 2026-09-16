@@ -123,12 +123,18 @@ impl Change {
 /// バイト表現を固定する。 `f64` をそのまま読むと環境で並びが変わりうるので、
 /// リトルエンディアンに揃えてから食わせる。
 fn hash_samples(samples: &[f64]) -> String {
+    use std::fmt::Write as _;
+
     let mut h = Sha256::new();
     h.update(samples.len().to_le_bytes());
     for s in samples {
         h.update(s.to_le_bytes());
     }
-    format!("{:x}", h.finalize())
+    let mut out = String::with_capacity(64);
+    for b in h.finalize() {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
 }
 
 #[cfg(test)]
