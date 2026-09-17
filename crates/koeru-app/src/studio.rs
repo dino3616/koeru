@@ -161,6 +161,11 @@ pub struct ReviewSummary {
     /// キューには現れない。 エントリが無いので、確認の対象にすらならない
     /// ——それでも書き出しは止める（`INV-ALN-003` の趣旨）。
     pub missing: usize,
+    /// WAV をまたいで重なっているエイリアスの数。
+    ///
+    /// エイリアスはエントリの識別子なので、重なると確認キューが片方を落とす。
+    /// 落ちたほうは確認もされず `oto.ini` にも出ないので、書き出しを止める。
+    pub conflicting: usize,
     /// まだ推定していないエントリの数。録り直しに回したものがここにいる。
     ///
     /// 確認待ちには数えない（`pending` は `InQueue` と `Blocked` だけ）。
@@ -2105,9 +2110,16 @@ impl Studio {
                     s.set(&mut next, s.get(&prev));
                 }
             }
+            // 値と固定を一度に書く。 別々に流すと、固定だけ落ちたときに
+            // 「人の値なのに固定が無い」行が残り、次の録音で上書きされる。
             let open = self.opened_mut()?;
-            open.ledger.set_oto_value(take_id, alias, &next)?;
-            open.ledger.set_oto_pins(take_id, alias, pins)?;
+            open.ledger.put_review_entry(
+                take_id,
+                alias,
+                &next,
+                EntryState::InQueue.as_str(),
+                pins,
+            )?;
         }
 
         self.refresh_review()
@@ -2121,6 +2133,11 @@ impl Studio {
     pub fn review_summary(&mut self) -> Result<ReviewSummary> {
         let method = self.opened()?.dir.read_manifest()?.method;
         let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?.len();
+        let conflicting = self
+            .opened_mut()?
+            .ledger
+            .adopted_conflicting_aliases()?
+            .len();
         let q = &self.opened()?.review;
         let reach = reach::of(match method {
             Method::Single => koeru_core::alias::Method::Single,
@@ -2142,11 +2159,12 @@ impl Studio {
             budget_seconds: koeru_align::review::REVIEW_BUDGET.as_secs(),
             exceeds_budget: q.exceeds_budget(),
             missing,
+            conflicting,
             unestimated: q
                 .all()
                 .filter(|(_, e)| e.state == EntryState::NotEstimated)
                 .count(),
-            may_export: missing == 0 && q.may_export().is_ok(),
+            may_export: missing == 0 && conflicting == 0 && q.may_export().is_ok(),
             // 飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
             allows_skipping: reach.allows_skipping_review(),
             reach: reach.kind().to_owned(),
@@ -2270,7 +2288,101 @@ impl Studio {
     pub fn revert_oto_value(&mut self, alias: &str, slot: &str) -> Result<()> {
         let s = slot_of(slot)
             .ok_or_else(|| AppError::new("review.unknown_slot", "知らない値の名前"))?;
-        self.with_entry(alias, |q, id| q.revert_to_auto(id, s))
+        self.with_entry(alias, |q, id| q.revert_to_auto(id, s))?;
+        // 固定を解いたら自動の値へ戻す（`AC-ALN-002`）。
+        //
+        // **解くだけでは戻らない。** `revert_to_auto` は印を外すだけなので、
+        // 人が入れた数はそのまま残り、そのまま書き出される
+        // ——「自動に戻す」を押したのに自動の値にならない。
+        //
+        // 失敗しても解いた事実は残す。 再推定できない理由（WAV が読めない、
+        // アライメントが通らない）は解くことと関係がなく、
+        // 巻き戻すと押した操作が黙って消える。
+        if let Some(take_id) = self.opened()?.review_takes.get(alias).copied()
+            && let Err(e) = self.re_estimate_take(take_id)
+        {
+            tracing::warn!(reason = %e.kind, "固定を解いたが、再推定は通らなかった");
+        }
+        Ok(())
+    }
+
+    /// そのテイクの oto を作り直す（`REQ-ALN-007`, `TR-ALN-29`）。
+    ///
+    /// 固定されていない値だけを書き換える（`INV-ALN-001`）。固定はキューが守る
+    /// （[`ReviewQueue::re_estimate`]）ので、ここは新しい推定を渡すだけ。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、WAV を読めない、読みを音素へ写せない、
+    /// 発声を見つけられない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn re_estimate_take(&mut self, take_id: i32) -> Result<()> {
+        let root = self.opened()?.dir.root().to_path_buf();
+        let take = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .ok_or_else(|| AppError::new("ledger.unknown_take", "テイクが台帳に無い"))?;
+        let w = wav::read(root.join(&take.rel_path))?;
+        let f64s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "収録の長さは 2^53 サンプルに届かない"
+        )]
+        let duration_ms = f64s.len() as f64 * 1000.0 / f64::from(w.rate_hz);
+
+        let kana = self.opened_mut()?.ledger.units_of(&take.row_id)?;
+        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
+        let alignment = self.align_take(&f64s, w.rate_hz, &take.row_id);
+        let per_mora = alignment
+            .as_ref()
+            .and_then(|a| Boundaries::per_mora(a, &readings))
+            .ok_or_else(|| AppError::new("align.no_voice", "発声を見つけられなかった"))?;
+
+        let preset = Preset::default_for(koeru_core::alias::Method::Single)
+            .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+        let pops = self.populations()?;
+        let cfg = SegmentConfig::default();
+
+        let mut next = self.opened()?.review.clone();
+        let mut rows = Vec::new();
+        for (b, reading) in per_mora.iter().zip(&kana) {
+            let o = derive_cv(
+                b.voice_start_ms,
+                b.vowel_start_ms,
+                b.vowel_end_ms,
+                duration_ms,
+                &preset,
+                Self::consonant_class_of(reading),
+            );
+            let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+            let c = alignment
+                .as_ref()
+                .and_then(|a| {
+                    Confidence::from_alignment_span(a, &f64s, b.voice_start_ms, b.vowel_end_ms)
+                })
+                .or_else(|| Some(confidence(&f64s, w.rate_hz, b, &cfg)))
+                .map(|mut c| {
+                    c.prior = prior;
+                    c
+                })
+                .unwrap_or_else(Confidence::full);
+            // 固定されていない値だけが動く（`INV-ALN-001`）。
+            next.re_estimate(reading, o, c).map_err(review_error)?;
+            let Some(e) = next.get(reading) else { continue };
+            rows.push(koeru_core::db::ReviewEntryRow {
+                take_id,
+                alias: reading.clone(),
+                oto: e.oto,
+                state: e.state.as_str().to_owned(),
+                pinned: e.pins(),
+            });
+        }
+
+        let open = self.opened_mut()?;
+        open.ledger.put_review_entries(&rows)?;
+        open.review = next;
+        Ok(())
     }
 
     /// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
@@ -2402,6 +2514,15 @@ impl Studio {
             return Err(AppError::new(
                 "review.missing_oto",
                 format!("切り出しの取れていない行が {} 件ある", missing.len()),
+            ));
+        }
+        // エイリアスが WAV をまたいで重なると、キューが片方を落とす。
+        // 落ちたほうは確認もされず `oto.ini` にも出ない。
+        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        if !conflicting.is_empty() {
+            return Err(AppError::new(
+                "review.conflicting_alias",
+                format!("別の回と同じ名前の音が {} 件ある", conflicting.len()),
             ));
         }
         // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。

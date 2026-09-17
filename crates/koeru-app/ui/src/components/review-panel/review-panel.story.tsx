@@ -13,6 +13,7 @@ const base: ReviewSummaryView = {
   budget_seconds: 300,
   exceeds_budget: false,
   missing: 0,
+  conflicting: 0,
   unestimated: 0,
   may_export: false,
   allows_skipping: false,
@@ -107,6 +108,8 @@ export const 録り直しを待っている音がある: Story = {
   beforeEach: () => summary({ pending: 0, estimated_seconds: 0, unestimated: 2 }),
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.textContent).toContain("録り直しを待っている音"));
+    // 上で「済んでいない音はありません」と言わない。
+    await expect(canvasElement.textContent).not.toContain("済んでいない音はありません");
     /*
       件数から組み立て直さない。 `pending` は未推定を数えないので、
       ここで組み立てると「済んだ」と出して押させ、押すと断られる。
@@ -136,6 +139,15 @@ export const 文字コードを選べる: Story = {
     await expect(utf?.getAttribute("aria-pressed")).toBe("false");
     if (utf !== undefined) await userEvent.click(utf);
     await waitFor(() => expect(utf?.getAttribute("aria-pressed")).toBe("true"));
+  },
+};
+
+export const 別の回と同じ名前の音がある: Story = {
+  beforeEach: () => summary({ pending: 0, estimated_seconds: 0, conflicting: 2 }),
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.textContent).toContain("別の回と同じ名前の音"));
+    // キューが片方を落とすので、確認が空でも書き出させない。
+    await expect(canvasElement.textContent).not.toContain("済んでいない音はありません");
   },
 };
 

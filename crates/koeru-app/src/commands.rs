@@ -965,6 +965,8 @@ pub struct ReviewSummaryView {
     pub exceeds_budget: bool,
     /// 切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。
     pub missing: u32,
+    /// WAV をまたいで重なっているエイリアスの数。重なると片方が確認から落ちる。
+    pub conflicting: u32,
     /// まだ推定していないエントリの数。録り直しに回したものがここにいる。
     pub unestimated: u32,
     /// いま書き出してよいか。画面はこれを見る（件数から組み立て直さない）。
@@ -1009,6 +1011,7 @@ pub fn review_summary(state: State<'_, AppState>) -> Result<ReviewSummaryView> {
         budget_seconds: count64(s.budget_seconds),
         exceeds_budget: s.exceeds_budget,
         missing: count(s.missing),
+        conflicting: count(s.conflicting),
         unestimated: count(s.unestimated),
         may_export: s.may_export,
         allows_skipping: s.allows_skipping,

@@ -52,7 +52,15 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
     録り直しに回した音が残っていても「確認は済みました」と出して的を押させ、
     押すと必ず断られていた。
   */
-  const done = summary.pending === 0 && summary.blocked === 0 && summary.missing === 0;
+  const done =
+    summary.pending === 0 &&
+    summary.blocked === 0 &&
+    summary.missing === 0 &&
+    summary.conflicting === 0 &&
+    // 録り直しに回したものも「済んでいない」。 数えないと、下に
+    // 「録り直しを待っている音があります」と出しながら上で
+    // 「済んでいない音はありません」と言うことになる。
+    summary.unestimated === 0;
 
   const after = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
   const fail = (e: unknown) => setError(errorMessage(e));
@@ -122,6 +130,13 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
         </p>
       )}
 
+      {summary.conflicting > 0 && (
+        <p className="text-sm text-slate-12">
+          別の回と同じ名前の音が {summary.conflicting} 件あります。
+          片方が確認から落ちるので、書き出せません。
+        </p>
+      )}
+
       {summary.unestimated > 0 && (
         <p className="text-sm text-slate-12">
           録り直しを待っている音が {summary.unestimated} 件あります。
@@ -181,7 +196,7 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
       */}
       {summary.allows_skipping && (
         <p className="text-xs text-slate-11">
-          この作り方では確認が空になりません。まとめて引き受けて先へ進めます。
+          この作り方では確認が空になりません。上限を超えたら、まとめて引き受けて 先へ進めます。
         </p>
       )}
 

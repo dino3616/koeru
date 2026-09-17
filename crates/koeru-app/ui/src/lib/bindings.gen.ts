@@ -532,6 +532,8 @@ export type ReviewSummaryView = {
 	exceeds_budget: boolean,
 	/**  切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。 */
 	missing: number,
+	/**  WAV をまたいで重なっているエイリアスの数。重なると片方が確認から落ちる。 */
+	conflicting: number,
 	/**  まだ推定していないエントリの数。録り直しに回したものがここにいる。 */
 	unestimated: number,
 	/**  いま書き出してよいか。画面はこれを見る（件数から組み立て直さない）。 */

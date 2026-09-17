@@ -1553,6 +1553,43 @@ impl Ledger {
         Ok(out)
     }
 
+    /// 別の採用テイクにまたがって重複しているエイリアス。
+    ///
+    /// エイリアスはエントリの識別子（`docs/design/ooui-model.md`。音源全体で一意）。
+    /// **重なると確認キューが片方を落とす**——鍵がエイリアスだけなので、
+    /// あとに読んだ行が前の行を置き換え、落ちたほうは確認もされず
+    /// `oto.ini` にも出ない。
+    ///
+    /// `TR-ALN-20` (6) の同一 WAV 内の重複とは別。 あちらは1つの WAV の中の話で、
+    /// [`validate`] 側が WAV ごとに見る。ここが見るのは WAV をまたぐ重なり。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    ///
+    /// [`validate`]: https://docs.rs/koeru-align
+    pub fn adopted_conflicting_aliases(&mut self) -> Result<Vec<String>> {
+        let rows: Vec<(String, i32)> = oto_values::table
+            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+            .select((oto_values::alias, oto_values::take_id))
+            .load(&mut self.conn)
+            .map_err(db("adopted_conflicting_aliases"))?;
+        let mut seen: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
+        let mut out = Vec::new();
+        for (alias, take_id) in rows {
+            match seen.get(&alias) {
+                Some(first) if *first != take_id => out.push(alias),
+                Some(_) => {}
+                None => {
+                    seen.insert(alias, take_id);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+
     /// 確認の進み方（`TR-ALN-25`）。
     pub fn review_state(&mut self) -> Result<ReviewStateRow> {
         review_state::table

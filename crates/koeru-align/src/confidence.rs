@@ -144,7 +144,10 @@ pub fn acoustic_score(samples: &[f64]) -> f64 {
     let ceiling = f64::from(koeru_core::analysis::CLIP_THRESHOLD);
     let clipped = samples.iter().filter(|v| v.abs() >= ceiling).count();
     let peak = samples.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    if clipped > samples.len() / 1000 {
+    // 掛けて比べる。 `clipped > len / 1000` だと整数の切り捨てで境界が抜ける
+    // ——ちょうど 1000 サンプルに1つのとき `1 > 1` が偽になり、
+    // **「1つ以上で疑う」と書いてあるのに素通りしていた。**
+    if clipped * 1000 >= samples.len() {
         0.2 // **1000サンプルに1つ以上張り付いていたら疑う。**
     } else if peak < 0.01 {
         0.3 // レベル不足
