@@ -459,13 +459,14 @@ mod tests {
     use super::*;
     use crate::aligner::Aligner;
 
-    /// 実モデルの置き場所。環境変数で指す。
+    /// 実モデルの置き場所。 探す順は [`super::super::model_dir`] が持つ。
     ///
-    /// リポジトリにモデルを入れていないので、無ければ試験は静かに戻る
-    /// （`koeru-audio` の実機ハーネスと同じ形）。
+    /// ここで環境変数だけを見ない。 submodule を同梱したあとも見つけられず、
+    /// 実モデルの試験が1件も走らないまま `ok` と出ていた。
+    ///
+    /// submodule を取っていない環境では戻る（`koeru-audio` の実機ハーネスと同じ形）。
     fn model_dir() -> Option<std::path::PathBuf> {
-        let p = std::path::PathBuf::from(std::env::var("KOERU_MFA_MODEL_DIR").ok()?);
-        p.join("final.mdl").is_file().then_some(p)
+        crate::mfa::model_dir()
     }
 
     #[test]
@@ -489,7 +490,7 @@ mod tests {
         assert_eq!(e.kind(), "mfa.model");
     }
 
-    /// 実モデルを読む。`KOERU_MFA_MODEL_DIR` が無ければ戻る。
+    /// 実モデルを読む。 モデルが見つからなければ戻る。
     #[test]
     fn 実モデルを読める() {
         let Some(dir) = model_dir() else {

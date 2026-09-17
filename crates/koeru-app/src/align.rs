@@ -29,17 +29,8 @@ use koeru_align::aligner::Aligner;
 use koeru_align::mfa::MfaAligner;
 use koeru_align::segment::HeuristicAligner;
 
-/// MFA のモデルを探す環境変数。
-const MODEL_DIR_ENV: &str = "KOERU_MFA_MODEL_DIR";
-
 /// 実行ファイルからの相対の置き場所（配布物の形）。
 const MODEL_DIR_RELATIVE: &str = "models/japanese_mfa";
-
-/// リポジトリの中の置き場所（`cargo run` のとき）。
-///
-/// submodule の中を直接指す。 `CARGO_MANIFEST_DIR` はビルドしたときの
-/// `koeru-app` の場所なので、そこから `koeru-align` の submodule へ辿る。
-const MODEL_DIR_IN_REPO: &str = "../koeru-align/models/japanese_mfa/acoustic";
 
 /// 選んだアライナ。
 #[derive(Debug)]
@@ -115,25 +106,18 @@ impl Chosen {
 
 /// モデルの置き場所を探す。先に見つかったものを使う。
 fn model_dir() -> Option<PathBuf> {
-    let has_model = |p: &PathBuf| p.join("final.mdl").is_file();
+    // 両端は `koeru-align` が持つ。 モデルを抱えているのはあちらなので、
+    // 置き場所の規則もあちらに置く。ここが足すのは配布物の形だけ。
+    koeru_align::mfa::env_model_dir()
+        .or_else(exe_model_dir)
+        .or_else(koeru_align::mfa::repo_model_dir)
+}
 
-    if let Ok(p) = std::env::var(MODEL_DIR_ENV) {
-        let p = PathBuf::from(p);
-        if has_model(&p) {
-            return Some(p);
-        }
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let p = dir.join(MODEL_DIR_RELATIVE);
-        if has_model(&p) {
-            return Some(p);
-        }
-    }
-    // `cargo run` のとき。 submodule を初期化していれば、ここで見つかる。
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(MODEL_DIR_IN_REPO);
-    has_model(&p).then_some(p)
+/// 実行ファイルの隣（配布物の形）。
+fn exe_model_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let p = exe.parent()?.join(MODEL_DIR_RELATIVE);
+    p.join("final.mdl").is_file().then_some(p)
 }
 
 #[cfg(test)]
@@ -161,10 +145,7 @@ mod tests {
     /// 初期化していない環境では退避経路で通る。どちらでも落ちないことを見ている。
     #[test]
     fn リポジトリの中のモデルを見つけられる() {
-        let in_repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(MODEL_DIR_IN_REPO)
-            .join("final.mdl");
-        if !in_repo.is_file() {
+        if koeru_align::mfa::repo_model_dir().is_none() {
             return; // submodule 未初期化
         }
         // 環境変数を使わずに見つかること。

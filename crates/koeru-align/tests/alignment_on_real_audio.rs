@@ -54,9 +54,7 @@ fn voiced_span_ms(samples: &[f64], rate_hz: u32) -> Option<(f64, f64)> {
 }
 
 fn model_dir() -> Option<std::path::PathBuf> {
-    let p =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("models/japanese_mfa/acoustic");
-    p.join("final.mdl").is_file().then_some(p)
+    koeru_align::mfa::model_dir()
 }
 
 /// アライナが置いた発声区間が、パワーで見た発声区間と重なる。
