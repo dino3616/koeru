@@ -1,0 +1,51 @@
+schema = 'decision'
+id = 'DEC-PLT-032'
+constraint_label = '画面遷移の持ち場'
+constraint = '画面の入れ替わりの動きを、CSS の疑似要素へ直接書かないこと'
+title = '画面遷移は Motion の AnimateView が持ち、CSS には root の抑止だけ残す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'React の ViewTransition と CSS の ::view-transition-*',
+  'Motion の AnimateView（名前を保つ）',
+  'Motion の AnimateView（key を振って enter / exit にする）',
+]
+selected = 'Motion の AnimateView（名前を保つ）'
+rationale = '''
+動きの量と緩急を1箇所に集める。 `::view-transition-*` は `:root` の下に生える別の木で、
+`*` を対象にした規則がそこへ降りない。CSS に置いたままだと、疑似要素の側にも同じ
+規則を書き足す必要があり、書き落としが「動きを減らす設定のまま画面が滑る」という
+形で出る。JS 側に持たせると、包むか包まないかの分岐1つで済む。
+
+入る側の立ち上がり（0.5rem）は捨てた。 名前を保つと `AnimateView` の区分では update に
+なり、渡した値は消える側の層にしか当たらない（`EVID-PLT-003`）。入る側を動かすには
+名前を外して層を割ることになるが、そうすると合成が変わって地の色が 25% 覗く——
+`__root.tsx` が前から書いていた通りで、実際に再現した。立ち上がりが無いことより、
+地が覗くほうが目につく。既定の溶かし込みに、長さと緩急だけを付け替える形にした。
+
+`root` は CSS に残す。 `AnimateView` が付け替えるのは名前を付けた領域の層だけで、
+`root` には触らない。既定の 250ms は画面側の 160ms より長く、止めなければ遷移全体が
+そちらに合わさる。遷移中の画面は静止画なので、これは押せない時間が延びるということ。
+
+「動きを減らす」は JS で受ける（`TR-PLT-33`）。 CSS の guard は当たらない——Motion は
+WAAPI で層を動かすので、`animation: none !important` を置いても走り続ける
+（`EVID-PLT-003`）。設定が立っていれば `AnimateView` で包むのをやめ、遷移そのものを
+始めない。時間を 0 に詰める形は採らない。詰めても静止画は一度挟まるので、
+入れ替わりが一度ちらつく。
+
+向き付きの遷移は入れていない。 `addTransitionType` を使えば「入った」「戻った」で
+動きを変えられるが、渡すのは押す側で、いまは渡していない。テイクからは声へも並びへも
+戻れるので、押す側が型を渡すまでは、向きを付ければ当てずっぽうの向きを毎回見せる。
+
+MIT。 依存は `motion` の1件で、`check:licenses` の許可リストに入っている
+（`DEC-ALL-002`）。React と React DOM 19.3 以上を要求する——いまが 19.3.0 なので、
+React を下げると `AnimateView` が例外を投げて画面が出ない。
+'''
+review_triggers = [
+  '押す側が遷移の型を渡すようになったとき——enter / exit を向きで分けられる',
+  'AnimateView が update でも入る側の層を指せるようになったとき——立ち上がりを戻せる',
+  'motion を上げるとき——層の指し方が変わると、入る側と消える側が入れ替わる',
+]
+affects_requirements = ['TR-PLT-33']
+supersedes = []
+evidence = ['EVID-PLT-003']

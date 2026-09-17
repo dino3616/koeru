@@ -1,0 +1,54 @@
+schema = 'evidence'
+id = 'EVID-PLT-003'
+title = 'AnimateView が画面遷移の層に当てるもの（update は消える側だけ・名前を外すと地の色が覗く・CSS の guard は当たらない）'
+kind = 'measurement'
+source = 'motion 13.4.0 / React 19.3.0 / Chromium（Playwright 1.63）'
+provenance = '''
+実測。 React と `AnimateView` だけを積んだ最小の頁を組み、置き方を3つ並べて、
+遷移の最中に `document.getAnimations()` から疑似要素ごとの層・種別・長さ・緩急を読んだ。
+見た目は遷移を10倍に引き延ばして撮り、画素で見た。
+
+地の色をマゼンタにした。 画面の色（濃い青・濃い緑）と大きく離した色にしておくと、
+合成の途中で地が覗いたかどうかが色で分かる。
+
+Chromium でしか測っていない。 配布先は WebKit（Tauri）だが、手元の Playwright が
+要求する WebKit のビルドが無く、走らせられなかった。View Transition API の既定値
+（`root` の 250ms）は仕様側の既定なので engine を跨ぐが、**合成の結果までは
+WebKit で確かめていない。**
+
+計測用の頁はリポジトリへ入れていない。 組み直せるだけの条件をここに書く。
+'''
+confidence = 'Fact'
+supports_decisions = ['DEC-PLT-032']
+
+measured = '''
+| 置き方 | 動いた層 | 見た目 |
+|---|---|---|
+| `name="screen"` ＋ `transition` だけ | old と new の両方（既定の溶かし込みを、渡した長さと緩急へ書き換え） | 溶けて入れ替わる。地の色は覗かない |
+| `name="screen"` ＋ `update` に値 | old だけ | 新しい画面が最初から不透明で出て、古い画面が上で消える |
+| `key` を振って `enter` / `exit` | old（opacity）と new（opacity と translate） | いまの見た目そのまま。ただし地の色が覗く |
+
+[Fact] `update` に渡した値は、消える側の層にしか当たらない。 `AnimateView` が層を
+指すのは `animationType === "enter" ? "new" : "old"` の1箇所で、enter 以外はすべて old。
+値を渡すと group 以外の既定の動きは cancel されるので、入る側は動きを持たないまま
+不透明で現れる。**入る側を動かす手段が、名前を保ったままでは無い。**
+
+[Fact] 値を渡さず `transition` だけにすると、既定の溶かし込みの時間だけが変わる。
+old は 1→0、new は 0→1 のまま、長さと緩急が渡した値になる
+（160ms / `cubic-bezier(0.25, 0.1, 0.25, 1)` を渡して、その通りに読めた）。
+
+[Fact] 名前を外すと地の色が 25% 覗く。 `key` を振ると層が2つの group に割れ、
+半ばの合成は `0.5×古い + 0.25×新しい + 0.25×地` になる。名前を保つと前後が同じ
+group に入り、UA 既定の `plus-lighter` で合成されるので覗かない。
+`__root.tsx` が以前から書いていた「名前を外すと地の色が覗く」は、この形で再現した。
+
+[Fact] `root` の既定は 250ms linear で走り、`AnimateView` は触らない。 画面側を
+160ms にしても、止めなければ遷移全体は 250ms 側に合わさる——そのぶん静止画のまま
+押せない。CSS の `animation: none` は効く（あちらは CSS アニメーションなので）。
+
+[Fact] `prefers-reduced-motion` の CSS guard は `AnimateView` に当たらない。
+`::view-transition-*` へ `animation: none !important` を置いた状態で設定を立てても、
+Motion が作った層の動きは走り続けた。WAAPI で動かしているので、CSS の `animation` を
+潰しても関係が無い。包むのをやめると、遷移そのものが起きない（疑似要素の動きが
+0 件、内容は入れ替わる）。
+'''

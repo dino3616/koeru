@@ -1974,3 +1974,19 @@ note = '''開発時のみ。配布物には入らない。 oxlint の JS plugin 
 その parser が実依存にあるため、使わない ESLint 一式が dev の木に入る。
 テーマの解決は `components.json` を起点にする。 置かないと未知クラスと生の色の
 検査が黙って何もしない'''
+
+[[component]]
+id = 'CMP-134'
+name = 'motion（AnimateView）'
+purpose = '画面の入れ替わりの動きを持つ。View Transition の層を、CSS ではなく JS から指す'
+license = 'MIT'
+status = '採用'
+decided_by = 'DEC-PLT-032'
+domains = [
+  'platform',
+]
+note = '''入口は `motion/react-animate-view` で、`motion/react` からは出ていない。
+React と React DOM 19.3 以上を要求する。 下げると `AnimateView` が例外を投げ、
+画面が出ない。
+名前を保つ置き方では、渡した値は消える側の層にしか当たらない（`EVID-PLT-003`）。
+入る側を動かす目的でこれを触らない'''

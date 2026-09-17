@@ -302,53 +302,20 @@ body {
 }
 
 /*
- * 画面の入れ替わり（`__root.tsx` の `<ViewTransition name="screen">`）。
+ * 画面の入れ替わりは CSS が持たない。 動きの量も緩急も `__root.tsx` の
+ * `AnimateView` が持つ（`DEC-PLT-032`）。ここに残るのは、その外側の話だけ。
  *
- * 溶かすだけにして、滑らせない。 声の並び・声・テイクには深さの順序が
- * あるが、遷移の側からはどちらへ動いたかが分からない——テイクからは
- * 声へも並びへも戻れる。向きを描くには、押した側が「入った」「戻った」を
- * 遷移の型（`addTransitionType`）で渡す必要がある。渡していないので、
- * ここで方向を付けると、当てずっぽうの向きを毎回見せることになる。
+ * 画面の外側は動かさない。 名前を付けた領域の外は `root` に入る。 ここは地の色と
+ * 読み上げ領域しか無いので見た目は変わらないが、既定の溶かし込みは走る——既定は
+ * 250ms で、画面側より長い。遷移全体は長いほうに合わさるので、静止画のまま
+ * 押せない時間がそのぶん延びる。
  *
- * 160ms は「入れ替わった」と分かる下限側に寄せてある。
- * ここを延ばすと、押してから画面が使えるまでが実際に延びる——
- * 遷移中の画面は静止画（スナップショット）で、押しても反応しない。
- *
- * 出る側だけ動かす。 消える側は透明にするだけにして、同じ距離を
- * 逆向きに動かさない。両方動かすと、重なっている 160ms のあいだ
- * 文字が二重にずれて見える。
- */
-::view-transition-old(screen) {
-  animation: koeru-screen-out 160ms ease both;
-}
-
-::view-transition-new(screen) {
-  animation: koeru-screen-in 160ms ease both;
-}
-
-/*
- * 画面の外側は動かさない。
- *
- * 名前を付けた領域の外は `root` に入る。 ここは地の色と読み上げ領域しか
- * 無いので見た目は変わらないが、既定の溶かし込みは走る。 そのぶん
- * 遷移全体が長いほうに合わさり、静止画のまま押せない時間が延びる。
+ * ここは CSS で止める。 `AnimateView` が付け替えるのは名前を付けた領域の層だけで、
+ * `root` には触らない。実測した。
  */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
-}
-
-@keyframes koeru-screen-out {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes koeru-screen-in {
-  from {
-    opacity: 0;
-    translate: 0 0.5rem;
-  }
 }
 
 /*
@@ -372,26 +339,10 @@ body {
   }
 
   /*
-   * 画面遷移は別に書く。 `::view-transition-*` は `:root` の下に生える
-   * 別の木で、上の `*` はそこへ降りない——書かないと、
-   * 「動きを減らす」設定のまま画面が滑る。
-   *
-   * 時間を詰めるのではなく `none` にする。 詰めると 0.01ms の
-   * スナップショットを挟むことになり、入れ替わりが一度ちらつく。
-   *
-   * 名前を書き並べる。 `(*)` で一括に書かない——あれを解さない WebView に
-   * 当たると、セレクタが1つ無効なだけで規則ごと落ちる。落ちた先で
-   * 動くのは「動きを減らす」と言っている人の画面なので、
-   * 対応表の当て推量ではなく、名前で確実に当てる。
+   * 画面遷移はここでは止まらない。 `AnimateView` は疑似要素を WAAPI で動かすので、
+   * `animation: none` が当たらない——あれが見るのは CSS アニメーションだけ。実測した。
+   * 止めるのは `__root.tsx` 側で、設定が立っていれば遷移そのものを始めない。
    */
-  ::view-transition-group(screen),
-  ::view-transition-old(screen),
-  ::view-transition-new(screen),
-  ::view-transition-group(root),
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none !important;
-  }
 }
 
 /*
