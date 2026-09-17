@@ -1429,6 +1429,89 @@ impl Ledger {
         Ok(())
     }
 
+    /// 5値・状態・固定を一度に書く（`TR-ALN-30`）。
+    ///
+    /// **1つのトランザクションにまとめる。** 別々に流すと、途中で失敗したときに
+    /// 「人が直した値なのに固定が付いていない」行が残る。その行は次の再推定で
+    /// 上書きされ、`INV-ALN-001`（人が直した値を自動が上書きしない）が破れる。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。そのときは3つとも書かれていない。
+    pub fn put_review_entry(
+        &mut self,
+        take_id: i32,
+        alias: &str,
+        o: &crate::oto::Oto,
+        state: &str,
+        pins: [bool; 5],
+    ) -> Result<()> {
+        self.conn
+            .transaction(|conn| {
+                let target = oto_values::table
+                    .filter(oto_values::take_id.eq(take_id))
+                    .filter(oto_values::alias.eq(alias));
+                diesel::update(target)
+                    .set((
+                        oto_values::offset_ms.eq(o.offset_ms),
+                        oto_values::consonant_ms.eq(o.consonant_ms),
+                        oto_values::cutoff_ms.eq(o.cutoff_ms),
+                        oto_values::preutterance_ms.eq(o.preutterance_ms),
+                        oto_values::overlap_ms.eq(o.overlap_ms),
+                        oto_values::state.eq(state),
+                        // `confirmed` も一緒に動かす。 この列を読む経路がまだ
+                        // 残っているので、片方だけ進むと食い違う。
+                        oto_values::confirmed.eq(i32::from(state == "auto_confirmed")),
+                        oto_values::pinned_offset.eq(i32::from(pins[0])),
+                        oto_values::pinned_consonant.eq(i32::from(pins[1])),
+                        oto_values::pinned_cutoff.eq(i32::from(pins[2])),
+                        oto_values::pinned_preutterance.eq(i32::from(pins[3])),
+                        oto_values::pinned_overlap.eq(i32::from(pins[4])),
+                        // 1つでも固定があれば手が入ったとみなす（`TR-EDT-46`）。
+                        oto_values::hand_edited.eq(i32::from(pins.iter().any(|p| *p))),
+                    ))
+                    .execute(conn)
+            })
+            .map_err(db("put_review_entry"))?;
+        Ok(())
+    }
+
+    /// 採用しているのに oto が1つも無い収録単位（`TR-ALN-20`, `INV-ALN-003`）。
+    ///
+    /// 発声が見つからなかったテイクも採用される（取りこぼしが無ければ）。
+    /// そのテイクは `oto_values` に1行も書かないので、**確認キューにも現れず、
+    /// 書き出しからも黙って落ちる。** 関門がこれを見て止める。
+    ///
+    /// 返るのは行 ID。エイリアスではなく行で返すのは、画面が行で開くため。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    pub fn adopted_rows_without_oto(&mut self) -> Result<Vec<String>> {
+        let adopted: Vec<(String, i32)> = adopted_takes::table
+            .select((adopted_takes::row_id, adopted_takes::take_id))
+            .load(&mut self.conn)
+            .map_err(db("adopted_rows_without_oto.adopted"))?;
+        let mut out = Vec::new();
+        for (row_id, take_id) in adopted {
+            let units: i64 = row_units::table
+                .filter(row_units::row_id.eq(&row_id))
+                .count()
+                .get_result(&mut self.conn)
+                .map_err(db("adopted_rows_without_oto.units"))?;
+            let otos: i64 = oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .count()
+                .get_result(&mut self.conn)
+                .map_err(db("adopted_rows_without_oto.otos"))?;
+            if otos < units {
+                out.push(row_id);
+            }
+        }
+        out.sort_unstable();
+        Ok(out)
+    }
+
     /// 確認の進み方（`TR-ALN-25`）。
     pub fn review_state(&mut self) -> Result<ReviewStateRow> {
         review_state::table

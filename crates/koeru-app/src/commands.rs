@@ -963,6 +963,8 @@ pub struct ReviewSummaryView {
     pub budget_seconds: u32,
     /// 上限を超えているか。超えるまで個別確認をやめられない（`INV-ALN-004`）。
     pub exceeds_budget: bool,
+    /// 切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。
+    pub missing: u32,
     /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
     pub allows_skipping: bool,
     /// その方式の到達水準。
@@ -1002,6 +1004,7 @@ pub fn review_summary(state: State<'_, AppState>) -> Result<ReviewSummaryView> {
         estimated_seconds: count64(s.estimated_seconds),
         budget_seconds: count64(s.budget_seconds),
         exceeds_budget: s.exceeds_budget,
+        missing: count(s.missing),
         allows_skipping: s.allows_skipping,
         reach: s.reach,
         exported: s.exported,

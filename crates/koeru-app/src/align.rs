@@ -59,7 +59,10 @@ impl Chosen {
             );
             return Self::fallback();
         };
-        match MfaAligner::open(&dir, "mfa-japanese@3.0.0") {
+        // 識別子はモデルに名乗らせる（`TR-ALN-29`）。定数で持つと、
+        // submodule を上げたときに指紋だけが古い版を指す。
+        let identity = koeru_align::mfa::model_identity(&dir);
+        match MfaAligner::open(&dir, &identity) {
             Ok(a) => {
                 tracing::info!(dim = a.feature_dim(), "自動原音設定は MFA で動く");
                 Self {

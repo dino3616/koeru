@@ -39,7 +39,9 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
 
-  const done = summary.pending === 0 && summary.blocked === 0;
+  // 書き出せるのは、確認が済んで、切り出しも全部取れているとき。
+  // `missing` はキューに現れない（エントリが無い）が、書き出しは止まる。
+  const done = summary.pending === 0 && summary.blocked === 0 && summary.missing === 0;
 
   const after = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
   const fail = (e: unknown) => setError(errorMessage(e));
@@ -100,6 +102,12 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
         // 字に色相を与えない。 印としての amber は図形側が持つ（`package-panel`）。
         <p className="text-sm text-slate-12">
           切り出しが直せなかった音が {summary.blocked} 件あります。録り直すと直ります。
+        </p>
+      )}
+
+      {summary.missing > 0 && (
+        <p className="text-sm text-slate-12">
+          発声が見つからなかった行が {summary.missing} 件あります。録り直すまで書き出せません。
         </p>
       )}
 

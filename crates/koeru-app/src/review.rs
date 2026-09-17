@@ -75,10 +75,17 @@ pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> 
 }
 
 /// エントリ1件の状態と固定を台帳へ書く。
+///
+/// 3つを1つのトランザクションで書く（[`Ledger::put_review_entry`]）。
+/// 途中で失敗すると、固定の無い人の値が残って次の再推定に消される。
 pub fn save_entry(ledger: &mut Ledger, take_id: i32, alias: &str, entry: &Entry) -> Result<()> {
-    ledger.set_oto_value(take_id, alias, &entry.oto)?;
-    ledger.set_oto_state(take_id, alias, entry.state.as_str())?;
-    ledger.set_oto_pins(take_id, alias, entry.pins())?;
+    ledger.put_review_entry(
+        take_id,
+        alias,
+        &entry.oto,
+        entry.state.as_str(),
+        entry.pins(),
+    )?;
     Ok(())
 }
 

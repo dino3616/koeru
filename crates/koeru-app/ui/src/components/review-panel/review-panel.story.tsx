@@ -12,6 +12,7 @@ const base: ReviewSummaryView = {
   estimated_seconds: 120,
   budget_seconds: 300,
   exceeds_budget: false,
+  missing: 0,
   allows_skipping: false,
   reach: "reach.undeclared",
   exported: false,
@@ -85,6 +86,18 @@ export const 確認が残っている間は書き出せない: Story = {
       );
       await expect(button?.disabled).toBe(true);
     });
+  },
+};
+
+export const 発声が見つからなかった行がある: Story = {
+  beforeEach: () => summary({ pending: 0, estimated_seconds: 0, missing: 2 }),
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.textContent).toContain("録り直すまで書き出せません"));
+    // キューは空でも書き出させない（`INV-ALN-003` の趣旨）。
+    const button = [...canvasElement.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("書き出す"),
+    );
+    await expect(button?.disabled).toBe(true);
   },
 };
 

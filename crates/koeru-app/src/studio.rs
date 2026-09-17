@@ -122,6 +122,11 @@ pub struct ReviewSummary {
     pub budget_seconds: u64,
     /// 上限を超えているか。超えていなければ個別確認をやめられない（`INV-ALN-004`）。
     pub exceeds_budget: bool,
+    /// 切り出しが1つも取れていない行の数。
+    ///
+    /// キューには現れない。 エントリが無いので、確認の対象にすらならない
+    /// ——それでも書き出しは止める（`INV-ALN-003` の趣旨）。
+    pub missing: usize,
     /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
     pub allows_skipping: bool,
     /// その方式の到達水準。
@@ -635,6 +640,25 @@ impl Studio {
             review,
             review_takes,
         });
+        Ok(())
+    }
+
+    /// 採用している素材が変わったので、書き出しの単位を1つ進める（`TR-PKG-44`）。
+    ///
+    /// `exported` を下ろす。 **下ろさないと、一度書き出したあとは何も触れない**
+    /// ——`ReviewQueue` の書き出し済みは終端で、確認も編集も録り直しも
+    /// `AlreadyExported` で断られる。録り足したものを書き出す経路も無くなる。
+    ///
+    /// モードと上限超過は動かさない。 まとめて確認へ移った人を、
+    /// テイクを1つ録るたびに1件ずつの確認へ戻すことになる。
+    fn start_new_export_generation(&mut self) -> Result<()> {
+        let open = self.opened_mut()?;
+        let mut s = open.ledger.review_state()?;
+        if !s.exported {
+            return Ok(());
+        }
+        s.exported = false;
+        open.ledger.put_review_state(&s)?;
         Ok(())
     }
 
@@ -1310,6 +1334,8 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
         self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
+        // 書き出したあとに採用を動かしたなら、次の書き出しへ進める。
+        self.start_new_export_generation()?;
         // 書き出しに出るエントリが変わったので、キューを組み直す。
         //
         // **忘れると、確認も編集も書き出しも、採用していない世代の行へ向く。**
@@ -1524,10 +1550,28 @@ impl Studio {
                 // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
                 // MFA が動いたのにパワー比で境界鋭さを測ると、
                 // 要件の定義と違うものを記録することになる。
-                let base = alignment
-                    .as_ref()
-                    .and_then(|a| Confidence::from_alignment(a, &f64s))
-                    .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)));
+                // 確信度はモーラごとに作る（`TR-ALN-26`）。
+                //
+                // **ファイル全体で1つ作ってエントリ全部へ写さない。** 境界鋭さは
+                // いちばん弱い境界で決まるので、1モーラが曖昧なだけで全部の
+                // 確信度と主因が同じ値になり、**どのエントリを見ればよいかが消える。**
+                // 音響異常度も同じで、範囲外の割れが混ざる。
+                let span_conf = |from_ms: f64, to_ms: f64| {
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "収録の長さはサンプル数に収まる"
+                    )]
+                    let cut = |ms: f64| {
+                        ((ms / 1000.0 * f64::from(rate)).max(0.0) as usize).min(f64s.len())
+                    };
+                    let (a0, a1) = (cut(from_ms), cut(to_ms));
+                    let part = &f64s[a0.min(a1)..a1.max(a0)];
+                    alignment
+                        .as_ref()
+                        .and_then(|a| Confidence::from_alignment_span(a, part, from_ms, to_ms))
+                        .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)))
+                };
 
                 let preset = Preset::default_for(koeru_core::alias::Method::Single)
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
@@ -1554,7 +1598,7 @@ impl Studio {
                     // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
                     // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
                     let prior = self.prior_of(reading, o.preutterance_ms)?;
-                    let c = base.map(|mut c| {
+                    let c = span_conf(b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
                         c.prior = prior;
                         c
                     });
@@ -1944,6 +1988,8 @@ impl Studio {
     /// 固定した値は引き継ぐ（`REQ-ALN-007`）。 録り直しは新しいテイクの行を作るので、
     /// 引き継がないと、人が直した値が自動の値で上書きされる（`INV-ALN-001`）。
     fn enqueue_take(&mut self, take_id: i32) -> Result<()> {
+        // 録り足したものを書き出せるようにする（`TR-PKG-44`）。
+        self.start_new_export_generation()?;
         let aliases: Vec<String> = self
             .opened_mut()?
             .ledger
@@ -1993,6 +2039,7 @@ impl Studio {
     /// プロジェクトを開いていない。
     pub fn review_summary(&mut self) -> Result<ReviewSummary> {
         let method = self.opened()?.dir.read_manifest()?.method;
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?.len();
         let q = &self.opened()?.review;
         let reach = reach::of(match method {
             Method::Single => koeru_core::alias::Method::Single,
@@ -2013,6 +2060,7 @@ impl Studio {
             estimated_seconds: q.estimated_review_time().as_secs(),
             budget_seconds: koeru_align::review::REVIEW_BUDGET.as_secs(),
             exceeds_budget: q.exceeds_budget(),
+            missing,
             // 飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
             allows_skipping: reach.allows_skipping_review(),
             reach: reach.kind().to_owned(),
@@ -2213,6 +2261,19 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn export_otos(&mut self) -> Result<PathBuf> {
         self.validate_otos()?;
+        // 切り出しが1つも取れなかった行は、キューにも現れない（`INV-ALN-003`）。
+        //
+        // **発声が見つからなかったテイクも採用される。** そのテイクは
+        // `oto_values` に1行も書かないので、キューが空でも書き出しから
+        // 黙って落ちる。キューの関門はエントリしか見られないので、
+        // ここで別に見る。
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
+        if !missing.is_empty() {
+            return Err(AppError::new(
+                "review.missing_oto",
+                format!("切り出しの取れていない行が {} 件ある", missing.len()),
+            ));
+        }
         // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。
         //
         // **状態は動かさずに訊く。** 先に `export` を呼ぶと、符号化や書き込みが
@@ -2240,7 +2301,14 @@ impl Studio {
         // 既定は CP932（`TR-PLT-08`, `DEC-PLT-013`）。UTAU 本体が読める形で出す。
         let bytes = ini::write(&entries, koeru_core::text::TextEncoding::Cp932)
             .map_err(|e| AppError::new(e.kind(), "oto.ini を書けない"))?;
-        let path = self.opened()?.dir.root().join("oto.ini");
+        // WAV と同じディレクトリへ置く。 `oto.ini` の左辺はファイル名だけなので、
+        // 別の階層に置くと**全部の参照が解決しない**。UTAU が読む形も、
+        // wav と oto.ini が同じ場所に並んだ形。
+        //
+        // 作業ファイルにはしない（`TR-PKG-40`）。 正本は台帳で、これは派生物。
+        // 読み戻して真とすることはない。外部フォルダへ一式を出す経路は
+        // `koeru_core::handoff`（`PROFILE-M4`）。
+        let path = self.opened()?.dir.audio_dir().join("oto.ini");
         std::fs::write(&path, bytes)?;
 
         // ここまで来て初めて確定させる。関門はもう一度キューが見る。

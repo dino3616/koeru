@@ -527,6 +527,8 @@ export type ReviewSummaryView = {
 	budget_seconds: number,
 	/**  上限を超えているか。超えるまで個別確認をやめられない（`INV-ALN-004`）。 */
 	exceeds_budget: boolean,
+	/**  切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。 */
+	missing: number,
 	/**  確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。 */
 	allows_skipping: boolean,
 	/**  その方式の到達水準。 */

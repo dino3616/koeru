@@ -75,3 +75,28 @@ pub fn repo_model_dir() -> Option<PathBuf> {
 pub fn model_dir() -> Option<PathBuf> {
     env_model_dir().or_else(repo_model_dir)
 }
+
+/// 同梱しているモデルの版（`TR-ALN-29`）。
+///
+/// **モデル自身が名乗るものを読む。** 版を定数で持つと、submodule を上げたときに
+/// 片方だけが古くなる——`DEC-ALN-012` で v3.3.0 へ上げたあとも、指紋には
+/// `3.0.0` が書かれていた。そうなると、いまのモデルで作った推定と
+/// 前の版で作った推定が見分けられず、指紋を持つ意味が消える。
+///
+/// 読めなければ `None`。 呼び出し側は「版が分からない」ことを指紋に残す。
+#[must_use]
+pub fn model_version(dir: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(dir.join("meta.json")).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+    doc.get("version")?.as_str().map(str::to_owned)
+}
+
+/// アライナの識別子（`TR-ALN-29` の指紋に入る）。
+///
+/// 版が読めなければ `unknown` を入れる。 **今の版を名乗らせない**——
+/// 名乗らせると、確かめられないものが確かめたことになる。
+#[must_use]
+pub fn model_identity(dir: &Path) -> String {
+    let v = model_version(dir).unwrap_or_else(|| "unknown".to_owned());
+    format!("mfa-japanese@{v}")
+}

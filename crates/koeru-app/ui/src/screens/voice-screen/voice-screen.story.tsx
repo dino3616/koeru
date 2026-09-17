@@ -120,6 +120,7 @@ const 台帳 = () => {
     estimated_seconds: 0,
     budget_seconds: 300,
     exceeds_budget: false,
+    missing: 0,
     allows_skipping: false,
     reach: "reach.undeclared",
     exported: false,

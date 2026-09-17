@@ -172,14 +172,55 @@ impl Confidence {
     /// 式に根拠はない（`TR-ALN-24` notes、`DEC-ALN-007`）。測れるようになったら差し替える。
     #[must_use]
     pub fn from_alignment(a: &crate::aligner::Alignment, samples: &[f64]) -> Option<Self> {
+        Self::from_alignment_span(a, samples, f64::NEG_INFINITY, f64::INFINITY)
+    }
+
+    /// 時間の範囲を区切って組み立てる（`TR-ALN-24`, `TR-ALN-26`）。
+    ///
+    /// **1ファイルに複数モーラが入る**（`DEC-ALN-013`）。ファイル全体で1つの
+    /// 確信度を作ってエントリ全部へ写すと、**1モーラが曖昧なだけで全部の
+    /// 確信度と主因が同じになり、どのエントリを見ればよいかが消える。**
+    /// `TR-ALN-26` が要求しているのは「その項目の」内訳。
+    ///
+    /// `samples` はその範囲だけを切ったもの。 音響異常度はサンプルから測るので、
+    /// ファイル全体を渡すと範囲外の割れが混ざる。
+    ///
+    /// 範囲に境界が1つも無ければ、境界鋭さは 1.0 のまま。 境界が無いのは
+    /// 「曖昧でない」ではなく「測る相手が無い」だが、低く倒すと
+    /// 1音素のモーラが常に確認へ回る。
+    #[must_use]
+    pub fn from_alignment_span(
+        a: &crate::aligner::Alignment,
+        samples: &[f64],
+        from_ms: f64,
+        to_ms: f64,
+    ) -> Option<Self> {
         let p = a.posteriors.as_ref()?;
         if p.frames == 0 || p.phonemes == 0 {
             return None;
         }
 
+        // 範囲をフレームへ写す。
+        let frame_of = |ms: f64| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let f = (ms / p.hop_ms).round().max(0.0) as usize;
+            f.min(p.frames - 1)
+        };
+        let lo = if from_ms.is_finite() {
+            frame_of(from_ms)
+        } else {
+            0
+        };
+        let hi = if to_ms.is_finite() {
+            frame_of(to_ms)
+        } else {
+            p.frames - 1
+        };
+        let (lo, hi) = if lo <= hi { (lo, hi) } else { (hi, lo) };
+
         // (1) 経路確信度。フレームごとの最大の平均。
         let mut sum = 0.0_f64;
-        for t in 0..p.frames {
+        for t in lo..=hi {
             let mut best = 0.0_f32;
             for i in 0..p.phonemes {
                 best = best.max(p.get(t, i));
@@ -187,18 +228,19 @@ impl Confidence {
             sum += f64::from(best);
         }
         #[allow(clippy::cast_precision_loss)]
-        let path = (sum / p.frames as f64).clamp(0.0, 1.0);
+        let path = (sum / (hi - lo + 1) as f64).clamp(0.0, 1.0);
 
-        // (2) 境界鋭さ。いちばん弱い境界が全体を決める。
+        // (2) 境界鋭さ。範囲の中でいちばん弱い境界が決める。
         // 1箇所でも曖昧なら、そのエントリは確認へ回したい。
         let mut sharpness = 1.0_f64;
         for w in a.segments.windows(2) {
-            let at = (w[0].end_ms / p.hop_ms).round();
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let f = (at as usize).min(p.frames - 1);
+            let f = frame_of(w[0].end_ms);
+            if f < lo || f > hi {
+                continue;
+            }
             // 境界をまたぐ2フレームを見る。
-            let lo = f.saturating_sub(1);
-            let m = margin(p, lo).min(margin(p, f));
+            let before = f.saturating_sub(1);
+            let m = margin(p, before).min(margin(p, f));
             sharpness = sharpness.min(m);
         }
 
