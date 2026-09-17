@@ -108,6 +108,44 @@ export const otosQuery = (takeId: number) =>
   queryOptions({ queryKey: [LEDGER, "otos", takeId], queryFn: () => api.otosOfTake(takeId) });
 
 /**
+ * 確認の進み具合（`TR-ALN-25`）。
+ *
+ * 台帳の鍵の下に置く。 録るたびにキューが伸び、確認するたびに縮む。
+ */
+export const reviewSummaryQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "review"], queryFn: () => api.reviewSummary() });
+
+/**
+ * 確認キューの中身（`TR-ALN-26`）。
+ *
+ * 一覧の絞り込みもここを読む。 どの行が確認待ちかは、
+ * エントリの状態からしか分からない（`DEC-PLT-024`）。
+ */
+export const reviewQueueQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "review-queue"], queryFn: () => api.reviewQueue() });
+
+/**
+ * モデルが変わって古くなった推定（`TR-ALN-29`）。
+ *
+ * 台帳の鍵の下に置く。 録り直すと指紋が今のモデルで書き直されるので、
+ * テイクが確定するたびに変わる。
+ */
+export const staleTakesQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "stale"], queryFn: () => api.staleTakes() });
+
+/**
+ * 同梱しているモデルのライセンス表記（`TR-ALN-31`）。
+ *
+ * 台帳ではない。 実行ファイルに焼き込んだ台帳から作るので、起動中は変わらない。
+ */
+export const modelNoticeQuery = () =>
+  queryOptions({
+    queryKey: ["model-notice"],
+    queryFn: () => api.modelNotice(),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/**
  * 選べる作り方（`TR-RCL-11`）。
  *
  * 台帳ではない。 録音リストの定義から作るので、起動中は変わらない。

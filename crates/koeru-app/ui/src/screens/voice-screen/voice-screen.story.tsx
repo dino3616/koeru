@@ -112,6 +112,22 @@ const 台帳 = () => {
   mocked(api.voiceState).mockResolvedValue(voice);
   mocked(api.rowsWithTakes).mockResolvedValue(rows);
   mocked(api.songStatus).mockResolvedValue(songs);
+  // 確認キュー（`TR-ALN-25`）。既定は「見るものが無い」。
+  mocked(api.reviewSummary).mockResolvedValue({
+    mode: "individual",
+    pending: 0,
+    blocked: 0,
+    estimated_seconds: 0,
+    budget_seconds: 300,
+    exceeds_budget: false,
+    allows_skipping: false,
+    reach: "reach.undeclared",
+    exported: false,
+  });
+  mocked(api.reviewQueue).mockResolvedValue([]);
+  mocked(api.staleTakes).mockResolvedValue([]);
+  mocked(api.modelNotice).mockResolvedValue("# 同梱しているモデルと辞書\n");
+
   mocked(api.listDevices).mockResolvedValue([{ id: "builtin", name: "MacBook Pro のマイク" }]);
   // まだ一度も選んでいない音源（`TR-REC-03`）。「録る」は押せない姿で出る。
   mocked(api.chosenDevice).mockResolvedValue({ id: null, armed: false, recording: false });

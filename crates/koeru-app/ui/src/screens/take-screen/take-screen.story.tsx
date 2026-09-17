@@ -66,6 +66,20 @@ const 台帳 = () => {
     songs_in_bank: 4,
   });
   mocked(api.rowsWithTakes).mockResolvedValue(rows);
+  // 確認キュー（`TR-ALN-25`）。既定は「見るものが無い」。
+  mocked(api.reviewSummary).mockResolvedValue({
+    mode: "individual",
+    pending: 0,
+    blocked: 0,
+    estimated_seconds: 0,
+    budget_seconds: 300,
+    exceeds_budget: false,
+    allows_skipping: false,
+    reach: "reach.undeclared",
+    exported: false,
+  });
+  mocked(api.reviewQueue).mockResolvedValue([]);
+
   mocked(api.otosOfTake).mockResolvedValue(otos);
   mocked(api.waveformWindow).mockResolvedValue(points);
 };

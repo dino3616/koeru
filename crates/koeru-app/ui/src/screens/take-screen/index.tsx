@@ -1,16 +1,31 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQueries,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
+import { ReviewEntry } from "~/components/review-entry";
 import { TakeGenerations } from "~/components/take-generations";
 import { TakeValues } from "~/components/take-values";
 import { TakeWaveform } from "~/components/take-waveform";
 import type { VoiceTab } from "~/components/voice-header";
 import { api, errorMessage } from "~/lib/ipc";
-import { ledgerKey, openProjectQuery, otosQuery, rowsWithTakesQuery } from "~/lib/queries";
+import {
+  ledgerKey,
+  openProjectQuery,
+  otosQuery,
+  reviewQueueQuery,
+  reviewSummaryQuery,
+  rowsWithTakesQuery,
+} from "~/lib/queries";
+import type { OtoSlot } from "~/lib/ipc";
 import { useScreenFocus } from "~/lib/use-screen-focus";
 
 /**
@@ -94,7 +109,9 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
 
-  const { data: rows } = useSuspenseQuery(rowsWithTakesQuery(id));
+  const [{ data: rows }, { data: review }, { data: queued }] = useSuspenseQueries({
+    queries: [rowsWithTakesQuery(id), reviewSummaryQuery(id), reviewQueueQuery(id)],
+  });
 
   const row = rows.find((r) => r.row_id === rowId) ?? null;
   const [shownId, setShownId] = useState<number | null>(row?.adopted ?? null);
@@ -126,6 +143,36 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
     ...otosQuery(shown?.take_id ?? 0),
     enabled: shown !== null,
   });
+
+  /** その音のうち、人が決めた値（`TR-ALN-30`）。確認が済んでいれば空。 */
+  const pinnedOf = (alias: string | null): readonly OtoSlot[] =>
+    (queued.find((i) => i.oto.alias === alias)?.pinned ?? []) as OtoSlot[];
+
+  const afterReview = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
+
+  const confirm = useMutation({
+    mutationFn: (alias: string) => api.confirmEntry(alias),
+    onMutate: () => setError(null),
+    onSuccess: afterReview,
+    onError: fail,
+  });
+
+  const rerecord = useMutation({
+    mutationFn: (alias: string) => api.rerecordEntry(alias),
+    onMutate: () => setError(null),
+    onSuccess: afterReview,
+    onError: fail,
+  });
+
+  const revert = useMutation({
+    mutationFn: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
+      api.revertOtoValue({ alias, slot }),
+    onMutate: () => setError(null),
+    onSuccess: afterReview,
+    onError: fail,
+  });
+
+  const reviewBusy = confirm.isPending || rerecord.isPending || revert.isPending;
 
   const adopt = useMutation({
     mutationFn: (takeId: number) => api.adoptTake(rowId, takeId),
@@ -285,6 +332,25 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 durationMs={shown.duration_ms}
                 raw={raw}
                 onRaw={setRaw}
+                pinned={pinnedOf(activeAlias)}
+                onRevert={(slot) =>
+                  activeAlias !== null && revert.mutate({ alias: activeAlias, slot })
+                }
+                busy={reviewBusy}
+              />
+
+              <hr className="h-px border-0 bg-slate-6" />
+
+              {/*
+                原音設定に独立した面を与えない（`DEC-PLT-024`）。
+                確認はここ、テイクを開いたところにある。
+              */}
+              <ReviewEntry
+                item={queued.find((i) => i.oto.alias === activeAlias) ?? null}
+                individual={review.mode === "individual"}
+                onConfirm={() => activeAlias !== null && confirm.mutate(activeAlias)}
+                onRerecord={() => activeAlias !== null && rerecord.mutate(activeAlias)}
+                busy={reviewBusy}
               />
 
               <hr className="h-px border-0 bg-slate-6" />

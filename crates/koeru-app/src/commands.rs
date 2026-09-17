@@ -948,6 +948,180 @@ pub fn preflight(state: State<'_, AppState>) -> Result<PreflightView> {
     Ok(lock(&state)?.preflight()?.into())
 }
 
+/// 確認の進み具合（`TR-ALN-25`, `TR-ALN-28`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ReviewSummaryView {
+    /// `individual` | `batch` | `suggest_rerecord`。
+    pub mode: String,
+    /// 確認待ちの件数。
+    pub pending: u32,
+    /// 検証で止まっている件数（`TR-ALN-20`）。
+    pub blocked: u32,
+    /// 確認にかかる見積もりの合計（秒）。
+    pub estimated_seconds: u32,
+    /// 上限（秒）。`DEC-ALN-003` の合計5分。
+    pub budget_seconds: u32,
+    /// 上限を超えているか。超えるまで個別確認をやめられない（`INV-ALN-004`）。
+    pub exceeds_budget: bool,
+    /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
+    pub allows_skipping: bool,
+    /// その方式の到達水準。
+    pub reach: String,
+    pub exported: bool,
+}
+
+/// 確認キューの1件（`TR-ALN-26`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ReviewItemView {
+    /// そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。
+    pub row_id: String,
+    /// 自動推定した5値（`TR-ALN-26` (2)）。エイリアスはこの中にある。
+    pub oto: OtoView,
+    /// 低確信度の主因（`TR-ALN-26` (3)）。内訳を持たなければ `null`。
+    pub cause: Option<String>,
+    #[specta(type = specta_typescript::Number)]
+    pub confidence: f64,
+    /// `not_estimated` | `auto_confirmed` | `in_queue` | `blocked`。
+    pub state: String,
+    /// 固定されている値の名前（`TR-ALN-30`）。
+    ///
+    /// 真偽の5つ組で渡さない。 画面が並びを覚えることになり、
+    /// 5値の順序が `oto.ini` と違う（`koeru_align::ini`）ことが二度目の取り違えを呼ぶ。
+    pub pinned: Vec<String>,
+}
+
+/// 確認の進み具合を読む。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_summary(state: State<'_, AppState>) -> Result<ReviewSummaryView> {
+    let s = lock(&state)?.review_summary()?;
+    Ok(ReviewSummaryView {
+        mode: s.mode,
+        pending: count(s.pending),
+        blocked: count(s.blocked),
+        estimated_seconds: count64(s.estimated_seconds),
+        budget_seconds: count64(s.budget_seconds),
+        exceeds_budget: s.exceeds_budget,
+        allows_skipping: s.allows_skipping,
+        reach: s.reach,
+        exported: s.exported,
+    })
+}
+
+/// 確認キューの中身を、手が届く順に（`TR-ALN-26`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn review_queue(state: State<'_, AppState>) -> Result<Vec<ReviewItemView>> {
+    Ok(lock(&state)?
+        .review_queue()?
+        .into_iter()
+        .map(|i| ReviewItemView {
+            row_id: i.row_id,
+            oto: OtoView {
+                alias: i.alias,
+                offset_ms: i.oto.offset_ms,
+                consonant_ms: i.oto.consonant_ms,
+                cutoff_ms: i.oto.cutoff_ms,
+                preutterance_ms: i.oto.preutterance_ms,
+                overlap_ms: i.oto.overlap_ms,
+            },
+            cause: i.cause,
+            confidence: i.confidence,
+            state: i.state,
+            pinned: koeru_align::review::Slot::ALL
+                .into_iter()
+                .enumerate()
+                .filter(|(n, _)| i.pinned[*n])
+                .map(|(_, s)| crate::review::slot_name(s).to_owned())
+                .collect(),
+        })
+        .collect())
+}
+
+/// 1件ずつ確認して確定させる（`REQ-ALN-008`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn confirm_entry(state: State<'_, AppState>, alias: String) -> Result<()> {
+    lock(&state)?.confirm_entry(&alias)
+}
+
+/// まとめて確認する（`REQ-ALN-010`）。返るのは確定させた件数。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn confirm_all_entries(state: State<'_, AppState>) -> Result<u32> {
+    Ok(count(lock(&state)?.confirm_all_entries()?))
+}
+
+/// 個別確認をやめる（`REQ-ALN-010`, `INV-ALN-004`）。
+///
+/// `mode` は `batch` か `suggest_rerecord`。上限を超えていなければ通らない。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn switch_review_mode(state: State<'_, AppState>, mode: String) -> Result<()> {
+    lock(&state)?.switch_review_mode(&mode)
+}
+
+/// 5値のどれかを人が直す。その値だけを固定する（`REQ-ALN-005`, `TR-ALN-30`）。
+///
+/// `slot` は `offset` / `consonant` / `cutoff` / `preutterance` / `overlap`。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn edit_oto_value(
+    state: State<'_, AppState>,
+    alias: String,
+    slot: String,
+    value: f64,
+) -> Result<()> {
+    lock(&state)?.edit_oto_value(&alias, &slot, value)
+}
+
+/// 固定を解いて自動へ戻す（`REQ-ALN-006`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn revert_oto_value(state: State<'_, AppState>, alias: String, slot: String) -> Result<()> {
+    lock(&state)?.revert_oto_value(&alias, &slot)
+}
+
+/// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn rerecord_entry(state: State<'_, AppState>, alias: String) -> Result<()> {
+    lock(&state)?.rerecord_entry(&alias)
+}
+
+/// 書き出し前の検証（`TR-ALN-20`）。
+///
+/// 返るのは `(直した件数, 止まっているエイリアス)`。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn validate_otos(state: State<'_, AppState>) -> Result<(u32, Vec<String>)> {
+    let (fixed, blocked) = lock(&state)?.validate_otos()?;
+    Ok((count(fixed), blocked))
+}
+
+/// `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
+///
+/// 確認が残っている間は通らない（`INV-ALN-003`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn export_otos(state: State<'_, AppState>) -> Result<String> {
+    Ok(lock(&state)?.export_otos()?.to_string_lossy().into_owned())
+}
+
+/// モデルが変わったせいで古くなった推定（`TR-ALN-29`）。返るのは行 ID。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn stale_takes(state: State<'_, AppState>) -> Result<Vec<String>> {
+    lock(&state)?.stale_takes()
+}
+
+/// 同梱しているモデルのライセンス表記（`TR-ALN-31`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn model_notice() -> Result<String> {
+    Studio::model_notice()
+}
+
 /// 全チャンネルを混ぜる（`TR-REC-06`）。
 ///
 /// 全チャンネルに有意な信号があるときだけ選べる。

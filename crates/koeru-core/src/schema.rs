@@ -86,6 +86,33 @@ diesel::table! {
         confidence -> Double,
         confirmed -> Integer,
         hand_edited -> Integer,
+        state -> Text,
+        pinned_offset -> Integer,
+        pinned_consonant -> Integer,
+        pinned_cutoff -> Integer,
+        pinned_preutterance -> Integer,
+        pinned_overlap -> Integer,
+    }
+}
+
+diesel::table! {
+    /// 確認キューの進み方（`TR-ALN-25`）。音源ごとに1行。
+    review_state (id) {
+        id -> Integer,
+        mode -> Text,
+        over_budget -> Integer,
+        exported -> Integer,
+    }
+}
+
+diesel::table! {
+    /// 推定を作った入力の指紋（`TR-ALN-29`）。
+    take_fingerprints (take_id) {
+        take_id -> Integer,
+        audio -> Text,
+        reading -> Text,
+        preset -> Text,
+        aligner -> Text,
     }
 }
 
@@ -182,6 +209,7 @@ diesel::joinable!(adopted_takes -> takes (take_id));
 diesel::joinable!(oto_values -> takes (take_id));
 diesel::joinable!(take_analysis -> takes (take_id));
 diesel::joinable!(take_metrics -> takes (take_id));
+diesel::joinable!(take_fingerprints -> takes (take_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     sessions,
@@ -196,4 +224,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     calibrations,
     songs,
     song_notes,
+    review_state,
+    take_fingerprints,
 );

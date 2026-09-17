@@ -194,6 +194,46 @@ export const commands = {
 	useMixedChannels: () => typedError<null, AppError>(__TAURI_INVOKE("use_mixed_channels")),
 	/**  鳴らしている音を止める。 */
 	stopPreview: () => typedError<null, AppError>(__TAURI_INVOKE("stop_preview")),
+	/**  確認の進み具合を読む。 */
+	reviewSummary: () => typedError<ReviewSummaryView, AppError>(__TAURI_INVOKE("review_summary")),
+	/**  確認キューの中身を、手が届く順に（`TR-ALN-26`）。 */
+	reviewQueue: () => typedError<ReviewItemView[], AppError>(__TAURI_INVOKE("review_queue")),
+	/**  1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
+	confirmEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { alias })),
+	/**  まとめて確認する（`REQ-ALN-010`）。返るのは確定させた件数。 */
+	confirmAllEntries: () => typedError<number, AppError>(__TAURI_INVOKE("confirm_all_entries")),
+	/**
+	 *  個別確認をやめる（`REQ-ALN-010`, `INV-ALN-004`）。
+	 * 
+	 *  `mode` は `batch` か `suggest_rerecord`。上限を超えていなければ通らない。
+	 */
+	switchReviewMode: (mode: string) => typedError<null, AppError>(__TAURI_INVOKE("switch_review_mode", { mode })),
+	/**
+	 *  5値のどれかを人が直す。その値だけを固定する（`REQ-ALN-005`, `TR-ALN-30`）。
+	 * 
+	 *  `slot` は `offset` / `consonant` / `cutoff` / `preutterance` / `overlap`。
+	 */
+	editOtoValue: (alias: string, slot: string, value: number | null) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { alias, slot, value })),
+	/**  固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
+	revertOtoValue: (alias: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { alias, slot })),
+	/**  oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。 */
+	rerecordEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("rerecord_entry", { alias })),
+	/**
+	 *  書き出し前の検証（`TR-ALN-20`）。
+	 * 
+	 *  返るのは `(直した件数, 止まっているエイリアス)`。
+	 */
+	validateOtos: () => typedError<[number, string[]], AppError>(__TAURI_INVOKE("validate_otos")),
+	/**
+	 *  `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
+	 * 
+	 *  確認が残っている間は通らない（`INV-ALN-003`）。
+	 */
+	exportOtos: () => typedError<string, AppError>(__TAURI_INVOKE("export_otos")),
+	/**  モデルが変わったせいで古くなった推定（`TR-ALN-29`）。返るのは行 ID。 */
+	staleTakes: () => typedError<string[], AppError>(__TAURI_INVOKE("stale_takes")),
+	/**  同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
+	modelNotice: () => typedError<string, AppError>(__TAURI_INVOKE("model_notice")),
 };
 
 /* Types */
@@ -446,6 +486,47 @@ export type ProjectView = {
 	item_count: number | null,
 	/**  育ち具合。台帳を読めなければ `None`。 */
 	state: VoiceStateView | null,
+};
+
+/**  確認キューの1件（`TR-ALN-26`）。 */
+export type ReviewItemView = {
+	/**  そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。 */
+	row_id: string,
+	/**  自動推定した5値（`TR-ALN-26` (2)）。エイリアスはこの中にある。 */
+	oto: OtoView,
+	/**  低確信度の主因（`TR-ALN-26` (3)）。内訳を持たなければ `null`。 */
+	cause: string | null,
+	confidence: number,
+	/**  `not_estimated` | `auto_confirmed` | `in_queue` | `blocked`。 */
+	state: string,
+	/**
+	 *  固定されている値の名前（`TR-ALN-30`）。
+	 * 
+	 *  真偽の5つ組で渡さない。 画面が並びを覚えることになり、
+	 *  5値の順序が `oto.ini` と違う（`koeru_align::ini`）ことが二度目の取り違えを呼ぶ。
+	 */
+	pinned: string[],
+};
+
+/**  確認の進み具合（`TR-ALN-25`, `TR-ALN-28`）。 */
+export type ReviewSummaryView = {
+	/**  `individual` | `batch` | `suggest_rerecord`。 */
+	mode: string,
+	/**  確認待ちの件数。 */
+	pending: number,
+	/**  検証で止まっている件数（`TR-ALN-20`）。 */
+	blocked: number,
+	/**  確認にかかる見積もりの合計（秒）。 */
+	estimated_seconds: number,
+	/**  上限（秒）。`DEC-ALN-003` の合計5分。 */
+	budget_seconds: number,
+	/**  上限を超えているか。超えるまで個別確認をやめられない（`INV-ALN-004`）。 */
+	exceeds_budget: boolean,
+	/**  確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。 */
+	allows_skipping: boolean,
+	/**  その方式の到達水準。 */
+	reach: string,
+	exported: boolean,
 };
 
 /**

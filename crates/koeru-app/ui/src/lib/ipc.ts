@@ -32,6 +32,8 @@ export type {
   PlanRowView,
   PreflightView,
   ProgressView,
+  ReviewItemView,
+  ReviewSummaryView,
   ProjectView,
   RingView,
   RowTakesView,
@@ -145,6 +147,24 @@ export const api = {
   pendingWork: () => unwrap(commands.pendingWork()),
   latencyReport: () => unwrap(commands.latencyReport()),
   preflight: () => unwrap(commands.preflight()),
+  /** 確認の進み具合（`TR-ALN-25`）。 */
+  reviewSummary: () => unwrap(commands.reviewSummary()),
+  /** 確認キューの中身を、手が届く順に（`TR-ALN-26`）。 */
+  reviewQueue: () => unwrap(commands.reviewQueue()),
+  /** 1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
+  confirmEntry: (alias: string) => unwrap(commands.confirmEntry(alias)),
+  /** まとめて確認する（`REQ-ALN-010`）。個別確認をやめたあとだけ通る。 */
+  confirmAllEntries: () => unwrap(commands.confirmAllEntries()),
+  /** 録り直しに回す（`REQ-ALN-009`）。エントリを未推定へ戻すだけ。 */
+  rerecordEntry: (alias: string) => unwrap(commands.rerecordEntry(alias)),
+  /** 書き出し前の検証（`TR-ALN-20`）。直せるものを直す。 */
+  validateOtos: () => unwrap(commands.validateOtos()),
+  /** `oto.ini` を書き出す（`TR-ALN-21`）。確認が残っている間は通らない。 */
+  exportOtos: () => unwrap(commands.exportOtos()),
+  /** モデルが変わって古くなった推定（`TR-ALN-29`）。 */
+  staleTakes: () => unwrap(commands.staleTakes()),
+  /** 同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
+  modelNotice: () => unwrap(commands.modelNotice()),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
   importUst: (bytes: number[], title: string) => unwrap(commands.importUst(bytes, title)),
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),
@@ -157,6 +177,17 @@ export const api = {
   /** そのテイクを、指定の音高で鳴らす（`TR-SYN-18`）。 */
   preview: ({ takeId, midi, lengthMs }: { takeId: number; midi: number; lengthMs: number }) =>
     unwrap(commands.preview(takeId, midi, lengthMs)),
+
+  /** 個別確認をやめる（`REQ-ALN-010`）。上限を超えていなければ通らない。 */
+  switchReviewMode: (mode: "batch" | "suggest_rerecord") => unwrap(commands.switchReviewMode(mode)),
+
+  /** 5値のどれかを人が直す。その値だけを固定する（`TR-ALN-30`）。 */
+  editOtoValue: ({ alias, slot, value }: { alias: string; slot: OtoSlot; value: number }) =>
+    unwrap(commands.editOtoValue(alias, slot, value)),
+
+  /** 固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
+  revertOtoValue: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
+    unwrap(commands.revertOtoValue(alias, slot)),
 
   waveformWindow: ({
     takeId,
@@ -184,6 +215,15 @@ export const api = {
     rows: number;
   }) => unwrap(commands.spectrogramWindow(takeId, fromMs, toMs, columns, rows)),
 };
+
+/**
+ * 5値のどれか（`TR-ALN-30`）。
+ *
+ * 綴りは Rust 側の `Slot` に合わせる。 生成物に出てこないのは、
+ * コマンドが文字列で受けているため——ここで型を絞って、
+ * 打ち間違いが実行時まで残らないようにする。
+ */
+export type OtoSlot = "offset" | "consonant" | "cutoff" | "preutterance" | "overlap";
 
 /** 画面に出す言い方。Rust の識別子をそのまま見せない。 */
 export const micModeLabel = (m: MicModeView): string =>
