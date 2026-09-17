@@ -127,6 +127,18 @@ pub struct ReviewSummary {
     /// キューには現れない。 エントリが無いので、確認の対象にすらならない
     /// ——それでも書き出しは止める（`INV-ALN-003` の趣旨）。
     pub missing: usize,
+    /// まだ推定していないエントリの数。録り直しに回したものがここにいる。
+    ///
+    /// 確認待ちには数えない（`pending` は `InQueue` と `Blocked` だけ）。
+    /// **書き出しは止める**ので、数えないまま「確認は済んだ」と出すと、
+    /// 押して初めて断られる的になる。
+    pub unestimated: usize,
+    /// いま書き出してよいか。
+    ///
+    /// **画面がここを見る。** 件数から組み立て直させない——関門の条件は
+    /// `ReviewQueue::may_export` が持っていて（`INV-ALN-003`）、
+    /// 同じ規則を画面にも書くと片方だけが古くなる。
+    pub may_export: bool,
     /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
     pub allows_skipping: bool,
     /// その方式の到達水準。
@@ -2061,6 +2073,11 @@ impl Studio {
             budget_seconds: koeru_align::review::REVIEW_BUDGET.as_secs(),
             exceeds_budget: q.exceeds_budget(),
             missing,
+            unestimated: q
+                .all()
+                .filter(|(_, e)| e.state == EntryState::NotEstimated)
+                .count(),
+            may_export: missing == 0 && q.may_export().is_ok(),
             // 飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
             allows_skipping: reach.allows_skipping_review(),
             reach: reach.kind().to_owned(),
@@ -2132,12 +2149,9 @@ impl Studio {
     /// プロジェクトを開いていない、まとめて確認モードでない。
     #[tracing::instrument(skip(self), err)]
     pub fn confirm_all_entries(&mut self) -> Result<usize> {
-        let n = self
-            .opened_mut()?
-            .review
-            .confirm_all()
-            .map_err(review_error)?;
-        self.save_all_entries()?;
+        let mut next = self.opened()?.review.clone();
+        let n = next.confirm_all().map_err(review_error)?;
+        self.save_all_entries(next)?;
         Ok(n)
     }
 
@@ -2152,17 +2166,18 @@ impl Studio {
     // 検査する前にスパンへ載るので通さない。
     #[tracing::instrument(skip(self, to), err)]
     pub fn switch_review_mode(&mut self, to: &str) -> Result<()> {
-        let q = &mut self.opened_mut()?.review;
+        let mut next = self.opened()?.review.clone();
         match to {
-            "batch" => q.switch_to_batch().map_err(review_error)?,
-            "suggest_rerecord" => q.switch_to_rerecord().map_err(review_error)?,
+            "batch" => next.switch_to_batch().map_err(review_error)?,
+            "suggest_rerecord" => next.switch_to_rerecord().map_err(review_error)?,
             _ => {
                 return Err(AppError::new("review.unknown_mode", "知らない確認の進め方"));
             }
         }
         let open = self.opened_mut()?;
-        let q = open.review.clone();
-        crate::review::save_mode(&mut open.ledger, &q, true)
+        crate::review::save_mode(&mut open.ledger, &next, true)?;
+        open.review = next;
+        Ok(())
     }
 
     /// 5値のどれかを人が直す。その値だけを固定する（`REQ-ALN-005`, `TR-ALN-30`）。
@@ -2221,13 +2236,32 @@ impl Studio {
         for e in &entries {
             let len_ms = self.take_length_ms(e.take_id)?;
             let r = validate::repair(&e.oto, len_ms, dup.contains(&e.alias.as_str()));
-            if !r.fixed.is_empty() {
+
+            // 固定した値は直さない（`TR-ALN-30`, `INV-ALN-001`）。
+            //
+            // **修復結果をそのまま書き戻していた。** 固定の印は残るので、
+            // 画面は機械が動かした値を「手で決めました」と出していた。
+            // 人が決めた値は人のもので、自動修復もそこには手を出せない。
+            let mut next = e.oto;
+            let mut touches_pinned = false;
+            for (i, slot) in Slot::ALL.into_iter().enumerate() {
+                if e.pinned[i] {
+                    // 直したい値と違うなら、固定があるせいで直せていない。
+                    touches_pinned |= (slot.get(&r.oto) - slot.get(&e.oto)).abs() > f64::EPSILON;
+                } else {
+                    slot.set(&mut next, slot.get(&r.oto));
+                }
+            }
+
+            if next != e.oto {
                 fixed += 1;
                 self.opened_mut()?
                     .ledger
-                    .set_oto_value(e.take_id, &e.alias, &r.oto)?;
+                    .set_oto_value(e.take_id, &e.alias, &next)?;
             }
-            if !r.may_export() {
+            // 固定を避けたせいで違反が残るものも止める。 直せていないのに
+            // 通すと、`TR-ALN-20` が塞いだはずの形のまま書き出される。
+            if !r.may_export() || touches_pinned {
                 blocked.push(e.alias.clone());
             }
         }
@@ -2312,11 +2346,12 @@ impl Studio {
         std::fs::write(&path, bytes)?;
 
         // ここまで来て初めて確定させる。関門はもう一度キューが見る。
-        self.opened_mut()?.review.export().map_err(review_error)?;
+        let mut next = self.opened()?.review.clone();
+        next.export().map_err(review_error)?;
+        let over = next.mode() != ReviewMode::Individual;
         let open = self.opened_mut()?;
-        let q = open.review.clone();
-        let over = q.mode() != ReviewMode::Individual;
-        crate::review::save_mode(&mut open.ledger, &q, over)?;
+        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        open.review = next;
         Ok(path)
     }
 
@@ -2365,44 +2400,58 @@ impl Studio {
     }
 
     /// キューの1件を動かして、結果を台帳へ書く。
+    ///
+    /// **複製の上で遷移させ、書けてから本物へ移す。** 正本は台帳なので
+    /// （`TR-PKG-40`）、先に手元のキューを進めると、書き込みが落ちたときに
+    /// 画面だけが先へ行く——開き直すまで、確認したはずのものが戻ってくる。
     fn with_entry(
         &mut self,
         alias: &str,
         f: impl FnOnce(&mut ReviewQueue, &str) -> std::result::Result<(), ReviewError>,
     ) -> Result<()> {
-        f(&mut self.opened_mut()?.review, alias).map_err(review_error)?;
+        let mut next = self.opened()?.review.clone();
+        f(&mut next, alias).map_err(review_error)?;
+
         let Some(take_id) = self.opened()?.review_takes.get(alias).copied() else {
             return Err(AppError::new(
                 "review.no_such_entry",
                 "そのエントリを持つテイクが無い",
             ));
         };
-        let Some(entry) = self.opened()?.review.get(alias).cloned() else {
+        let Some(entry) = next.get(alias).cloned() else {
             return Err(AppError::new("review.no_such_entry", "そのエントリが無い"));
         };
         let open = self.opened_mut()?;
-        crate::review::save_entry(&mut open.ledger, take_id, alias, &entry)
+        crate::review::save_entry(&mut open.ledger, take_id, alias, &entry)?;
+        open.review = next;
+        Ok(())
     }
 
     /// キュー全体を台帳へ書く。まとめて確認したあとに使う。
-    fn save_all_entries(&mut self) -> Result<()> {
-        let rows: Vec<(String, i32, koeru_align::review::Entry)> = self
-            .opened()?
-            .review
-            .all()
-            .filter_map(|(alias, e)| {
-                let id = self.opened().ok()?.review_takes.get(alias).copied()?;
-                Some((alias.to_owned(), id, e.clone()))
-            })
-            .collect();
-        for (alias, take_id, e) in rows {
-            let open = self.opened_mut()?;
-            crate::review::save_entry(&mut open.ledger, take_id, &alias, &e)?;
-        }
+    ///
+    /// 全件を1つのトランザクションで書く。 1件ずつ流すと、途中で落ちたときに
+    /// 「半分だけ確認済み」の台帳が残る。
+    fn save_all_entries(&mut self, next: ReviewQueue) -> Result<()> {
+        let rows: Vec<koeru_core::db::ReviewEntryRow> = {
+            let open = self.opened()?;
+            next.all()
+                .filter_map(|(alias, e)| {
+                    Some(koeru_core::db::ReviewEntryRow {
+                        take_id: open.review_takes.get(alias).copied()?,
+                        alias: alias.to_owned(),
+                        oto: e.oto,
+                        state: e.state.as_str().to_owned(),
+                        pinned: e.pins(),
+                    })
+                })
+                .collect()
+        };
+        let over = next.mode() != ReviewMode::Individual;
         let open = self.opened_mut()?;
-        let q = open.review.clone();
-        let over = q.mode() != ReviewMode::Individual;
-        crate::review::save_mode(&mut open.ledger, &q, over)
+        open.ledger.put_review_entries(&rows)?;
+        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        open.review = next;
+        Ok(())
     }
 
     /// そのテイクの長さ（ミリ秒）。検証が切り出し範囲を見るのに要る。

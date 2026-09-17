@@ -117,10 +117,13 @@ fn model_dir() -> Option<PathBuf> {
 }
 
 /// 実行ファイルの隣（配布物の形）。
+///
+/// 実体の判定は `koeru-align` のものを通す。 ここだけ `is_file` で見ていたので、
+/// LFS のポインタのまま同梱された配布物が選ばれ、MFA が黙って退避経路へ落ちていた。
 fn exe_model_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let p = exe.parent()?.join(MODEL_DIR_RELATIVE);
-    p.join("final.mdl").is_file().then_some(p)
+    koeru_align::mfa::has_model(&p).then_some(p)
 }
 
 #[cfg(test)]

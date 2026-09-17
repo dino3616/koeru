@@ -218,7 +218,7 @@ export const commands = {
 	 * 
 	 *  `slot` は `offset` / `consonant` / `cutoff` / `preutterance` / `overlap`。
 	 */
-	editOtoValue: (alias: string, slot: string, value: number | null) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { alias, slot, value })),
+	editOtoValue: (alias: string, slot: string, value: Finite) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { alias, slot, value })),
 	/**  固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
 	revertOtoValue: (alias: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { alias, slot })),
 	/**  oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。 */
@@ -529,6 +529,10 @@ export type ReviewSummaryView = {
 	exceeds_budget: boolean,
 	/**  切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。 */
 	missing: number,
+	/**  まだ推定していないエントリの数。録り直しに回したものがここにいる。 */
+	unestimated: number,
+	/**  いま書き出してよいか。画面はこれを見る（件数から組み立て直さない）。 */
+	may_export: boolean,
 	/**  確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。 */
 	allows_skipping: boolean,
 	/**  その方式の到達水準。 */

@@ -40,7 +40,11 @@ const MODEL_DIR_IN_REPO: &str = "models/japanese_mfa/acoustic";
 ///
 /// LFS を入れずに clone すると、`final.mdl` は 130 バイト程度のポインタで置かれる。
 /// ファイルはあるので `is_file` は通り、Kaldi が読む段になって初めて落ちる。
-fn has_model(dir: &Path) -> bool {
+///
+/// **探す経路はどれもこれを通す。** 配布物側だけ `is_file` で見ていたので、
+/// ポインタのまま同梱された配布物が選ばれ、MFA が黙って退避経路へ落ちていた。
+#[must_use]
+pub fn has_model(dir: &Path) -> bool {
     let p = dir.join("final.mdl");
     std::fs::metadata(&p).is_ok_and(|m| m.is_file() && m.len() > 1_000_000)
 }

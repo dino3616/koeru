@@ -1476,6 +1476,45 @@ impl Ledger {
         Ok(())
     }
 
+    /// 複数のエントリを一度に書く。 途中で失敗したら1件も書かれていない。
+    ///
+    /// まとめて確認（`REQ-ALN-010`）は全件の状態を動かす。1件ずつ流すと、
+    /// 途中で落ちたときに「半分だけ確認済み」の台帳が残る。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    pub fn put_review_entries(&mut self, rows: &[ReviewEntryRow]) -> Result<()> {
+        self.conn
+            .transaction(|conn| {
+                for r in rows {
+                    let target = oto_values::table
+                        .filter(oto_values::take_id.eq(r.take_id))
+                        .filter(oto_values::alias.eq(&r.alias));
+                    diesel::update(target)
+                        .set((
+                            oto_values::offset_ms.eq(r.oto.offset_ms),
+                            oto_values::consonant_ms.eq(r.oto.consonant_ms),
+                            oto_values::cutoff_ms.eq(r.oto.cutoff_ms),
+                            oto_values::preutterance_ms.eq(r.oto.preutterance_ms),
+                            oto_values::overlap_ms.eq(r.oto.overlap_ms),
+                            oto_values::state.eq(&r.state),
+                            oto_values::confirmed.eq(i32::from(r.state == "auto_confirmed")),
+                            oto_values::pinned_offset.eq(i32::from(r.pinned[0])),
+                            oto_values::pinned_consonant.eq(i32::from(r.pinned[1])),
+                            oto_values::pinned_cutoff.eq(i32::from(r.pinned[2])),
+                            oto_values::pinned_preutterance.eq(i32::from(r.pinned[3])),
+                            oto_values::pinned_overlap.eq(i32::from(r.pinned[4])),
+                            oto_values::hand_edited.eq(i32::from(r.pinned.iter().any(|p| *p))),
+                        ))
+                        .execute(conn)?;
+                }
+                Ok::<_, diesel::result::Error>(())
+            })
+            .map_err(db("put_review_entries"))?;
+        Ok(())
+    }
+
     /// 採用しているのに oto が1つも無い収録単位（`TR-ALN-20`, `INV-ALN-003`）。
     ///
     /// 発声が見つからなかったテイクも採用される（取りこぼしが無ければ）。
@@ -1709,6 +1748,18 @@ pub struct ReviewStateRow {
     /// 個別確認をやめたか。やめられるのは上限を超えたときだけ（`INV-ALN-004`）。
     pub over_budget: bool,
     pub exported: bool,
+}
+
+/// 台帳へ書き戻す確認エントリ1件。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewEntryRow {
+    pub take_id: i32,
+    pub alias: String,
+    pub oto: crate::oto::Oto,
+    /// `align-review.fsl` の `EntryState` を写した文字列。
+    pub state: String,
+    /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    pub pinned: [bool; 5],
 }
 
 /// 推定を作った入力の指紋（`TR-ALN-29`）。

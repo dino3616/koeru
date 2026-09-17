@@ -350,7 +350,12 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 durationMs={shown.duration_ms}
                 raw={raw}
                 onRaw={setRaw}
-                pinned={pinnedOf(activeAlias)}
+                /*
+                  使っていない回では固定を出さない。 固定はエイリアスに付いて
+                  いて採用中の回のものなので、古い回の値に「手で決めました」と
+                  出すことになる。
+                */
+                pinned={isAdopted ? pinnedOf(activeAlias) : []}
                 onRevert={(slot) =>
                   activeAlias !== null && revert.mutate({ alias: activeAlias, slot })
                 }

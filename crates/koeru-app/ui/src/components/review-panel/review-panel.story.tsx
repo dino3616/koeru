@@ -13,6 +13,8 @@ const base: ReviewSummaryView = {
   budget_seconds: 300,
   exceeds_budget: false,
   missing: 0,
+  unestimated: 0,
+  may_export: false,
   allows_skipping: false,
   reach: "reach.undeclared",
   exported: false,
@@ -65,7 +67,7 @@ export const 直せない違反がある: Story = {
 };
 
 export const 確認が済んだ: Story = {
-  beforeEach: () => summary({ pending: 0, estimated_seconds: 0 }),
+  beforeEach: () => summary({ pending: 0, estimated_seconds: 0, may_export: true }),
   play: async ({ canvasElement }) => {
     // 済んでいれば書き出せる（`INV-ALN-003` の裏）。
     await waitFor(async () => {
@@ -94,6 +96,21 @@ export const 発声が見つからなかった行がある: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.textContent).toContain("録り直すまで書き出せません"));
     // キューは空でも書き出させない（`INV-ALN-003` の趣旨）。
+    const button = [...canvasElement.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("書き出す"),
+    );
+    await expect(button?.disabled).toBe(true);
+  },
+};
+
+export const 録り直しを待っている音がある: Story = {
+  beforeEach: () => summary({ pending: 0, estimated_seconds: 0, unestimated: 2 }),
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.textContent).toContain("録り直しを待っている音"));
+    /*
+      件数から組み立て直さない。 `pending` は未推定を数えないので、
+      ここで組み立てると「済んだ」と出して押させ、押すと断られる。
+    */
     const button = [...canvasElement.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("書き出す"),
     );

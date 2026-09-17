@@ -121,6 +121,8 @@ const 台帳 = () => {
     budget_seconds: 300,
     exceeds_budget: false,
     missing: 0,
+    unestimated: 0,
+    may_export: true,
     allows_skipping: false,
     reach: "reach.undeclared",
     exported: false,

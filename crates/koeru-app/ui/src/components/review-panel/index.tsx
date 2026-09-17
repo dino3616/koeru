@@ -39,8 +39,13 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
 
-  // 書き出せるのは、確認が済んで、切り出しも全部取れているとき。
-  // `missing` はキューに現れない（エントリが無い）が、書き出しは止まる。
+  /*
+    書き出してよいかは Rust に訊く。 件数から組み立て直さない——関門の条件は
+    `ReviewQueue::may_export` が持っていて（`INV-ALN-003`）、同じ規則をここにも
+    書くと片方だけが古くなる。**実際にずれた**: `pending` は未推定を数えないので、
+    録り直しに回した音が残っていても「確認は済みました」と出して的を押させ、
+    押すと必ず断られていた。
+  */
   const done = summary.pending === 0 && summary.blocked === 0 && summary.missing === 0;
 
   const after = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
@@ -111,6 +116,12 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
         </p>
       )}
 
+      {summary.unestimated > 0 && (
+        <p className="text-sm text-slate-12">
+          録り直しを待っている音が {summary.unestimated} 件あります。
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {/*
           超えたときにだけ出す。 `INV-ALN-004` が「個別確認をやめるのは
@@ -141,8 +152,8 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
           type="button"
           variant="primary"
           onClick={() => exportOtos.mutate()}
-          // 確認が残っている間は書き出せない（`INV-ALN-003`）。
-          disabled={busy || !done || summary.exported}
+          // 関門の答えをそのまま使う（`INV-ALN-003`）。
+          disabled={busy || !summary.may_export}
         >
           {summary.exported ? "書き出し済み" : "原音設定を書き出す"}
         </Button>

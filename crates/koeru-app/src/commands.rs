@@ -965,6 +965,10 @@ pub struct ReviewSummaryView {
     pub exceeds_budget: bool,
     /// 切り出しが1つも取れていない行の数。キューには現れないが書き出しは止まる。
     pub missing: u32,
+    /// まだ推定していないエントリの数。録り直しに回したものがここにいる。
+    pub unestimated: u32,
+    /// いま書き出してよいか。画面はこれを見る（件数から組み立て直さない）。
+    pub may_export: bool,
     /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
     pub allows_skipping: bool,
     /// その方式の到達水準。
@@ -1005,6 +1009,8 @@ pub fn review_summary(state: State<'_, AppState>) -> Result<ReviewSummaryView> {
         budget_seconds: count64(s.budget_seconds),
         exceeds_budget: s.exceeds_budget,
         missing: count(s.missing),
+        unestimated: count(s.unestimated),
+        may_export: s.may_export,
         allows_skipping: s.allows_skipping,
         reach: s.reach,
         exported: s.exported,
@@ -1076,9 +1082,11 @@ pub fn edit_oto_value(
     state: State<'_, AppState>,
     alias: String,
     slot: String,
-    value: f64,
+    // `Finite` を通す。 素の `f64` は `number | null` に写るので
+    // （`react-conventions`）、`~/lib/ipc` の手書きの型と食い違う。
+    value: Finite,
 ) -> Result<()> {
-    lock(&state)?.edit_oto_value(&alias, &slot, value)
+    lock(&state)?.edit_oto_value(&alias, &slot, value.0)
 }
 
 /// 固定を解いて自動へ戻す（`REQ-ALN-006`）。
