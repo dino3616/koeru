@@ -109,7 +109,7 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
 
-  const [{ data: rows }, { data: review }, { data: queued }] = useSuspenseQueries({
+  const [{ data: rows }, { data: review }, { data: entries }] = useSuspenseQueries({
     queries: [rowsWithTakesQuery(id), reviewSummaryQuery(id), reviewQueueQuery(id)],
   });
 
@@ -144,21 +144,22 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
     enabled: shown !== null,
   });
 
-  /** その音のうち、人が決めた値（`TR-ALN-30`）。確認が済んでいれば空。 */
+  /**
+   * その音のうち、人が決めた値（`TR-ALN-30`）。
+   *
+   * 確認が済んだものも引ける。 `reviewQueue` は採用テイクのエントリを全部返す
+   * ——確認待ちだけにすると、確定した瞬間に固定の印と「自動に戻す」が消える。
+   */
   const pinnedOf = (alias: string | null): readonly OtoSlot[] =>
-    (queued.find((i) => i.oto.alias === alias)?.pinned ?? []) as OtoSlot[];
+    (entries.find((i) => i.oto.alias === alias)?.pinned ?? []) as OtoSlot[];
+
+  /** いま見ている回が採用中か。確認と編集は採用中の回にしか効かない。 */
+  const isAdopted = shown !== null && shown.take_id === row?.adopted;
 
   const afterReview = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
 
   const confirm = useMutation({
     mutationFn: (alias: string) => api.confirmEntry(alias),
-    onMutate: () => setError(null),
-    onSuccess: afterReview,
-    onError: fail,
-  });
-
-  const rerecord = useMutation({
-    mutationFn: (alias: string) => api.rerecordEntry(alias),
     onMutate: () => setError(null),
     onSuccess: afterReview,
     onError: fail,
@@ -172,7 +173,24 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
     onError: fail,
   });
 
-  const reviewBusy = confirm.isPending || rerecord.isPending || revert.isPending;
+  /*
+    録り直しは、状態を戻して収録へ送るところまでで1つ。
+
+    **`rerecordEntry` だけだと何も録りはじめない。** エントリは `not_estimated`
+    へ戻ってキューから消えるので、画面は「確認が済んでいます」と言う——
+    録っていないのに済んだことになる。採用の切り替えと同じ経路へ送る。
+  */
+  const rerecordAndGo = useMutation({
+    mutationFn: (alias: string) => api.rerecordEntry(alias),
+    onMutate: () => setError(null),
+    onSuccess: async () => {
+      await afterReview();
+      await navigate({ to: "/voice", search: { id, tab: "sound", retake: rowId } });
+    },
+    onError: fail,
+  });
+
+  const reviewBusy = confirm.isPending || rerecordAndGo.isPending || revert.isPending;
 
   const adopt = useMutation({
     mutationFn: (takeId: number) => api.adoptTake(rowId, takeId),
@@ -336,7 +354,7 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 onRevert={(slot) =>
                   activeAlias !== null && revert.mutate({ alias: activeAlias, slot })
                 }
-                busy={reviewBusy}
+                busy={reviewBusy || !isAdopted}
               />
 
               <hr className="h-px border-0 bg-slate-6" />
@@ -346,10 +364,11 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 確認はここ、テイクを開いたところにある。
               */}
               <ReviewEntry
-                item={queued.find((i) => i.oto.alias === activeAlias) ?? null}
+                item={entries.find((i) => i.oto.alias === activeAlias) ?? null}
+                adopted={isAdopted}
                 individual={review.mode === "individual"}
                 onConfirm={() => activeAlias !== null && confirm.mutate(activeAlias)}
-                onRerecord={() => activeAlias !== null && rerecord.mutate(activeAlias)}
+                onRerecord={() => activeAlias !== null && rerecordAndGo.mutate(activeAlias)}
                 busy={reviewBusy}
               />
 

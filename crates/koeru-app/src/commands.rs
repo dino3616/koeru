@@ -1008,7 +1008,10 @@ pub fn review_summary(state: State<'_, AppState>) -> Result<ReviewSummaryView> {
     })
 }
 
-/// 確認キューの中身を、手が届く順に（`TR-ALN-26`）。
+/// 採用テイクのエントリ全部を、手が届く順に（`TR-ALN-26`）。
+///
+/// 確認待ちが先、済んだものが後ろ。 確定したものも返すのは、固定が
+/// そのあとも残るため（`REQ-ALN-007`）。
 #[tauri::command(async)]
 #[specta::specta]
 pub fn review_queue(state: State<'_, AppState>) -> Result<Vec<ReviewItemView>> {

@@ -23,7 +23,7 @@ const item: ReviewItemView = {
 const meta = {
   title: "部品/ReviewEntry",
   component: ReviewEntry,
-  args: { item, individual: true, onConfirm: fn(), onRerecord: fn(), busy: false },
+  args: { item, adopted: true, individual: true, onConfirm: fn(), onRerecord: fn(), busy: false },
   decorators: [(Story) => <div className="w-96">{Story()}</div>],
 } satisfies Meta<typeof ReviewEntry>;
 
@@ -70,7 +70,26 @@ export const まとめて確認へ切り替えたあと: Story = {
 };
 
 export const 確認が済んでいる: Story = {
+  args: { item: { ...item, state: "auto_confirmed" } },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.textContent).not.toContain("これでよい");
+  },
+};
+
+export const 切り出しがまだ無い: Story = {
   args: { item: null },
+};
+
+export const 使っていない回を見ている: Story = {
+  args: { adopted: false },
+  play: async ({ canvasElement }) => {
+    /*
+      押す的を出さない。 Rust 側の鍵はエイリアスだけなので、
+      押すと採用中の回が動く——見ている波形と食い違う。
+    */
+    await expect(canvasElement.textContent).not.toContain("これでよい");
+    await expect(canvasElement.textContent).not.toContain("録り直す");
+  },
 };
 
 export const 走っている間: Story = {

@@ -196,7 +196,12 @@ export const commands = {
 	stopPreview: () => typedError<null, AppError>(__TAURI_INVOKE("stop_preview")),
 	/**  確認の進み具合を読む。 */
 	reviewSummary: () => typedError<ReviewSummaryView, AppError>(__TAURI_INVOKE("review_summary")),
-	/**  確認キューの中身を、手が届く順に（`TR-ALN-26`）。 */
+	/**
+	 *  採用テイクのエントリ全部を、手が届く順に（`TR-ALN-26`）。
+	 * 
+	 *  確認待ちが先、済んだものが後ろ。 確定したものも返すのは、固定が
+	 *  そのあとも残るため（`REQ-ALN-007`）。
+	 */
 	reviewQueue: () => typedError<ReviewItemView[], AppError>(__TAURI_INVOKE("review_queue")),
 	/**  1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
 	confirmEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { alias })),

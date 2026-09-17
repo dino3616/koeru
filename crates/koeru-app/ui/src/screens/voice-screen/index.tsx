@@ -138,7 +138,7 @@ const VoiceBody = ({
     { data: progress },
     { data: voice },
     { data: rows },
-    { data: reviewQueue },
+    { data: reviewEntries },
     { data: songs },
     { data: devices },
     { data: chosen },
@@ -563,7 +563,9 @@ const VoiceBody = ({
             <ItemList
               rows={rows}
               nextRowId={progress.next_row_id}
-              pendingRowIds={reviewQueue.map((i) => i.row_id)}
+              pendingRowIds={reviewEntries
+                .filter((i) => i.state === "in_queue" || i.state === "blocked")
+                .map((i) => i.row_id)}
               onOpen={openTake}
             />
           )}

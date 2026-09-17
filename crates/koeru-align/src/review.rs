@@ -625,12 +625,19 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。
+    /// 書き出してよいか（`REQ-PKG-003`, `INV-ALN-003`）。状態は動かさない。
+    ///
+    /// [`Self::export`] の前半をそのまま切り出したもの。 **呼び出し側が
+    /// 件数を数え直さないためにある**——関門を2箇所に書くと、片方だけが
+    /// `INV-ALN-003` を守る形になる（`AGENTS.md` の禁止事項6）。
+    ///
+    /// 書き出しは、失敗しうる用意（符号化・ファイル書き込み）を挟む。
+    /// 先に [`Self::export`] を呼ぶと、書けなかったのに書き出し済みになる。
     ///
     /// # Errors
     ///
     /// 書き出し済み、確認が残っている、自動確定していないエントリがある。
-    pub fn export(&mut self) -> Result<()> {
+    pub fn may_export(&self) -> Result<()> {
         if self.exported {
             return Err(ReviewError::AlreadyExported);
         }
@@ -641,6 +648,16 @@ impl ReviewQueue {
         {
             return Err(ReviewError::ReviewPending);
         }
+        Ok(())
+    }
+
+    /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。
+    ///
+    /// # Errors
+    ///
+    /// [`Self::may_export`] と同じ。
+    pub fn export(&mut self) -> Result<()> {
+        self.may_export()?;
         self.exported = true;
         Ok(())
     }

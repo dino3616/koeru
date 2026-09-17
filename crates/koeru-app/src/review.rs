@@ -34,21 +34,6 @@ use crate::error::Result;
 /// 実測が出たときに呼び出し側だけ直せばよいようにするため。
 pub const PER_ITEM: Duration = Duration::from_secs(10);
 
-/// 確信度を4成分ごと持たない台帳から、合成スコアだけで確信度を組み直す。
-///
-/// 成分の内訳は保存していない。 台帳が持っているのは合成スコア1つで、
-/// `TR-ALN-26` (3) の主因ラベルは開き直したあとには出せない。
-/// **成分を 0 で埋めない**——0 は「測ってその値だった」であって「持っていない」ではない。
-/// 全成分へ同じ値を置き、`is_complete` が偽になる形（経路確信度なし）にしてある。
-fn confidence_from_score(score: f64) -> Confidence {
-    Confidence {
-        path: None,
-        sharpness: score,
-        prior: score,
-        acoustic: score,
-    }
-}
-
 /// 台帳からキューを組み直す。
 ///
 /// 返るのは `(キュー, エイリアス → 書き戻す先のテイク)`。
@@ -65,11 +50,23 @@ pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> 
     let mut takes = HashMap::new();
     for e in ledger.adopted_otos()? {
         let state = EntryState::parse(&e.state);
+        // 成分を持っているものだけ確信度を載せる。
+        //
+        // **合成スコアから成分を作り直さない。** 合成は積なので、同じ値を
+        // 3つ置くとスコアが3乗になり、主因も常に同じ成分を指す
+        // ——保存した 0.4 が 0.064 になり、理由が何であれ「音の変わり目が
+        // はっきりしません」と出ていた。
+        //
+        // 未推定に確信度は無い。 持たせると、録り直した直後に
+        // 前の推定の点数が残って見える。
         let confidence = match state {
-            // 未推定に確信度は無い。 持たせると、録り直した直後に
-            // 前の推定の点数が残って見える。
             EntryState::NotEstimated => None,
-            _ => Some(confidence_from_score(e.confidence)),
+            _ => e.parts.map(|p| Confidence {
+                path: p.path,
+                sharpness: p.sharpness,
+                prior: p.prior,
+                acoustic: p.acoustic,
+            }),
         };
         takes.insert(e.alias.clone(), e.take_id);
         q.insert(e.alias, Entry::restored(e.oto, state, confidence, e.pinned));
@@ -141,12 +138,8 @@ mod tests {
         assert_eq!(slot_of(""), None);
     }
 
-    /// 台帳へ書いた状態が、開き直したキューにそのまま載る。
-    ///
-    /// 遷移をやり直さない。 やり直すと、確認し終えたものが未推定へ戻る。
-    #[test]
-    fn 台帳から確認キューを組み直せる() {
-        use koeru_core::db::koeru_oto;
+    /// 採用テイクが1つだけある台帳を作る。返るのは `(台帳, テイク, 行)`。
+    fn 一件だけ入れた台帳() -> (Ledger, i32, String) {
         use koeru_core::inventory::UnitSet;
         use koeru_core::reclist::generate_single;
 
@@ -178,6 +171,17 @@ mod tests {
             })
             .expect("確定できる");
         l.adopt_take(row, take).expect("採用できる");
+        (l, take, row.clone())
+    }
+
+    /// 台帳へ書いた状態が、開き直したキューにそのまま載る。
+    ///
+    /// 遷移をやり直さない。 やり直すと、確認し終えたものが未推定へ戻る。
+    #[test]
+    fn 台帳から確認キューを組み直せる() {
+        use koeru_core::db::koeru_oto;
+
+        let (mut l, take, _) = 一件だけ入れた台帳();
         l.put_oto(
             take,
             "か",
@@ -189,6 +193,7 @@ mod tests {
                 overlap_ms: 5.0,
             },
             0.5,
+            None,
             false,
         )
         .expect("書ける");
@@ -206,14 +211,77 @@ mod tests {
         assert!(q.needs_review());
     }
 
-    /// 開き直したときに経路確信度を持たない。
+    /// 成分を持たないエントリには確信度を載せない。
     ///
-    /// 持っていると、退避経路で録ったものと MFA で録ったものが
-    /// 台帳から読んだ瞬間に区別できなくなる。
+    /// 合成スコアから成分は作り直せない。 積で畳んであるので、
+    /// 同じ値を3つ置くとスコアが3乗になる。
     #[test]
-    fn 組み直した確信度は成分を名乗らない() {
-        let c = confidence_from_score(0.5);
-        assert!(!c.is_complete());
-        assert!((c.score() - 0.125).abs() < 1e-9);
+    fn 成分が無ければ確信度を載せない() {
+        use koeru_core::db::koeru_oto;
+
+        let (mut l, take, row) = 一件だけ入れた台帳();
+        let _ = row;
+        // `put_oto` に成分を渡していないので、読み戻しても成分は無い。
+        l.put_oto(
+            take,
+            "き",
+            &koeru_oto::Oto {
+                offset_ms: 1.0,
+                consonant_ms: 2.0,
+                cutoff_ms: -3.0,
+                preutterance_ms: 1.5,
+                overlap_ms: 0.5,
+            },
+            0.4,
+            None,
+            false,
+        )
+        .expect("書ける");
+
+        let (q, _) = load(&mut l).expect("組み直せる");
+        assert!(q.get("き").expect("ある").confidence.is_none());
+    }
+
+    /// 成分を渡したものは、合成スコアが往復する。
+    #[test]
+    fn 成分を持つものは点数が歪まない() {
+        use koeru_core::db::{ConfidenceParts, koeru_oto};
+
+        let (mut l, take, _) = 一件だけ入れた台帳();
+        let parts = ConfidenceParts {
+            path: Some(0.8),
+            sharpness: 0.5,
+            prior: 1.0,
+            acoustic: 0.9,
+        };
+        let score = 0.8 * 0.5 * 1.0 * 0.9;
+        l.put_oto(
+            take,
+            "き",
+            &koeru_oto::Oto {
+                offset_ms: 1.0,
+                consonant_ms: 2.0,
+                cutoff_ms: -3.0,
+                preutterance_ms: 1.5,
+                overlap_ms: 0.5,
+            },
+            score,
+            Some(&parts),
+            false,
+        )
+        .expect("書ける");
+
+        let (q, _) = load(&mut l).expect("組み直せる");
+        let c = q.get("き").expect("ある").confidence.expect("成分がある");
+        assert!(
+            (c.score() - score).abs() < 1e-9,
+            "点数が歪んでいる: {}",
+            c.score()
+        );
+        // 主因は落ちた成分を指す（`TR-ALN-26` (3)）。
+        assert_eq!(
+            c.cause(0.6),
+            Some(koeru_align::confidence::Cause::Sharpness)
+        );
     }
 }

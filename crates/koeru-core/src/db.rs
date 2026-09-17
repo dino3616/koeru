@@ -690,12 +690,18 @@ impl Ledger {
     /// エイリアス単位。 単独音でも1ファイルに複数モーラが入るので
     /// （`TR-RCL-03`、`DEC-ALN-013`）、1テイクに複数のエントリがぶら下がる。
     /// 同じ WAV を複数のエイリアスが別の位置で指す。
+    /// oto を1件書く。
+    ///
+    /// `parts` は確信度の成分（`TR-ALN-24` の「成分ごとの値も保持する」）。
+    /// 合成スコアだけを持つと、開き直したあとに `TR-ALN-26` (3) の主因が出せない
+    /// ——合成は積なので、成分を作り直そうとすると値が歪む。
     pub fn put_oto(
         &mut self,
         take_id: i32,
         alias: &str,
         o: &koeru_oto::Oto,
         confidence: f64,
+        parts: Option<&ConfidenceParts>,
         hand_edited: bool,
     ) -> Result<()> {
         diesel::insert_into(oto_values::table)
@@ -708,6 +714,10 @@ impl Ledger {
                 oto_values::preutterance_ms.eq(o.preutterance_ms),
                 oto_values::overlap_ms.eq(o.overlap_ms),
                 oto_values::confidence.eq(confidence),
+                oto_values::conf_path.eq(parts.and_then(|p| p.path)),
+                oto_values::conf_sharpness.eq(parts.map(|p| p.sharpness)),
+                oto_values::conf_prior.eq(parts.map(|p| p.prior)),
+                oto_values::conf_acoustic.eq(parts.map(|p| p.acoustic)),
                 oto_values::hand_edited.eq(i32::from(hand_edited)),
             ))
             .on_conflict((oto_values::take_id, oto_values::alias))
@@ -719,6 +729,10 @@ impl Ledger {
                 oto_values::preutterance_ms.eq(o.preutterance_ms),
                 oto_values::overlap_ms.eq(o.overlap_ms),
                 oto_values::confidence.eq(confidence),
+                oto_values::conf_path.eq(parts.and_then(|p| p.path)),
+                oto_values::conf_sharpness.eq(parts.map(|p| p.sharpness)),
+                oto_values::conf_prior.eq(parts.map(|p| p.prior)),
+                oto_values::conf_acoustic.eq(parts.map(|p| p.acoustic)),
                 oto_values::hand_edited.eq(i32::from(hand_edited)),
             ))
             .execute(&mut self.conn)
@@ -1343,6 +1357,10 @@ impl Ledger {
                 oto_values::pinned_cutoff,
                 oto_values::pinned_preutterance,
                 oto_values::pinned_overlap,
+                oto_values::conf_path,
+                oto_values::conf_sharpness,
+                oto_values::conf_prior,
+                oto_values::conf_acoustic,
             ))
             .load::<OtoEntryRow>(&mut self.conn)
             .map_err(db("adopted_otos"))
@@ -1506,7 +1524,27 @@ type OtoEntryRow = (
     i32,
     i32,
     i32,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
 );
+
+/// 確信度の4成分（`TR-ALN-24`）。
+///
+/// `koeru-align` の型を使わない。 あちらがここを引いているので、依存が逆になる。
+/// 合成スコアは [`OtoEntry::confidence`] が別に持つ——こちらから計算し直さない。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConfidenceParts {
+    /// (1) 経路確信度。退避経路は出せないので `None`（`DEC-ALN-006`）。
+    pub path: Option<f64>,
+    /// (2) 境界鋭さ。
+    pub sharpness: f64,
+    /// (3) 事前分布逸脱の裏返し。
+    pub prior: f64,
+    /// (4) 音響異常度の裏返し。
+    pub acoustic: f64,
+}
 
 /// 確認の状態まで含んだ oto の1件（`TR-ALN-26`）。
 ///
@@ -1524,6 +1562,8 @@ pub struct OtoEntry {
     pub state: String,
     /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
     pub pinned: [bool; 5],
+    /// 確信度の成分（`TR-ALN-24`）。この列より前に録ったものは持たない。
+    pub parts: Option<ConfidenceParts>,
 }
 
 impl From<OtoEntryRow> for OtoEntry {
@@ -1544,7 +1584,21 @@ impl From<OtoEntryRow> for OtoEntry {
             p2,
             p3,
             p4,
+            c_path,
+            c_sharp,
+            c_prior,
+            c_acoustic,
         ) = r;
+        // 3つ揃っていて初めて成分として読む。 欠けたものを 0 で埋めない。
+        let parts = match (c_sharp, c_prior, c_acoustic) {
+            (Some(sharpness), Some(prior), Some(acoustic)) => Some(ConfidenceParts {
+                path: c_path,
+                sharpness,
+                prior,
+                acoustic,
+            }),
+            _ => None,
+        };
         Self {
             take_id,
             alias,
@@ -1559,6 +1613,7 @@ impl From<OtoEntryRow> for OtoEntry {
             confidence,
             state,
             pinned: [p0 != 0, p1 != 0, p2 != 0, p3 != 0, p4 != 0],
+            parts,
         }
     }
 }
@@ -1693,7 +1748,7 @@ mod tests {
             preutterance_ms: 15.0,
             overlap_ms: 5.0,
         };
-        l.put_oto(id, "か", &oto, 0.4, false).expect("書ける");
+        l.put_oto(id, "か", &oto, 0.4, None, false).expect("書ける");
 
         // 既定は確認待ち。 誰も見ていない推定値を自動確定にしない。
         let got = l.adopted_otos().expect("引ける");
@@ -1726,8 +1781,10 @@ mod tests {
             preutterance_ms: 1.5,
             overlap_ms: 0.5,
         };
-        l.put_oto(old, "か", &oto, 0.4, false).expect("書ける");
-        l.put_oto(new, "か", &oto, 0.9, false).expect("書ける");
+        l.put_oto(old, "か", &oto, 0.4, None, false)
+            .expect("書ける");
+        l.put_oto(new, "か", &oto, 0.9, None, false)
+            .expect("書ける");
         l.adopt_take(row, new).expect("採用できる");
 
         let got = l.adopted_otos().expect("引ける");
@@ -1921,14 +1978,16 @@ mod tests {
             preutterance_ms: 70.0,
             overlap_ms: 23.0,
         };
-        l.put_oto(id, "か", &o, 0.9, false).expect("保存できる");
-        l.put_oto(id, "か", &o, 0.5, true).expect("上書きできる");
+        l.put_oto(id, "か", &o, 0.9, None, false)
+            .expect("保存できる");
+        l.put_oto(id, "か", &o, 0.5, None, true)
+            .expect("上書きできる");
 
         // 1テイクに複数のエントリを持てる（`DEC-ALN-013`）。
         // 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03`）。
         let mut o2 = o;
         o2.offset_ms = 500.0;
-        l.put_oto(id, "き", &o2, 0.8, false)
+        l.put_oto(id, "き", &o2, 0.8, None, false)
             .expect("2つ目も保存できる");
 
         let all = l.otos_of(id).expect("引ける");

@@ -116,10 +116,13 @@ export const reviewSummaryQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "review"], queryFn: () => api.reviewSummary() });
 
 /**
- * 確認キューの中身（`TR-ALN-26`）。
+ * 採用テイクのエントリ全部（`TR-ALN-26`）。確認待ちが先。
  *
  * 一覧の絞り込みもここを読む。 どの行が確認待ちかは、
  * エントリの状態からしか分からない（`DEC-PLT-024`）。
+ *
+ * 確定したものも入っている。 固定は確認が済んだあとも残るので、
+ * 確認待ちだけにすると「自動に戻す」が消える。
  */
 export const reviewQueueQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "review-queue"], queryFn: () => api.reviewQueue() });

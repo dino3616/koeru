@@ -3,8 +3,15 @@ import type { ReviewItemView } from "~/lib/ipc";
 import { causeLabel } from "~/lib/labels";
 
 type ReviewEntryProps = {
-  /** 選んでいる音の確認待ち。済んでいれば `null`。 */
+  /** 選んでいる音のエントリ。台帳に無ければ `null`。 */
   item: ReviewItemView | null;
+  /**
+   * いま見ている回が採用中か。
+   *
+   * 確認も録り直しも**採用している回に効く**（Rust 側の鍵はエイリアスだけ）。
+   * 古い回を開いたまま押せると、見ている波形と動く対象が食い違う。
+   */
+  adopted: boolean;
   /** まとめて確認へ切り替えたあとは、1件ずつ確定できない（`REQ-ALN-008`）。 */
   individual: boolean;
   /** この音を確認して確定させる。 */
@@ -13,6 +20,9 @@ type ReviewEntryProps = {
   onRerecord: () => void;
   busy: boolean;
 };
+
+/** 確認を待っている状態か。済んだものと未推定は、押す相手がいない。 */
+const matches = (state: string) => state === "in_queue" || state === "blocked";
 
 /**
  * 選んでいる音の確認（`TR-ALN-26`, `TR-ALN-27`）。
@@ -32,13 +42,24 @@ type ReviewEntryProps = {
  */
 export const ReviewEntry = ({
   item,
+  adopted,
   individual,
   onConfirm,
   onRerecord,
   busy,
 }: ReviewEntryProps) => {
   if (item === null) {
+    return <p className="text-sm text-slate-11">この音の切り出しはまだありません。</p>;
+  }
+  if (!matches(item.state)) {
     return <p className="text-sm text-slate-11">この音は確認が済んでいます。</p>;
+  }
+  if (!adopted) {
+    return (
+      <p className="text-sm text-slate-11">
+        いま見ているのは使っていない回です。確認は、使っている回に切り替えてから。
+      </p>
+    );
   }
 
   const blocked = item.state === "blocked";

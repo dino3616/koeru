@@ -92,6 +92,10 @@ diesel::table! {
         pinned_cutoff -> Integer,
         pinned_preutterance -> Integer,
         pinned_overlap -> Integer,
+        conf_path -> Nullable<Double>,
+        conf_sharpness -> Nullable<Double>,
+        conf_prior -> Nullable<Double>,
+        conf_acoustic -> Nullable<Double>,
     }
 }
 

@@ -1310,6 +1310,13 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
         self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
+        // 書き出しに出るエントリが変わったので、キューを組み直す。
+        //
+        // **忘れると、確認も編集も書き出しも、採用していない世代の行へ向く。**
+        // `review_takes` は採用したテイクを指しているので、切り替えたあとも
+        // 古い世代を握ったままになる。組み直すと、その世代が自分で持っている
+        // 状態と固定が載る——世代ごとに別の人の手が入っていることがある。
+        self.refresh_review()?;
         // 試唱のキャッシュは消さなくてよい。 鍵に素材の内容ハッシュが
         // 入っているので、テイクが変われば別の鍵になり、古い結果は使われない。
         self.prerender_songs();
@@ -1517,17 +1524,20 @@ impl Studio {
                 // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
                 // MFA が動いたのにパワー比で境界鋭さを測ると、
                 // 要件の定義と違うものを記録することになる。
-                let c = alignment
+                let base = alignment
                     .as_ref()
                     .and_then(|a| Confidence::from_alignment(a, &f64s))
-                    .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)))
-                    .map_or(0.0, |x| x.score());
+                    .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)));
 
                 let preset = Preset::default_for(koeru_core::alias::Method::Single)
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
 
                 // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
+                //
+                // テイク全体の確信度は先頭モーラのものを出す。 成分 (3) は
+                // モーラごとに違うので、テイクに1つしかない値としては代表を採る。
                 let mut first = None;
+                let mut first_score = None;
                 for (b, reading) in v.iter().zip(&kana) {
                     let o = derive_cv(
                         b.voice_start_ms,
@@ -1538,11 +1548,16 @@ impl Studio {
                         // 子音クラスはそのモーラから引く（`TR-ALN-17`）。
                         Self::consonant_class_of(reading),
                     );
-                    // 話者内一貫性（`TR-ALN-12`）。 同じエイリアスの他のテイクと
-                    // 比べて、外れているぶんだけ確信度を下げる。
-                    // 集団が `MIN_SAMPLES` に満たなければ効かない——序盤のテイクを
-                    // 外れ値にしない（`TR-ALN-10` notes）。
-                    let c = c * self.prior_of(reading, o.preutterance_ms)?;
+                    // 話者内一貫性（`TR-ALN-12`）。 成分 (3) を差し替える。
+                    // `from_alignment` は 1.0 を置いて「呼び出し側が集団を持ったときに
+                    // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
+                    // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
+                    // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
+                    let prior = self.prior_of(reading, o.preutterance_ms)?;
+                    let c = base.map(|mut c| {
+                        c.prior = prior;
+                        c
+                    });
                     self.opened_mut()?.ledger.put_oto(
                         take_id,
                         reading,
@@ -1553,11 +1568,20 @@ impl Studio {
                             preutterance_ms: o.preutterance_ms,
                             overlap_ms: o.overlap_ms,
                         },
-                        c,
+                        c.map_or(0.0, |x| x.score()),
+                        // 成分も残す（`TR-ALN-24`）。合成からは作り直せない。
+                        c.map(|x| koeru_core::db::ConfidenceParts {
+                            path: x.path,
+                            sharpness: x.sharpness,
+                            prior: x.prior,
+                            acoustic: x.acoustic,
+                        })
+                        .as_ref(),
                         false,
                     )?;
                     if first.is_none() {
                         first = Some(o);
+                        first_score = Some(c.map_or(0.0, |x| x.score()));
                     }
                 }
 
@@ -1578,7 +1602,7 @@ impl Studio {
                         aligner: fp.aligner,
                     },
                 )?;
-                (first, Some(c))
+                (first, first_score)
             }
         };
 
@@ -1996,11 +2020,18 @@ impl Studio {
         })
     }
 
-    /// 確認キューの中身を、手が届く順に（`TR-ALN-26`）。
+    /// 採用テイクのエントリ全部を、手が届く順に（`TR-ALN-26`）。
+    ///
+    /// 確認待ちだけを返さない。 **固定は確認が済んだあとも残り、あとの世代へ
+    /// 引き継がれる**（`REQ-ALN-007`）ので、確定したエントリを落とすと
+    /// 「どの値を人が決めたか」と「自動に戻す」が画面から消える。
+    ///
+    /// 並びは確認待ちが先で、その中は確信度の低い順（`TR-ALN-26`、`TR-ALN-29`）。
+    /// 済んだものは後ろにエイリアス順で続く。
     ///
     /// # Errors
     ///
-    /// プロジェクトを開いていない。
+    /// プロジェクトを開いていない、台帳を読めない。
     pub fn review_queue(&mut self) -> Result<Vec<ReviewItem>> {
         // 行 ID はキューが持っていない。 鍵はエイリアスだけなので、台帳から引く
         // ——画面は「確認待ちの行」で一覧を絞る（`DEC-PLT-024`）。
@@ -2012,23 +2043,27 @@ impl Studio {
             .map(|e| (e.alias, e.row_id))
             .collect();
         let q = &self.opened()?.review;
-        Ok(q.queued()
-            .into_iter()
-            .map(|(alias, e)| ReviewItem {
-                row_id: rows.get(alias).cloned().unwrap_or_default(),
-                alias: alias.to_owned(),
-                oto: e.oto,
-                // 主因は成分の内訳から出る（`TR-ALN-26` (3)）。
-                // 台帳から組み直したものは内訳を持たないので `None` になる。
-                cause: e
-                    .confidence
-                    .and_then(|c| c.cause(CAUSE_THRESHOLD))
-                    .map(|c| c.kind().to_owned()),
-                confidence: e.confidence.map_or(0.0, |c| c.score()),
-                state: e.state.as_str().to_owned(),
-                pinned: e.pins(),
-            })
-            .collect())
+        let item = |alias: &str, e: &koeru_align::review::Entry| ReviewItem {
+            row_id: rows.get(alias).cloned().unwrap_or_default(),
+            alias: alias.to_owned(),
+            oto: e.oto,
+            // 主因は成分の内訳から出る（`TR-ALN-26` (3)）。
+            // 成分を持たない（この版より前に録った）ものは出せない。
+            cause: e
+                .confidence
+                .and_then(|c| c.cause(CAUSE_THRESHOLD))
+                .map(|c| c.kind().to_owned()),
+            confidence: e.confidence.map_or(0.0, |c| c.score()),
+            state: e.state.as_str().to_owned(),
+            pinned: e.pins(),
+        };
+
+        let queued: Vec<ReviewItem> = q.queued().into_iter().map(|(a, e)| item(a, e)).collect();
+        let done = q
+            .all()
+            .filter(|(_, e)| !matches!(e.state, EntryState::InQueue | EntryState::Blocked))
+            .map(|(a, e)| item(a, e));
+        Ok(queued.into_iter().chain(done).collect())
     }
 
     /// 1件ずつ確認して確定させる（`REQ-ALN-008`）。
@@ -2179,7 +2214,11 @@ impl Studio {
     pub fn export_otos(&mut self) -> Result<PathBuf> {
         self.validate_otos()?;
         // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。
-        self.opened_mut()?.review.export().map_err(review_error)?;
+        //
+        // **状態は動かさずに訊く。** 先に `export` を呼ぶと、符号化や書き込みが
+        // 失敗しても「書き出し済み」になり、その回は編集も再試行も断られる
+        // ——台帳には書き出していないと書いてあるので、開き直すまで戻らない。
+        self.opened()?.review.may_export().map_err(review_error)?;
 
         // 先に集めてから書く。 `take_file_name` が台帳を引くので、
         // キューを借りたまま回すと同じ `Open` を可変と不変で同時に持つことになる。
@@ -2204,6 +2243,8 @@ impl Studio {
         let path = self.opened()?.dir.root().join("oto.ini");
         std::fs::write(&path, bytes)?;
 
+        // ここまで来て初めて確定させる。関門はもう一度キューが見る。
+        self.opened_mut()?.review.export().map_err(review_error)?;
         let open = self.opened_mut()?;
         let q = open.review.clone();
         let over = q.mode() != ReviewMode::Individual;
@@ -2211,9 +2252,16 @@ impl Studio {
         Ok(path)
     }
 
-    /// モデルが変わったせいで古くなった推定（`TR-ALN-29`）。
+    /// いまのモデルで作られたと確かめられない推定（`TR-ALN-29`）。
     ///
     /// 自動で作り直さない。 返るのは行 ID で、再推定するかは本人が選ぶ。
+    ///
+    /// **指紋が無いものも入れる。** この版より前に録ったエントリは指紋を持たない。
+    /// 無いことを「今のモデルで作られた」と読むと、**まさに指紋が暴くはずだった
+    /// モデル版の食い違いを、指紋の不在が隠す。**
+    ///
+    /// アライナが変わったものと、指紋が無いものを分けない。 本人が決めるのは
+    /// どちらでも「録り直すか」で、同じ1つの決定になる。
     ///
     /// # Errors
     ///
@@ -2223,12 +2271,11 @@ impl Studio {
         let entries = self.opened_mut()?.ledger.adopted_otos()?;
         let mut out = Vec::new();
         for e in entries {
-            let Some(f) = self.opened_mut()?.ledger.fingerprint_of(e.take_id)? else {
-                continue;
-            };
-            // アライナが変わったものだけ。 入力が変わったものは
-            // 本人が動かしたものなので、黙って作り直してよい（`Change::Input`）。
-            if f.aligner != now && !out.contains(&e.row_id) {
+            let f = self.opened_mut()?.ledger.fingerprint_of(e.take_id)?;
+            // 入力が変わったものは本人が動かしたものなので、ここには出さない
+            // （`Change::Input` は黙って作り直してよい）。見るのはアライナだけ。
+            let unsure = f.is_none_or(|f| f.aligner != now);
+            if unsure && !out.contains(&e.row_id) {
                 out.push(e.row_id);
             }
         }

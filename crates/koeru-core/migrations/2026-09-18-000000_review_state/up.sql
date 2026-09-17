@@ -18,6 +18,22 @@ ALTER TABLE oto_values ADD COLUMN pinned_cutoff INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE oto_values ADD COLUMN pinned_preutterance INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE oto_values ADD COLUMN pinned_overlap INTEGER NOT NULL DEFAULT 0;
 
+-- ## 確信度の成分（TR-ALN-24）
+--
+-- 「成分ごとの値も保持する」と条文が定めている。 合成スコアだけを持つと、
+-- **開き直したあとに TR-ALN-26 (3) の主因ラベルが出せない。**
+-- 合成から成分を作り直すこともできない——積で畳んであるので、
+-- 同じ値を3つ置くとスコアが3乗になり、主因も常に同じ成分を指す。
+--
+-- NULL を許す。 この列より前に録ったエントリは成分を持たない。
+-- 0 で埋めない——0 は「測ってその値だった」であって「持っていない」ではない。
+-- `conf_path` だけは、ほかが埋まっていても NULL がありうる
+-- （退避経路は経路確信度を出せない。DEC-ALN-006）。
+ALTER TABLE oto_values ADD COLUMN conf_path REAL;
+ALTER TABLE oto_values ADD COLUMN conf_sharpness REAL;
+ALTER TABLE oto_values ADD COLUMN conf_prior REAL;
+ALTER TABLE oto_values ADD COLUMN conf_acoustic REAL;
+
 -- 既にある行を状態へ写す。
 --
 -- 確認済みでないものは確認待ちへ入れる。 これらは誰にも見られていない推定値で、

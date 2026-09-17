@@ -149,7 +149,7 @@ export const api = {
   preflight: () => unwrap(commands.preflight()),
   /** 確認の進み具合（`TR-ALN-25`）。 */
   reviewSummary: () => unwrap(commands.reviewSummary()),
-  /** 確認キューの中身を、手が届く順に（`TR-ALN-26`）。 */
+  /** 採用テイクのエントリ全部を、確認待ちが先の順に（`TR-ALN-26`）。 */
   reviewQueue: () => unwrap(commands.reviewQueue()),
   /** 1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
   confirmEntry: (alias: string) => unwrap(commands.confirmEntry(alias)),
