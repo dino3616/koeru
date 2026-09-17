@@ -17,7 +17,7 @@
 //! リポジトリに submodule で同梱している（`DEC-ALN-012`）。探す順は3つ。
 //!
 //! 1. 環境変数 `KOERU_MFA_MODEL_DIR`（開発中の差し替え用）
-//! 2. 実行ファイルの隣の `models/japanese_mfa`（配布物の形）
+//! 2. 配布物の資源置き場（`tauri.conf.json` の `bundle.resources`）
 //! 3. リポジトリの `crates/koeru-align/models/japanese_mfa/acoustic`（`cargo run` のとき）
 //!
 //! どこにも無ければ退避経路。実行時に取りに行かない
@@ -29,8 +29,16 @@ use koeru_align::aligner::Aligner;
 use koeru_align::mfa::MfaAligner;
 use koeru_align::segment::HeuristicAligner;
 
-/// 実行ファイルからの相対の置き場所（配布物の形）。
-const MODEL_DIR_RELATIVE: &str = "models/japanese_mfa";
+/// 配布物の資源置き場（実行ファイルからの相対）。
+///
+/// **OS で並びが違う。** Tauri が資源を置くのは
+/// macOS なら `Contents/Resources/`（実行ファイルは `Contents/MacOS/`）、
+/// Windows と Linux なら実行ファイルの隣。両方見る。
+///
+/// 片方だけ見ていた。 実行ファイルの隣しか探していなかったので、
+/// **macOS の配布物では同梱したモデルが見つからず、全員が黙って
+/// 退避経路で動くことになる。**
+const MODEL_DIRS_RELATIVE: [&str; 2] = ["models/japanese_mfa", "../Resources/models/japanese_mfa"];
 
 /// 選んだアライナ。
 #[derive(Debug)]
@@ -116,14 +124,17 @@ fn model_dir() -> Option<PathBuf> {
         .or_else(koeru_align::mfa::repo_model_dir)
 }
 
-/// 実行ファイルの隣（配布物の形）。
+/// 配布物の中（`tauri.conf.json` の `bundle.resources` が置く場所）。
 ///
 /// 実体の判定は `koeru-align` のものを通す。 ここだけ `is_file` で見ていたので、
 /// LFS のポインタのまま同梱された配布物が選ばれ、MFA が黙って退避経路へ落ちていた。
 fn exe_model_dir() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let p = exe.parent()?.join(MODEL_DIR_RELATIVE);
-    koeru_align::mfa::has_model(&p).then_some(p)
+    let dir = exe.parent()?;
+    MODEL_DIRS_RELATIVE
+        .into_iter()
+        .map(|rel| dir.join(rel))
+        .find(|p| koeru_align::mfa::has_model(p))
 }
 
 #[cfg(test)]

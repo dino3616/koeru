@@ -104,8 +104,11 @@ export const preflightQuery = (id: string) =>
  * テイクの識別子は台帳の中で一意なので、音源の識別子を混ぜない。
  * 混ぜても間違いではないが、同じものが音源の数だけ積み上がる。
  */
-export const otosQuery = (takeId: number) =>
-  queryOptions({ queryKey: [LEDGER, "otos", takeId], queryFn: () => api.otosOfTake(takeId) });
+export const otosQuery = (id: string, takeId: number) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "otos", takeId],
+    queryFn: () => api.otosOfTake(takeId),
+  });
 
 /**
  * 確認の進み具合（`TR-ALN-25`）。

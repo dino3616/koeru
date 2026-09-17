@@ -48,6 +48,7 @@ const meta = {
   title: "領域/LastTake",
   component: LastTake,
   args: {
+    voiceId: "11111111-1111-4111-8111-111111111111",
     take,
     rowText: "た ち つ て と",
     units: 5,

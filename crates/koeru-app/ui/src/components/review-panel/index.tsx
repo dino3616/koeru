@@ -85,11 +85,15 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
       setError(null);
       setExported(null);
     },
-    onSuccess: (path) => {
-      setExported(path);
-      return after();
-    },
+    onSuccess: setExported,
     onError: fail,
+    /*
+      落ちたときも読み直す。 書き出しは先に検証を通すので、**断られる前に
+      台帳が変わっている**——直せない違反が見つかったエントリは `blocked` へ
+      移っている。読み直さないと、画面は前の要約を持ったまま的を押させ続け、
+      直すべき行も出てこない。
+    */
+    onSettled: after,
   });
 
   const busy = switchMode.isPending || confirmAll.isPending || exportOtos.isPending;

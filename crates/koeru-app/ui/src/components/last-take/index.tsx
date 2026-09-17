@@ -7,6 +7,8 @@ import type { TakeView } from "~/lib/ipc";
 import { otosQuery } from "~/lib/queries";
 
 type LastTakeProps = {
+  /** いま開いている音源。台帳を読む鍵に要る（`~/lib/queries`）。 */
+  voiceId: string;
   take: TakeView;
   /** その行の読み上げ文字列。行 ID は出さない（`TR-REC-18`）。 */
   rowText: string;
@@ -35,6 +37,7 @@ type LastTakeProps = {
  * 自動で決めた切り出しがどこに来たか**で、粗い包絡ではどちらも読めない。
  */
 export const LastTake = ({
+  voiceId,
   take,
   rowText,
   units,
@@ -49,7 +52,7 @@ export const LastTake = ({
    * `useSuspenseQuery` にしない。 波形に重ねる目盛りで、取れなくても
    * 波形は読める。中断させると、これを待つあいだ波形が消える。
    */
-  const { data: otos = [] } = useQuery(otosQuery(take.take_id));
+  const { data: otos = [] } = useQuery(otosQuery(voiceId, take.take_id));
 
   return (
     <Card title={busy ? "ひとつ前に録れたもの" : "いま録れたもの"}>

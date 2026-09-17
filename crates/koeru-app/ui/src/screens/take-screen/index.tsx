@@ -140,7 +140,7 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
    * 取れなくても波形は読める。 中断させると、これを待つあいだ波形が消える。
    */
   const { data: otos = [] } = useQuery({
-    ...otosQuery(shown?.take_id ?? 0),
+    ...otosQuery(id, shown?.take_id ?? 0),
     enabled: shown !== null,
   });
 

@@ -95,28 +95,42 @@ const CAUSE_THRESHOLD: f64 = 0.5;
 ///
 /// 音素へ写せない読みは `None`。 推測で既定の音素を当てない——
 /// 別の音素の集団に混ざると、その集団の中央値まで動く。
-fn first_phoneme(reading: &str) -> Option<koeru_align::phoneme::Phoneme> {
+fn first_phoneme(reading: &str) -> Option<Phoneme> {
     koeru_align::phoneme::phonemes_for(reading)
         .ok()
         .and_then(|p| p.first().copied())
 }
 
-/// 同じ音素の集団に集めた3つの測度（`TR-ALN-12`）。
+/// 読みの最後の音素。母音長の集団の鍵にする（`TR-ALN-12` (b)）。
+///
+/// 母音の長さは母音で決まる。 子音で束ねると、あ段とう段が同じ集団に入る。
+fn last_phoneme(reading: &str) -> Option<Phoneme> {
+    koeru_align::phoneme::phonemes_for(reading)
+        .ok()
+        .and_then(|p| p.last().copied())
+}
+
+/// 音素ごとに集めた測度の集団（`TR-ALN-12`）。
 ///
 /// 条文が挙げるのは「先行発声位置・子音長・母音長」。 oto からそれぞれを引く。
+///
+/// **測度ごとに違う音素で集める。** 先頭音素ひとつで全部を束ねていたので、
+/// か・く・け・こ の**母音長が全部 `k` の集団へ入り**、あ段の長さと
+/// う段の長さが同じ集団で比べられていた。母音の長さは母音で決まる。
 ///
 /// **子音長は先行発声位置の定数ずらしになる**（`derive_cv`: 子音長 =
 /// 先行発声 − 前余白マージン）。同じプリセットの中では中央値からの距離が
 /// 一致するので、別に測っても新しいことは言わない。それでも並べているのは、
 /// プリセットが混ざったプロジェクト（`TR-ALN-23` の編集）でずれるため。
 #[derive(Debug, Default)]
-struct Measures {
-    preutterance: Vec<f64>,
-    consonant: Vec<f64>,
-    vowel: Vec<f64>,
+struct Populations {
+    /// 先頭音素（子音、母音始まりなら母音）→ 先行発声位置と子音長。
+    onset: HashMap<Phoneme, (Vec<f64>, Vec<f64>)>,
+    /// 末尾音素（母音）→ 母音長。
+    vowel: HashMap<Phoneme, Vec<f64>>,
 }
 
-impl Measures {
+impl Populations {
     /// その oto から子音長と母音長を引く。
     ///
     /// 母音長 = 使える区間 − 先行発声。 子音長 = 先行発声（前余白ぶんずれている）。
@@ -125,11 +139,16 @@ impl Measures {
         (o.preutterance_ms, (usable - o.preutterance_ms).max(0.0))
     }
 
-    fn push(&mut self, o: &Oto, len_ms: f64) {
+    fn push(&mut self, reading: &str, o: &Oto, len_ms: f64) {
         let (consonant, vowel) = Self::spans(o, len_ms);
-        self.preutterance.push(o.preutterance_ms);
-        self.consonant.push(consonant);
-        self.vowel.push(vowel);
+        if let Some(k) = first_phoneme(reading) {
+            let e = self.onset.entry(k).or_default();
+            e.0.push(o.preutterance_ms);
+            e.1.push(consonant);
+        }
+        if let Some(k) = last_phoneme(reading) {
+            self.vowel.entry(k).or_default().push(vowel);
+        }
     }
 }
 
@@ -2016,7 +2035,7 @@ impl Studio {
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
     ///
-    /// 同じ音素の集団（`TR-ALN-12`）。1テイクの確定につき1度だけ作る。
+    /// 音素ごとの集団（`TR-ALN-12`）。1テイクの確定につき1度だけ作る。
     ///
     /// **モーラごとに作り直さない。** 作り直すと、8モーラの行で `adopted_otos` を
     /// 8回引く。集団は行の中で変わらない。
@@ -2026,19 +2045,15 @@ impl Studio {
     ///
     /// 音高は鍵に入れていない。 いまは1音階しか録らないので、
     /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
-    fn populations(&mut self) -> Result<HashMap<Phoneme, Measures>> {
-        let mut out: HashMap<Phoneme, Measures> = HashMap::new();
+    fn populations(&mut self) -> Result<Populations> {
+        let mut out = Populations::default();
         for e in self.opened_mut()?.ledger.adopted_otos()? {
-            let Some(key) = first_phoneme(&e.alias) else {
-                continue;
-            };
             #[allow(
                 clippy::cast_precision_loss,
                 reason = "収録の長さは 2^53 フレームに届かない"
             )]
             let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
-            let m = out.entry(key).or_default();
-            m.push(&e.oto, len_ms);
+            out.push(&e.alias, &e.oto, len_ms);
         }
         Ok(out)
     }
@@ -2051,18 +2066,25 @@ impl Studio {
     ///
     /// **3つの測度のうち、いちばん外れているものが決める。** どれか1つでも
     /// 集団から外れていれば見てほしいので、平均では薄まる。
-    fn prior_of(pops: &HashMap<Phoneme, Measures>, reading: &str, o: &Oto, len_ms: f64) -> f64 {
-        // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
-        let Some(m) = first_phoneme(reading).and_then(|k| pops.get(&k)) else {
-            return 1.0;
-        };
+    fn prior_of(pops: &Populations, reading: &str, o: &Oto, len_ms: f64) -> f64 {
         let score = |measure, value: f64, population: &[f64]| {
             consistency::deviation(measure, value, population).map_or(1.0, |d| d.prior_score())
         };
-        let (consonant, vowel) = Measures::spans(o, len_ms);
-        score(Measure::Preutterance, o.preutterance_ms, &m.preutterance)
-            .min(score(Measure::ConsonantLength, consonant, &m.consonant))
-            .min(score(Measure::VowelLength, vowel, &m.vowel))
+        let (consonant, vowel) = Populations::spans(o, len_ms);
+        // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
+        let onset = first_phoneme(reading)
+            .and_then(|k| pops.onset.get(&k))
+            .map_or(1.0, |(pre, cons)| {
+                score(Measure::Preutterance, o.preutterance_ms, pre).min(score(
+                    Measure::ConsonantLength,
+                    consonant,
+                    cons,
+                ))
+            });
+        let tail = last_phoneme(reading)
+            .and_then(|k| pops.vowel.get(&k))
+            .map_or(1.0, |v| score(Measure::VowelLength, vowel, v));
+        onset.min(tail)
     }
 
     /// 確定したテイクのエントリを確認キューへ入れる（`REQ-ALN-002`）。

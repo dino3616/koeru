@@ -441,6 +441,7 @@ const VoiceBody = ({
               <>
                 {take !== null && takeRow !== null && (
                   <LastTake
+                    voiceId={id}
                     take={take}
                     rowText={takeRow.text}
                     units={takeRow.units}
