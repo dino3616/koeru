@@ -3,7 +3,8 @@ import { useState } from "react";
 
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
-import { api, errorMessage } from "~/lib/ipc";
+import { Chip } from "~/components/chip";
+import { api, errorMessage, type OtoEncoding } from "~/lib/ipc";
 import { reviewModeLabel } from "~/lib/labels";
 import { ledgerKey, reviewSummaryQuery } from "~/lib/queries";
 
@@ -38,6 +39,11 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [exported, setExported] = useState<string | null>(null);
+  /*
+    文字コードの選択（`TR-ALN-21`）。 既定は CP932 で UTAU 本体互換。
+    固定にすると、CP932 で表せない名前が1つあるだけで書き出す手段が無くなる。
+  */
+  const [encoding, setEncoding] = useState<OtoEncoding>("cp932");
 
   /*
     書き出してよいかは Rust に訊く。 件数から組み立て直さない——関門の条件は
@@ -66,7 +72,7 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
   });
 
   const exportOtos = useMutation({
-    mutationFn: () => api.exportOtos(),
+    mutationFn: () => api.exportOtos(encoding),
     onMutate: () => {
       setError(null);
       setExported(null);
@@ -121,6 +127,16 @@ export const ReviewPanel = ({ voiceId }: ReviewPanelProps) => {
           録り直しを待っている音が {summary.unestimated} 件あります。
         </p>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-11">文字コード</span>
+        <Chip pressed={encoding === "cp932"} onClick={() => setEncoding("cp932")}>
+          Shift-JIS
+        </Chip>
+        <Chip pressed={encoding === "utf8"} onClick={() => setEncoding("utf8")}>
+          UTF-8
+        </Chip>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         {/*

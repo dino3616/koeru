@@ -159,8 +159,13 @@ export const api = {
   rerecordEntry: (alias: string) => unwrap(commands.rerecordEntry(alias)),
   /** 書き出し前の検証（`TR-ALN-20`）。直せるものを直す。 */
   validateOtos: () => unwrap(commands.validateOtos()),
-  /** `oto.ini` を書き出す（`TR-ALN-21`）。確認が残っている間は通らない。 */
-  exportOtos: () => unwrap(commands.exportOtos()),
+  /**
+   * `oto.ini` を書き出す（`TR-ALN-21`）。確認が残っている間は通らない。
+   *
+   * 文字コードを選べる。 既定の CP932 は UTAU 本体互換、UTF-8 は
+   * OpenUtau など対応している受け手向け。
+   */
+  exportOtos: (encoding: OtoEncoding) => unwrap(commands.exportOtos(encoding)),
   /** モデルが変わって古くなった推定（`TR-ALN-29`）。 */
   staleTakes: () => unwrap(commands.staleTakes()),
   /** 同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
@@ -224,6 +229,13 @@ export const api = {
  * 打ち間違いが実行時まで残らないようにする。
  */
 export type OtoSlot = "offset" | "consonant" | "cutoff" | "preutterance" | "overlap";
+
+/**
+ * `oto.ini` の文字コード（`TR-ALN-21`）。
+ *
+ * 綴りは Rust 側の `TextEncoding::as_str` に合わせる。
+ */
+export type OtoEncoding = "cp932" | "utf8";
 
 /** 画面に出す言い方。Rust の識別子をそのまま見せない。 */
 export const micModeLabel = (m: MicModeView): string =>

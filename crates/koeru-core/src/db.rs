@@ -1340,11 +1340,13 @@ impl Ledger {
     pub fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
         oto_values::table
             .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+            .inner_join(takes::table.on(takes::id.eq(oto_values::take_id)))
             .order(oto_values::alias.asc())
             .select((
                 oto_values::take_id,
                 oto_values::alias,
                 adopted_takes::row_id,
+                takes::frames,
                 oto_values::offset_ms,
                 oto_values::consonant_ms,
                 oto_values::cutoff_ms,
@@ -1634,6 +1636,7 @@ type OtoEntryRow = (
     i32,
     String,
     String,
+    i64,
     f64,
     f64,
     f64,
@@ -1678,6 +1681,8 @@ pub struct OtoEntry {
     /// エイリアス。音源全体で一意（`TR-ALN-20` (6)）。
     pub alias: String,
     pub row_id: String,
+    /// その WAV のフレーム数。長さを引くための問い合わせを1件ずつ出さないために持つ。
+    pub frames: i64,
     pub oto: crate::oto::Oto,
     pub confidence: f64,
     /// `align-review.fsl` の `EntryState` を写した文字列。
@@ -1694,6 +1699,7 @@ impl From<OtoEntryRow> for OtoEntry {
             take_id,
             alias,
             row_id,
+            frames,
             offset_ms,
             consonant_ms,
             cutoff_ms,
@@ -1725,6 +1731,7 @@ impl From<OtoEntryRow> for OtoEntry {
             take_id,
             alias,
             row_id,
+            frames,
             oto: crate::oto::Oto {
                 offset_ms,
                 consonant_ms,

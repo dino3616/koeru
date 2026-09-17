@@ -19,7 +19,7 @@
 //! （[`koeru_audio::wav::MASTER_RATE_HZ`]）。 デバイスのネイティブレートは
 //! pump より下流には出てこない。
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +27,7 @@ use koeru_align::aligner::{Alignment, Segment};
 use koeru_align::confidence::Confidence;
 use koeru_align::consistency::{self, Measure};
 use koeru_align::derive::derive_cv;
+use koeru_align::phoneme::Phoneme;
 use koeru_align::preset::{ConsonantClass, Preset};
 use koeru_align::review::{EntryState, ReviewError, ReviewMode, ReviewQueue, Slot};
 use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
@@ -46,6 +47,7 @@ use koeru_core::oto::Oto;
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
+use koeru_core::text::TextEncoding;
 use koeru_core::ust;
 use koeru_core::voice::{self, VoiceColor};
 use koeru_core::waveform;
@@ -97,6 +99,38 @@ fn first_phoneme(reading: &str) -> Option<koeru_align::phoneme::Phoneme> {
     koeru_align::phoneme::phonemes_for(reading)
         .ok()
         .and_then(|p| p.first().copied())
+}
+
+/// 同じ音素の集団に集めた3つの測度（`TR-ALN-12`）。
+///
+/// 条文が挙げるのは「先行発声位置・子音長・母音長」。 oto からそれぞれを引く。
+///
+/// **子音長は先行発声位置の定数ずらしになる**（`derive_cv`: 子音長 =
+/// 先行発声 − 前余白マージン）。同じプリセットの中では中央値からの距離が
+/// 一致するので、別に測っても新しいことは言わない。それでも並べているのは、
+/// プリセットが混ざったプロジェクト（`TR-ALN-23` の編集）でずれるため。
+#[derive(Debug, Default)]
+struct Measures {
+    preutterance: Vec<f64>,
+    consonant: Vec<f64>,
+    vowel: Vec<f64>,
+}
+
+impl Measures {
+    /// その oto から子音長と母音長を引く。
+    ///
+    /// 母音長 = 使える区間 − 先行発声。 子音長 = 先行発声（前余白ぶんずれている）。
+    fn spans(o: &Oto, len_ms: f64) -> (f64, f64) {
+        let usable = o.usable_ms(len_ms);
+        (o.preutterance_ms, (usable - o.preutterance_ms).max(0.0))
+    }
+
+    fn push(&mut self, o: &Oto, len_ms: f64) {
+        let (consonant, vowel) = Self::spans(o, len_ms);
+        self.preutterance.push(o.preutterance_ms);
+        self.consonant.push(consonant);
+        self.vowel.push(vowel);
+    }
 }
 
 /// キューの遷移が通らなかったことを、境界の失敗へ畳む。
@@ -1568,7 +1602,7 @@ impl Studio {
                 // いちばん弱い境界で決まるので、1モーラが曖昧なだけで全部の
                 // 確信度と主因が同じ値になり、**どのエントリを見ればよいかが消える。**
                 // 音響異常度も同じで、範囲外の割れが混ざる。
-                let span_conf = |from_ms: f64, to_ms: f64| {
+                let span_conf = |b: &Boundaries, from_ms: f64, to_ms: f64| {
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
@@ -1582,11 +1616,27 @@ impl Studio {
                     alignment
                         .as_ref()
                         .and_then(|a| Confidence::from_alignment_span(a, part, from_ms, to_ms))
-                        .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)))
+                        .or_else(|| {
+                            // 退避経路もモーラの範囲で測る（`TR-ALN-26`）。
+                            // **ファイル全体の境界で測っていた。** MFA が無い環境
+                            //（書いていない OS、モデルが無いビルド）では、
+                            // 1モーラの曖昧さが全エントリへ伝播したままだった。
+                            //
+                            // 境界は切った先頭からの相対へ直す。 `segment::confidence`
+                            // はサンプルと同じ原点で位置を数える。
+                            let shifted = Boundaries {
+                                voice_start_ms: b.voice_start_ms - from_ms,
+                                vowel_start_ms: b.vowel_start_ms - from_ms,
+                                vowel_end_ms: b.vowel_end_ms - from_ms,
+                            };
+                            Some(confidence(part, rate, &shifted, &cfg))
+                        })
                 };
 
                 let preset = Preset::default_for(koeru_core::alias::Method::Single)
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+                // 集団は行の中で変わらない。1度だけ作る（`TR-ALN-12`）。
+                let pops = self.populations()?;
 
                 // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
                 //
@@ -1609,8 +1659,8 @@ impl Studio {
                     // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
                     // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
                     // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
-                    let prior = self.prior_of(reading, o.preutterance_ms)?;
-                    let c = span_conf(b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
+                    let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+                    let c = span_conf(b, b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
                         c.prior = prior;
                         c
                     });
@@ -1961,34 +2011,53 @@ impl Studio {
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
     ///
-    /// 同じ音素の他エントリから見た、その先行発声の素直さ（`TR-ALN-12`）。
+    /// 同じ音素の集団（`TR-ALN-12`）。1テイクの確定につき1度だけ作る。
+    ///
+    /// **モーラごとに作り直さない。** 作り直すと、8モーラの行で `adopted_otos` を
+    /// 8回引く。集団は行の中で変わらない。
+    ///
+    /// 集団は同一音素で取る（`TR-ALN-12` (b)）。 単独音では同一エイリアスの
+    /// 集団（(a)）が1件しか集まらない——1行1エイリアスで、採用テイクは1つだから。
+    ///
+    /// 音高は鍵に入れていない。 いまは1音階しか録らないので、
+    /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
+    fn populations(&mut self) -> Result<HashMap<Phoneme, Measures>> {
+        let mut out: HashMap<Phoneme, Measures> = HashMap::new();
+        for e in self.opened_mut()?.ledger.adopted_otos()? {
+            let Some(key) = first_phoneme(&e.alias) else {
+                continue;
+            };
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "収録の長さは 2^53 フレームに届かない"
+            )]
+            let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+            let m = out.entry(key).or_default();
+            m.push(&e.oto, len_ms);
+        }
+        Ok(out)
+    }
+
+    /// 集団から見た、その推定の素直さ（`TR-ALN-12`）。
     ///
     /// 1.0 が「集団の真ん中」、0.0 が「大きく外れている」。
     /// 集団が集まっていなければ 1.0——序盤のテイクを外れ値にしない
     /// （`TR-ALN-10` notes）。
     ///
-    /// 集団は同一音素で取る（`TR-ALN-12` (b)）。 単独音では同一エイリアスの
-    /// 集団（(a)）が1件しか集まらない。1行1エイリアスで、採用テイクは1つだから。
-    ///
-    /// 音高は鍵に入れていない。 いまは1音階しか録らないので、
-    /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
-    fn prior_of(&mut self, reading: &str, preutterance_ms: f64) -> Result<f64> {
-        let Some(key) = first_phoneme(reading) else {
-            // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
-            return Ok(1.0);
+    /// **3つの測度のうち、いちばん外れているものが決める。** どれか1つでも
+    /// 集団から外れていれば見てほしいので、平均では薄まる。
+    fn prior_of(pops: &HashMap<Phoneme, Measures>, reading: &str, o: &Oto, len_ms: f64) -> f64 {
+        // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
+        let Some(m) = first_phoneme(reading).and_then(|k| pops.get(&k)) else {
+            return 1.0;
         };
-        let population: Vec<f64> = self
-            .opened_mut()?
-            .ledger
-            .adopted_otos()?
-            .into_iter()
-            .filter(|e| first_phoneme(&e.alias) == Some(key))
-            .map(|e| e.oto.preutterance_ms)
-            .collect();
-        Ok(
-            consistency::deviation(Measure::Preutterance, preutterance_ms, &population)
-                .map_or(1.0, |d| d.prior_score()),
-        )
+        let score = |measure, value: f64, population: &[f64]| {
+            consistency::deviation(measure, value, population).map_or(1.0, |d| d.prior_score())
+        };
+        let (consonant, vowel) = Measures::spans(o, len_ms);
+        score(Measure::Preutterance, o.preutterance_ms, &m.preutterance)
+            .min(score(Measure::ConsonantLength, consonant, &m.consonant))
+            .min(score(Measure::VowelLength, vowel, &m.vowel))
     }
 
     /// 確定したテイクのエントリを確認キューへ入れる（`REQ-ALN-002`）。
@@ -2227,15 +2296,37 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn validate_otos(&mut self) -> Result<(usize, Vec<String>)> {
         let entries = self.opened_mut()?.ledger.adopted_otos()?;
-        // 同一 WAV 内の重複だけは1件ずつでは判定できない（`TR-ALN-20` (6)）。
-        let aliases: Vec<&str> = entries.iter().map(|e| e.alias.as_str()).collect();
-        let dup = validate::find_duplicate_aliases(&aliases);
+        // 重複は WAV ごとに見る（`TR-ALN-20` (6)）。
+        //
+        // **全テイクのエイリアスを平らにして渡していた。** 別の WAV が同じ
+        // エイリアスを持つのは重複ではないのに、両方を修復不能として止めていた。
+        let mut dup: HashMap<i32, Vec<String>> = HashMap::new();
+        for take_id in entries.iter().map(|e| e.take_id).collect::<BTreeSet<_>>() {
+            let aliases: Vec<&str> = entries
+                .iter()
+                .filter(|e| e.take_id == take_id)
+                .map(|e| e.alias.as_str())
+                .collect();
+            dup.insert(
+                take_id,
+                validate::find_duplicate_aliases(&aliases)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+            );
+        }
 
         let mut fixed = 0;
         let mut blocked = Vec::new();
         for e in &entries {
-            let len_ms = self.take_length_ms(e.take_id)?;
-            let r = validate::repair(&e.oto, len_ms, dup.contains(&e.alias.as_str()));
+            // 長さは台帳が一緒に返す。1件ずつ引き直さない。
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "収録の長さは 2^53 フレームに届かない"
+            )]
+            let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+            let duplicated = dup.get(&e.take_id).is_some_and(|v| v.contains(&e.alias));
+            let r = validate::repair(&e.oto, len_ms, duplicated);
 
             // 固定した値は直さない（`TR-ALN-30`, `INV-ALN-001`）。
             //
@@ -2289,11 +2380,16 @@ impl Studio {
     /// 先に検証を通し、確認が残っていれば止まる（`INV-ALN-003`）。
     /// 返るのは書いた先。
     ///
+    /// 文字コードを選べる（`TR-ALN-21`）。 既定は CP932 で、UTF-8（BOM なし）も
+    /// 選べる。**固定にすると、CP932 で表せない名前が1つあるだけで
+    /// 書き出す手段が無くなる。**
+    ///
     /// # Errors
     ///
-    /// プロジェクトを開いていない、確認が残っている、CP932 で書けない文字がある。
-    #[tracing::instrument(skip(self), err)]
-    pub fn export_otos(&mut self) -> Result<PathBuf> {
+    /// プロジェクトを開いていない、確認が残っている、
+    /// 選んだ文字コードで書けない文字がある。
+    #[tracing::instrument(skip(self, encoding), err)]
+    pub fn export_otos(&mut self, encoding: TextEncoding) -> Result<PathBuf> {
         self.validate_otos()?;
         // 切り出しが1つも取れなかった行は、キューにも現れない（`INV-ALN-003`）。
         //
@@ -2333,7 +2429,7 @@ impl Studio {
             entries.push(ini::IniEntry { file, alias, oto });
         }
         // 既定は CP932（`TR-PLT-08`, `DEC-PLT-013`）。UTAU 本体が読める形で出す。
-        let bytes = ini::write(&entries, koeru_core::text::TextEncoding::Cp932)
+        let bytes = ini::write(&entries, encoding)
             .map_err(|e| AppError::new(e.kind(), "oto.ini を書けない"))?;
         // WAV と同じディレクトリへ置く。 `oto.ini` の左辺はファイル名だけなので、
         // 別の階層に置くと**全部の参照が解決しない**。UTAU が読む形も、
@@ -2452,20 +2548,6 @@ impl Studio {
         crate::review::save_mode(&mut open.ledger, &next, over)?;
         open.review = next;
         Ok(())
-    }
-
-    /// そのテイクの長さ（ミリ秒）。検証が切り出し範囲を見るのに要る。
-    fn take_length_ms(&mut self, take_id: i32) -> Result<f64> {
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(|| AppError::new("ledger.unknown_take", "テイクが台帳に無い"))?;
-        #[allow(
-            clippy::cast_precision_loss,
-            reason = "収録の長さは 2^53 フレームに届かない"
-        )]
-        Ok(take.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ))
     }
 
     /// そのテイクの WAV のファイル名。`oto.ini` の左辺に出る。

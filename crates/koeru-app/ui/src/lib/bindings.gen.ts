@@ -233,8 +233,11 @@ export const commands = {
 	 *  `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
 	 * 
 	 *  確認が残っている間は通らない（`INV-ALN-003`）。
+	 * 
+	 *  `encoding` は `cp932`（既定）か `utf8`。 知らない名前は既定へ倒す
+	 *  ——書き出しを止めるほどのことではなく、既定が UTAU 互換だから。
 	 */
-	exportOtos: () => typedError<string, AppError>(__TAURI_INVOKE("export_otos")),
+	exportOtos: (encoding: string) => typedError<string, AppError>(__TAURI_INVOKE("export_otos", { encoding })),
 	/**  モデルが変わったせいで古くなった推定（`TR-ALN-29`）。返るのは行 ID。 */
 	staleTakes: () => typedError<string[], AppError>(__TAURI_INVOKE("stale_takes")),
 	/**  同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */

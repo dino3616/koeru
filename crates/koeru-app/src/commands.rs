@@ -1116,10 +1116,17 @@ pub fn validate_otos(state: State<'_, AppState>) -> Result<(u32, Vec<String>)> {
 /// `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
 ///
 /// 確認が残っている間は通らない（`INV-ALN-003`）。
+///
+/// `encoding` は `cp932`（既定）か `utf8`。 知らない名前は既定へ倒す
+/// ——書き出しを止めるほどのことではなく、既定が UTAU 互換だから。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn export_otos(state: State<'_, AppState>) -> Result<String> {
-    Ok(lock(&state)?.export_otos()?.to_string_lossy().into_owned())
+pub fn export_otos(state: State<'_, AppState>, encoding: String) -> Result<String> {
+    let enc = koeru_core::text::TextEncoding::parse(&encoding).unwrap_or_default();
+    Ok(lock(&state)?
+        .export_otos(enc)?
+        .to_string_lossy()
+        .into_owned())
 }
 
 /// モデルが変わったせいで古くなった推定（`TR-ALN-29`）。返るのは行 ID。

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, mocked, waitFor } from "storybook/test";
+import { expect, mocked, userEvent, waitFor } from "storybook/test";
 
 import { ReviewPanel } from ".";
 import { api } from "~/lib/ipc";
@@ -115,6 +115,27 @@ export const 録り直しを待っている音がある: Story = {
       b.textContent?.includes("書き出す"),
     );
     await expect(button?.disabled).toBe(true);
+  },
+};
+
+export const 文字コードを選べる: Story = {
+  beforeEach: () => summary({ pending: 0, estimated_seconds: 0, may_export: true }),
+  play: async ({ canvasElement }) => {
+    // 固定にすると、CP932 で表せない名前が1つあるだけで書き出せなくなる（`TR-ALN-21`）。
+    const chips = await waitFor(() => {
+      const found = [...canvasElement.querySelectorAll("button")].filter(
+        (b) => b.textContent === "Shift-JIS" || b.textContent === "UTF-8",
+      );
+      if (found.length !== 2) throw new Error("まだ出ていない");
+      return found;
+    });
+    const jis = chips.find((c) => c.textContent === "Shift-JIS");
+    const utf = chips.find((c) => c.textContent === "UTF-8");
+    // 既定は UTAU 本体互換の側。選択は `aria-pressed` で言う。
+    await expect(jis?.getAttribute("aria-pressed")).toBe("true");
+    await expect(utf?.getAttribute("aria-pressed")).toBe("false");
+    if (utf !== undefined) await userEvent.click(utf);
+    await waitFor(() => expect(utf?.getAttribute("aria-pressed")).toBe("true"));
   },
 };
 
