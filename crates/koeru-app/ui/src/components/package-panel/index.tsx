@@ -75,9 +75,19 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
           {missing > 0 && (
             <li className="flex gap-3">
               <Stop />
-              <span className="text-sm text-slate-12">
-                まだ録れていない音が <span className="font-mono tabular-nums">{missing}</span>{" "}
-                あります。全部録れるまで配り物は作れません。
+              <span className="flex min-w-0 flex-col gap-2">
+                <span className="text-sm text-slate-12">
+                  まだ録れていない音が <span className="font-mono tabular-nums">{missing}</span>{" "}
+                  あります。全部録れるまで配り物は作れません。
+                </span>
+                {/*
+                  全件並べる（`TR-PKG-23` の「不足エイリアスを全件列挙する」）。
+                  数だけでは、何を録れば済むのかが分からない。高さは抑える
+                  ——100 件を超えると、面がそれだけになる。
+                */}
+                <span className="max-h-40 select-text overflow-y-auto font-mono text-xs text-slate-11">
+                  {state.missing_aliases.join("、")}
+                </span>
               </span>
             </li>
           )}

@@ -1,9 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, mocked } from "storybook/test";
+import { expect, mocked, waitFor } from "storybook/test";
 
 import { PackageExport } from ".";
 import { api } from "~/lib/ipc";
-import type { PackageStateView } from "~/lib/ipc";
+import type { PackageStateView, PreflightView } from "~/lib/ipc";
+
+const clean: PreflightView = {
+  renamed_to_nfc: 0,
+  non_nfc_names: [],
+  clipped_takes: [],
+  may_export: true,
+};
 
 const ready: PackageStateView = {
   may_export: true,
@@ -15,7 +22,6 @@ const ready: PackageStateView = {
   missing_aliases: [],
   required_table_known: true,
   otos_ready: true,
-  names_ready: true,
   findings: [],
   unencodable: [],
 };
@@ -26,6 +32,7 @@ const meta = {
   args: { voiceId: "11111111-1111-4111-8111-111111111111" },
   beforeEach: () => {
     mocked(api.packageState).mockResolvedValue(ready);
+    mocked(api.preflight).mockResolvedValue(clean);
   },
   decorators: [(Story) => <div className="flex w-96 flex-col gap-5">{Story()}</div>],
 } satisfies Meta<typeof PackageExport>;
@@ -48,5 +55,39 @@ export const まだつくれない: Story = {
     // 検証を通らないまま押せない（`FB-PKG-102`）。
     const button = canvasElement.querySelector("button");
     await expect(button?.hasAttribute("disabled")).toBe(true);
+  },
+};
+
+export const 名前が直らないと作れない: Story = {
+  beforeEach: () => {
+    // 名前の関門は `preflight` が持つ（`TR-REC-32`）。数え直さない。
+    mocked(api.preflight).mockResolvedValue({
+      ...clean,
+      non_nfc_names: ["が"],
+      may_export: false,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const button = canvasElement.querySelector("button");
+    await expect(button?.hasAttribute("disabled")).toBe(true);
+  },
+};
+
+export const つくったあと: Story = {
+  play: async ({ canvasElement, userEvent }) => {
+    mocked(api.exportPackage).mockResolvedValue({
+      seq: 1,
+      archive_name: "000001-v1.0.zip",
+      alias_count: 102,
+      released_at: "2026-09-19T00:20:00Z",
+    });
+    const make = [...canvasElement.querySelectorAll("button")].find(
+      (b) => b.textContent === "つくる",
+    );
+    await userEvent.click(make as HTMLButtonElement);
+    // 作れるのに手が届かない状態にしない（`TR-PKG-45`）。
+    await waitFor(async () => {
+      await expect(canvasElement.textContent).toContain("置き場所を開く");
+    });
   },
 };

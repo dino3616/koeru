@@ -193,6 +193,8 @@ export const api = {
   exportPackage: (version: string) => unwrap(commands.exportPackage(version)),
   /** 書き出しの履歴（`TR-PKG-44`）。新しい順。 */
   releases: () => unwrap(commands.releases()),
+  /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
+  revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
   importUst: (bytes: number[], title: string) => unwrap(commands.importUst(bytes, title)),
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),

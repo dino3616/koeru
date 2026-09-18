@@ -47,9 +47,13 @@ pub struct PackageState {
     ///
     /// 関門そのものは `Studio` が持つが、判定はここへ畳む。
     /// **押せるのに必ず失敗する的を出さない。**
+    ///
+    /// 素材の名前（`TR-REC-32`）はここに入れない。 あれを判定するには
+    /// 先に直しを走らせる必要があり（`preflight` が名前を付け替える）、
+    /// 状態を引くだけのものが書き換えることになる。**同じことを2箇所で
+    /// 判定すると、どちらが先に走ったかで答えが変わる。** 名前は
+    /// `preflight` が正本で、画面はその答えと突き合わせる。
     pub otos_ready: bool,
-    /// 素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。
-    pub names_ready: bool,
     /// 使えるプロファイル。CP932 が壊れていれば減る（`TR-PKG-13`）。
     pub available_profiles: Vec<Profile>,
     /// 配布物に入るファイルの数。
@@ -77,7 +81,6 @@ impl PackageState {
             && self.required_table_known
             && self.missing_aliases.is_empty()
             && self.otos_ready
-            && self.names_ready
             && self.alias_count > 0
             && profile::is_available(self.profile)
     }
@@ -107,15 +110,13 @@ pub fn settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution
 
 /// 書き出しの手前にある、この層の外の関門。
 ///
-/// 原音設定の確認（`INV-ALN-003`）と素材の名前（`TR-REC-32`）は
-/// `Studio` が持っている。判定だけを渡してもらい、[`PackageState`] に畳む
-/// ——**画面が「押せるのに必ず失敗する的」を出さないため。**
+/// 原音設定の確認（`INV-ALN-003`）は `Studio` が持っている。判定だけを
+/// 渡してもらい、[`PackageState`] に畳む——**画面が「押せるのに必ず失敗する
+/// 的」を出さないため。**
 #[derive(Debug, Clone, Copy)]
 pub struct Gates {
     /// 原音設定の確認が済んでいるか。
     pub otos_ready: bool,
-    /// 素材の名前が受け手の環境で見つかるか。
-    pub names_ready: bool,
 }
 
 /// 保存してあるプロファイルを解く（`TR-PKG-12`）。
@@ -188,7 +189,6 @@ pub fn state(
             .unwrap_or_default(),
         required_table_known: coverage.is_some(),
         otos_ready: gates.otos_ready,
-        names_ready: gates.names_ready,
         available_profiles: [Profile::Classic, Profile::OpenUtau, Profile::Both]
             .into_iter()
             .filter(|p| profile::is_available(*p))
@@ -203,6 +203,8 @@ pub fn state(
 ///
 /// 検証を通らないまま包まない。 読み戻しに落ちたらファイルを残さない。
 /// 台帳へ記録するのは、両方が通ってから。
+///
+/// `version` は NFC 済みで渡す（`TR-PKG-11`）。正規化は呼び出し口が持つ。
 // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
 #[tracing::instrument(skip(dir, ledger, manifest, version, released_at), err)]
 pub fn export(
@@ -267,6 +269,12 @@ pub fn export(
         zip: exports.join(format!("{base}.{}", archive::ZIP_EXT)),
         uar: exports.join(format!("{base}.{}", archive::UAR_EXT)),
     };
+    // 同じ名前の置き土産があれば先に捨てる。
+    //
+    // **記録の無いファイルは孤児。** 連番は台帳の最大値の次なので、
+    // そこに既にファイルがあるということは、前の回が改名まで進んで記録の
+    // 手前で落ちたということ。黙って上書きせず、捨ててから置き直す。
+    discard(&final_written);
     if let Err(e) = rename_both(&written, &final_written) {
         // 片方だけ動いた状態を残さない。 どちらの名前も当てにならなくなる。
         discard(&written);

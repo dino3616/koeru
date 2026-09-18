@@ -2011,3 +2011,20 @@ supports_requirements = [
 note = '''image-rs は Organization。 default-features を切り、読む側は `png` と `jpeg`、
 書く側は `bmp` だけを引く。gif / tiff / webp / exr / avif は引かない——
 音源アイコンとして受け付ける形式を広げると、その分だけデコーダの面が増える'''
+
+[[component]]
+id = 'CMP-136'
+name = 'tauri-plugin-opener'
+purpose = '書き出した配り物を、OS のファイルマネージャで見せる（TR-PKG-45 の到達経路 (1)）'
+license = 'MIT OR Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-013'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-45',
+]
+note = '''tauri-apps org。 JS へは口を開けず、Rust の `reveal_item_in_dir` を呼ぶだけにする
+——画面から任意のパスを開けるようにすると、通常モードにパスを出さないという
+TR-PKG-45 の条件が崩れる。Linux 向けに zbus 系を引くが、macOS / Windows の木には入らない'''

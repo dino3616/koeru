@@ -1672,9 +1672,9 @@ pub struct PackageStateView {
     /// 持っていない作り方では被覆を確かめられないので、書き出せない。
     pub required_table_known: bool,
     /// 原音設定の確認が済んでいるか（`INV-ALN-003`）。
+    ///
+    /// 素材の名前（`TR-REC-32`）はここに入らない。`preflight` が持つ。
     pub otos_ready: bool,
-    /// 素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。
-    pub names_ready: bool,
     pub findings: Vec<FindingView>,
     pub unencodable: Vec<UnencodableView>,
 }
@@ -1688,12 +1688,11 @@ pub struct PackageFileView {
 }
 
 /// 書き出した結果（`TR-PKG-44`）。
+///
+/// **在り処は返さない**（`TR-PKG-45`）。 通常モードの画面にパスを出さない。
+/// 置き場所を見せる経路は [`reveal_release`] が持ち、受け渡すのは連番だけ。
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ExportedView {
-    /// ZIP の在り処。
-    pub zip: String,
-    /// UAR の在り処（`DEC-PKG-010`）。
-    pub uar: String,
     pub seq: i32,
     pub archive_name: String,
     pub alias_count: i32,
@@ -1830,7 +1829,6 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
         missing_aliases: st.missing_aliases.clone(),
         required_table_known: st.required_table_known,
         otos_ready: st.otos_ready,
-        names_ready: st.names_ready,
         findings: st
             .findings
             .iter()
@@ -1899,15 +1897,25 @@ pub fn package_contents(state: State<'_, AppState>) -> Result<Vec<PackageFileVie
 #[tauri::command(async)]
 #[specta::specta]
 pub fn export_package(state: State<'_, AppState>, version: String) -> Result<ExportedView> {
+    // 札もリリースレコードへ入る（`TR-PKG-44`）。記録は不変なので、
+    // 分解形が混じると後から揃えられない（`TR-PKG-11`）。
+    let version = koeru_core::text::to_nfc(&version);
     let e = lock(&state)?.export_package(&version)?;
     Ok(ExportedView {
-        zip: e.written.zip.to_string_lossy().into_owned(),
-        uar: e.written.uar.to_string_lossy().into_owned(),
         seq: e.release.seq,
         archive_name: e.release.archive_name,
         alias_count: e.release.alias_count,
         released_at: e.release.released_at,
     })
+}
+
+/// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
+///
+/// 渡すのは連番だけ。 在り処は Rust が台帳から引く。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn reveal_release(state: State<'_, AppState>, seq: i32) -> Result<()> {
+    lock(&state)?.reveal_release(seq)
 }
 
 /// 書き出しの履歴（`TR-PKG-44`）。新しい順。

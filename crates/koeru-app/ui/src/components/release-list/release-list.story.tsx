@@ -38,8 +38,9 @@ export const つくったものがある: Story = {
     ]);
   },
   play: async ({ canvasElement }) => {
-    // 場所は出さない（`TR-PKG-45`）。名前だけ。
+    // 場所は出さない（`TR-PKG-45`）。名前だけを出し、置き場所は的で開かせる。
     await expect(canvasElement.textContent).not.toContain("/");
+    await expect(canvasElement.querySelectorAll("button").length).toBe(2);
   },
 };
 

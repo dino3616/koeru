@@ -500,7 +500,6 @@ statement = 'バージョン管理は ZIP の書き出し単位で行う。書�
 id = 'TR-PKG-45'
 title = 'ユーザーにフォルダ操作を要求しない'
 confidence = 'Fact'
-needs_component = false
 depends_on = [
   'TR-PKG-37',
   'TR-PKG-42',

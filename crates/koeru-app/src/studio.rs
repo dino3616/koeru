@@ -1844,23 +1844,23 @@ impl Studio {
         packaging::state(&dir, &mut self.opened_mut()?.ledger, &manifest, gates)
     }
 
-    /// 書き出しの手前にある、配布物の外の関門（`INV-ALN-003`, `TR-REC-32`）。
+    /// 書き出しの手前にある、配布物の外の関門（`INV-ALN-003`）。
     ///
-    /// **読むだけ。** `ensure_otos_ready` の検証は値を直し、`preflight` は
-    /// 名前を付け替える。状態を引くだけのつもりで呼ばれるものが、
-    /// 台帳とファイルを書き換えてはいけない。
-    ///
+    /// **読むだけ。** `ensure_otos_ready` の検証は値を直すので、状態を
+    /// 引くだけのつもりで呼ばれるものが台帳を書き換えてはいけない。
     /// 直しの結果はキューに残る（直せない違反は `Blocked` になる）ので、
     /// ここで読む `all_confirmed` が一度直したあとの姿を映す。
+    ///
+    /// 素材の名前はここで見ない（`TR-REC-32`）。 判定するには先に直しを
+    /// 走らせる必要があり、`preflight` がそれを持っている。**同じことを
+    /// 2箇所で判定すると、どちらが先に走ったかで答えが変わる。**
     #[tracing::instrument(skip(self), err)]
     fn package_gates(&mut self) -> Result<packaging::Gates> {
-        let names_ready = self.non_nfc_names()?.is_empty();
         let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
         let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
         let confirmed = self.opened()?.review.all_confirmed();
         Ok(packaging::Gates {
             otos_ready: confirmed && missing.is_empty() && conflicting.is_empty(),
-            names_ready,
         })
     }
 
@@ -1899,6 +1899,39 @@ impl Studio {
             version,
             &at,
         )
+    }
+
+    /// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
+    ///
+    /// **利用者にフォルダ操作を要求しないが、到達経路は残す。**
+    /// 作れるのに手が届かないと、配り物として成立しない。
+    ///
+    /// 画面へパスを渡さない（`TR-PKG-45`）。 受け取るのは連番で、
+    /// 在り処は台帳から引く。渡すと、通常モードの画面にパスが出る経路ができる。
+    ///
+    /// # Errors
+    ///
+    /// その連番の記録が無い、ファイルが消えている、開けない。
+    #[tracing::instrument(skip(self), fields(seq), err)]
+    pub fn reveal_release(&mut self, seq: i32) -> Result<()> {
+        let dir = self.opened()?.dir.exports_dir();
+        let release = self
+            .opened_mut()?
+            .ledger
+            .releases()?
+            .into_iter()
+            .find(|r| r.seq == seq)
+            .ok_or_else(|| AppError::new("package.unknown_release", "その書き出しの記録が無い"))?;
+
+        let path = dir.join(&release.archive_name);
+        if !path.is_file() {
+            return Err(AppError::new(
+                "package.archive_missing",
+                "その配り物が見つからない",
+            ));
+        }
+        tauri_plugin_opener::reveal_item_in_dir(&path)
+            .map_err(|_| AppError::new("package.reveal_failed", "配り物の置き場所を開けない"))
     }
 
     /// 書き出しの履歴（`TR-PKG-44`）。古い順。

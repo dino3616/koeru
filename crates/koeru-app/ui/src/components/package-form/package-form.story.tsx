@@ -35,7 +35,6 @@ const state: PackageStateView = {
   missing_aliases: [],
   required_table_known: true,
   otos_ready: true,
-  names_ready: true,
   findings: [],
   unencodable: [],
 };

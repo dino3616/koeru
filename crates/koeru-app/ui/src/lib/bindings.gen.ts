@@ -277,6 +277,12 @@ export const commands = {
 	exportPackage: (version: string) => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_package", { version })),
 	/**  書き出しの履歴（`TR-PKG-44`）。新しい順。 */
 	releases: () => typedError<ReleaseView[], AppError>(__TAURI_INVOKE("releases")),
+	/**
+	 *  書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
+	 * 
+	 *  渡すのは連番だけ。 在り処は Rust が台帳から引く。
+	 */
+	revealRelease: (seq: number) => typedError<null, AppError>(__TAURI_INVOKE("reveal_release", { seq })),
 };
 
 /* Types */
@@ -355,12 +361,13 @@ export type EnvelopeView = {
 	clipped_runs: number,
 };
 
-/**  書き出した結果（`TR-PKG-44`）。 */
+/**
+ *  書き出した結果（`TR-PKG-44`）。
+ * 
+ *  **在り処は返さない**（`TR-PKG-45`）。 通常モードの画面にパスを出さない。
+ *  置き場所を見せる経路は [`reveal_release`] が持ち、受け渡すのは連番だけ。
+ */
 export type ExportedView = {
-	/**  ZIP の在り処。 */
-	zip: string,
-	/**  UAR の在り処（`DEC-PKG-010`）。 */
-	uar: string,
 	seq: number,
 	archive_name: string,
 	alias_count: number,
@@ -558,10 +565,12 @@ export type PackageStateView = {
 	 *  持っていない作り方では被覆を確かめられないので、書き出せない。
 	 */
 	required_table_known: boolean,
-	/**  原音設定の確認が済んでいるか（`INV-ALN-003`）。 */
+	/**
+	 *  原音設定の確認が済んでいるか（`INV-ALN-003`）。
+	 * 
+	 *  素材の名前（`TR-REC-32`）はここに入らない。`preflight` が持つ。
+	 */
 	otos_ready: boolean,
-	/**  素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。 */
-	names_ready: boolean,
 	findings: FindingView[],
 	unencodable: UnencodableView[],
 };

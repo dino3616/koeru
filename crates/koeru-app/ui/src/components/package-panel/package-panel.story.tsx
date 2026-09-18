@@ -33,7 +33,6 @@ const ready: PackageStateView = {
   missing_aliases: [],
   required_table_known: true,
   otos_ready: true,
-  names_ready: true,
   findings: [],
   unencodable: [],
 };
@@ -127,9 +126,9 @@ export const 録りきっていない: Story = {
     });
   },
   play: async ({ canvasElement }) => {
-    // 件数だけを出す。呼び名を並べない（どれを録るかは左の一覧が持つ）。
+    // 全件並べる（`TR-PKG-23`）。数だけでは何を録れば済むのか分からない。
     await expect(canvasElement.textContent).toContain("まだ録れていない音が");
-    await expect(canvasElement.textContent).not.toContain("「き」");
+    await expect(canvasElement.textContent).toContain("き、く、け");
   },
 };
 

@@ -99,6 +99,7 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::package_contents,
         commands::export_package,
         commands::releases,
+        commands::reveal_release,
     ])
 }
 
