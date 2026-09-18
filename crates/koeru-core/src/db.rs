@@ -31,8 +31,8 @@ use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, calibrations, oto_values, releases, row_units, rows, sessions, song_notes,
-    songs, take_analysis, take_metrics, takes,
+    adopted_takes, calibrations, oto_values, releases, review_state, row_units, rows, sessions,
+    song_notes, songs, take_analysis, take_fingerprints, take_metrics, takes,
 };
 use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
@@ -690,12 +690,18 @@ impl Ledger {
     /// エイリアス単位。 単独音でも1ファイルに複数モーラが入るので
     /// （`TR-RCL-03`、`DEC-ALN-013`）、1テイクに複数のエントリがぶら下がる。
     /// 同じ WAV を複数のエイリアスが別の位置で指す。
+    /// oto を1件書く。
+    ///
+    /// `parts` は確信度の成分（`TR-ALN-24` の「成分ごとの値も保持する」）。
+    /// 合成スコアだけを持つと、開き直したあとに `TR-ALN-26` (3) の主因が出せない
+    /// ——合成は積なので、成分を作り直そうとすると値が歪む。
     pub fn put_oto(
         &mut self,
         take_id: i32,
         alias: &str,
         o: &koeru_oto::Oto,
         confidence: f64,
+        parts: Option<&ConfidenceParts>,
         hand_edited: bool,
     ) -> Result<()> {
         diesel::insert_into(oto_values::table)
@@ -708,6 +714,10 @@ impl Ledger {
                 oto_values::preutterance_ms.eq(o.preutterance_ms),
                 oto_values::overlap_ms.eq(o.overlap_ms),
                 oto_values::confidence.eq(confidence),
+                oto_values::conf_path.eq(parts.and_then(|p| p.path)),
+                oto_values::conf_sharpness.eq(parts.map(|p| p.sharpness)),
+                oto_values::conf_prior.eq(parts.map(|p| p.prior)),
+                oto_values::conf_acoustic.eq(parts.map(|p| p.acoustic)),
                 oto_values::hand_edited.eq(i32::from(hand_edited)),
             ))
             .on_conflict((oto_values::take_id, oto_values::alias))
@@ -719,6 +729,10 @@ impl Ledger {
                 oto_values::preutterance_ms.eq(o.preutterance_ms),
                 oto_values::overlap_ms.eq(o.overlap_ms),
                 oto_values::confidence.eq(confidence),
+                oto_values::conf_path.eq(parts.and_then(|p| p.path)),
+                oto_values::conf_sharpness.eq(parts.map(|p| p.sharpness)),
+                oto_values::conf_prior.eq(parts.map(|p| p.prior)),
+                oto_values::conf_acoustic.eq(parts.map(|p| p.acoustic)),
                 oto_values::hand_edited.eq(i32::from(hand_edited)),
             ))
             .execute(&mut self.conn)
@@ -1316,6 +1330,489 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map_err(db("units_of"))
     }
+
+    /// 採用テイクに紐づく oto を、確認の状態ごと全部（`TR-ALN-25`）。
+    ///
+    /// 採用していないテイクは出さない。 書き出しに出るのは採用したものだけで、
+    /// 非採用の世代まで確認キューへ入れると、録り直すたびにキューが伸びる。
+    ///
+    /// 並びはエイリアス順で常に同じ（`TR-ALN-29` の決定性）。
+    pub fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
+        oto_values::table
+            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+            .inner_join(takes::table.on(takes::id.eq(oto_values::take_id)))
+            .order(oto_values::alias.asc())
+            .select((
+                oto_values::take_id,
+                oto_values::alias,
+                adopted_takes::row_id,
+                takes::frames,
+                oto_values::offset_ms,
+                oto_values::consonant_ms,
+                oto_values::cutoff_ms,
+                oto_values::preutterance_ms,
+                oto_values::overlap_ms,
+                oto_values::confidence,
+                oto_values::state,
+                oto_values::pinned_offset,
+                oto_values::pinned_consonant,
+                oto_values::pinned_cutoff,
+                oto_values::pinned_preutterance,
+                oto_values::pinned_overlap,
+                oto_values::conf_path,
+                oto_values::conf_sharpness,
+                oto_values::conf_prior,
+                oto_values::conf_acoustic,
+            ))
+            .load::<OtoEntryRow>(&mut self.conn)
+            .map_err(db("adopted_otos"))
+            .map(|v| v.into_iter().map(OtoEntry::from).collect())
+    }
+
+    /// エントリの状態を書く（`align-review.fsl` の `EntryState`）。
+    pub fn set_oto_state(&mut self, take_id: i32, alias: &str, state: &str) -> Result<()> {
+        diesel::update(
+            oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .filter(oto_values::alias.eq(alias)),
+        )
+        // `confirmed` も一緒に動かす。 この列を読む経路がまだ残っているので、
+        // 片方だけ進むと「確認済みだが確認待ち」という行ができる。
+        .set((
+            oto_values::state.eq(state),
+            oto_values::confirmed.eq(i32::from(state == "auto_confirmed")),
+        ))
+        .execute(&mut self.conn)
+        .map_err(db("set_oto_state"))?;
+        Ok(())
+    }
+
+    /// 値ごとの固定を書く（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    pub fn set_oto_pins(&mut self, take_id: i32, alias: &str, pins: [bool; 5]) -> Result<()> {
+        diesel::update(
+            oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .filter(oto_values::alias.eq(alias)),
+        )
+        // `hand_edited` は「1つでも固定がある」に畳む（`TR-EDT-46`）。
+        .set((
+            oto_values::pinned_offset.eq(i32::from(pins[0])),
+            oto_values::pinned_consonant.eq(i32::from(pins[1])),
+            oto_values::pinned_cutoff.eq(i32::from(pins[2])),
+            oto_values::pinned_preutterance.eq(i32::from(pins[3])),
+            oto_values::pinned_overlap.eq(i32::from(pins[4])),
+            oto_values::hand_edited.eq(i32::from(pins.iter().any(|p| *p))),
+        ))
+        .execute(&mut self.conn)
+        .map_err(db("set_oto_pins"))?;
+        Ok(())
+    }
+
+    /// 5値だけを書き換える。確信度も固定も状態も動かさない。
+    ///
+    /// 受けるのは [`crate::oto::Oto`]。 この表には同じ形の型が2つあり
+    /// （[`koeru_oto::Oto`] は台帳の中だけで使う写し）、確認キューと検証と
+    /// `oto.ini` はどれもドメイン側の型で動く。境界をここで1度だけ揃える。
+    pub fn set_oto_value(&mut self, take_id: i32, alias: &str, o: &crate::oto::Oto) -> Result<()> {
+        diesel::update(
+            oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .filter(oto_values::alias.eq(alias)),
+        )
+        .set((
+            oto_values::offset_ms.eq(o.offset_ms),
+            oto_values::consonant_ms.eq(o.consonant_ms),
+            oto_values::cutoff_ms.eq(o.cutoff_ms),
+            oto_values::preutterance_ms.eq(o.preutterance_ms),
+            oto_values::overlap_ms.eq(o.overlap_ms),
+        ))
+        .execute(&mut self.conn)
+        .map_err(db("set_oto_value"))?;
+        Ok(())
+    }
+
+    /// 5値・状態・固定を一度に書く（`TR-ALN-30`）。
+    ///
+    /// **1つのトランザクションにまとめる。** 別々に流すと、途中で失敗したときに
+    /// 「人が直した値なのに固定が付いていない」行が残る。その行は次の再推定で
+    /// 上書きされ、`INV-ALN-001`（人が直した値を自動が上書きしない）が破れる。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。そのときは3つとも書かれていない。
+    pub fn put_review_entry(
+        &mut self,
+        take_id: i32,
+        alias: &str,
+        o: &crate::oto::Oto,
+        state: &str,
+        pins: [bool; 5],
+    ) -> Result<()> {
+        self.conn
+            .transaction(|conn| {
+                let target = oto_values::table
+                    .filter(oto_values::take_id.eq(take_id))
+                    .filter(oto_values::alias.eq(alias));
+                diesel::update(target)
+                    .set((
+                        oto_values::offset_ms.eq(o.offset_ms),
+                        oto_values::consonant_ms.eq(o.consonant_ms),
+                        oto_values::cutoff_ms.eq(o.cutoff_ms),
+                        oto_values::preutterance_ms.eq(o.preutterance_ms),
+                        oto_values::overlap_ms.eq(o.overlap_ms),
+                        oto_values::state.eq(state),
+                        // `confirmed` も一緒に動かす。 この列を読む経路がまだ
+                        // 残っているので、片方だけ進むと食い違う。
+                        oto_values::confirmed.eq(i32::from(state == "auto_confirmed")),
+                        oto_values::pinned_offset.eq(i32::from(pins[0])),
+                        oto_values::pinned_consonant.eq(i32::from(pins[1])),
+                        oto_values::pinned_cutoff.eq(i32::from(pins[2])),
+                        oto_values::pinned_preutterance.eq(i32::from(pins[3])),
+                        oto_values::pinned_overlap.eq(i32::from(pins[4])),
+                        // 1つでも固定があれば手が入ったとみなす（`TR-EDT-46`）。
+                        oto_values::hand_edited.eq(i32::from(pins.iter().any(|p| *p))),
+                    ))
+                    .execute(conn)
+            })
+            .map_err(db("put_review_entry"))?;
+        Ok(())
+    }
+
+    /// 複数のエントリを一度に書く。 途中で失敗したら1件も書かれていない。
+    ///
+    /// まとめて確認（`REQ-ALN-010`）は全件の状態を動かす。1件ずつ流すと、
+    /// 途中で落ちたときに「半分だけ確認済み」の台帳が残る。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    pub fn put_review_entries(&mut self, rows: &[ReviewEntryRow]) -> Result<()> {
+        self.conn
+            .transaction(|conn| {
+                for r in rows {
+                    let target = oto_values::table
+                        .filter(oto_values::take_id.eq(r.take_id))
+                        .filter(oto_values::alias.eq(&r.alias));
+                    diesel::update(target)
+                        .set((
+                            oto_values::offset_ms.eq(r.oto.offset_ms),
+                            oto_values::consonant_ms.eq(r.oto.consonant_ms),
+                            oto_values::cutoff_ms.eq(r.oto.cutoff_ms),
+                            oto_values::preutterance_ms.eq(r.oto.preutterance_ms),
+                            oto_values::overlap_ms.eq(r.oto.overlap_ms),
+                            oto_values::state.eq(&r.state),
+                            oto_values::confirmed.eq(i32::from(r.state == "auto_confirmed")),
+                            oto_values::pinned_offset.eq(i32::from(r.pinned[0])),
+                            oto_values::pinned_consonant.eq(i32::from(r.pinned[1])),
+                            oto_values::pinned_cutoff.eq(i32::from(r.pinned[2])),
+                            oto_values::pinned_preutterance.eq(i32::from(r.pinned[3])),
+                            oto_values::pinned_overlap.eq(i32::from(r.pinned[4])),
+                            oto_values::hand_edited.eq(i32::from(r.pinned.iter().any(|p| *p))),
+                        ))
+                        .execute(conn)?;
+                }
+                Ok::<_, diesel::result::Error>(())
+            })
+            .map_err(db("put_review_entries"))?;
+        Ok(())
+    }
+
+    /// 採用しているのに oto が1つも無い収録単位（`TR-ALN-20`, `INV-ALN-003`）。
+    ///
+    /// 発声が見つからなかったテイクも採用される（取りこぼしが無ければ）。
+    /// そのテイクは `oto_values` に1行も書かないので、**確認キューにも現れず、
+    /// 書き出しからも黙って落ちる。** 関門がこれを見て止める。
+    ///
+    /// 返るのは行 ID。エイリアスではなく行で返すのは、画面が行で開くため。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    pub fn adopted_rows_without_oto(&mut self) -> Result<Vec<String>> {
+        let adopted: Vec<(String, i32)> = adopted_takes::table
+            .select((adopted_takes::row_id, adopted_takes::take_id))
+            .load(&mut self.conn)
+            .map_err(db("adopted_rows_without_oto.adopted"))?;
+        let mut out = Vec::new();
+        for (row_id, take_id) in adopted {
+            let units: i64 = row_units::table
+                .filter(row_units::row_id.eq(&row_id))
+                .count()
+                .get_result(&mut self.conn)
+                .map_err(db("adopted_rows_without_oto.units"))?;
+            let otos: i64 = oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .count()
+                .get_result(&mut self.conn)
+                .map_err(db("adopted_rows_without_oto.otos"))?;
+            if otos < units {
+                out.push(row_id);
+            }
+        }
+        out.sort_unstable();
+        Ok(out)
+    }
+
+    /// 別の採用テイクにまたがって重複しているエイリアス。
+    ///
+    /// エイリアスはエントリの識別子（`docs/design/ooui-model.md`。音源全体で一意）。
+    /// **重なると確認キューが片方を落とす**——鍵がエイリアスだけなので、
+    /// あとに読んだ行が前の行を置き換え、落ちたほうは確認もされず
+    /// `oto.ini` にも出ない。
+    ///
+    /// `TR-ALN-20` (6) の同一 WAV 内の重複とは別。 あちらは1つの WAV の中の話で、
+    /// [`validate`] 側が WAV ごとに見る。ここが見るのは WAV をまたぐ重なり。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    ///
+    /// [`validate`]: https://docs.rs/koeru-align
+    pub fn adopted_conflicting_aliases(&mut self) -> Result<Vec<String>> {
+        let rows: Vec<(String, i32)> = oto_values::table
+            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+            .select((oto_values::alias, oto_values::take_id))
+            .load(&mut self.conn)
+            .map_err(db("adopted_conflicting_aliases"))?;
+        let mut seen: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
+        let mut out = Vec::new();
+        for (alias, take_id) in rows {
+            match seen.get(&alias) {
+                Some(first) if *first != take_id => out.push(alias),
+                Some(_) => {}
+                None => {
+                    seen.insert(alias, take_id);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+
+    /// 確認の進み方（`TR-ALN-25`）。
+    pub fn review_state(&mut self) -> Result<ReviewStateRow> {
+        review_state::table
+            .filter(review_state::id.eq(1))
+            .select((
+                review_state::mode,
+                review_state::over_budget,
+                review_state::exported,
+            ))
+            .first::<(String, i32, i32)>(&mut self.conn)
+            .map_err(db("review_state"))
+            .map(|(mode, over_budget, exported)| ReviewStateRow {
+                mode,
+                over_budget: over_budget != 0,
+                exported: exported != 0,
+            })
+    }
+
+    /// 確認の進み方を書く。
+    pub fn put_review_state(&mut self, s: &ReviewStateRow) -> Result<()> {
+        diesel::update(review_state::table.filter(review_state::id.eq(1)))
+            .set((
+                review_state::mode.eq(&s.mode),
+                review_state::over_budget.eq(i32::from(s.over_budget)),
+                review_state::exported.eq(i32::from(s.exported)),
+            ))
+            .execute(&mut self.conn)
+            .map_err(db("put_review_state"))?;
+        Ok(())
+    }
+
+    /// 推定を作った入力の指紋を保存する（`TR-ALN-29`）。
+    pub fn put_fingerprint(&mut self, take_id: i32, f: &FingerprintRow) -> Result<()> {
+        diesel::insert_into(take_fingerprints::table)
+            .values((
+                take_fingerprints::take_id.eq(take_id),
+                take_fingerprints::audio.eq(&f.audio),
+                take_fingerprints::reading.eq(&f.reading),
+                take_fingerprints::preset.eq(&f.preset),
+                take_fingerprints::aligner.eq(&f.aligner),
+            ))
+            .on_conflict(take_fingerprints::take_id)
+            .do_update()
+            .set((
+                take_fingerprints::audio.eq(&f.audio),
+                take_fingerprints::reading.eq(&f.reading),
+                take_fingerprints::preset.eq(&f.preset),
+                take_fingerprints::aligner.eq(&f.aligner),
+            ))
+            .execute(&mut self.conn)
+            .map_err(db("put_fingerprint"))?;
+        Ok(())
+    }
+
+    /// 保存してある指紋（`TR-ALN-29`）。まだ無ければ `None`。
+    pub fn fingerprint_of(&mut self, take_id: i32) -> Result<Option<FingerprintRow>> {
+        take_fingerprints::table
+            .filter(take_fingerprints::take_id.eq(take_id))
+            .select((
+                take_fingerprints::audio,
+                take_fingerprints::reading,
+                take_fingerprints::preset,
+                take_fingerprints::aligner,
+            ))
+            .first::<(String, String, String, String)>(&mut self.conn)
+            .optional()
+            .map_err(db("fingerprint_of"))
+            .map(|o| {
+                o.map(|(audio, reading, preset, aligner)| FingerprintRow {
+                    audio,
+                    reading,
+                    preset,
+                    aligner,
+                })
+            })
+    }
+}
+
+/// `adopted_otos` が読む行。列の並びは `select` と揃える。
+type OtoEntryRow = (
+    i32,
+    String,
+    String,
+    i64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    String,
+    i32,
+    i32,
+    i32,
+    i32,
+    i32,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+    Option<f64>,
+);
+
+/// 確信度の4成分（`TR-ALN-24`）。
+///
+/// `koeru-align` の型を使わない。 あちらがここを引いているので、依存が逆になる。
+/// 合成スコアは [`OtoEntry::confidence`] が別に持つ——こちらから計算し直さない。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConfidenceParts {
+    /// (1) 経路確信度。退避経路は出せないので `None`（`DEC-ALN-006`）。
+    pub path: Option<f64>,
+    /// (2) 境界鋭さ。
+    pub sharpness: f64,
+    /// (3) 事前分布逸脱の裏返し。
+    pub prior: f64,
+    /// (4) 音響異常度の裏返し。
+    pub acoustic: f64,
+}
+
+/// 確認の状態まで含んだ oto の1件（`TR-ALN-26`）。
+///
+/// 状態と固定を文字列と真偽で持つ。 `koeru-align` の型を使わないのは、
+/// 依存が逆向きになるため——あちらがここを引いている。
+#[derive(Debug, Clone, PartialEq)]
+pub struct OtoEntry {
+    pub take_id: i32,
+    /// エイリアス。音源全体で一意（`TR-ALN-20` (6)）。
+    pub alias: String,
+    pub row_id: String,
+    /// その WAV のフレーム数。長さを引くための問い合わせを1件ずつ出さないために持つ。
+    pub frames: i64,
+    pub oto: crate::oto::Oto,
+    pub confidence: f64,
+    /// `align-review.fsl` の `EntryState` を写した文字列。
+    pub state: String,
+    /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    pub pinned: [bool; 5],
+    /// 確信度の成分（`TR-ALN-24`）。この列より前に録ったものは持たない。
+    pub parts: Option<ConfidenceParts>,
+}
+
+impl From<OtoEntryRow> for OtoEntry {
+    fn from(r: OtoEntryRow) -> Self {
+        let (
+            take_id,
+            alias,
+            row_id,
+            frames,
+            offset_ms,
+            consonant_ms,
+            cutoff_ms,
+            preutterance_ms,
+            overlap_ms,
+            confidence,
+            state,
+            p0,
+            p1,
+            p2,
+            p3,
+            p4,
+            c_path,
+            c_sharp,
+            c_prior,
+            c_acoustic,
+        ) = r;
+        // 3つ揃っていて初めて成分として読む。 欠けたものを 0 で埋めない。
+        let parts = match (c_sharp, c_prior, c_acoustic) {
+            (Some(sharpness), Some(prior), Some(acoustic)) => Some(ConfidenceParts {
+                path: c_path,
+                sharpness,
+                prior,
+                acoustic,
+            }),
+            _ => None,
+        };
+        Self {
+            take_id,
+            alias,
+            row_id,
+            frames,
+            oto: crate::oto::Oto {
+                offset_ms,
+                consonant_ms,
+                cutoff_ms,
+                preutterance_ms,
+                overlap_ms,
+            },
+            confidence,
+            state,
+            pinned: [p0 != 0, p1 != 0, p2 != 0, p3 != 0, p4 != 0],
+            parts,
+        }
+    }
+}
+
+/// 確認の進み方（`TR-ALN-25`）。音源ごとに1つ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewStateRow {
+    /// `align-review.fsl` の `ReviewMode` を写した文字列。
+    pub mode: String,
+    /// 個別確認をやめたか。やめられるのは上限を超えたときだけ（`INV-ALN-004`）。
+    pub over_budget: bool,
+    pub exported: bool,
+}
+
+/// 台帳へ書き戻す確認エントリ1件。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewEntryRow {
+    pub take_id: i32,
+    pub alias: String,
+    pub oto: crate::oto::Oto,
+    /// `align-review.fsl` の `EntryState` を写した文字列。
+    pub state: String,
+    /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    pub pinned: [bool; 5],
+}
+
+/// 推定を作った入力の指紋（`TR-ALN-29`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FingerprintRow {
+    pub audio: String,
+    pub reading: String,
+    pub preset: String,
+    pub aligner: String,
 }
 
 /// oto の5値。`koeru-synth` から独立させて、依存の向きを一方向に保つ。
@@ -1410,6 +1907,107 @@ mod tests {
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Unrecorded);
         l.commit_take(&take(row, sid, 1)).expect("確定できる");
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Recorded);
+    }
+
+    /// 確認の状態と、値ごとの固定が往復する（`TR-ALN-30`）。
+    ///
+    /// 固定は5値それぞれに付く。 1つの真偽に畳むと、
+    /// 「オフセットだけ直した」が表せない（`INV-ALN-001`）。
+    #[test]
+    fn 確認の状態と値ごとの固定が往復する() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let id = l.commit_take(&take(row, sid, 1)).expect("確定できる");
+        l.adopt_take(row, id).expect("採用できる");
+        let oto = koeru_oto::Oto {
+            offset_ms: 10.0,
+            consonant_ms: 20.0,
+            cutoff_ms: -30.0,
+            preutterance_ms: 15.0,
+            overlap_ms: 5.0,
+        };
+        l.put_oto(id, "か", &oto, 0.4, None, false).expect("書ける");
+
+        // 既定は確認待ち。 誰も見ていない推定値を自動確定にしない。
+        let got = l.adopted_otos().expect("引ける");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].state, "in_queue");
+        assert_eq!(got[0].pinned, [false; 5]);
+        assert_eq!(got[0].row_id, *row);
+
+        l.set_oto_state(id, "か", "auto_confirmed").expect("書ける");
+        l.set_oto_pins(id, "か", [true, false, false, false, false])
+            .expect("書ける");
+        let got = l.adopted_otos().expect("引ける");
+        assert_eq!(got[0].state, "auto_confirmed");
+        assert_eq!(got[0].pinned, [true, false, false, false, false]);
+    }
+
+    /// 採用していないテイクのエントリは確認キューに出ない。
+    ///
+    /// 出すと、録り直すたびにキューが伸びる。
+    #[test]
+    fn 採用していないテイクのotoは出ない() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let old = l.commit_take(&take(row, sid, 1)).expect("確定できる");
+        let new = l.commit_take(&take(row, sid, 2)).expect("確定できる");
+        let oto = koeru_oto::Oto {
+            offset_ms: 1.0,
+            consonant_ms: 2.0,
+            cutoff_ms: -3.0,
+            preutterance_ms: 1.5,
+            overlap_ms: 0.5,
+        };
+        l.put_oto(old, "か", &oto, 0.4, None, false)
+            .expect("書ける");
+        l.put_oto(new, "か", &oto, 0.9, None, false)
+            .expect("書ける");
+        l.adopt_take(row, new).expect("採用できる");
+
+        let got = l.adopted_otos().expect("引ける");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].take_id, new, "採用しているほう");
+    }
+
+    /// 確認の進め方が往復する（`TR-ALN-25`）。
+    #[test]
+    fn 確認の進め方が往復する() {
+        let (mut l, _sid, _) = ready();
+        // 既定は個別確認。 そこから離れるには上限超過が要る（`INV-ALN-004`）。
+        let s = l.review_state().expect("引ける");
+        assert_eq!(s.mode, "individual");
+        assert!(!s.over_budget);
+        assert!(!s.exported);
+
+        l.put_review_state(&ReviewStateRow {
+            mode: "batch".into(),
+            over_budget: true,
+            exported: false,
+        })
+        .expect("書ける");
+        let s = l.review_state().expect("引ける");
+        assert_eq!(s.mode, "batch");
+        assert!(s.over_budget);
+    }
+
+    /// 推定を作った入力の指紋が往復する（`TR-ALN-29`）。
+    #[test]
+    fn 指紋が往復する() {
+        let (mut l, sid, list) = ready();
+        let id = l
+            .commit_take(&take(&list[0].id, sid, 1))
+            .expect("確定できる");
+        assert!(l.fingerprint_of(id).expect("引ける").is_none());
+
+        let f = FingerprintRow {
+            audio: "abc".into(),
+            reading: "か".into(),
+            preset: "single@1".into(),
+            aligner: "mfa-japanese@3.0.0".into(),
+        };
+        l.put_fingerprint(id, &f).expect("書ける");
+        assert_eq!(l.fingerprint_of(id).expect("引ける"), Some(f));
     }
 
     /// 台帳に無い行のテイクは受け付けない。
@@ -1558,14 +2156,16 @@ mod tests {
             preutterance_ms: 70.0,
             overlap_ms: 23.0,
         };
-        l.put_oto(id, "か", &o, 0.9, false).expect("保存できる");
-        l.put_oto(id, "か", &o, 0.5, true).expect("上書きできる");
+        l.put_oto(id, "か", &o, 0.9, None, false)
+            .expect("保存できる");
+        l.put_oto(id, "か", &o, 0.5, None, true)
+            .expect("上書きできる");
 
         // 1テイクに複数のエントリを持てる（`DEC-ALN-013`）。
         // 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03`）。
         let mut o2 = o;
         o2.offset_ms = 500.0;
-        l.put_oto(id, "き", &o2, 0.8, false)
+        l.put_oto(id, "き", &o2, 0.8, None, false)
             .expect("2つ目も保存できる");
 
         let all = l.otos_of(id).expect("引ける");

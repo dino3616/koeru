@@ -19,15 +19,19 @@
 //! （[`koeru_audio::wav::MASTER_RATE_HZ`]）。 デバイスのネイティブレートは
 //! pump より下流には出てこない。
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use koeru_align::aligner::{Alignment, Segment};
 use koeru_align::confidence::Confidence;
+use koeru_align::consistency::{self, Measure};
 use koeru_align::derive::derive_cv;
+use koeru_align::phoneme::Phoneme;
 use koeru_align::preset::{ConsonantClass, Preset};
+use koeru_align::review::{EntryState, ReviewError, ReviewMode, ReviewQueue, Slot};
 use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
+use koeru_align::{ini, ledger, reach, validate};
 use koeru_audio::backend::current as mac;
 use koeru_audio::wav::MASTER_RATE_HZ;
 use koeru_audio::{DeviceId, Session, wav};
@@ -43,6 +47,7 @@ use koeru_core::oto::Oto;
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
 use koeru_core::reclist::{DEFAULT_UNITS_PER_ROW, generate_single};
 use koeru_core::song::{self, Song, SongStatus};
+use koeru_core::text::TextEncoding;
 use koeru_core::ust;
 use koeru_core::voice::{self, VoiceColor};
 use koeru_core::waveform;
@@ -56,6 +61,7 @@ use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
+use crate::review::slot_of;
 use crate::storage;
 use crate::workers::{Priority, Workers};
 
@@ -77,12 +83,157 @@ const MIPMAP_CACHE: usize = 8;
 /// 描画やディスクが詰まっても、この長さのあいだは取りこぼさない。
 const RING_SECONDS: usize = 8;
 
+/// 主因ラベルを出しはじめる成分の値（`TR-ALN-26` (3)）。
+///
+/// 自動確定と確認キューの切り分けには使わない。 そちらは合計所要時間の上限が
+/// 決める（`TR-ALN-25` の「確信度の閾値は絶対値で固定せず、確認キューの運用で切る」）。
+/// ここが決めるのは「どの成分を主因として名指すか」だけで、
+/// 何件が確認に回るかには効かない。
+const CAUSE_THRESHOLD: f64 = 0.5;
+
+/// 読みの最初の音素。集団の鍵にする（`TR-ALN-12` (b)）。
+///
+/// 音素へ写せない読みは `None`。 推測で既定の音素を当てない——
+/// 別の音素の集団に混ざると、その集団の中央値まで動く。
+fn first_phoneme(reading: &str) -> Option<Phoneme> {
+    koeru_align::phoneme::phonemes_for(reading)
+        .ok()
+        .and_then(|p| p.first().copied())
+}
+
+/// 読みの最後の音素。母音長の集団の鍵にする（`TR-ALN-12` (b)）。
+///
+/// 母音の長さは母音で決まる。 子音で束ねると、あ段とう段が同じ集団に入る。
+fn last_phoneme(reading: &str) -> Option<Phoneme> {
+    koeru_align::phoneme::phonemes_for(reading)
+        .ok()
+        .and_then(|p| p.last().copied())
+}
+
+/// 音素ごとに集めた測度の集団（`TR-ALN-12`）。
+///
+/// 条文が挙げるのは「先行発声位置・子音長・母音長」。 oto からそれぞれを引く。
+///
+/// **測度ごとに違う音素で集める。** 先頭音素ひとつで全部を束ねていたので、
+/// か・く・け・こ の**母音長が全部 `k` の集団へ入り**、あ段の長さと
+/// う段の長さが同じ集団で比べられていた。母音の長さは母音で決まる。
+///
+/// **子音長は先行発声位置の定数ずらしになる**（`derive_cv`: 子音長 =
+/// 先行発声 − 前余白マージン）。同じプリセットの中では中央値からの距離が
+/// 一致するので、別に測っても新しいことは言わない。それでも並べているのは、
+/// プリセットが混ざったプロジェクト（`TR-ALN-23` の編集）でずれるため。
+#[derive(Debug, Default)]
+struct Populations {
+    /// 先頭音素（子音、母音始まりなら母音）→ 先行発声位置と子音長。
+    onset: HashMap<Phoneme, (Vec<f64>, Vec<f64>)>,
+    /// 末尾音素（母音）→ 母音長。
+    vowel: HashMap<Phoneme, Vec<f64>>,
+}
+
+impl Populations {
+    /// その oto から子音長と母音長を引く。
+    ///
+    /// 母音長 = 使える区間 − 先行発声。 子音長 = 先行発声（前余白ぶんずれている）。
+    fn spans(o: &Oto, len_ms: f64) -> (f64, f64) {
+        let usable = o.usable_ms(len_ms);
+        (o.preutterance_ms, (usable - o.preutterance_ms).max(0.0))
+    }
+
+    fn push(&mut self, reading: &str, o: &Oto, len_ms: f64) {
+        let (consonant, vowel) = Self::spans(o, len_ms);
+        if let Some(k) = first_phoneme(reading) {
+            let e = self.onset.entry(k).or_default();
+            e.0.push(o.preutterance_ms);
+            e.1.push(consonant);
+        }
+        if let Some(k) = last_phoneme(reading) {
+            self.vowel.entry(k).or_default().push(vowel);
+        }
+    }
+}
+
+/// キューの遷移が通らなかったことを、境界の失敗へ畳む。
+///
+/// 異常ではない。 状態機械の遷移条件を満たしていないだけなので、
+/// 画面は押せない的として出せばよい。
+fn review_error(e: ReviewError) -> AppError {
+    AppError::new(e.kind(), e)
+}
+
+/// 確認の進み具合（`TR-ALN-25`, `TR-ALN-28`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReviewSummary {
+    /// `align-review.fsl` の `ReviewMode`。
+    pub mode: String,
+    /// 確認待ちの件数。
+    pub pending: usize,
+    /// 検証で止まっている件数（`TR-ALN-20`）。
+    pub blocked: usize,
+    /// 確認にかかる見積もりの合計（秒）。
+    pub estimated_seconds: u64,
+    /// 上限（秒）。`DEC-ALN-003` の合計5分。
+    pub budget_seconds: u64,
+    /// 上限を超えているか。超えていなければ個別確認をやめられない（`INV-ALN-004`）。
+    pub exceeds_budget: bool,
+    /// 切り出しが1つも取れていない行の数。
+    ///
+    /// キューには現れない。 エントリが無いので、確認の対象にすらならない
+    /// ——それでも書き出しは止める（`INV-ALN-003` の趣旨）。
+    pub missing: usize,
+    /// WAV をまたいで重なっているエイリアスの数。
+    ///
+    /// エイリアスはエントリの識別子なので、重なると確認キューが片方を落とす。
+    /// 落ちたほうは確認もされず `oto.ini` にも出ないので、書き出しを止める。
+    pub conflicting: usize,
+    /// まだ推定していないエントリの数。録り直しに回したものがここにいる。
+    ///
+    /// 確認待ちには数えない（`pending` は `InQueue` と `Blocked` だけ）。
+    /// **書き出しは止める**ので、数えないまま「確認は済んだ」と出すと、
+    /// 押して初めて断られる的になる。
+    pub unestimated: usize,
+    /// いま書き出してよいか。
+    ///
+    /// **画面がここを見る。** 件数から組み立て直させない——関門の条件は
+    /// `ReviewQueue::may_export` が持っていて（`INV-ALN-003`）、
+    /// 同じ規則を画面にも書くと片方だけが古くなる。
+    pub may_export: bool,
+    /// 確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
+    pub allows_skipping: bool,
+    /// その方式の到達水準。
+    pub reach: String,
+    pub exported: bool,
+}
+
+/// 確認キューの1件（`TR-ALN-26`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReviewItem {
+    /// 対象のエイリアス（`TR-ALN-26` (1)）。
+    pub alias: String,
+    /// そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。
+    pub row_id: String,
+    /// 自動推定した5値（`TR-ALN-26` (2)）。
+    pub oto: Oto,
+    /// 低確信度の主因（`TR-ALN-26` (3)）。内訳を持たなければ `None`。
+    pub cause: Option<String>,
+    pub confidence: f64,
+    pub state: String,
+    /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    pub pinned: [bool; 5],
+}
+
 /// 開いているプロジェクト。
 #[derive(Debug)]
 struct Open {
     dir: ProjectDir,
     ledger: Ledger,
     session_id: i32,
+    /// 確認キュー（`TR-ALN-25`、`align-review.fsl`）。
+    ///
+    /// 開いている間だけ持つ写し。 正本は台帳で、ここは遷移の可否を判定する係
+    /// （`crate::review`）。
+    review: ReviewQueue,
+    /// エイリアス → そのエントリを持つ採用テイク。書き戻す先。
+    review_takes: HashMap<String, i32>,
 }
 
 /// 1つのテイクの結果。
@@ -548,12 +699,49 @@ impl Studio {
             self.disarm();
         }
         let dir = self.library.open_project(id)?;
-        let ledger = Ledger::open(dir.db_path())?;
+        let mut ledger = Ledger::open(dir.db_path())?;
+        // 確認キューは開くときに組み直す（`crate::review`）。
+        // 遷移をやり直すのではなく、書いてあった状態をそのまま載せる。
+        let (review, review_takes) = crate::review::load(&mut ledger)?;
         self.open = Some(Open {
             dir,
             ledger,
             session_id: 0,
+            review,
+            review_takes,
         });
+        Ok(())
+    }
+
+    /// 採用している素材が変わったので、書き出しの単位を1つ進める（`TR-PKG-44`）。
+    ///
+    /// `exported` を下ろす。 **下ろさないと、一度書き出したあとは何も触れない**
+    /// ——`ReviewQueue` の書き出し済みは終端で、確認も編集も録り直しも
+    /// `AlreadyExported` で断られる。録り足したものを書き出す経路も無くなる。
+    ///
+    /// モードと上限超過は動かさない。 まとめて確認へ移った人を、
+    /// テイクを1つ録るたびに1件ずつの確認へ戻すことになる。
+    fn start_new_export_generation(&mut self) -> Result<()> {
+        let open = self.opened_mut()?;
+        let mut s = open.ledger.review_state()?;
+        if !s.exported {
+            return Ok(());
+        }
+        s.exported = false;
+        open.ledger.put_review_state(&s)?;
+        Ok(())
+    }
+
+    /// 確認キューを台帳から組み直す。
+    ///
+    /// テイクを確定したときと、採用を切り替えたときに呼ぶ。 どちらも
+    /// 「どのテイクのエントリが書き出しに出るか」が変わるので、
+    /// キューの中身も変わる。モードは台帳から読み直すので落ちない。
+    fn refresh_review(&mut self) -> Result<()> {
+        let open = self.opened_mut()?;
+        let (review, takes) = crate::review::load(&mut open.ledger)?;
+        open.review = review;
+        open.review_takes = takes;
         Ok(())
     }
 
@@ -1216,6 +1404,15 @@ impl Studio {
     #[tracing::instrument(skip(self), err)]
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
         self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
+        // 書き出したあとに採用を動かしたなら、次の書き出しへ進める。
+        self.start_new_export_generation()?;
+        // 書き出しに出るエントリが変わったので、キューを組み直す。
+        //
+        // **忘れると、確認も編集も書き出しも、採用していない世代の行へ向く。**
+        // `review_takes` は採用したテイクを指しているので、切り替えたあとも
+        // 古い世代を握ったままになる。組み直すと、その世代が自分で持っている
+        // 状態と固定が載る——世代ごとに別の人の手が入っていることがある。
+        self.refresh_review()?;
         // 試唱のキャッシュは消さなくてよい。 鍵に素材の内容ハッシュが
         // 入っているので、テイクが変われば別の鍵になり、古い結果は使われない。
         self.prerender_songs();
@@ -1423,17 +1620,54 @@ impl Studio {
                 // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
                 // MFA が動いたのにパワー比で境界鋭さを測ると、
                 // 要件の定義と違うものを記録することになる。
-                let c = alignment
-                    .as_ref()
-                    .and_then(|a| Confidence::from_alignment(a, &f64s))
-                    .or_else(|| boundaries.map(|b| confidence(&f64s, rate, &b, &cfg)))
-                    .map_or(0.0, |x| x.score());
+                // 確信度はモーラごとに作る（`TR-ALN-26`）。
+                //
+                // **ファイル全体で1つ作ってエントリ全部へ写さない。** 境界鋭さは
+                // いちばん弱い境界で決まるので、1モーラが曖昧なだけで全部の
+                // 確信度と主因が同じ値になり、**どのエントリを見ればよいかが消える。**
+                // 音響異常度も同じで、範囲外の割れが混ざる。
+                let span_conf = |b: &Boundaries, from_ms: f64, to_ms: f64| {
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "収録の長さはサンプル数に収まる"
+                    )]
+                    let cut = |ms: f64| {
+                        ((ms / 1000.0 * f64::from(rate)).max(0.0) as usize).min(f64s.len())
+                    };
+                    let (a0, a1) = (cut(from_ms), cut(to_ms));
+                    let part = &f64s[a0.min(a1)..a1.max(a0)];
+                    alignment
+                        .as_ref()
+                        .and_then(|a| Confidence::from_alignment_span(a, part, from_ms, to_ms))
+                        .or_else(|| {
+                            // 退避経路もモーラの範囲で測る（`TR-ALN-26`）。
+                            // **ファイル全体の境界で測っていた。** MFA が無い環境
+                            //（書いていない OS、モデルが無いビルド）では、
+                            // 1モーラの曖昧さが全エントリへ伝播したままだった。
+                            //
+                            // 境界は切った先頭からの相対へ直す。 `segment::confidence`
+                            // はサンプルと同じ原点で位置を数える。
+                            let shifted = Boundaries {
+                                voice_start_ms: b.voice_start_ms - from_ms,
+                                vowel_start_ms: b.vowel_start_ms - from_ms,
+                                vowel_end_ms: b.vowel_end_ms - from_ms,
+                            };
+                            Some(confidence(part, rate, &shifted, &cfg))
+                        })
+                };
 
                 let preset = Preset::default_for(koeru_core::alias::Method::Single)
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+                // 集団は行の中で変わらない。1度だけ作る（`TR-ALN-12`）。
+                let pops = self.populations()?;
 
                 // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
+                //
+                // テイク全体の確信度は先頭モーラのものを出す。 成分 (3) は
+                // モーラごとに違うので、テイクに1つしかない値としては代表を採る。
                 let mut first = None;
+                let mut first_score = None;
                 for (b, reading) in v.iter().zip(&kana) {
                     let o = derive_cv(
                         b.voice_start_ms,
@@ -1444,6 +1678,16 @@ impl Studio {
                         // 子音クラスはそのモーラから引く（`TR-ALN-17`）。
                         Self::consonant_class_of(reading),
                     );
+                    // 話者内一貫性（`TR-ALN-12`）。 成分 (3) を差し替える。
+                    // `from_alignment` は 1.0 を置いて「呼び出し側が集団を持ったときに
+                    // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
+                    // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
+                    // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
+                    let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+                    let c = span_conf(b, b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
+                        c.prior = prior;
+                        c
+                    });
                     self.opened_mut()?.ledger.put_oto(
                         take_id,
                         reading,
@@ -1454,14 +1698,41 @@ impl Studio {
                             preutterance_ms: o.preutterance_ms,
                             overlap_ms: o.overlap_ms,
                         },
-                        c,
+                        c.map_or(0.0, |x| x.score()),
+                        // 成分も残す（`TR-ALN-24`）。合成からは作り直せない。
+                        c.map(|x| koeru_core::db::ConfidenceParts {
+                            path: x.path,
+                            sharpness: x.sharpness,
+                            prior: x.prior,
+                            acoustic: x.acoustic,
+                        })
+                        .as_ref(),
                         false,
                     )?;
                     if first.is_none() {
                         first = Some(o);
+                        first_score = Some(c.map_or(0.0, |x| x.score()));
                     }
                 }
-                (first, Some(c))
+
+                // 何で推定したかを残す（`TR-ALN-29`）。
+                // モデルが変わったときに、黙って作り直さないための鍵。
+                let fp = koeru_align::determinism::Fingerprint::new(
+                    &f64s,
+                    &kana.join(" "),
+                    &preset,
+                    self.aligner.as_aligner().identity(),
+                );
+                self.opened_mut()?.ledger.put_fingerprint(
+                    take_id,
+                    &koeru_core::db::FingerprintRow {
+                        audio: fp.audio,
+                        reading: fp.reading,
+                        preset: fp.preset,
+                        aligner: fp.aligner,
+                    },
+                )?;
+                (first, first_score)
             }
         };
 
@@ -1476,6 +1747,8 @@ impl Studio {
         } else {
             // 録れたものは既定で採用する。 選ばせるのは録り直したときだけ。
             self.opened_mut()?.ledger.adopt_take(&row_id, take_id)?;
+            // 採用が変わったので、確認キューを組み直して新しいエントリを入れる。
+            self.enqueue_take(take_id)?;
         }
 
         // ## 背後で前処理を進める（`TR-SYN-04`, `TR-SYN-34`）
@@ -1762,6 +2035,679 @@ impl Studio {
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
     ///
+    /// 音素ごとの集団（`TR-ALN-12`）。1テイクの確定につき1度だけ作る。
+    ///
+    /// **モーラごとに作り直さない。** 作り直すと、8モーラの行で `adopted_otos` を
+    /// 8回引く。集団は行の中で変わらない。
+    ///
+    /// 集団は同一音素で取る（`TR-ALN-12` (b)）。 単独音では同一エイリアスの
+    /// 集団（(a)）が1件しか集まらない——1行1エイリアスで、採用テイクは1つだから。
+    ///
+    /// 音高は鍵に入れていない。 いまは1音階しか録らないので、
+    /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
+    fn populations(&mut self) -> Result<Populations> {
+        let mut out = Populations::default();
+        for e in self.opened_mut()?.ledger.adopted_otos()? {
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "収録の長さは 2^53 フレームに届かない"
+            )]
+            let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+            out.push(&e.alias, &e.oto, len_ms);
+        }
+        Ok(out)
+    }
+
+    /// 集団から見た、その推定の素直さ（`TR-ALN-12`）。
+    ///
+    /// 1.0 が「集団の真ん中」、0.0 が「大きく外れている」。
+    /// 集団が集まっていなければ 1.0——序盤のテイクを外れ値にしない
+    /// （`TR-ALN-10` notes）。
+    ///
+    /// **3つの測度のうち、いちばん外れているものが決める。** どれか1つでも
+    /// 集団から外れていれば見てほしいので、平均では薄まる。
+    fn prior_of(pops: &Populations, reading: &str, o: &Oto, len_ms: f64) -> f64 {
+        let score = |measure, value: f64, population: &[f64]| {
+            consistency::deviation(measure, value, population).map_or(1.0, |d| d.prior_score())
+        };
+        let (consonant, vowel) = Populations::spans(o, len_ms);
+        // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
+        let onset = first_phoneme(reading)
+            .and_then(|k| pops.onset.get(&k))
+            .map_or(1.0, |(pre, cons)| {
+                score(Measure::Preutterance, o.preutterance_ms, pre).min(score(
+                    Measure::ConsonantLength,
+                    consonant,
+                    cons,
+                ))
+            });
+        let tail = last_phoneme(reading)
+            .and_then(|k| pops.vowel.get(&k))
+            .map_or(1.0, |v| score(Measure::VowelLength, vowel, v));
+        onset.min(tail)
+    }
+
+    /// 確定したテイクのエントリを確認キューへ入れる（`REQ-ALN-002`）。
+    ///
+    /// 全件キューへ入れる。 確信度に絶対閾値を置かない（`TR-ALN-25` の
+    /// 「確信度の閾値は絶対値で固定せず、確認キューの運用で切る」）。
+    /// どこまで見るかは合計所要時間の上限が決める（`DEC-ALN-003`）。
+    ///
+    /// 固定した値は引き継ぐ（`REQ-ALN-007`）。 録り直しは新しいテイクの行を作るので、
+    /// 引き継がないと、人が直した値が自動の値で上書きされる（`INV-ALN-001`）。
+    fn enqueue_take(&mut self, take_id: i32) -> Result<()> {
+        // 録り足したものを書き出せるようにする（`TR-PKG-44`）。
+        self.start_new_export_generation()?;
+        let aliases: Vec<String> = self
+            .opened_mut()?
+            .ledger
+            .otos_of(take_id)?
+            .into_iter()
+            .map(|(a, _)| a)
+            .collect();
+
+        for alias in &aliases {
+            // 前の世代に固定があったものだけ運ぶ。
+            let Some((prev, pins)) = self
+                .opened()?
+                .review
+                .get(alias)
+                .filter(|e| e.pins().iter().any(|p| *p))
+                .map(|e| (e.oto, e.pins()))
+            else {
+                continue;
+            };
+            let Some(row) = self.opened_mut()?.ledger.oto_of(take_id, alias)? else {
+                continue;
+            };
+            let mut next = Oto {
+                offset_ms: row.offset_ms,
+                consonant_ms: row.consonant_ms,
+                cutoff_ms: row.cutoff_ms,
+                preutterance_ms: row.preutterance_ms,
+                overlap_ms: row.overlap_ms,
+            };
+            for (i, s) in Slot::ALL.into_iter().enumerate() {
+                if pins[i] {
+                    s.set(&mut next, s.get(&prev));
+                }
+            }
+            // 値と固定を一度に書く。 別々に流すと、固定だけ落ちたときに
+            // 「人の値なのに固定が無い」行が残り、次の録音で上書きされる。
+            let open = self.opened_mut()?;
+            open.ledger.put_review_entry(
+                take_id,
+                alias,
+                &next,
+                EntryState::InQueue.as_str(),
+                pins,
+            )?;
+        }
+
+        self.refresh_review()
+    }
+
+    /// 確認の進み具合（`TR-ALN-25`, `TR-ALN-28`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない。
+    pub fn review_summary(&mut self) -> Result<ReviewSummary> {
+        let method = self.opened()?.dir.read_manifest()?.method;
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?.len();
+        let conflicting = self
+            .opened_mut()?
+            .ledger
+            .adopted_conflicting_aliases()?
+            .len();
+        let q = &self.opened()?.review;
+        let reach = reach::of(match method {
+            Method::Single => koeru_core::alias::Method::Single,
+            Method::Cvvc => koeru_core::alias::Method::Cvvc,
+            // 多音階連続音は、到達水準の上では連続音と同じ扱い
+            // （`TR-ALN-28` が音階数で分けていない）。
+            Method::Sequential | Method::MultiPitchSequential => {
+                koeru_core::alias::Method::Sequential
+            }
+        });
+        Ok(ReviewSummary {
+            mode: q.mode().as_str().to_owned(),
+            pending: q.pending_count(),
+            blocked: q
+                .all()
+                .filter(|(_, e)| e.state == EntryState::Blocked)
+                .count(),
+            estimated_seconds: q.estimated_review_time().as_secs(),
+            budget_seconds: koeru_align::review::REVIEW_BUDGET.as_secs(),
+            exceeds_budget: q.exceeds_budget(),
+            missing,
+            conflicting,
+            unestimated: q
+                .all()
+                .filter(|(_, e)| e.state == EntryState::NotEstimated)
+                .count(),
+            may_export: missing == 0 && conflicting == 0 && q.may_export().is_ok(),
+            // 飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。
+            allows_skipping: reach.allows_skipping_review(),
+            reach: reach.kind().to_owned(),
+            exported: q.is_exported(),
+        })
+    }
+
+    /// 採用テイクのエントリ全部を、手が届く順に（`TR-ALN-26`）。
+    ///
+    /// 確認待ちだけを返さない。 **固定は確認が済んだあとも残り、あとの世代へ
+    /// 引き継がれる**（`REQ-ALN-007`）ので、確定したエントリを落とすと
+    /// 「どの値を人が決めたか」と「自動に戻す」が画面から消える。
+    ///
+    /// 並びは確認待ちが先で、その中は確信度の低い順（`TR-ALN-26`、`TR-ALN-29`）。
+    /// 済んだものは後ろにエイリアス順で続く。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    pub fn review_queue(&mut self) -> Result<Vec<ReviewItem>> {
+        // 行 ID はキューが持っていない。 鍵はエイリアスだけなので、台帳から引く
+        // ——画面は「確認待ちの行」で一覧を絞る（`DEC-PLT-024`）。
+        let rows: HashMap<String, String> = self
+            .opened_mut()?
+            .ledger
+            .adopted_otos()?
+            .into_iter()
+            .map(|e| (e.alias, e.row_id))
+            .collect();
+        let q = &self.opened()?.review;
+        let item = |alias: &str, e: &koeru_align::review::Entry| ReviewItem {
+            row_id: rows.get(alias).cloned().unwrap_or_default(),
+            alias: alias.to_owned(),
+            oto: e.oto,
+            // 主因は成分の内訳から出る（`TR-ALN-26` (3)）。
+            // 成分を持たない（この版より前に録った）ものは出せない。
+            cause: e
+                .confidence
+                .and_then(|c| c.cause(CAUSE_THRESHOLD))
+                .map(|c| c.kind().to_owned()),
+            confidence: e.confidence.map_or(0.0, |c| c.score()),
+            state: e.state.as_str().to_owned(),
+            pinned: e.pins(),
+        };
+
+        let queued: Vec<ReviewItem> = q.queued().into_iter().map(|(a, e)| item(a, e)).collect();
+        let done = q
+            .all()
+            .filter(|(_, e)| !matches!(e.state, EntryState::InQueue | EntryState::Blocked))
+            .map(|(a, e)| item(a, e));
+        Ok(queued.into_iter().chain(done).collect())
+    }
+
+    /// 1件ずつ確認して確定させる（`REQ-ALN-008`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、個別確認モードでない、キューに入っていない。
+    // 読みはトレースに載せない（AGENTS.md #3）。エイリアスはかなそのもの。
+    #[tracing::instrument(skip(self, alias), err)]
+    pub fn confirm_entry(&mut self, alias: &str) -> Result<()> {
+        self.with_entry(alias, |q, id| q.confirm(id))
+    }
+
+    /// まとめて確認する（`REQ-ALN-010`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、まとめて確認モードでない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn confirm_all_entries(&mut self) -> Result<usize> {
+        let mut next = self.opened()?.review.clone();
+        let n = next.confirm_all().map_err(review_error)?;
+        self.save_all_entries(next)?;
+        Ok(n)
+    }
+
+    /// 個別確認をやめる（`REQ-ALN-010`, `INV-ALN-004`）。
+    ///
+    /// 通るのは上限を超えているときだけ。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、上限を超えていない、知らないモード。
+    // `to` は境界から来た文字列。 固定の語彙のつもりでも、
+    // 検査する前にスパンへ載るので通さない。
+    #[tracing::instrument(skip(self, to), err)]
+    pub fn switch_review_mode(&mut self, to: &str) -> Result<()> {
+        let mut next = self.opened()?.review.clone();
+        match to {
+            "batch" => next.switch_to_batch().map_err(review_error)?,
+            "suggest_rerecord" => next.switch_to_rerecord().map_err(review_error)?,
+            _ => {
+                return Err(AppError::new("review.unknown_mode", "知らない確認の進め方"));
+            }
+        }
+        let open = self.opened_mut()?;
+        crate::review::save_mode(&mut open.ledger, &next, true)?;
+        open.review = next;
+        Ok(())
+    }
+
+    /// 5値のどれかを人が直す。その値だけを固定する（`REQ-ALN-005`, `TR-ALN-30`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、知らない値の名前、まだ推定していない。
+    #[tracing::instrument(skip(self, alias, slot), err)]
+    pub fn edit_oto_value(&mut self, alias: &str, slot: &str, value: f64) -> Result<()> {
+        let s = slot_of(slot)
+            .ok_or_else(|| AppError::new("review.unknown_slot", "知らない値の名前"))?;
+        self.with_entry(alias, |q, id| q.human_edit(id, s, value))
+    }
+
+    /// 固定を解いて自動へ戻す（`REQ-ALN-006`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、知らない値の名前、固定されていない。
+    #[tracing::instrument(skip(self, alias, slot), err)]
+    pub fn revert_oto_value(&mut self, alias: &str, slot: &str) -> Result<()> {
+        let s = slot_of(slot)
+            .ok_or_else(|| AppError::new("review.unknown_slot", "知らない値の名前"))?;
+        self.with_entry(alias, |q, id| q.revert_to_auto(id, s))?;
+        // 固定を解いたら自動の値へ戻す（`AC-ALN-002`）。
+        //
+        // **解くだけでは戻らない。** `revert_to_auto` は印を外すだけなので、
+        // 人が入れた数はそのまま残り、そのまま書き出される
+        // ——「自動に戻す」を押したのに自動の値にならない。
+        //
+        // 失敗しても解いた事実は残す。 再推定できない理由（WAV が読めない、
+        // アライメントが通らない）は解くことと関係がなく、
+        // 巻き戻すと押した操作が黙って消える。
+        if let Some(take_id) = self.opened()?.review_takes.get(alias).copied()
+            && let Err(e) = self.re_estimate_take(take_id)
+        {
+            tracing::warn!(reason = %e.kind, "固定を解いたが、再推定は通らなかった");
+        }
+        Ok(())
+    }
+
+    /// そのテイクの oto を作り直す（`REQ-ALN-007`, `TR-ALN-29`）。
+    ///
+    /// 固定されていない値だけを書き換える（`INV-ALN-001`）。固定はキューが守る
+    /// （[`ReviewQueue::re_estimate`]）ので、ここは新しい推定を渡すだけ。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、WAV を読めない、読みを音素へ写せない、
+    /// 発声を見つけられない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn re_estimate_take(&mut self, take_id: i32) -> Result<()> {
+        let root = self.opened()?.dir.root().to_path_buf();
+        let take = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .ok_or_else(|| AppError::new("ledger.unknown_take", "テイクが台帳に無い"))?;
+        let w = wav::read(root.join(&take.rel_path))?;
+        let f64s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "収録の長さは 2^53 サンプルに届かない"
+        )]
+        let duration_ms = f64s.len() as f64 * 1000.0 / f64::from(w.rate_hz);
+
+        let kana = self.opened_mut()?.ledger.units_of(&take.row_id)?;
+        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
+        let alignment = self.align_take(&f64s, w.rate_hz, &take.row_id);
+        let per_mora = alignment
+            .as_ref()
+            .and_then(|a| Boundaries::per_mora(a, &readings))
+            .ok_or_else(|| AppError::new("align.no_voice", "発声を見つけられなかった"))?;
+
+        let preset = Preset::default_for(koeru_core::alias::Method::Single)
+            .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+        let pops = self.populations()?;
+        let cfg = SegmentConfig::default();
+
+        let mut next = self.opened()?.review.clone();
+        let mut rows = Vec::new();
+        for (b, reading) in per_mora.iter().zip(&kana) {
+            let o = derive_cv(
+                b.voice_start_ms,
+                b.vowel_start_ms,
+                b.vowel_end_ms,
+                duration_ms,
+                &preset,
+                Self::consonant_class_of(reading),
+            );
+            let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+            let c = alignment
+                .as_ref()
+                .and_then(|a| {
+                    Confidence::from_alignment_span(a, &f64s, b.voice_start_ms, b.vowel_end_ms)
+                })
+                .or_else(|| Some(confidence(&f64s, w.rate_hz, b, &cfg)))
+                .map(|mut c| {
+                    c.prior = prior;
+                    c
+                })
+                .unwrap_or_else(Confidence::full);
+            // 固定されていない値だけが動く（`INV-ALN-001`）。
+            next.re_estimate(reading, o, c).map_err(review_error)?;
+            let Some(e) = next.get(reading) else { continue };
+            rows.push(koeru_core::db::ReviewEntryRow {
+                take_id,
+                alias: reading.clone(),
+                oto: e.oto,
+                state: e.state.as_str().to_owned(),
+                pinned: e.pins(),
+            });
+        }
+
+        let open = self.opened_mut()?;
+        open.ledger.put_review_entries(&rows)?;
+        open.review = next;
+        Ok(())
+    }
+
+    /// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
+    ///
+    /// エントリを未推定へ戻すだけ。 実際の収録は収録画面が行う。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、確認待ちでない。
+    #[tracing::instrument(skip(self, alias), err)]
+    pub fn rerecord_entry(&mut self, alias: &str) -> Result<()> {
+        self.with_entry(alias, |q, id| q.rerecord(id))
+    }
+
+    /// 書き出し前の検証（`TR-ALN-20`）。
+    ///
+    /// 直せるものは直して台帳へ書き戻し、直せないものはそのエントリを
+    /// 書き出し阻止へ回す。返るのは `(直した件数, 止めたエイリアス)`。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn validate_otos(&mut self) -> Result<(usize, Vec<String>)> {
+        let entries = self.opened_mut()?.ledger.adopted_otos()?;
+        // 重複は WAV ごとに見る（`TR-ALN-20` (6)）。
+        //
+        // **全テイクのエイリアスを平らにして渡していた。** 別の WAV が同じ
+        // エイリアスを持つのは重複ではないのに、両方を修復不能として止めていた。
+        let mut dup: HashMap<i32, Vec<String>> = HashMap::new();
+        for take_id in entries.iter().map(|e| e.take_id).collect::<BTreeSet<_>>() {
+            let aliases: Vec<&str> = entries
+                .iter()
+                .filter(|e| e.take_id == take_id)
+                .map(|e| e.alias.as_str())
+                .collect();
+            dup.insert(
+                take_id,
+                validate::find_duplicate_aliases(&aliases)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+            );
+        }
+
+        let mut fixed = 0;
+        let mut blocked = Vec::new();
+        for e in &entries {
+            // 長さは台帳が一緒に返す。1件ずつ引き直さない。
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "収録の長さは 2^53 フレームに届かない"
+            )]
+            let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+            let duplicated = dup.get(&e.take_id).is_some_and(|v| v.contains(&e.alias));
+            let r = validate::repair(&e.oto, len_ms, duplicated);
+
+            // 固定した値は直さない（`TR-ALN-30`, `INV-ALN-001`）。
+            //
+            // **修復結果をそのまま書き戻していた。** 固定の印は残るので、
+            // 画面は機械が動かした値を「手で決めました」と出していた。
+            // 人が決めた値は人のもので、自動修復もそこには手を出せない。
+            let mut next = e.oto;
+            let mut touches_pinned = false;
+            for (i, slot) in Slot::ALL.into_iter().enumerate() {
+                if e.pinned[i] {
+                    // 直したい値と違うなら、固定があるせいで直せていない。
+                    touches_pinned |= (slot.get(&r.oto) - slot.get(&e.oto)).abs() > f64::EPSILON;
+                } else {
+                    slot.set(&mut next, slot.get(&r.oto));
+                }
+            }
+
+            if next != e.oto {
+                fixed += 1;
+                self.opened_mut()?
+                    .ledger
+                    .set_oto_value(e.take_id, &e.alias, &next)?;
+            }
+            // 固定を避けたせいで違反が残るものも止める。 直せていないのに
+            // 通すと、`TR-ALN-20` が塞いだはずの形のまま書き出される。
+            if !r.may_export() || touches_pinned {
+                blocked.push(e.alias.clone());
+            }
+        }
+        self.refresh_review()?;
+
+        // 止めるのはキューの遷移として行う（`REQ-ALN-004`）。
+        //
+        // 移れるのは自動確定していたものだけ。 まだ確認待ちのものは
+        // そのままでも書き出しを塞いでいる（`INV-ALN-003`）ので、
+        // `WrongState` は失敗として扱わない——**それ以外は握り潰さない。**
+        // 台帳が書けなかったのを「遷移できなかった」と同じ顔で通すと、
+        // 直せない違反が黙って消える。
+        for alias in &blocked {
+            match self.with_entry(alias, |q, id| q.validation_unrepairable(id)) {
+                Ok(()) => {}
+                Err(e) if e.kind == "review.wrong_state" => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok((fixed, blocked))
+    }
+
+    /// `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
+    ///
+    /// 先に検証を通し、確認が残っていれば止まる（`INV-ALN-003`）。
+    /// 返るのは書いた先。
+    ///
+    /// 文字コードを選べる（`TR-ALN-21`）。 既定は CP932 で、UTF-8（BOM なし）も
+    /// 選べる。**固定にすると、CP932 で表せない名前が1つあるだけで
+    /// 書き出す手段が無くなる。**
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、確認が残っている、
+    /// 選んだ文字コードで書けない文字がある。
+    #[tracing::instrument(skip(self, encoding), err)]
+    pub fn export_otos(&mut self, encoding: TextEncoding) -> Result<PathBuf> {
+        self.validate_otos()?;
+        // 切り出しが1つも取れなかった行は、キューにも現れない（`INV-ALN-003`）。
+        //
+        // **発声が見つからなかったテイクも採用される。** そのテイクは
+        // `oto_values` に1行も書かないので、キューが空でも書き出しから
+        // 黙って落ちる。キューの関門はエントリしか見られないので、
+        // ここで別に見る。
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
+        if !missing.is_empty() {
+            return Err(AppError::new(
+                "review.missing_oto",
+                format!("切り出しの取れていない行が {} 件ある", missing.len()),
+            ));
+        }
+        // エイリアスが WAV をまたいで重なると、キューが片方を落とす。
+        // 落ちたほうは確認もされず `oto.ini` にも出ない。
+        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        if !conflicting.is_empty() {
+            return Err(AppError::new(
+                "review.conflicting_alias",
+                format!("別の回と同じ名前の音が {} 件ある", conflicting.len()),
+            ));
+        }
+        // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。
+        //
+        // **状態は動かさずに訊く。** 先に `export` を呼ぶと、符号化や書き込みが
+        // 失敗しても「書き出し済み」になり、その回は編集も再試行も断られる
+        // ——台帳には書き出していないと書いてあるので、開き直すまで戻らない。
+        self.opened()?.review.may_export().map_err(review_error)?;
+
+        // 先に集めてから書く。 `take_file_name` が台帳を引くので、
+        // キューを借りたまま回すと同じ `Open` を可変と不変で同時に持つことになる。
+        let rows: Vec<(String, i32, Oto)> = {
+            let open = self.opened()?;
+            open.review
+                .all()
+                .filter_map(|(alias, e)| {
+                    let id = open.review_takes.get(alias).copied()?;
+                    Some((alias.to_owned(), id, e.oto))
+                })
+                .collect()
+        };
+        let mut entries = Vec::new();
+        for (alias, take_id, oto) in rows {
+            let file = self.take_file_name(take_id)?;
+            entries.push(ini::IniEntry { file, alias, oto });
+        }
+        // 既定は CP932（`TR-PLT-08`, `DEC-PLT-013`）。UTAU 本体が読める形で出す。
+        let bytes = ini::write(&entries, encoding)
+            .map_err(|e| AppError::new(e.kind(), "oto.ini を書けない"))?;
+        // WAV と同じディレクトリへ置く。 `oto.ini` の左辺はファイル名だけなので、
+        // 別の階層に置くと**全部の参照が解決しない**。UTAU が読む形も、
+        // wav と oto.ini が同じ場所に並んだ形。
+        //
+        // 作業ファイルにはしない（`TR-PKG-40`）。 正本は台帳で、これは派生物。
+        // 読み戻して真とすることはない。外部フォルダへ一式を出す経路は
+        // `koeru_core::handoff`（`PROFILE-M4`）。
+        let path = self.opened()?.dir.audio_dir().join("oto.ini");
+        std::fs::write(&path, bytes)?;
+
+        // ここまで来て初めて確定させる。関門はもう一度キューが見る。
+        let mut next = self.opened()?.review.clone();
+        next.export().map_err(review_error)?;
+        let over = next.mode() != ReviewMode::Individual;
+        let open = self.opened_mut()?;
+        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        open.review = next;
+        Ok(path)
+    }
+
+    /// いまのモデルで作られたと確かめられない推定（`TR-ALN-29`）。
+    ///
+    /// 自動で作り直さない。 返るのは行 ID で、再推定するかは本人が選ぶ。
+    ///
+    /// **指紋が無いものも入れる。** この版より前に録ったエントリは指紋を持たない。
+    /// 無いことを「今のモデルで作られた」と読むと、**まさに指紋が暴くはずだった
+    /// モデル版の食い違いを、指紋の不在が隠す。**
+    ///
+    /// アライナが変わったものと、指紋が無いものを分けない。 本人が決めるのは
+    /// どちらでも「録り直すか」で、同じ1つの決定になる。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    pub fn stale_takes(&mut self) -> Result<Vec<String>> {
+        let now = self.aligner.as_aligner().identity().to_owned();
+        let entries = self.opened_mut()?.ledger.adopted_otos()?;
+        let mut out = Vec::new();
+        for e in entries {
+            let f = self.opened_mut()?.ledger.fingerprint_of(e.take_id)?;
+            // 入力が変わったものは本人が動かしたものなので、ここには出さない
+            // （`Change::Input` は黙って作り直してよい）。見るのはアライナだけ。
+            let unsure = f.is_none_or(|f| f.aligner != now);
+            if unsure && !out.contains(&e.row_id) {
+                out.push(e.row_id);
+            }
+        }
+        out.sort_unstable();
+        Ok(out)
+    }
+
+    /// 同梱しているモデルのライセンス表記（`TR-ALN-31`）。
+    ///
+    /// # Errors
+    ///
+    /// 台帳が読めない、判断記録の無い未確認モデルが載っている。
+    pub fn model_notice() -> Result<String> {
+        let models =
+            ledger::models().map_err(|e| AppError::new(e.kind(), "モデルの台帳を読めない"))?;
+        ledger::check(&models)
+            .map_err(|e| AppError::new(e.kind(), "モデルの台帳が規律を満たさない"))?;
+        Ok(ledger::notice(&models))
+    }
+
+    /// キューの1件を動かして、結果を台帳へ書く。
+    ///
+    /// **複製の上で遷移させ、書けてから本物へ移す。** 正本は台帳なので
+    /// （`TR-PKG-40`）、先に手元のキューを進めると、書き込みが落ちたときに
+    /// 画面だけが先へ行く——開き直すまで、確認したはずのものが戻ってくる。
+    fn with_entry(
+        &mut self,
+        alias: &str,
+        f: impl FnOnce(&mut ReviewQueue, &str) -> std::result::Result<(), ReviewError>,
+    ) -> Result<()> {
+        let mut next = self.opened()?.review.clone();
+        f(&mut next, alias).map_err(review_error)?;
+
+        let Some(take_id) = self.opened()?.review_takes.get(alias).copied() else {
+            return Err(AppError::new(
+                "review.no_such_entry",
+                "そのエントリを持つテイクが無い",
+            ));
+        };
+        let Some(entry) = next.get(alias).cloned() else {
+            return Err(AppError::new("review.no_such_entry", "そのエントリが無い"));
+        };
+        let open = self.opened_mut()?;
+        crate::review::save_entry(&mut open.ledger, take_id, alias, &entry)?;
+        open.review = next;
+        Ok(())
+    }
+
+    /// キュー全体を台帳へ書く。まとめて確認したあとに使う。
+    ///
+    /// 全件を1つのトランザクションで書く。 1件ずつ流すと、途中で落ちたときに
+    /// 「半分だけ確認済み」の台帳が残る。
+    fn save_all_entries(&mut self, next: ReviewQueue) -> Result<()> {
+        let rows: Vec<koeru_core::db::ReviewEntryRow> = {
+            let open = self.opened()?;
+            next.all()
+                .filter_map(|(alias, e)| {
+                    Some(koeru_core::db::ReviewEntryRow {
+                        take_id: open.review_takes.get(alias).copied()?,
+                        alias: alias.to_owned(),
+                        oto: e.oto,
+                        state: e.state.as_str().to_owned(),
+                        pinned: e.pins(),
+                    })
+                })
+                .collect()
+        };
+        let over = next.mode() != ReviewMode::Individual;
+        let open = self.opened_mut()?;
+        open.ledger.put_review_entries(&rows)?;
+        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        open.review = next;
+        Ok(())
+    }
+
+    /// そのテイクの WAV のファイル名。`oto.ini` の左辺に出る。
+    fn take_file_name(&mut self, take_id: i32) -> Result<String> {
+        let take = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .ok_or_else(|| AppError::new("ledger.unknown_take", "テイクが台帳に無い"))?;
+        Ok(std::path::Path::new(&take.rel_path)
+            .file_name()
+            .map_or_else(
+                || take.rel_path.clone(),
+                |s| s.to_string_lossy().into_owned(),
+            ))
+    }
+
     /// 自動原音設定が波形のどこを指したかを見せるための口。
     /// 数字だけ出しても、それが発声と重なっているかは分からない
     /// ——4モーラが 100ms に潰れていても「確信度 30%」としか出なかった。

@@ -106,6 +106,33 @@ pub enum EntryState {
     Blocked,
 }
 
+impl EntryState {
+    /// 台帳へ書く名前。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotEstimated => "not_estimated",
+            Self::AutoConfirmed => "auto_confirmed",
+            Self::InQueue => "in_queue",
+            Self::Blocked => "blocked",
+        }
+    }
+
+    /// 台帳から戻す。 知らない値は確認待ちに倒す。
+    ///
+    /// 自動確定へ倒さない。 読めなかった状態を「確認済み」と読むと、
+    /// 誰も見ていないものが `INV-ALN-003` をすり抜けて書き出される。
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "not_estimated" => Self::NotEstimated,
+            "auto_confirmed" => Self::AutoConfirmed,
+            "blocked" => Self::Blocked,
+            _ => Self::InQueue,
+        }
+    }
+}
+
 /// 確認のさせ方（`align-review.fsl` の `ReviewMode`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewMode {
@@ -115,6 +142,31 @@ pub enum ReviewMode {
     Batch,
     /// 録り直しを提案する。
     SuggestRerecord,
+}
+
+impl ReviewMode {
+    /// 台帳へ書く名前。送信してよい固定文字列でもある。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Individual => "individual",
+            Self::Batch => "batch",
+            Self::SuggestRerecord => "suggest_rerecord",
+        }
+    }
+
+    /// 台帳から戻す。 知らない値は個別確認に倒す。
+    ///
+    /// 個別確認が既定で、そこから離れるには上限超過が要る（`INV-ALN-004`）。
+    /// 読めなかった値を `Batch` と読むと、超えていない上限を超えたことにできる。
+    #[must_use]
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "batch" => Self::Batch,
+            "suggest_rerecord" => Self::SuggestRerecord,
+            _ => Self::Individual,
+        }
+    }
 }
 
 /// 1エントリ。
@@ -138,6 +190,33 @@ impl Entry {
             pinned: [false; 5],
             confidence: None,
         }
+    }
+
+    /// 台帳に書いてあった状態から組み直す。
+    ///
+    /// 遷移を通さない。 台帳が持っているのは遷移の結果で、開き直すたびに
+    /// `estimate_*` からやり直すと、確認し終えたものが未推定へ戻る。
+    /// ここが増やしているのは状態でも遷移でもなく、復元の口だけ
+    /// （`align-review.fsl` は変えていない）。
+    #[must_use]
+    pub const fn restored(
+        oto: Oto,
+        state: EntryState,
+        confidence: Option<Confidence>,
+        pinned: [bool; 5],
+    ) -> Self {
+        Self {
+            state,
+            oto,
+            pinned,
+            confidence,
+        }
+    }
+
+    /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
+    #[must_use]
+    pub const fn pins(&self) -> [bool; 5] {
+        self.pinned
     }
 
     /// その値が固定されているか（`TR-ALN-30`）。
@@ -241,6 +320,28 @@ impl ReviewQueue {
         }
     }
 
+    /// 台帳に書いてあった進み方から組み直す。
+    ///
+    /// [`Self::new`] と違うのは、モードと上限超過と書き出し済みを受け取るところだけ。
+    /// 個別確認をやめた事実は台帳にしか無く、開き直すたびに既定へ戻すと
+    /// `INV-ALN-004`（やめるのは上限を超えたときだけ）が回数制限を失う。
+    #[must_use]
+    pub fn restored(
+        per_item: Duration,
+        mode: ReviewMode,
+        over_budget: bool,
+        exported: bool,
+    ) -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            mode,
+            over_budget,
+            exported,
+            per_item,
+            budget: REVIEW_BUDGET,
+        }
+    }
+
     /// エントリを足す。同じ鍵なら差し替える。
     pub fn insert(&mut self, id: impl Into<String>, entry: Entry) {
         self.entries.insert(id.into(), entry);
@@ -250,6 +351,14 @@ impl ReviewQueue {
     #[must_use]
     pub fn get(&self, id: &str) -> Option<&Entry> {
         self.entries.get(id)
+    }
+
+    /// 全エントリ。並びは鍵の順で常に同じ（`TR-ALN-29`）。
+    ///
+    /// 書き出しはこれを読む。 [`Self::queued`] は確認待ちしか返さないので、
+    /// 自動確定したものが `oto.ini` から落ちる。
+    pub fn all(&self) -> impl Iterator<Item = (&str, &Entry)> {
+        self.entries.iter().map(|(k, e)| (k.as_str(), e))
     }
 
     /// いまのモード。
@@ -516,12 +625,19 @@ impl ReviewQueue {
         Ok(())
     }
 
-    /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。
+    /// 書き出してよいか（`REQ-PKG-003`, `INV-ALN-003`）。状態は動かさない。
+    ///
+    /// [`Self::export`] の前半をそのまま切り出したもの。 **呼び出し側が
+    /// 件数を数え直さないためにある**——関門を2箇所に書くと、片方だけが
+    /// `INV-ALN-003` を守る形になる（`AGENTS.md` の禁止事項6）。
+    ///
+    /// 書き出しは、失敗しうる用意（符号化・ファイル書き込み）を挟む。
+    /// 先に [`Self::export`] を呼ぶと、書けなかったのに書き出し済みになる。
     ///
     /// # Errors
     ///
     /// 書き出し済み、確認が残っている、自動確定していないエントリがある。
-    pub fn export(&mut self) -> Result<()> {
+    pub fn may_export(&self) -> Result<()> {
         if self.exported {
             return Err(ReviewError::AlreadyExported);
         }
@@ -532,6 +648,16 @@ impl ReviewQueue {
         {
             return Err(ReviewError::ReviewPending);
         }
+        Ok(())
+    }
+
+    /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。
+    ///
+    /// # Errors
+    ///
+    /// [`Self::may_export`] と同じ。
+    pub fn export(&mut self) -> Result<()> {
+        self.may_export()?;
         self.exported = true;
         Ok(())
     }

@@ -75,6 +75,9 @@ cc = "1.4.6"
 diesel = { version = "2.3.13", default-features = false, features = [
   "sqlite",
   "returning_clauses_for_sqlite_3_35",
+  # 既定は1表 16 列まで。`oto_values` が確信度の4成分（TR-ALN-24）で超える。
+  # 成分を別表へ逃がすと、エントリを引くたびに外部結合が1本増える。
+  "32-column-tables",
 ] }
 diesel_migrations = { version = "2.3.2", default-features = false, features = ["sqlite"] }
 libsqlite3-sys = { version = "0.38.2", features = ["bundled"] }

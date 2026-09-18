@@ -1,5 +1,5 @@
 import { Chip } from "~/components/chip";
-import type { OtoView } from "~/lib/ipc";
+import type { OtoSlot, OtoView } from "~/lib/ipc";
 import { usableSpan } from "~/components/take-waveform";
 
 type TakeValuesProps = {
@@ -10,6 +10,31 @@ type TakeValuesProps = {
   /** 生の値と元の名前で見るか。上級者向け（`docs/product-vision.md`）。 */
   raw: boolean;
   onRaw: (raw: boolean) => void;
+  /**
+   * 人が決めた値（`TR-ALN-30`）。固定は値単位で付く。
+   *
+   * 「このエントリを触った」では足りない。 オフセットだけ直して残りは
+   * 自動のまま、が表せないと、再推定がどちらかを壊す（`INV-ALN-001`）。
+   */
+  pinned: readonly OtoSlot[];
+  /** その値の固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
+  onRevert: (slot: OtoSlot) => void;
+  busy: boolean;
+};
+
+/** 5値の並び。`oto.ini` の並びとは違うので、ここで固定する。 */
+const SLOTS: readonly { slot: OtoSlot; label: string; raw: string }[] = [
+  { slot: "offset", label: "頭の余白", raw: "offset" },
+  { slot: "preutterance", label: "歌い出しの位置", raw: "preutterance" },
+  { slot: "overlap", label: "前の音との重なり", raw: "overlap" },
+  { slot: "consonant", label: "伸ばさないところ", raw: "consonant" },
+  { slot: "cutoff", label: "終わりの余白", raw: "cutoff" },
+];
+
+/** その値を、言い換えた側の言い方で。終わりの余白だけ素材の長さから引いて出す。 */
+const spoken = (slot: OtoSlot, oto: OtoView, durationMs: number): string => {
+  const ms = slot === "cutoff" ? durationMs - usableSpan(oto, durationMs)[1] : oto[`${slot}_ms`];
+  return `${(ms / 1000).toFixed(3)} 秒`;
 };
 
 /**
@@ -22,14 +47,28 @@ type TakeValuesProps = {
  * `docs/product-vision.md` が求めている。切り替えは要件に無いので、
  * **判断記録が要る**（この形は `docs/design/canvas` の付箋に残っている）。
  *
- * ここは読むだけ。 値をつまんで動かすのは原音設定エディタ（`PROFILE-M6`）で、
- * その描画面の性質は `Q-PLT-004` が閉じるまで決まらない。
+ * 人が決めた値には印を付ける（`TR-ALN-30`）。 印が無いと、再推定で動くものと
+ * 動かないものの区別が画面から消える。解く的もその値の隣に置く——
+ * まとめて解く的にすると、直した覚えのない値まで巻き戻る。
+ *
+ * 値をつまんで動かすのは原音設定エディタ（`PROFILE-M6`）。 その描画面の
+ * 性質は `Q-PLT-004` が閉じるまで決まらないので、ここは読むことと、
+ * 固定を解くことだけを持つ。
  *
  * 音を選ぶ的をここに置かない。 選ぶのは波形の下の帯（`components/take-waveform`）
  * 1箇所だけ。**同じ札を2列並べていたので、押せるのは下の小さいほうだけ、
  * という状態になっていた。踏んだ。** ここは選ばれている音の名前を出すだけ。
  */
-export const TakeValues = ({ otos, selected, durationMs, raw, onRaw }: TakeValuesProps) => {
+export const TakeValues = ({
+  otos,
+  selected,
+  durationMs,
+  raw,
+  onRaw,
+  pinned,
+  onRevert,
+  busy,
+}: TakeValuesProps) => {
   const oto = otos.find((o) => o.alias === selected) ?? otos[0] ?? null;
 
   return (
@@ -49,29 +88,26 @@ export const TakeValues = ({ otos, selected, durationMs, raw, onRaw }: TakeValue
         <p className="text-sm text-slate-11">この回からは音が取れませんでした。</p>
       ) : (
         <dl className="grid grid-cols-5 gap-3">
-          {(raw
-            ? ([
-                ["offset", `${oto.offset_ms.toFixed(3)} ms`],
-                ["preutterance", `${oto.preutterance_ms.toFixed(3)} ms`],
-                ["overlap", `${oto.overlap_ms.toFixed(3)} ms`],
-                ["consonant", `${oto.consonant_ms.toFixed(3)} ms`],
-                ["cutoff", `${oto.cutoff_ms.toFixed(3)} ms`],
-              ] as const)
-            : ([
-                ["頭の余白", `${(oto.offset_ms / 1000).toFixed(3)} 秒`],
-                ["歌い出しの位置", `${(oto.preutterance_ms / 1000).toFixed(3)} 秒`],
-                ["前の音との重なり", `${(oto.overlap_ms / 1000).toFixed(3)} 秒`],
-                ["伸ばさないところ", `${(oto.consonant_ms / 1000).toFixed(3)} 秒`],
-                [
-                  "終わりの余白",
-                  `${((durationMs - usableSpan(oto, durationMs)[1]) / 1000).toFixed(3)} 秒`,
-                ],
-              ] as const)
-          ).map(([label, value]) => (
-            <div key={label} className="flex flex-col gap-2">
-              <dt className="text-xs text-slate-11">{label}</dt>
-              <dd className="m-0 select-text font-mono text-sm text-slate-12 tabular-nums">
-                {value}
+          {SLOTS.map(({ slot, label, raw: rawLabel }) => (
+            <div key={slot} className="flex flex-col gap-2">
+              <dt className="text-xs text-slate-11">{raw ? rawLabel : label}</dt>
+              <dd className="m-0 flex flex-col items-start gap-1">
+                <span className="select-text font-mono text-sm text-slate-12 tabular-nums">
+                  {raw ? `${oto[`${slot}_ms`].toFixed(3)} ms` : spoken(slot, oto, durationMs)}
+                </span>
+                {pinned.includes(slot) && (
+                  <>
+                    <span className="text-xs text-slate-11">手で決めました</span>
+                    <button
+                      type="button"
+                      onClick={() => onRevert(slot)}
+                      disabled={busy}
+                      className="text-xs text-slate-11 underline hover:text-slate-12 disabled:opacity-45"
+                    >
+                      自動に戻す
+                    </button>
+                  </>
+                )}
               </dd>
             </div>
           ))}

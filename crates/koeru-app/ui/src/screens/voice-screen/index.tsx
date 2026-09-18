@@ -2,6 +2,7 @@ import { useMutation, useQueryClient, useSuspenseQueries } from "@tanstack/react
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef, useState } from "react";
 
+import { AlignCard } from "~/components/align-card";
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
 import { CalibrationCard } from "~/components/calibration-card";
@@ -13,6 +14,7 @@ import { LastTake } from "~/components/last-take";
 import { LeakCard } from "~/components/leak-card";
 import { NextPhrase } from "~/components/next-phrase";
 import { PackagePanel } from "~/components/package-panel";
+import { ReviewPanel } from "~/components/review-panel";
 import { PendingWork } from "~/components/pending-work";
 import { SongDetail } from "~/components/song-detail";
 import { SongList } from "~/components/song-list";
@@ -28,6 +30,7 @@ import {
   ledgerKey,
   openProjectQuery,
   progressQuery,
+  reviewQueueQuery,
   rowsWithTakesQuery,
   songStatusQuery,
   voiceStateQuery,
@@ -135,6 +138,7 @@ const VoiceBody = ({
     { data: progress },
     { data: voice },
     { data: rows },
+    { data: reviewEntries },
     { data: songs },
     { data: devices },
     { data: chosen },
@@ -143,6 +147,7 @@ const VoiceBody = ({
       progressQuery(id),
       voiceStateQuery(id),
       rowsWithTakesQuery(id),
+      reviewQueueQuery(id),
       songStatusQuery(id),
       devicesQuery(),
       chosenDeviceQuery(id),
@@ -436,6 +441,7 @@ const VoiceBody = ({
               <>
                 {take !== null && takeRow !== null && (
                   <LastTake
+                    voiceId={id}
                     take={take}
                     rowText={takeRow.text}
                     units={takeRow.units}
@@ -469,9 +475,14 @@ const VoiceBody = ({
             )}
 
             {tab === "package" && (
-              <Suspense fallback={<CardSkeleton title="書き出す前に見ること" />}>
-                <PackagePanel voiceId={id} rows={rows} onOpenRow={openTake} />
-              </Suspense>
+              <>
+                <Suspense fallback={<CardSkeleton title="見ておく音" />}>
+                  <ReviewPanel voiceId={id} />
+                </Suspense>
+                <Suspense fallback={<CardSkeleton title="書き出す前に見ること" />}>
+                  <PackagePanel voiceId={id} rows={rows} onOpenRow={openTake} />
+                </Suspense>
+              </>
             )}
 
             {tab === "settings" && (
@@ -500,6 +511,13 @@ const VoiceBody = ({
                   onStatus={setStatus}
                   onChecked={setLeaking}
                 />
+                <Suspense fallback={<CardSkeleton title="切り出しの出どころ" />}>
+                  <AlignCard
+                    voiceId={id}
+                    onOpenRow={openTake}
+                    textOf={(rowId) => rows.find((r) => r.row_id === rowId)?.text ?? "この行"}
+                  />
+                </Suspense>
                 {leaking === false && (
                   <Card title="音の高さ">
                     <p className="text-sm text-slate-12">録りながら音の高さを聞けます。</p>
@@ -543,7 +561,14 @@ const VoiceBody = ({
           </h2>
 
           {tab === "sound" && (
-            <ItemList rows={rows} nextRowId={progress.next_row_id} onOpen={openTake} />
+            <ItemList
+              rows={rows}
+              nextRowId={progress.next_row_id}
+              pendingRowIds={reviewEntries
+                .filter((i) => i.state === "in_queue" || i.state === "blocked")
+                .map((i) => i.row_id)}
+              onOpen={openTake}
+            />
           )}
           {tab === "songs" && (
             <SongList

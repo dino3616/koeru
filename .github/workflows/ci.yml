@@ -63,6 +63,17 @@ jobs:
       # Linux だけ WebKitGTK が要る（上と同じ理由）。
       - uses: ./.github/actions/linux-webview
         if: matrix.os == 'ubuntu-latest'
+      # MFA のモデルは submodule ＋ LFS で入る。 実体が来ていないと実モデルの
+      # 試験が中身を実行せずに ok と出るので、走らせる前にここで落とす。
+      # LFS を引けていないときは 130 バイト程度のポインタが置かれるだけで、
+      # ファイルの有無では見分けられない。
+      - name: MFA のモデルの実体が来ているか
+        shell: bash
+        run: |
+          f=crates/koeru-align/models/japanese_mfa/acoustic/final.mdl
+          test -f "$f" || { echo "モデルが無い: $f"; exit 1; }
+          n=$(wc -c < "$f")
+          test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
       # 音声デバイスを要るテストは、実機ハーネスとして自分で戻る。
       # CI のランナーにマイクは無いので、通らないのではなく通り抜ける。
       - run: cargo test --workspace --all-features
