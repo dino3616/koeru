@@ -3,7 +3,7 @@ import { expect, fn, mocked } from "storybook/test";
 
 import { PackagePanel } from ".";
 import { api } from "~/lib/ipc";
-import type { RowTakesView } from "~/lib/ipc";
+import type { PackageStateView, PreflightView, RowTakesView } from "~/lib/ipc";
 
 const rows: RowTakesView[] = [
   {
@@ -16,10 +16,32 @@ const rows: RowTakesView[] = [
   },
 ];
 
+const clean: PreflightView = {
+  renamed_to_nfc: 0,
+  non_nfc_names: [],
+  clipped_takes: [],
+  may_export: true,
+};
+
+const ready: PackageStateView = {
+  may_export: true,
+  profile: "both",
+  available_profiles: ["classic", "openutau", "both"],
+  file_count: 12,
+  alias_count: 5,
+  exportable_methods: ["single"],
+  findings: [],
+  unencodable: [],
+};
+
 const meta = {
   title: "領域/PackagePanel",
   component: PackagePanel,
   args: { voiceId: "11111111-1111-4111-8111-111111111111", rows, onOpenRow: fn() },
+  beforeEach: () => {
+    mocked(api.preflight).mockResolvedValue(clean);
+    mocked(api.packageState).mockResolvedValue(ready);
+  },
   decorators: [(Story) => <div className="flex w-96 flex-col gap-5">{Story()}</div>],
 } satisfies Meta<typeof PackagePanel>;
 
@@ -27,14 +49,6 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const 引っかかるものが無い: Story = {
-  beforeEach: () => {
-    mocked(api.preflight).mockResolvedValue({
-      renamed_to_nfc: 0,
-      non_nfc_names: [],
-      clipped_takes: [],
-      may_export: true,
-    });
-  },
   play: async ({ canvasElement }) => {
     // 配ることを必須にしない（`TR-PKG-35`）。
     const text = canvasElement.textContent ?? "";
@@ -47,10 +61,9 @@ export const 引っかかるものが無い: Story = {
 export const 割れたテイクがある: Story = {
   beforeEach: () => {
     mocked(api.preflight).mockResolvedValue({
+      ...clean,
       renamed_to_nfc: 2,
-      non_nfc_names: [],
       clipped_takes: [["s002", 4]],
-      may_export: true,
     });
   },
   play: async ({ canvasElement }) => {
@@ -63,10 +76,68 @@ export const 割れたテイクがある: Story = {
 export const 書き出せない名前がある: Story = {
   beforeEach: () => {
     mocked(api.preflight).mockResolvedValue({
-      renamed_to_nfc: 0,
-      non_nfc_names: ["が"],
-      clipped_takes: [],
+      ...clean,
+      non_nfc_names: ["が"],
       may_export: false,
     });
+  },
+};
+
+export const 検証で止まっている: Story = {
+  beforeEach: () => {
+    mocked(api.packageState).mockResolvedValue({
+      ...ready,
+      may_export: false,
+      findings: [
+        {
+          file: "s002.wav",
+          alias: "か",
+          row_id: "s002",
+          kind: "package.duplicate_alias",
+          detail: null,
+        },
+        {
+          file: "s002.wav",
+          alias: null,
+          row_id: "s002",
+          kind: "package.wrong_sample_rate",
+          detail: "22050 Hz",
+        },
+      ],
+    });
+  },
+  play: async ({ canvasElement }) => {
+    // どこを直せばよいかまで出す（`TR-PKG-51`）。
+    await expect(canvasElement.textContent).toContain("同じ呼び名が2つあります");
+    await expect(canvasElement.querySelectorAll("button").length).toBeGreaterThan(0);
+  },
+};
+
+export const 書けない文字がある: Story = {
+  beforeEach: () => {
+    mocked(api.packageState).mockResolvedValue({
+      ...ready,
+      may_export: false,
+      unencodable: [
+        {
+          place: "voice_name",
+          target: null,
+          chars: ["🎤"],
+          suggestion: "こえる",
+          row_id: null,
+        },
+        {
+          place: "alias",
+          target: "か",
+          chars: ["🎤"],
+          suggestion: null,
+          row_id: "s002",
+        },
+      ],
+    });
+  },
+  play: async ({ canvasElement }) => {
+    // 置き換えず、代替案を出す（`TR-PKG-17`）。
+    await expect(canvasElement.textContent).toContain("こえる");
   },
 };

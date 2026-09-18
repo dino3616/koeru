@@ -99,6 +99,49 @@ export const preflightQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "preflight"], queryFn: () => api.preflight() });
 
 /**
+ * 配布に出す値（`PROFILE-M4`）。
+ *
+ * 台帳の鍵の下に置く。 保存すると変わるので、書いたら無効化する。
+ */
+export const packageSettingsQuery = (id: string) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "package-settings"],
+    queryFn: () => api.packageSettings(),
+  });
+
+/**
+ * いま書き出せるか（`TR-PKG-49`）。
+ *
+ * 台帳の鍵の下に置く。 録るたびにも、設定を書き換えるたびにも変わる。
+ * WAV を全部開くので軽くない——取り直しは無効化でだけ起こる。
+ */
+export const packageStateQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "package-state"], queryFn: () => api.packageState() });
+
+/**
+ * 音源アイコンと立ち絵の元画像（`TR-PKG-07`）。
+ *
+ * 設定と分ける。 設定は打つたびに読み直すが、画像は数 MB あるので、
+ * 同じ口に載せると入力のたびに運ぶことになる。
+ */
+export const packageImageQuery = (id: string, slot: "icon" | "portrait") =>
+  queryOptions({
+    queryKey: [LEDGER, id, "package-image", slot],
+    queryFn: () => (slot === "icon" ? api.packageIcon() : api.packagePortrait()),
+  });
+
+/** 配り物に入るもの（`TR-PKG-28` の同梱物）。 */
+export const packageContentsQuery = (id: string) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "package-contents"],
+    queryFn: () => api.packageContents(),
+  });
+
+/** 書き出しの履歴（`TR-PKG-44`）。書き出すと1つ増える。 */
+export const releasesQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "releases"], queryFn: () => api.releases() });
+
+/**
  * そのテイクの原音設定（`TR-ALN-33`）。
  *
  * テイクの識別子は台帳の中で一意なので、音源の識別子を混ぜない。

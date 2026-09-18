@@ -12,8 +12,12 @@ import { ItemList } from "~/components/item-list";
 import { LastTake } from "~/components/last-take";
 import { LeakCard } from "~/components/leak-card";
 import { NextPhrase } from "~/components/next-phrase";
+import { PackageContents } from "~/components/package-contents";
+import { PackageExport } from "~/components/package-export";
+import { PackageForm } from "~/components/package-form";
 import { PackagePanel } from "~/components/package-panel";
 import { PendingWork } from "~/components/pending-work";
+import { ReleaseList } from "~/components/release-list";
 import { SongDetail } from "~/components/song-detail";
 import { SongList } from "~/components/song-list";
 import { VoiceHeader, type VoiceTab } from "~/components/voice-header";
@@ -419,7 +423,8 @@ const VoiceBody = ({
             {tab === "package" && (
               <p className="max-w-80 text-center text-xs text-slate-11">
                 <span className="font-mono tabular-nums">{voice.required}</span>{" "}
-                音すべてを録るのが、完成までの最後の一歩です。
+                音すべてを録るのが、完成までの最後の一歩です。録れているところまでで
+                配り物を作ることもできます。
               </p>
             )}
           </div>
@@ -468,10 +473,28 @@ const VoiceBody = ({
               </Suspense>
             )}
 
+            {/*
+              入力 → 検証 → 書き出しを、この列で一続きにする。
+
+              面を行き来させない。 書いている途中で「何が足りないか」を
+              見に行かせると、打った字を持ったまま移動することになる。
+
+              境界は3つに分ける。 まとめて1つの `Suspense` にすると、
+              いちばん重い読み（書き出せるかの判定は WAV を全部開く）が
+              解けるまで欄が1つも出ない。
+            */}
             {tab === "package" && (
-              <Suspense fallback={<CardSkeleton title="書き出す前に見ること" />}>
-                <PackagePanel voiceId={id} rows={rows} onOpenRow={openTake} />
-              </Suspense>
+              <>
+                <Suspense fallback={<CardSkeleton title="書き出す前に見ること" />}>
+                  <PackagePanel voiceId={id} rows={rows} onOpenRow={openTake} />
+                </Suspense>
+                <Suspense fallback={<CardSkeleton title="配るときの形" />}>
+                  <PackageForm voiceId={id} />
+                </Suspense>
+                <Suspense fallback={<CardSkeleton title="配り物をつくる" />}>
+                  <PackageExport voiceId={id} />
+                </Suspense>
+              </>
             )}
 
             {tab === "settings" && (
@@ -559,9 +582,14 @@ const VoiceBody = ({
               <p className="text-sm text-slate-12">
                 配り物をつくらなくても、この声は完成にできます。
               </p>
-              <p className="text-xs text-slate-11">
-                書き出しはまだできません。いまは、書き出す前に見えることだけを出します。
-              </p>
+              <Suspense fallback={<p className="text-xs text-slate-11">読んでいます</p>}>
+                <PackageContents voiceId={id} />
+              </Suspense>
+              <hr className="h-px border-0 bg-slate-6" />
+              <h3 className="text-xs text-slate-11">つくったもの</h3>
+              <Suspense fallback={<p className="text-xs text-slate-11">読んでいます</p>}>
+                <ReleaseList voiceId={id} />
+              </Suspense>
             </>
           )}
           {tab === "settings" && (
