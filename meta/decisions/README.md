@@ -40,6 +40,11 @@
 | [DEC-PKG-005](DEC-PKG-005.toml) | 方式の関係 | 方式の上下関係を宣言せず、エイリアス被覆から導出する | accepted |
 | [DEC-PKG-006](DEC-PKG-006.toml) | プロジェクトの実体 | プロジェクトを UUID 名のディレクトリにし、人間可読な manifest を平文で添える | accepted |
 | [DEC-PKG-007](DEC-PKG-007.toml) | 完成の関門 | 完成の条件を先に満たさせる。名前は必須にし、あとから変えられるようにする | accepted |
+| [DEC-PKG-008](DEC-PKG-008.toml) | 配布名 | 配布名を表示名から分け、書き出しのときに決めさせる | accepted |
+| [DEC-PKG-009](DEC-PKG-009.toml) | エントリ名の符号化 | エントリ名を ASCII に固定し、EFS フラグを立てない | accepted |
+| [DEC-PKG-010](DEC-PKG-010.toml) | アーカイブの形 | UAR を ZIP と併せて出す | accepted |
+| [DEC-PKG-011](DEC-PKG-011.toml) | 利用規約 | 利用規約の設問を持たず、自由記述にする | accepted |
+| [DEC-PKG-012](DEC-PKG-012.toml) | 音源アイコン | 音源アイコンは本人の画像から作る | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -98,4 +103,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-88 件。
+93 件。

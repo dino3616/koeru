@@ -1,0 +1,51 @@
+schema = 'decision'
+id = 'DEC-PKG-009'
+constraint_label = 'エントリ名の符号化'
+constraint = 'ZIP エントリ名は ASCII 固定。EFS フラグは立てない'
+title = 'エントリ名を ASCII に固定し、EFS フラグを立てない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'ASCII 固定の帰結として EFS を立てない',
+  '最小の ZIP writer を自前で書く',
+  '音源ルートフォルダ名だけ非 ASCII を許す',
+]
+selected = 'ASCII 固定の帰結として EFS を立てない'
+rationale = '''
+生成するエントリ名は全て ASCII なので（`TR-PKG-16`、`DEC-PKG-004`）、CP932 と
+UTF-8 でバイト列が同一になる。 3つの書き出しプロファイルで符号化を変えても、
+エントリ名の側には差が出ない。差が出るのはテキストファイルの中身だけ。
+
+**EFS フラグは、立てられないのではなく立ててはいけない。** EFS はエントリ名が
+UTF-8 であることの宣言で、ASCII しか無いところに立てると「UTF-8 でないと読めない」と
+主張することになる。classic UTAU と両対応のプロファイルでも同じバイト列を出す以上、
+宣言だけが3通りある状態は嘘になる。
+
+自前の ZIP writer を採らなかったのは、制御したい対象が無いから。 エントリ名が
+ASCII に閉じている限り、符号化もフラグも選択肢が1つしかない。writer を持つと、
+central directory・data descriptor・ZIP64 の境界を自分で保守することになる。
+
+ルート名だけ非 ASCII を許す案は `DEC-PKG-004` を覆す。 覆すなら、macOS の NFD、
+大小不一致、CP932 表現可能性が全部戻ってくる。配布名の入力（`DEC-PKG-008`）で
+同じ問題を解いたので、ここで覆す理由が無い。
+
+**`zip` crate はエントリ名をバイト列として渡す口を持たない。** `TR-PKG-14` は
+「バイト列として扱う」と書いていたが、8.6 の公開 API は `String` だけを受ける。
+ASCII に閉じたので実害は無いが、要件の前提が部品と食い違っていた。
+'''
+review_triggers = [
+  'エントリ名に非 ASCII を入れる必要が出たとき（ここで書いたことが全て崩れる）',
+  'EFS フラグの無い ZIP を受け付けない受け手が見つかったとき',
+]
+affects_requirements = [
+  'TR-PKG-12',
+  'TR-PKG-14',
+  'TR-PKG-15',
+  'TR-PKG-16',
+  'TR-PKG-52',
+]
+affects_decisions = [
+  'DEC-PKG-004',
+  'DEC-PKG-008',
+]
+supersedes = []

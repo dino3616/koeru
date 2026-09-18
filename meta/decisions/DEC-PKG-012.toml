@@ -1,0 +1,41 @@
+schema = 'decision'
+id = 'DEC-PKG-012'
+constraint_label = '音源アイコン'
+constraint = '本人が選んだ画像を 100×100 の BMP へ変換して同梱する'
+title = '音源アイコンは本人の画像から作る'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '本人が選んだ画像を取り込む',
+  '声から導いた色で生成する',
+  '声の色で生成し、差し替えの口も置く',
+]
+selected = '本人が選んだ画像を取り込む'
+rationale = '''
+アイコンは音源の顔で、UTAU の一覧に出るのはこれ1つ。 声から導いた色
+（`DEC-PLT-025`）は KOERU の中で音源を見分けるためのもので、配った先で
+その音源を名乗るものではない。色の四角が配布物の顔になるのは代償が大きい。
+
+`image` を足す。 PNG / JPEG を読んで 100×100 の BMP へ縮める。
+ライセンスは MIT OR Apache-2.0 で `deny.toml` の許可リストに載っている。
+default-features を切り、読む側は `png` と `jpeg`、書く側は `bmp` だけを引く。
+
+**BMP に固定するのは `TR-PKG-07` の判断で、ここでは動かさない。**
+classic UTAU が PNG を表示できるかが一次仕様として確認できていない。
+
+アイコンを選ばなければ image= を書かない。 `TR-PKG-01` が必須にしているのは
+`character.txt` そのものと `name=` だけ。指さない行を空で置かない。
+'''
+review_triggers = [
+  'classic UTAU が PNG を表示できると一次仕様で確認できたとき',
+  'image が引く依存の量が、アイコン1枚に見合わないと分かったとき',
+]
+affects_requirements = [
+  'TR-PKG-01',
+  'TR-PKG-02',
+  'TR-PKG-07',
+]
+affects_decisions = [
+  'DEC-PLT-025',
+]
+supersedes = []
