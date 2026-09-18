@@ -245,14 +245,31 @@ pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
 pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool) -> Result<()> {
     let file = File::create(path.as_ref()).map_err(io("create"))?;
     let mut w = BufWriter::new(file);
-    write_header(
-        &mut w,
+    w.write_all(&distribution_bytes(samples, dither))
+        .map_err(io("write"))?;
+    w.flush().map_err(io("flush"))?;
+    Ok(())
+}
+
+/// 配布用 WAV をバイト列で組み立てる（`TR-REC-01`）。
+///
+/// 配布パッケージは ZIP を組み立てながら作るので、WAV を一度ファイルへ
+/// 書いてから読み直さない。[`write_distribution`] はこれを書くだけ。
+///
+/// **レートは常に [`DISTRIBUTION_RATE_HZ`]。** 呼び出し側のレートを
+/// 引き取らないのは、マスターが 44100 でないまま配ると「44100 と名乗る
+/// 別のレートの音」になるため（`TR-REC-02`, `DEC-REC-006`）。
+#[must_use]
+pub fn distribution_bytes(samples: &[f32], dither: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_LEN as usize + samples.len() * 2);
+    // Vec への書き込みは失敗しない。
+    let _ = write_header(
+        &mut out,
         DISTRIBUTION_RATE_HZ,
         FMT_PCM,
         16,
         (samples.len() * 2) as u64,
-    )
-    .map_err(io("write_header"))?;
+    );
 
     // TPDF ディザ（振幅 1 LSB）。2つの一様乱数の和で三角分布にする。
     let mut state = 0x2545_F491_4F6C_DD1D_u64;
@@ -272,10 +289,9 @@ pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool)
         let with_dither = if dither { scaled + tpdf() } else { scaled };
         #[allow(clippy::cast_possible_truncation)]
         let v = with_dither.round().clamp(-32768.0, 32767.0) as i16;
-        w.write_all(&v.to_le_bytes()).map_err(io("write_samples"))?;
+        out.extend_from_slice(&v.to_le_bytes());
     }
-    w.flush().map_err(io("flush"))?;
-    Ok(())
+    out
 }
 
 fn write_header<W: Write>(

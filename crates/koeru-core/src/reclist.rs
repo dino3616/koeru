@@ -17,6 +17,7 @@
 //! ファイル名は行 ID から ASCII で生成する（`TR-RCL-08`）。
 
 use crate::inventory::{Unit, UnitSet, units};
+use crate::names;
 
 /// 録音リストの1行。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,12 +58,6 @@ impl ReclistError {
 pub const MAX_UNITS_PER_ROW: usize = 8;
 /// 既定の単位数。
 pub const DEFAULT_UNITS_PER_ROW: usize = 5;
-
-/// Windows の予約名（`TR-RCL-08`）。
-const RESERVED: [&str; 22] = [
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
 
 /// 単独音の録音リストを生成する（`TR-RCL-03`）。
 ///
@@ -109,32 +104,25 @@ pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, Reclist
     Ok(rows)
 }
 
-/// ファイル名の5条件を確かめる（`TR-RCL-08`）。
+/// ファイル名の条件を確かめる（`TR-RCL-08`）。
+///
+/// 文字・予約名・長さの規則は [`crate::names`] が持つ。 ここで見るのは
+/// 「リストの中で一意か」だけ——他は録音リストに固有の条件ではない。
 ///
 /// 失敗を黙って通さない。
 fn validate_file_names(rows: &[Row]) -> Result<(), ReclistError> {
-    let mut seen = std::collections::BTreeSet::new();
-    for r in rows {
-        let n = &r.file_stem;
-        // (a) ASCII 英数字・ハイフン・アンダースコアだけ
-        if !n
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
+    let files: Vec<String> = rows
+        .iter()
+        .map(|r| format!("{}.wav", r.file_stem))
+        .collect();
+    for f in &files {
+        if !names::check_file_name(f).is_empty() {
             return Err(ReclistError::UnsafeFileName);
         }
-        // (b) 禁止文字は (a) で除かれている / (c) 予約名
-        if RESERVED.contains(&n.to_ascii_uppercase().as_str()) {
-            return Err(ReclistError::UnsafeFileName);
-        }
-        // (d) 一意
-        if !seen.insert(n.to_ascii_lowercase()) {
-            return Err(ReclistError::UnsafeFileName);
-        }
-        // (e) 拡張子込みで 255 バイト以内
-        if n.len() + ".wav".len() > 255 {
-            return Err(ReclistError::UnsafeFileName);
-        }
+    }
+    let refs: Vec<&str> = files.iter().map(String::as_str).collect();
+    if !names::case_collisions(&refs).is_empty() {
+        return Err(ReclistError::UnsafeFileName);
     }
     Ok(())
 }

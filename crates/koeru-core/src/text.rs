@@ -143,6 +143,37 @@ pub fn unencodable_chars(s: &str) -> Vec<char> {
     out
 }
 
+/// CP932 で書ける、いちばん近い形を探す（`TR-PKG-17`）。
+///
+/// 「書けません」だけでは直しようがない。 互換分解して結合文字を落とし、
+/// それでも書けない文字は取り除く。元と同じなら `None`——直す必要が無い。
+/// 何も残らなければ `None`——空の名前を代替案として出さない。
+///
+/// **これは提案であって、置換ではない。** 採るかどうかは本人が決める
+/// （`TR-PKG-17` が暗黙置換を禁じている）。
+#[must_use]
+pub fn cp932_fallback(s: &str) -> Option<String> {
+    let folded: String = s
+        .nfkd()
+        // 結合文字（濁点・アクセント）を落とす。`é` は `e` になる。
+        .filter(|c| !matches!(*c as u32, 0x0300..=0x036F | 0x3099 | 0x309A))
+        .collect();
+    let candidate: String = if unencodable_chars(&folded).is_empty() {
+        folded
+    } else {
+        folded
+            .chars()
+            .filter(|c| unencodable_chars(&c.to_string()).is_empty())
+            .collect()
+    };
+    let trimmed = candidate.trim();
+    if trimmed.is_empty() || trimmed == s {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
 /// 取り込むときに使う符号化を決める（`TR-PKG-48`）。
 ///
 /// 順序は `character.yaml` の `text_file_encoding` → `oto.ini` の `#Charset:`

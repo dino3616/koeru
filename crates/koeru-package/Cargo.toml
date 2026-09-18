@@ -1,0 +1,21 @@
+[package]
+name = "koeru-package"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の配布パッケージ生成。音源ルートの組み立てから ZIP の読み戻し検証まで"
+
+[lints]
+workspace = true
+
+[dependencies]
+image.workspace = true
+koeru-align = { path = "../koeru-align" }
+koeru-audio = { path = "../koeru-audio" }
+koeru-core = { path = "../koeru-core" }
+thiserror.workspace = true
+tracing.workspace = true
+zip.workspace = true
