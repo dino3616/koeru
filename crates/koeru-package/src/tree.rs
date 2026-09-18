@@ -14,7 +14,7 @@ use koeru_align::ini::{self, IniEntry};
 use koeru_core::names::{self, NameProblem};
 use koeru_core::text::{TextEncoding, TextError};
 
-use crate::bank::{Subbank, VoiceBank, decorate};
+use crate::bank::{Subbank, VoiceBank, decorate, frq_name};
 use crate::character::{self, ICON_FILE, PORTRAIT_FILE};
 use crate::icon::{self, IconError};
 use crate::profile::Profile;
@@ -195,12 +195,6 @@ pub const ROOT_FILES: [&str; 6] = [
     ICON_FILE,
     PORTRAIT_FILE,
 ];
-
-/// WAV 名から `.frq` 名を作る（`TR-PKG-05`）。
-fn frq_name(wav: &str) -> String {
-    let stem = wav.strip_suffix(".wav").unwrap_or(wav);
-    format!("{stem}_wav.frq")
-}
 
 /// 区画の `oto.ini`（`TR-PKG-08`, `TR-PKG-19`）。
 ///

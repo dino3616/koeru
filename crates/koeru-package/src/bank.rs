@@ -158,6 +158,29 @@ impl VoiceBank {
             .collect()
     }
 
+    /// 区画が生むパスを全部並べる（`TR-PKG-26`）。
+    ///
+    /// WAV と `.frq` と `oto.ini`。 衝突はこの全体で見る——**WAV だけを
+    /// 見ると、フォルダ名が重なった区画どうしの `oto.ini` が漏れる。**
+    /// ZIP は同名のエントリを許すので、包むところでは気づけない。
+    #[must_use]
+    pub fn generated_paths(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for s in &self.subbanks {
+            let prefix = s.path_prefix();
+            for m in &s.samples {
+                out.push(format!("{prefix}{}", m.file));
+                if m.frq.is_some() {
+                    out.push(format!("{prefix}{}", frq_name(&m.file)));
+                }
+            }
+            if !s.samples.is_empty() {
+                out.push(format!("{prefix}oto.ini"));
+            }
+        }
+        out
+    }
+
     /// 音源ルートから見た WAV のパスを、出てくる順に並べる。
     #[must_use]
     pub fn wav_paths(&self) -> Vec<String> {
@@ -169,6 +192,16 @@ impl VoiceBank {
             })
             .collect()
     }
+}
+
+/// WAV 名から `.frq` 名を作る（`TR-PKG-05`）。
+///
+/// 拡張子のドットをアンダースコアに置き換えて `.frq` を付ける。
+/// `s001.wav` → `s001_wav.frq`。この規則を外すと UTAU 側が表を見つけられない。
+#[must_use]
+pub fn frq_name(wav: &str) -> String {
+    let stem = wav.strip_suffix(".wav").unwrap_or(wav);
+    format!("{stem}_wav.frq")
 }
 
 /// 区画の prefix / suffix を付けたエイリアス（`TR-PKG-19`）。

@@ -6,10 +6,22 @@
 
 use std::io::Cursor;
 
-use image::{DynamicImage, ImageFormat, RgbImage, imageops::FilterType};
+use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbImage, imageops::FilterType};
 
 /// 音源アイコンの一辺（`TR-PKG-07`）。
 pub const SIZE: u32 = 100;
+
+/// 受け付ける絵の一辺の上限（px）。
+///
+/// **圧縮後の大きさでは足りない。** 8 MiB に収まる PNG が、展開すると
+/// 数百 MB の画素を要求することがある（`load_from_memory` は縮める前に
+/// それを全部確保する）。宣言された寸法の側で止める。
+const MAX_SIDE: u32 = 8_000;
+
+/// 展開に使ってよいバイト数の上限。
+///
+/// 8000 × 8000 の RGBA でおよそ 256 MB。 立ち絵としてはこれで十分広い。
+const MAX_ALLOC: u64 = 256 * 1024 * 1024;
 
 /// アイコンを作れなかった理由。
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +32,10 @@ pub enum IconError {
         #[source]
         source: image::ImageError,
     },
+
+    /// 展開すると大きすぎる。圧縮後の大きさでは止められない。
+    #[error("絵が大きすぎる")]
+    TooLarge { width: u32, height: u32 },
 
     /// BMP として書けない。
     #[error("BMP として書けない")]
@@ -37,6 +53,7 @@ impl IconError {
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::Undecodable { .. } => "icon.undecodable",
+            Self::TooLarge { .. } => "icon.too_large",
             Self::Unencodable { .. } => "icon.unencodable",
         }
     }
@@ -54,8 +71,7 @@ type Result<T> = std::result::Result<T, IconError>;
 /// PNG / JPEG として読めない、または BMP として書けない。
 #[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
 pub fn to_bmp(source: &[u8]) -> Result<Vec<u8>> {
-    let img =
-        image::load_from_memory(source).map_err(|source| IconError::Undecodable { source })?;
+    let img = decode(source)?;
     let square = img.resize_to_fill(SIZE, SIZE, FilterType::Lanczos3);
 
     let mut out = Cursor::new(Vec::new());
@@ -89,8 +105,7 @@ pub struct Portrait {
 /// PNG / JPEG として読めない、または PNG として書けない。
 #[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
 pub fn to_portrait(source: &[u8]) -> Result<Portrait> {
-    let img =
-        image::load_from_memory(source).map_err(|source| IconError::Undecodable { source })?;
+    let img = decode(source)?;
     let height = img.height();
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, ImageFormat::Png)
@@ -99,6 +114,37 @@ pub fn to_portrait(source: &[u8]) -> Result<Portrait> {
         png: out.into_inner(),
         height,
     })
+}
+
+/// 寸法を確かめてから展開する。
+///
+/// **展開の前に止める。** `load_from_memory` は画素を全部確保してから
+/// 返すので、そこまで行くと手遅れ。宣言された寸法を読み、上限を超えていたら
+/// 展開しない。`Limits` も併せて渡す——宣言が嘘でも確保で止まる。
+fn decode(source: &[u8]) -> Result<DynamicImage> {
+    let open = |bytes: &'_ [u8]| {
+        ImageReader::new(std::io::Cursor::new(bytes.to_vec()))
+            .with_guessed_format()
+            .map_err(|e| IconError::Undecodable {
+                source: image::ImageError::IoError(e),
+            })
+    };
+    let (width, height) = open(source)?
+        .into_dimensions()
+        .map_err(|source| IconError::Undecodable { source })?;
+    if width > MAX_SIDE || height > MAX_SIDE {
+        return Err(IconError::TooLarge { width, height });
+    }
+
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_ALLOC);
+    let mut reader = open(source)?;
+    reader.limits(limits);
+    reader
+        .decode()
+        .map_err(|source| IconError::Undecodable { source })
 }
 
 /// 透過を白へ畳む。
@@ -143,6 +189,22 @@ mod tests {
         out.into_inner()
     }
 
+    /// PNG のチャンクが使う CRC-32（IEEE）。
+    ///
+    /// 試験のためだけに要る。 `image` は計算した値を外へ出さないので、
+    /// 寸法を書き換えたヘッダを作るには自分で付け直すしかない。
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFF_u32;
+        for b in bytes {
+            crc ^= u32::from(*b);
+            for _ in 0..8 {
+                let mask = 0_u32.wrapping_sub(crc & 1);
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
     /// BMP のヘッダから幅と高さを読む。
     fn dimensions(bmp: &[u8]) -> (i32, i32) {
         let w = i32::from_le_bytes([bmp[18], bmp[19], bmp[20], bmp[21]]);
@@ -182,6 +244,29 @@ mod tests {
         let out = to_portrait(&png(120, 300)).expect("変換できること");
         let decoded = image::load_from_memory(&out.png).expect("読めること");
         assert_eq!((decoded.width(), decoded.height()), (120, 300));
+    }
+
+    /// 展開すると大きすぎる絵は、展開の前に止める。
+    ///
+    /// **圧縮後の大きさでは止められない。** 宣言だけ巨大な PNG は小さく作れる。
+    #[test]
+    fn 大きすぎる絵は展開の前に止まる() {
+        // 幅と高さだけを書き換えた PNG を組む。画素は足さない
+        // ——寸法を読んだ時点で断るので、そこまでしか読まれない。
+        //
+        // CRC を付け直す。 IHDR の検査が先に走るので、壊れたままだと
+        // 「読めない」で落ちて、大きさの関門を通らない。
+        let mut src = png(2, 2);
+        let huge = 40_000_u32.to_be_bytes();
+        src[16..20].copy_from_slice(&huge);
+        src[20..24].copy_from_slice(&huge);
+        let crc = crc32(&src[12..29]).to_be_bytes();
+        src[29..33].copy_from_slice(&crc);
+
+        let e = to_bmp(&src).expect_err("止まること");
+        assert_eq!(e.kind(), "icon.too_large");
+        let e = to_portrait(&src).expect_err("止まること");
+        assert_eq!(e.kind(), "icon.too_large");
     }
 
     #[test]

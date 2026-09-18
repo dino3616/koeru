@@ -242,10 +242,13 @@ fn check_names_and_aliases(bank: &VoiceBank, report: &mut Report) {
     //
     // 重なると、`oto.ini` が同じ場所に2つ出る。 ZIP は同名のエントリを
     // 許すので包むところは通り、**展開した側でどちらか片方だけが残る。**
+    //
+    // **大小を無視して見る。** `C4` と `c4` を別のものとして扱うと、
+    // Windows と既定の macOS では同じフォルダに落ちる。
     let mut folders: BTreeMap<String, ()> = BTreeMap::new();
     for s in &bank.subbanks {
         let folder = s.folder.clone().unwrap_or_default();
-        if folders.insert(folder.clone(), ()).is_some() {
+        if folders.insert(folder.to_lowercase(), ()).is_some() {
             report.findings.push(Finding {
                 file: format!("{folder}/oto.ini"),
                 alias: None,
@@ -256,9 +259,10 @@ fn check_names_and_aliases(bank: &VoiceBank, report: &mut Report) {
 
     // WAV 名の NFD と、パスの衝突。 どちらも受け手の環境でだけ壊れる。
     //
-    // **音源全体のパスで見る。** 区画ごとに見ると、フォルダ名が同じ区画の
-    // 間で同じパスが出ても気づけない。
-    let paths = bank.wav_paths();
+    // **生成するパス全部で見る。** WAV だけを見ると、`.frq` と `oto.ini` が
+    // 漏れる。区画ごとに見ると、フォルダ名が重なった区画の間で同じパスが
+    // 出ても気づけない。
+    let paths = bank.generated_paths();
     let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     let mut exact: BTreeMap<&str, usize> = BTreeMap::new();
     for p in &refs {
@@ -724,6 +728,20 @@ mod tests {
         let b = bank(vec![
             subbank(Some("C4"), "", vec![sample("a.wav", a, &["あ"])]),
             subbank(Some("C4"), "↑", vec![sample("b.wav", c, &["あ"])]),
+        ]);
+        let k = kinds(&validate(&b, Profile::Both));
+        assert!(k.contains(&"package.duplicate_folder"), "{k:?}");
+    }
+
+    /// 大小だけが違うフォルダも、受け手の環境では同じ場所に落ちる。
+    #[test]
+    fn 大小だけ違うフォルダを止める() {
+        let d = tmp("foldcase");
+        let a = write_wav(&d, "a.wav", 1000);
+        let c = write_wav(&d, "b.wav", 1000);
+        let b = bank(vec![
+            subbank(Some("C4"), "", vec![sample("a.wav", a, &["あ"])]),
+            subbank(Some("c4"), "↑", vec![sample("b.wav", c, &["い"])]),
         ]);
         let k = kinds(&validate(&b, Profile::Both));
         assert!(k.contains(&"package.duplicate_folder"), "{k:?}");

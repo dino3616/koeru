@@ -233,8 +233,24 @@ fn walk(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
 /// 数・寸法・列挙・ID だけ。自由文を入れない。
 /// 音源名・ファイルパス・歌詞・プロジェクト名が入ると、
 /// 「非公開のまま完成できる」という製品の前提が崩れる。
-const TRACE_FIELDS_ALLOWED: [&str; 43] = [
+const TRACE_FIELDS_ALLOWED: [&str; 56] = [
     "added_at",
+    // ここから下は、値そのものが本人のものではないもの。
+    // 数・レート・固定の語彙で、識別にも復元にも使えない。
+    "base_name",
+    "ceil_hz",
+    "cfg",
+    "discontinuities",
+    "frame_period_ms",
+    "from_ms",
+    "gates",
+    "guide_offset_frames",
+    "method",
+    "preroll_frames",
+    // 書き出し方（`TR-PKG-12`）。classic / openutau / both の3語しかない。
+    "profile",
+    "sample_rate_hz",
+    "to_ms",
     "bundled",
     "columns",
     "count",
@@ -305,12 +321,16 @@ fn トレースのフィールドが許可リストに収まっている() {
     let root = repo_root();
     let mut leaked = Vec::new();
 
+    // 全クレートを見る。 **足し忘れると、その crate だけ素通りする。**
+    // `koeru-package` を足したとき、`verify` が配布名と `install.txt` の
+    // バイト列をそのままスパンへ載せていた。**踏んだ。**
     for crate_name in [
         "koeru-core",
         "koeru-synth",
         "koeru-audio",
         "koeru-app",
         "koeru-align",
+        "koeru-package",
     ] {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
@@ -330,14 +350,27 @@ fn トレースのフィールドが許可リストに収まっている() {
                     continue;
                 }
                 // 属性から関数シグネチャまでを1つに畳む。
+                //
+                // **シグネチャは閉じ括弧まで読む。** 1行目だけを見ていたので、
+                // 引数を改行して並べた関数は「引数が無い」ものとして素通りしていた
+                // ——`koeru-package` の `verify` が、配布名と `install.txt` の
+                // バイト列をそのままスパンへ載せていた。**踏んだ。**
                 let mut attr = (*line).to_owned();
                 let mut sig = String::new();
-                for probe in lines.iter().skip(i + 1).take(6) {
-                    if probe.contains("fn ") {
-                        sig = (*probe).to_owned();
+                let mut in_sig = false;
+                for probe in lines.iter().skip(i + 1).take(24) {
+                    if !in_sig && !probe.contains("fn ") {
+                        attr.push_str(probe.trim());
+                        continue;
+                    }
+                    in_sig = true;
+                    sig.push_str(probe.trim());
+                    // 括弧が閉じたら終わり。戻り値の `->` までは要らない。
+                    let opens = sig.matches('(').count();
+                    let closes = sig.matches(')').count();
+                    if opens > 0 && opens == closes {
                         break;
                     }
-                    attr.push_str(probe.trim());
                 }
                 if sig.is_empty() {
                     continue;

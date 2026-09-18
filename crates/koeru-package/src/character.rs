@@ -181,6 +181,12 @@ impl Yaml {
 ///
 /// 常に引用する。 引用が要るかを判定すると、`はい` や `1.0` のような
 /// 名前が真偽値や数値として読まれる経路が残る。
+///
+/// **制御文字は逃がす。** 表示名は敵対的な値を受け取る前提で（`TR-PKG-37`）、
+/// U+0007 のような字がそのまま来る。二重引用符スカラーに生の制御文字は
+/// 書けないので、素通しにすると `character.yaml` が YAML として壊れる。
+/// **読み戻し検証はバイト列の一致と UTF-8 の復号しか見ないので通ってしまい、
+/// OpenUtau が読めない配布物ができる。**
 fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -191,6 +197,13 @@ fn quote(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            // C0 / DEL / C1。YAML は `\xNN` と `\uNNNN` を持っている。
+            c if (c as u32) < 0x20 || (c as u32) == 0x7F => {
+                out.push_str(&format!("\\x{:02x}", c as u32));
+            }
+            c if (0x80..=0x9F).contains(&(c as u32)) => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
             other => out.push(other),
         }
     }
@@ -367,6 +380,20 @@ mod tests {
         b.character.name = "こえる: \"の\" 音源".to_owned();
         let y = character_yaml(&b, Profile::Both, false);
         assert!(y.contains(r#"name: "こえる: \"の\" 音源""#));
+    }
+
+    /// 制御文字を素通しにすると YAML が壊れる（`TR-PKG-37` の敵対的な表示名）。
+    #[test]
+    fn 制御文字を逃がす() {
+        let mut b = bank(vec![subbank(None, "", &[])]);
+        b.character.name = "こえる\u{7}ちゃん".to_owned();
+        let y = character_yaml(&b, Profile::OpenUtau, false);
+        assert!(y.contains(r"\x07"), "{y}");
+        assert!(
+            !y.chars()
+                .any(|c| (c as u32) < 0x20 && c != '\r' && c != '\n'),
+            "生の制御文字が残っている"
+        );
     }
 
     #[test]

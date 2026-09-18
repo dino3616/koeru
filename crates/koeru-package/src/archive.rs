@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Write as _;
+use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
 use koeru_core::text::{self, TextEncoding};
@@ -168,8 +168,9 @@ pub fn install_txt(bank: &VoiceBank, profile: Profile) -> Result<Vec<u8>> {
 /// # Errors
 ///
 /// 素材を読めない、ZIP を組み立てられない、読み戻し検証に通らない。
+// 配布名も版の札も、本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
 #[tracing::instrument(
-    skip(bank, files, dest_dir),
+    skip(bank, files, dest_dir, base_name),
     fields(profile = profile.as_str(), entries = files.len()),
     err
 )]
@@ -257,7 +258,13 @@ pub fn write(
 /// # Errors
 ///
 /// ファイルを読めない、または5点のどれかが食い違う。
-#[tracing::instrument(skip(path, files), fields(entries = files.len()), err)]
+// **`root` は配布名、`install` は install.txt のバイト列で、どちらにも
+// 音源名が入る。** skip し忘れると、そのままスパンに載る（`AGENTS.md` #3）。
+#[tracing::instrument(
+    skip(path, files, root, install),
+    fields(entries = files.len()),
+    err
+)]
 pub fn verify(
     path: &Path,
     files: &[PackagedFile],
@@ -266,10 +273,9 @@ pub fn verify(
     install: Option<&[u8]>,
 ) -> Result<()> {
     let expect_install = install.is_some();
-    let raw = fs::read(path)?;
     // (1)(2) 中心ディレクトリを直接見る。 crate の解釈ではなく、
     // 実際に書いたバイト列でフラグと名前を確かめる。
-    for (name, flags) in central_directory(&raw)? {
+    for (name, flags) in central_directory(&mut fs::File::open(path)?)? {
         if !name.is_ascii() {
             return Err(fail(VerifyProblem::NonAsciiEntryName));
         }
@@ -293,7 +299,10 @@ pub fn verify(
         expected.insert(INSTALL_FILE.to_owned(), bytes);
     }
 
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&raw))?;
+    // **アーカイブを丸ごと読み込まない。** 275MB の配布物で ZIP と UAR を
+    // 順に検証すると、そのぶんが常駐に乗る（`BUDGET-MEMORY-001`）。
+    // 突き合わせが要るのはテキストだけで、WAV は先頭 44 バイトで足りる。
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(fs::File::open(path)?))?;
     let mut seen: Vec<String> = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
@@ -312,11 +321,21 @@ pub fn verify(
             return Err(fail(VerifyProblem::NotSingleRoot));
         }
 
+        // 読む量をエントリごとに決める。 WAV はヘッダだけ、テキストは全部、
+        // `.frq` と画像は読まない。
+        if name.ends_with(".wav") {
+            let mut head = [0_u8; WAV_HEADER_LEN];
+            std::io::Read::read_exact(&mut entry, &mut head)
+                .map_err(|_| fail(VerifyProblem::WrongWavFormat))?;
+            check_wav_header(&head)?;
+            continue;
+        }
+        let Some(enc) = text_encoding_of(&name, profile) else {
+            continue;
+        };
+
         let mut body = Vec::new();
         std::io::copy(&mut entry, &mut body)?;
-        if name.ends_with(".wav") {
-            check_wav_header(&body)?;
-        }
         // (5) テキストを指定した符号化で読み戻し、内部モデルと一致するか。
         //
         // バイト列の一致と復号の両方を見る。 一致だけでは「宣言した符号化で
@@ -326,9 +345,7 @@ pub fn verify(
         {
             return Err(fail(VerifyProblem::TextMismatch));
         }
-        if let Some(enc) = text_encoding_of(&name, profile)
-            && text::decode(&body, enc).is_err()
-        {
+        if text::decode(&body, enc).is_err() {
             return Err(fail(VerifyProblem::TextMismatch));
         }
     }
@@ -363,41 +380,59 @@ const EFS_FLAG: u16 = 1 << 11;
 ///
 /// 局所ヘッダを頭から探さない。 `PK\x03\x04` は無圧縮で入れた WAV の
 /// 中にも現れうるので、署名を探して歩くと別のところで止まる。
-fn central_directory(raw: &[u8]) -> Result<Vec<(String, u16)>> {
+///
+/// **末尾と中心ディレクトリだけを読む。** アーカイブ全体を載せると、
+/// 275MB の配布物でそのぶんが常駐に乗る。EOCD はコメントを含めても
+/// 末尾 64KiB + 22 バイトに収まる。
+fn central_directory(file: &mut fs::File) -> Result<Vec<(String, u16)>> {
     const EOCD: &[u8; 4] = b"PK\x05\x06";
     const CD: &[u8; 4] = b"PK\x01\x02";
+    /// EOCD の固定長 22 バイトと、コメントの上限 65535。
+    const EOCD_SEARCH: u64 = 22 + 65_535;
 
-    let eocd = raw
+    let len = file.metadata()?.len();
+    let tail_at = len.saturating_sub(EOCD_SEARCH);
+    file.seek(SeekFrom::Start(tail_at))?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail)?;
+
+    let eocd = tail
         .windows(4)
         .rposition(|w| w == EOCD)
-        .ok_or_else(|| fail(VerifyProblem::MalformedArchive))?;
-    let count = u16::from_le_bytes([
-        *raw.get(eocd + 10).ok_or_else(malformed)?,
-        *raw.get(eocd + 11).ok_or_else(malformed)?,
-    ]);
-    let mut at = u32::from_le_bytes([
-        *raw.get(eocd + 16).ok_or_else(malformed)?,
-        *raw.get(eocd + 17).ok_or_else(malformed)?,
-        *raw.get(eocd + 18).ok_or_else(malformed)?,
-        *raw.get(eocd + 19).ok_or_else(malformed)?,
-    ]) as usize;
+        .ok_or_else(malformed)?;
+    let u16_at = |buf: &[u8], o: usize| -> Result<u16> {
+        Ok(u16::from_le_bytes([
+            *buf.get(o).ok_or_else(malformed)?,
+            *buf.get(o + 1).ok_or_else(malformed)?,
+        ]))
+    };
+    let u32_at = |buf: &[u8], o: usize| -> Result<u32> {
+        Ok(u32::from_le_bytes([
+            *buf.get(o).ok_or_else(malformed)?,
+            *buf.get(o + 1).ok_or_else(malformed)?,
+            *buf.get(o + 2).ok_or_else(malformed)?,
+            *buf.get(o + 3).ok_or_else(malformed)?,
+        ]))
+    };
+    let count = u16_at(&tail, eocd + 10)?;
+    let cd_size = u32_at(&tail, eocd + 12)? as usize;
+    let cd_at = u64::from(u32_at(&tail, eocd + 16)?);
+
+    file.seek(SeekFrom::Start(cd_at))?;
+    let mut cd = vec![0_u8; cd_size];
+    file.read_exact(&mut cd).map_err(|_| malformed())?;
 
     let mut out = Vec::with_capacity(count as usize);
+    let mut at = 0_usize;
     for _ in 0..count {
-        if raw.get(at..at + 4) != Some(CD) {
+        if cd.get(at..at + 4) != Some(CD) {
             return Err(malformed());
         }
-        let u16_at = |o: usize| -> Result<u16> {
-            Ok(u16::from_le_bytes([
-                *raw.get(at + o).ok_or_else(malformed)?,
-                *raw.get(at + o + 1).ok_or_else(malformed)?,
-            ]))
-        };
-        let flags = u16_at(8)?;
-        let name_len = u16_at(28)? as usize;
-        let extra_len = u16_at(30)? as usize;
-        let comment_len = u16_at(32)? as usize;
-        let name = raw.get(at + 46..at + 46 + name_len).ok_or_else(malformed)?;
+        let flags = u16_at(&cd, at + 8)?;
+        let name_len = u16_at(&cd, at + 28)? as usize;
+        let extra_len = u16_at(&cd, at + 30)? as usize;
+        let comment_len = u16_at(&cd, at + 32)? as usize;
+        let name = cd.get(at + 46..at + 46 + name_len).ok_or_else(malformed)?;
         out.push((String::from_utf8_lossy(name).into_owned(), flags));
         at += 46 + name_len + extra_len + comment_len;
     }
@@ -412,9 +447,12 @@ const fn fail(problem: VerifyProblem) -> ArchiveError {
     ArchiveError::Verification { problem }
 }
 
+/// 配布 WAV のヘッダの長さ。RIFF + fmt + data のヘッダまで。
+const WAV_HEADER_LEN: usize = 44;
+
 /// 配布 WAV のヘッダを見る（`TR-PKG-20`, `TR-PKG-49`）。
 fn check_wav_header(body: &[u8]) -> Result<()> {
-    let ok = body.len() >= 44
+    let ok = body.len() >= WAV_HEADER_LEN
         && &body[0..4] == b"RIFF"
         && &body[8..12] == b"WAVE"
         && u16::from_le_bytes([body[20], body[21]]) == 1
@@ -468,8 +506,7 @@ fn options(c: Compression) -> SimpleFileOptions {
 ///
 /// ファイルを読めない、中心ディレクトリが壊れている。
 pub fn entry_names(path: &Path) -> Result<Vec<String>> {
-    let raw = fs::read(path)?;
-    Ok(central_directory(&raw)?
+    Ok(central_directory(&mut fs::File::open(path)?)?
         .into_iter()
         .map(|(n, _)| n)
         .collect())
@@ -592,8 +629,8 @@ mod tests {
         let files = tree::build(&b, Profile::Both).expect("組み立てられること");
         let w = write_and_verify(&b, &files, Profile::Both, &d.join("exports"), "x")
             .expect("書けること");
-        let raw = fs::read(&w.zip).expect("読めること");
-        for (name, flags) in central_directory(&raw).expect("中心ディレクトリを読めること")
+        let mut file = fs::File::open(&w.zip).expect("開けること");
+        for (name, flags) in central_directory(&mut file).expect("中心ディレクトリを読めること")
         {
             assert!(name.is_ascii(), "{name}");
             assert_eq!(flags & EFS_FLAG, 0, "{name}");

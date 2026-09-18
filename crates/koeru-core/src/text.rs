@@ -158,28 +158,38 @@ pub fn unencodable_chars(s: &str) -> Vec<char> {
 
 /// CP932 で書ける、いちばん近い形を探す（`TR-PKG-17`）。
 ///
-/// 「書けません」だけでは直しようがない。 互換分解して結合文字を落とし、
-/// それでも書けない文字は取り除く。元と同じなら `None`——直す必要が無い。
-/// 何も残らなければ `None`——空の名前を代替案として出さない。
+/// 「書けません」だけでは直しようがない。 書けない字だけを、互換分解して
+/// 結合文字を落とした形へ置き換える。それでも書けなければ取り除く。
+/// 元と同じなら `None`——直す必要が無い。何も残らなければ `None`——
+/// 空の名前を代替案として出さない。
+///
+/// **書ける字には触らない。** 文字列ごと分解すると、`ガ🎤` が `カ` になる
+/// ——`ガ` は `カ` + U+3099 に分解され、結合文字を落とす段で濁点が消える。
+/// `①` のような互換文字も別の字に書き換わる。直すべきでないものまで
+/// 直した案を出すと、本人はそれが提案だと気づけない。
 ///
 /// **これは提案であって、置換ではない。** 採るかどうかは本人が決める
 /// （`TR-PKG-17` が暗黙置換を禁じている）。
 #[must_use]
 pub fn cp932_fallback(s: &str) -> Option<String> {
-    let folded: String = s
-        .nfkd()
+    let encodable = |t: &str| unencodable_chars(t).is_empty();
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let one = c.to_string();
+        if encodable(&one) {
+            out.push(c);
+            continue;
+        }
         // 結合文字（濁点・アクセント）を落とす。`é` は `e` になる。
-        .filter(|c| !matches!(*c as u32, 0x0300..=0x036F | 0x3099 | 0x309A))
-        .collect();
-    let candidate: String = if unencodable_chars(&folded).is_empty() {
-        folded
-    } else {
-        folded
-            .chars()
-            .filter(|c| unencodable_chars(&c.to_string()).is_empty())
-            .collect()
-    };
-    let trimmed = candidate.trim();
+        let folded: String = one
+            .nfkd()
+            .filter(|c| !matches!(*c as u32, 0x0300..=0x036F | 0x3099 | 0x309A))
+            .collect();
+        if !folded.is_empty() && encodable(&folded) {
+            out.push_str(&folded);
+        }
+    }
+    let trimmed = out.trim();
     if trimmed.is_empty() || trimmed == s {
         None
     } else {
@@ -336,6 +346,22 @@ mod tests {
                 "{c} を黙って別の字にしない"
             );
         }
+    }
+
+    /// 書ける字には触らない（`TR-PKG-17`）。
+    ///
+    /// 文字列ごと分解すると `ガ` の濁点が消える。**直すべきでないものまで
+    /// 直した案を出すと、本人はそれが提案だと気づけない。**
+    #[test]
+    fn 代替案は書けない字だけを置き換える() {
+        assert_eq!(cp932_fallback("ガ🎤").as_deref(), Some("ガ"));
+        assert_eq!(cp932_fallback("①🎤").as_deref(), Some("①"));
+        assert_eq!(cp932_fallback("café").as_deref(), Some("cafe"));
+        assert_eq!(cp932_fallback("こえる🎤").as_deref(), Some("こえる"));
+        // 直すところが無ければ提案しない。
+        assert_eq!(cp932_fallback("こえる"), None);
+        // 何も残らないなら提案しない。空の名前を勧めない。
+        assert_eq!(cp932_fallback("🎤"), None);
     }
 
     /// 往復する字は通す。全部を弾いてしまわないこと。
