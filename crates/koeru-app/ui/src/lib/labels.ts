@@ -92,6 +92,9 @@ const FINDINGS: Record<string, string> = {
   "package.frq_too_short": "音の高さの表が、録った音の最後まで届いていません",
   "package.frq_malformed": "音の高さの表が壊れています",
   "package.frq_unvoiced_not_zero": "音の高さの表に、読めない値が入っています",
+  "package.frq_missing": "音の高さの表がありません",
+  "package.duplicate_path": "同じ場所に入るファイルが2つあります",
+  "package.duplicate_folder": "同じ名前のフォルダを2つ使っています",
 };
 
 /** 検査で見つかったものの言い方。知らない種別はそのまま出さない。 */

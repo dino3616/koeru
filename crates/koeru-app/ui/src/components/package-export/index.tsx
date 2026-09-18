@@ -1,11 +1,9 @@
 import { useMutation, useQueryClient, useSuspenseQueries } from "@tanstack/react-query";
-import { useId, useState } from "react";
 
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
-import { Field } from "~/components/field";
 import { api, errorMessage } from "~/lib/ipc";
-import { ledgerKey, packageStateQuery, preflightQuery } from "~/lib/queries";
+import { ledgerKey, packageSettingsQuery, packageStateQuery, preflightQuery } from "~/lib/queries";
 
 type PackageExportProps = {
   voiceId: string;
@@ -24,7 +22,6 @@ type PackageExportProps = {
  * 「できました」とだけ言う。
  */
 export const PackageExport = ({ voiceId }: PackageExportProps) => {
-  const versionId = useId();
   const queryClient = useQueryClient();
   /*
    * 名前の関門は `preflight` から読む（`TR-REC-32`）。
@@ -32,15 +29,14 @@ export const PackageExport = ({ voiceId }: PackageExportProps) => {
    * **同じことを2箇所で判定しない。** あちらは直せる名前を先に直してから
    * 答えるので、別に数え直すと、どちらが先に走ったかで答えが変わる。
    */
-  const [{ data: state }, { data: preflight }] = useSuspenseQueries({
-    queries: [packageStateQuery(voiceId), preflightQuery(voiceId)],
+  const [{ data: state }, { data: preflight }, { data: settings }] = useSuspenseQueries({
+    queries: [packageStateQuery(voiceId), preflightQuery(voiceId), packageSettingsQuery(voiceId)],
   });
-  const [version, setVersion] = useState("");
 
   const reveal = useMutation({ mutationFn: (seq: number) => api.revealRelease(seq) });
 
   const run = useMutation({
-    mutationFn: (v: string) => api.exportPackage(v),
+    mutationFn: () => api.exportPackage(),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ledgerKey }),
   });
 
@@ -48,20 +44,22 @@ export const PackageExport = ({ voiceId }: PackageExportProps) => {
 
   return (
     <Card title="配り物をつくる">
-      <Field
-        id={versionId}
-        label="この回の呼び名"
-        hint="空でも作れます。あとで見分けるための札です。"
-        value={version}
-        onChange={(e) => setVersion(e.target.value)}
-      />
-
       <p className="text-sm text-slate-12">
         <span className="font-mono tabular-nums">{state.file_count}</span> 個のファイルと{" "}
         <span className="font-mono tabular-nums">{state.alias_count}</span> 個の呼び名が入ります。
       </p>
 
-      <Button variant="primary" onClick={() => run.mutate(version.trim())} disabled={!ready}>
+      {/*
+        札は上の面（「説明書に載せること」）で決めたものを使う。
+        **ここで別に打たせない**——2箇所あると、配布物と履歴で違う値になる。
+      */}
+      <p className="text-xs text-slate-11">
+        {settings.version === null
+          ? "この回の呼び名は付いていません。上で決めると、名前と履歴に出ます。"
+          : `この回の呼び名は「${settings.version}」です。`}
+      </p>
+
+      <Button variant="primary" onClick={() => run.mutate()} disabled={!ready}>
         {run.isPending ? "つくっています" : "つくる"}
       </Button>
 

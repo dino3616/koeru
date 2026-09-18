@@ -35,7 +35,12 @@ export const ReleaseList = ({ voiceId }: ReleaseListProps) => {
           <li key={r.seq} className="flex flex-col gap-1">
             <span className="select-text font-mono text-xs text-slate-12">{r.archive_name}</span>
             <span className="text-xs text-slate-11">
-              {shortDate(r.released_at)} ·{" "}
+              {/*
+                本人が付けた札を出す（`TR-PKG-44`）。 ファイル名は ASCII に
+                落とすので、`正式版` のような札は名前の側から消える
+                ——**そうすると、日本語の札を付けた回は連番でしか見分けられない。**
+              */}
+              {r.version === "" ? "呼び名なし" : r.version} · {shortDate(r.released_at)} ·{" "}
               <span className="font-mono tabular-nums">{r.alias_count}</span> 音
             </span>
             <Button

@@ -116,7 +116,12 @@ export const PackageForm = ({ voiceId }: PackageFormProps) => {
 
         <Field id={ids.author} label="作った人の名前" {...text("author")} />
         <Field id={ids.voice} label="声の人の名前" {...text("voice")} />
-        <Field id={ids.version} label="この回の呼び名" {...text("version")} />
+        <Field
+          id={ids.version}
+          label="この回の呼び名"
+          hint="配り物の名前と、作ったものの一覧に出ます。空でも作れます。"
+          {...text("version")}
+        />
         <Field id={ids.web} label="置いてある場所" {...text("web")} />
         <Field id={ids.contact} label="連絡先" {...text("contact")} />
         <Field
@@ -179,9 +184,21 @@ const trimmed = (v: PackageSettingsView): PackageSettingsView => {
   };
 };
 
-/** この面が書き換える値だけを取り出す。絵の有無は入らない。 */
+/**
+ * この面が書き換える値だけを取り出す。
+ *
+ * 絵と、絵から決まる値は入らない。 入れ替えるのは別の口（[`PackageImage`]）で、
+ * **この面は入れ替え前の値を持ったままになる。** 比べると、何も打っていないのに
+ * 保存が押せるようになり、押すと**選んだ絵から測った高さが 0 に戻る。**
+ */
 const editable = (v: PackageSettingsView) => {
-  const { has_icon: _icon, has_portrait: _portrait, ...rest } = trimmed(v);
+  const {
+    has_icon: _icon,
+    has_portrait: _portrait,
+    portrait_opacity: _opacity,
+    portrait_height: _height,
+    ...rest
+  } = trimmed(v);
   return rest;
 };
 

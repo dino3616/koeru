@@ -190,7 +190,7 @@ export const api = {
   /** 配り物に入るもの（`TR-PKG-28` の同梱物）。 */
   packageContents: () => unwrap(commands.packageContents()),
   /** 書き出す（`REQ-PKG-105`）。ZIP と UAR の2つが出る（`DEC-PKG-010`）。 */
-  exportPackage: (version: string) => unwrap(commands.exportPackage(version)),
+  exportPackage: () => unwrap(commands.exportPackage()),
   /** 書き出しの履歴（`TR-PKG-44`）。新しい順。 */
   releases: () => unwrap(commands.releases()),
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */

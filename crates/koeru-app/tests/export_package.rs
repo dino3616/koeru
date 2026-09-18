@@ -61,7 +61,11 @@ fn 検証を通って_zip_と_uar_が出る() {
     assert!(state.may_export(), "{:?}", state.findings);
     assert!(state.alias_count > 0);
 
-    let exported = studio.export_package("v1.0").expect("書き出せる");
+    let mut d = studio.package_settings().expect("引ける");
+    d.version = Some("v1.0".to_owned());
+    studio.set_package_settings(&d).expect("保存できる");
+
+    let exported = studio.export_package().expect("書き出せる");
     assert!(exported.written.zip.is_file(), "ZIP が残ること");
     assert!(exported.written.uar.is_file(), "UAR が残ること");
     assert_eq!(exported.release.seq, 1);
@@ -92,13 +96,15 @@ fn 検証を通って_zip_と_uar_が出る() {
 }
 
 /// `TR-PKG-44`。書き出すたびに記録が1つ増え、名前は衝突しない。
+///
+/// 版の札は配布に出す値として保存してあるもの1つだけ（`DEC-PKG-010`）。
 #[test]
 fn 書き出すたびに記録が増える() {
     let mut studio = seeded("releases");
     assert!(studio.releases().expect("引ける").is_empty());
 
-    studio.export_package("v1").expect("書き出せる");
-    studio.export_package("v1").expect("もう一度書き出せる");
+    studio.export_package().expect("書き出せる");
+    studio.export_package().expect("もう一度書き出せる");
 
     let releases = studio.releases().expect("引ける");
     assert_eq!(releases.len(), 2);
@@ -131,7 +137,7 @@ fn 録りきっていないと書き出せない() {
         "足りない分を全件出すこと"
     );
     assert_eq!(
-        studio.export_package("v1").expect_err("止まること").kind,
+        studio.export_package().expect_err("止まること").kind,
         "package.incomplete_coverage"
     );
 }
@@ -166,7 +172,7 @@ fn cp932_で書けない名前は書き出しを止める() {
     // 代替案を出す。「書けません」だけでは直しようがない。
     assert_eq!(state.unencodable[0].suggestion.as_deref(), Some("こえる"));
     assert_eq!(
-        studio.export_package("v1").expect_err("止まること").kind,
+        studio.export_package().expect_err("止まること").kind,
         "package.validation_failed"
     );
 
@@ -175,7 +181,7 @@ fn cp932_で書けない名前は書き出しを止める() {
     d.profile = "openutau".to_owned();
     studio.set_package_settings(&d).expect("保存できる");
     assert!(studio.package_state().expect("引ける").may_export());
-    studio.export_package("v1").expect("書き出せる");
+    studio.export_package().expect("書き出せる");
 }
 
 /// `TR-PKG-28`、`DEC-PKG-011`。書いた節だけが説明書に出る。
@@ -185,7 +191,5 @@ fn 規約は未記入でも書き出せる() {
     let contents = studio.package_contents().expect("引ける");
     assert!(contents.iter().any(|(p, _)| p == "readme.txt"));
 
-    studio
-        .export_package("v1")
-        .expect("規約が無くても書き出せる");
+    studio.export_package().expect("規約が無くても書き出せる");
 }

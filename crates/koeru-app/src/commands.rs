@@ -1739,8 +1739,12 @@ pub fn set_package_settings(state: State<'_, AppState>, input: PackageSettingsVi
         version: nfc(input.version),
         icon: current.icon,
         portrait: current.portrait,
-        portrait_opacity: input.portrait_opacity,
-        portrait_height: i32::try_from(input.portrait_height).unwrap_or(0),
+        // 絵と、絵から決まる値はこの口で触らない。
+        //
+        // **触ると、選んだ絵から測った高さを 0 に戻してしまう。** 画面に欄が
+        // 無いので、`draft` は入れ替え前の値（ふつうは 0）を持ったままになる。
+        portrait_opacity: current.portrait_opacity,
+        portrait_height: current.portrait_height,
         tone_range_note: nfc(input.tone_range_note),
         terms: nfc(input.terms),
         credit_example: nfc(input.credit_example),
@@ -1894,13 +1898,12 @@ pub fn package_contents(state: State<'_, AppState>) -> Result<Vec<PackageFileVie
 }
 
 /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+///
+/// 版の札は受け取らない。 配布に出す値として保存してあるものを使う。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn export_package(state: State<'_, AppState>, version: String) -> Result<ExportedView> {
-    // 札もリリースレコードへ入る（`TR-PKG-44`）。記録は不変なので、
-    // 分解形が混じると後から揃えられない（`TR-PKG-11`）。
-    let version = koeru_core::text::to_nfc(&version);
-    let e = lock(&state)?.export_package(&version)?;
+pub fn export_package(state: State<'_, AppState>) -> Result<ExportedView> {
+    let e = lock(&state)?.export_package()?;
     Ok(ExportedView {
         seq: e.release.seq,
         archive_name: e.release.archive_name,

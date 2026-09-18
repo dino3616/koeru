@@ -572,7 +572,9 @@ impl Studio {
     pub fn create_project(&mut self, display_name: &str) -> Result<Uuid> {
         let list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
         let dir = self.library.create(&Manifest {
-            display_name: display_name.to_owned(),
+            // 外から入る文字列は境界で NFC へ（`TR-PKG-11`）。
+            // 分解形のまま持つと、配布物の全ファイルがそれを引き継ぐ。
+            display_name: koeru_core::text::to_nfc(display_name),
             method: Method::Single,
             item_count: u32::try_from(list.len()).unwrap_or(0),
             derived_from: None,
@@ -639,7 +641,7 @@ impl Studio {
         }
         let dir = self.library.open_project(id)?;
         let manifest = Manifest {
-            display_name: name.to_owned(),
+            display_name: koeru_core::text::to_nfc(name),
             ..dir.read_manifest()?
         };
         dir.write_manifest(&manifest)?;
@@ -1876,9 +1878,11 @@ impl Studio {
     ///
     /// 先に `TR-REC-32` の関門を通す。 素材の名前が受け手の環境で
     /// 見つからなくなる状態のまま包まない。
-    // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
-    #[tracing::instrument(skip(self, version), err)]
-    pub fn export_package(&mut self, version: &str) -> Result<packaging::Exported> {
+    ///
+    /// 版の札は受け取らない。 配布に出す値として保存してあるものを使う
+    /// （`TR-PKG-44`）——**2箇所で打たせると、配布物と履歴で違う値になる。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn export_package(&mut self) -> Result<packaging::Exported> {
         // 原音設定の確認が残っているうちは出さない（`INV-ALN-003`）。
         // `oto.ini` 単体の書き出しと同じ関門。
         self.ensure_otos_ready()?;
@@ -1892,13 +1896,7 @@ impl Studio {
         let dir = self.opened()?.dir.clone();
         let manifest = dir.read_manifest()?;
         let at = now_rfc3339();
-        packaging::export(
-            &dir,
-            &mut self.opened_mut()?.ledger,
-            &manifest,
-            version,
-            &at,
-        )
+        packaging::export(&dir, &mut self.opened_mut()?.ledger, &manifest, &at)
     }
 
     /// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。

@@ -204,17 +204,18 @@ pub fn state(
 /// 検証を通らないまま包まない。 読み戻しに落ちたらファイルを残さない。
 /// 台帳へ記録するのは、両方が通ってから。
 ///
-/// `version` は NFC 済みで渡す（`TR-PKG-11`）。正規化は呼び出し口が持つ。
+/// 版の札は設定から取る（`TR-PKG-44`）。 **書き出しのときに別に打たせない**
+/// ——同じ札が2つあると、配布物の `character.txt` と履歴で違う値になる。
 // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
-#[tracing::instrument(skip(dir, ledger, manifest, version, released_at), err)]
+#[tracing::instrument(skip(dir, ledger, manifest, released_at), err)]
 pub fn export(
     dir: &ProjectDir,
     ledger: &mut Ledger,
     manifest: &Manifest,
-    version: &str,
     released_at: &str,
 ) -> Result<Exported> {
     let distribution = settings(ledger, manifest)?;
+    let version = distribution.version.clone().unwrap_or_default();
     let profile = resolved_profile(&distribution)?;
     if !profile::is_available(profile) {
         return Err(AppError::new(
@@ -264,7 +265,7 @@ pub fn export(
     // 書き出したと書いてあるのに `exports/` に何も無い状態は、
     // リリースレコードが不変なので（`TR-PKG-44`）あとから消せない。
     let seq = ledger.next_release_seq()?;
-    let base = archive_base_name(seq, version);
+    let base = archive_base_name(seq, &version);
     let final_written = Written {
         zip: exports.join(format!("{base}.{}", archive::ZIP_EXT)),
         uar: exports.join(format!("{base}.{}", archive::UAR_EXT)),
@@ -284,7 +285,7 @@ pub fn export(
 
     let release = ledger.record_release(
         &NewRelease {
-            version: version.to_owned(),
+            version: version.clone(),
             method: manifest.method,
             alias_count: i32::try_from(bank.aliases().len()).unwrap_or(i32::MAX),
             validation: Validation::Passed,

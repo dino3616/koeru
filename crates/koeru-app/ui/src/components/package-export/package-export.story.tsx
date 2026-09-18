@@ -3,7 +3,27 @@ import { expect, mocked, waitFor } from "storybook/test";
 
 import { PackageExport } from ".";
 import { api } from "~/lib/ipc";
-import type { PackageStateView, PreflightView } from "~/lib/ipc";
+import type { PackageSettingsView, PackageStateView, PreflightView } from "~/lib/ipc";
+
+const settings: PackageSettingsView = {
+  distribution_name: "koeru",
+  profile: "both",
+  author: null,
+  voice: null,
+  sample: null,
+  web: null,
+  version: "1.0",
+  has_icon: false,
+  has_portrait: false,
+  portrait_opacity: 1,
+  portrait_height: 0,
+  tone_range_note: null,
+  terms: null,
+  credit_example: null,
+  contact: null,
+  disclaimer: null,
+  character_note: null,
+};
 
 const clean: PreflightView = {
   renamed_to_nfc: 0,
@@ -33,6 +53,7 @@ const meta = {
   beforeEach: () => {
     mocked(api.packageState).mockResolvedValue(ready);
     mocked(api.preflight).mockResolvedValue(clean);
+    mocked(api.packageSettings).mockResolvedValue(settings);
   },
   decorators: [(Story) => <div className="flex w-96 flex-col gap-5">{Story()}</div>],
 } satisfies Meta<typeof PackageExport>;
@@ -70,6 +91,17 @@ export const 名前が直らないと作れない: Story = {
   play: async ({ canvasElement }) => {
     const button = canvasElement.querySelector("button");
     await expect(button?.hasAttribute("disabled")).toBe(true);
+  },
+};
+
+export const 呼び名を付けていない: Story = {
+  beforeEach: () => {
+    mocked(api.packageSettings).mockResolvedValue({ ...settings, version: null });
+  },
+  play: async ({ canvasElement }) => {
+    // 札は上の面で決める。ここで打たせない（2箇所あると食い違う）。
+    await expect(canvasElement.querySelectorAll("input").length).toBe(0);
+    await expect(canvasElement.textContent).toContain("呼び名は付いていません");
   },
 };
 

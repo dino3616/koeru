@@ -360,7 +360,14 @@ impl ProjectDir {
     /// manifest を読む。
     #[tracing::instrument(skip(self), err)]
     pub fn read_manifest(&self) -> Result<Manifest> {
-        Manifest::from_toml(&fs::read_to_string(self.manifest_path())?)
+        let mut m = Manifest::from_toml(&fs::read_to_string(self.manifest_path())?)?;
+        // ファイル読み込みも外から文字列が入る境界（`TR-PKG-11`）。
+        //
+        // **書くときに揃えるだけでは足りない。** 分解形のまま書かれた
+        // manifest が既にあると、そこから作った配布物の `character.txt` も
+        // `readme.txt` も分解形のまま出る。
+        m.display_name = crate::text::to_nfc(&m.display_name);
+        Ok(m)
     }
 
     /// manifest を書く。一時ファイル → fsync → rename（`TR-PKG-41`）。

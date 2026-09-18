@@ -273,8 +273,12 @@ export const commands = {
 	packageState: () => typedError<PackageStateView, AppError>(__TAURI_INVOKE("package_state")),
 	/**  配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。 */
 	packageContents: () => typedError<PackageFileView[], AppError>(__TAURI_INVOKE("package_contents")),
-	/**  書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。 */
-	exportPackage: (version: string) => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_package", { version })),
+	/**
+	 *  書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+	 * 
+	 *  版の札は受け取らない。 配布に出す値として保存してあるものを使う。
+	 */
+	exportPackage: () => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_package")),
 	/**  書き出しの履歴（`TR-PKG-44`）。新しい順。 */
 	releases: () => typedError<ReleaseView[], AppError>(__TAURI_INVOKE("releases")),
 	/**
