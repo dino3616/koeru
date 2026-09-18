@@ -22,6 +22,9 @@ const meta = {
     durationMs: 3100,
     raw: false,
     onRaw: fn(),
+    pinned: [],
+    onRevert: fn(),
+    busy: false,
   },
   decorators: [(Story) => <div className="w-160">{Story()}</div>],
 } satisfies Meta<typeof TakeValues>;
@@ -44,6 +47,27 @@ export const 数値で見る: Story = {
   play: async ({ canvasElement }) => {
     // 本人が切り替えたときだけ、元の名前と生値を出す。
     await expect(canvasElement.textContent).toContain("preutterance");
+  },
+};
+
+export const 手で決めた値がある: Story = {
+  args: { pinned: ["offset", "cutoff"] },
+  play: async ({ canvasElement }) => {
+    // 印は値単位で付く（`TR-ALN-30`）。解く的も値ごとに1つ。
+    const reverts = [...canvasElement.querySelectorAll("button")].filter(
+      (b) => b.textContent === "自動に戻す",
+    );
+    await expect(reverts).toHaveLength(2);
+  },
+};
+
+export const 走っている間: Story = {
+  args: { pinned: ["offset"], busy: true },
+  play: async ({ canvasElement }) => {
+    const revert = [...canvasElement.querySelectorAll("button")].find(
+      (b) => b.textContent === "自動に戻す",
+    );
+    await expect(revert?.disabled).toBe(true);
   },
 };
 

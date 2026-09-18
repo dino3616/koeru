@@ -37,6 +37,8 @@ export type {
   PlanRowView,
   PreflightView,
   ProgressView,
+  ReviewItemView,
+  ReviewSummaryView,
   ProjectView,
   ReleaseView,
   RingView,
@@ -152,6 +154,29 @@ export const api = {
   pendingWork: () => unwrap(commands.pendingWork()),
   latencyReport: () => unwrap(commands.latencyReport()),
   preflight: () => unwrap(commands.preflight()),
+  /** 確認の進み具合（`TR-ALN-25`）。 */
+  reviewSummary: () => unwrap(commands.reviewSummary()),
+  /** 採用テイクのエントリ全部を、確認待ちが先の順に（`TR-ALN-26`）。 */
+  reviewQueue: () => unwrap(commands.reviewQueue()),
+  /** 1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
+  confirmEntry: (alias: string) => unwrap(commands.confirmEntry(alias)),
+  /** まとめて確認する（`REQ-ALN-010`）。個別確認をやめたあとだけ通る。 */
+  confirmAllEntries: () => unwrap(commands.confirmAllEntries()),
+  /** 録り直しに回す（`REQ-ALN-009`）。エントリを未推定へ戻すだけ。 */
+  rerecordEntry: (alias: string) => unwrap(commands.rerecordEntry(alias)),
+  /** 書き出し前の検証（`TR-ALN-20`）。直せるものを直す。 */
+  validateOtos: () => unwrap(commands.validateOtos()),
+  /**
+   * `oto.ini` を書き出す（`TR-ALN-21`）。確認が残っている間は通らない。
+   *
+   * 文字コードを選べる。 既定の CP932 は UTAU 本体互換、UTF-8 は
+   * OpenUtau など対応している受け手向け。
+   */
+  exportOtos: (encoding: OtoEncoding) => unwrap(commands.exportOtos(encoding)),
+  /** モデルが変わって古くなった推定（`TR-ALN-29`）。 */
+  staleTakes: () => unwrap(commands.staleTakes()),
+  /** 同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
+  modelNotice: () => unwrap(commands.modelNotice()),
   /** 配布に出す値（`PROFILE-M4`）。画像は別の口で取る。 */
   packageSettings: () => unwrap(commands.packageSettings()),
   setPackageSettings: (input: PackageSettingsView) => unwrap(commands.setPackageSettings(input)),
@@ -181,6 +206,17 @@ export const api = {
   preview: ({ takeId, midi, lengthMs }: { takeId: number; midi: number; lengthMs: number }) =>
     unwrap(commands.preview(takeId, midi, lengthMs)),
 
+  /** 個別確認をやめる（`REQ-ALN-010`）。上限を超えていなければ通らない。 */
+  switchReviewMode: (mode: "batch" | "suggest_rerecord") => unwrap(commands.switchReviewMode(mode)),
+
+  /** 5値のどれかを人が直す。その値だけを固定する（`TR-ALN-30`）。 */
+  editOtoValue: ({ alias, slot, value }: { alias: string; slot: OtoSlot; value: number }) =>
+    unwrap(commands.editOtoValue(alias, slot, value)),
+
+  /** 固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
+  revertOtoValue: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
+    unwrap(commands.revertOtoValue(alias, slot)),
+
   waveformWindow: ({
     takeId,
     fromMs,
@@ -207,6 +243,22 @@ export const api = {
     rows: number;
   }) => unwrap(commands.spectrogramWindow(takeId, fromMs, toMs, columns, rows)),
 };
+
+/**
+ * 5値のどれか（`TR-ALN-30`）。
+ *
+ * 綴りは Rust 側の `Slot` に合わせる。 生成物に出てこないのは、
+ * コマンドが文字列で受けているため——ここで型を絞って、
+ * 打ち間違いが実行時まで残らないようにする。
+ */
+export type OtoSlot = "offset" | "consonant" | "cutoff" | "preutterance" | "overlap";
+
+/**
+ * `oto.ini` の文字コード（`TR-ALN-21`）。
+ *
+ * 綴りは Rust 側の `TextEncoding::as_str` に合わせる。
+ */
+export type OtoEncoding = "cp932" | "utf8";
 
 /** 画面に出す言い方。Rust の識別子をそのまま見せない。 */
 export const micModeLabel = (m: MicModeView): string =>

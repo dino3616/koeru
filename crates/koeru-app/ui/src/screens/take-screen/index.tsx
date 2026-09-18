@@ -1,16 +1,31 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQueries,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
+import { ReviewEntry } from "~/components/review-entry";
 import { TakeGenerations } from "~/components/take-generations";
 import { TakeValues } from "~/components/take-values";
 import { TakeWaveform } from "~/components/take-waveform";
 import type { VoiceTab } from "~/components/voice-header";
 import { api, errorMessage } from "~/lib/ipc";
-import { ledgerKey, openProjectQuery, otosQuery, rowsWithTakesQuery } from "~/lib/queries";
+import {
+  ledgerKey,
+  openProjectQuery,
+  otosQuery,
+  reviewQueueQuery,
+  reviewSummaryQuery,
+  rowsWithTakesQuery,
+} from "~/lib/queries";
+import type { OtoSlot } from "~/lib/ipc";
 import { useScreenFocus } from "~/lib/use-screen-focus";
 
 /**
@@ -94,7 +109,9 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
   const heading = useScreenFocus();
   const queryClient = useQueryClient();
 
-  const { data: rows } = useSuspenseQuery(rowsWithTakesQuery(id));
+  const [{ data: rows }, { data: review }, { data: entries }] = useSuspenseQueries({
+    queries: [rowsWithTakesQuery(id), reviewSummaryQuery(id), reviewQueueQuery(id)],
+  });
 
   const row = rows.find((r) => r.row_id === rowId) ?? null;
   const [shownId, setShownId] = useState<number | null>(row?.adopted ?? null);
@@ -123,9 +140,57 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
    * 取れなくても波形は読める。 中断させると、これを待つあいだ波形が消える。
    */
   const { data: otos = [] } = useQuery({
-    ...otosQuery(shown?.take_id ?? 0),
+    ...otosQuery(id, shown?.take_id ?? 0),
     enabled: shown !== null,
   });
+
+  /**
+   * その音のうち、人が決めた値（`TR-ALN-30`）。
+   *
+   * 確認が済んだものも引ける。 `reviewQueue` は採用テイクのエントリを全部返す
+   * ——確認待ちだけにすると、確定した瞬間に固定の印と「自動に戻す」が消える。
+   */
+  const pinnedOf = (alias: string | null): readonly OtoSlot[] =>
+    (entries.find((i) => i.oto.alias === alias)?.pinned ?? []) as OtoSlot[];
+
+  /** いま見ている回が採用中か。確認と編集は採用中の回にしか効かない。 */
+  const isAdopted = shown !== null && shown.take_id === row?.adopted;
+
+  const afterReview = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
+
+  const confirm = useMutation({
+    mutationFn: (alias: string) => api.confirmEntry(alias),
+    onMutate: () => setError(null),
+    onSuccess: afterReview,
+    onError: fail,
+  });
+
+  const revert = useMutation({
+    mutationFn: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
+      api.revertOtoValue({ alias, slot }),
+    onMutate: () => setError(null),
+    onSuccess: afterReview,
+    onError: fail,
+  });
+
+  /*
+    録り直しは、状態を戻して収録へ送るところまでで1つ。
+
+    **`rerecordEntry` だけだと何も録りはじめない。** エントリは `not_estimated`
+    へ戻ってキューから消えるので、画面は「確認が済んでいます」と言う——
+    録っていないのに済んだことになる。採用の切り替えと同じ経路へ送る。
+  */
+  const rerecordAndGo = useMutation({
+    mutationFn: (alias: string) => api.rerecordEntry(alias),
+    onMutate: () => setError(null),
+    onSuccess: async () => {
+      await afterReview();
+      await navigate({ to: "/voice", search: { id, tab: "sound", retake: rowId } });
+    },
+    onError: fail,
+  });
+
+  const reviewBusy = confirm.isPending || rerecordAndGo.isPending || revert.isPending;
 
   const adopt = useMutation({
     mutationFn: (takeId: number) => api.adoptTake(rowId, takeId),
@@ -285,6 +350,31 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 durationMs={shown.duration_ms}
                 raw={raw}
                 onRaw={setRaw}
+                /*
+                  使っていない回では固定を出さない。 固定はエイリアスに付いて
+                  いて採用中の回のものなので、古い回の値に「手で決めました」と
+                  出すことになる。
+                */
+                pinned={isAdopted ? pinnedOf(activeAlias) : []}
+                onRevert={(slot) =>
+                  activeAlias !== null && revert.mutate({ alias: activeAlias, slot })
+                }
+                busy={reviewBusy || !isAdopted}
+              />
+
+              <hr className="h-px border-0 bg-slate-6" />
+
+              {/*
+                原音設定に独立した面を与えない（`DEC-PLT-024`）。
+                確認はここ、テイクを開いたところにある。
+              */}
+              <ReviewEntry
+                item={entries.find((i) => i.oto.alias === activeAlias) ?? null}
+                adopted={isAdopted}
+                individual={review.mode === "individual"}
+                onConfirm={() => activeAlias !== null && confirm.mutate(activeAlias)}
+                onRerecord={() => activeAlias !== null && rerecordAndGo.mutate(activeAlias)}
+                busy={reviewBusy}
               />
 
               <hr className="h-px border-0 bg-slate-6" />

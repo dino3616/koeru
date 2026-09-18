@@ -30,7 +30,7 @@ const rows = [
 const meta = {
   title: "領域/ItemList",
   component: ItemList,
-  args: { rows, nextRowId: "s004", onOpen: fn() },
+  args: { rows, nextRowId: "s004", pendingRowIds: [], onOpen: fn() },
 } satisfies Meta<typeof ItemList>;
 
 export default meta;
@@ -52,6 +52,18 @@ export const 途中まで録れている: Story = {
 
 export const 一つも録っていない: Story = {
   args: { rows: rows.map((r) => ({ ...r, takes: [], adopted: null })), nextRowId: "s001" },
+};
+
+export const 確認待ちがある: Story = {
+  args: { pendingRowIds: ["s001", "s003"] },
+  play: async ({ canvasElement }) => {
+    // 色だけで言わない。語も並べる（`docs/design/direction.md`）。
+    await expect(canvasElement.textContent).toContain("確認待ち");
+    const labels = [...canvasElement.querySelectorAll("[aria-label]")].map((e) =>
+      e.getAttribute("aria-label"),
+    );
+    await expect(labels.some((l) => l?.includes("確認待ちです") === true)).toBe(true);
+  },
 };
 
 export const 全部録れている: Story = {

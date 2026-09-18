@@ -22,6 +22,13 @@ type PackagePanelProps = {
  *
  * どこを直せばよいかまで出す（`TR-PKG-51`）。 ファイル名と行番号だけを
  * 出して終わらない。見つかった行へは、ここから1操作で入れる。
+ *
+ * 原音設定の確認は隣の `ReviewPanel` が持つ（`TR-ALN-21`）。 あちらは
+ * 確認が済んだかを関門にしていて（`INV-ALN-003`）、ここが見る名前・割れ・
+ * 符号化とは別の条件で止まる。
+ *
+ * 配ることを必須にしない（`TR-PKG-35`）。 「公開」「配布」「作者」「規約」を
+ * 通常モードの必須ステップとして出さない。非公開のまま完成できる。
  */
 export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) => {
   /*

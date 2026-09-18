@@ -19,6 +19,7 @@ pub mod latency;
 pub mod packaging;
 pub mod preview;
 pub mod pump;
+pub mod review;
 pub mod storage;
 pub mod studio;
 pub mod workers;
@@ -76,6 +77,18 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::preflight,
         commands::use_mixed_channels,
         commands::stop_preview,
+        commands::review_summary,
+        commands::review_queue,
+        commands::confirm_entry,
+        commands::confirm_all_entries,
+        commands::switch_review_mode,
+        commands::edit_oto_value,
+        commands::revert_oto_value,
+        commands::rerecord_entry,
+        commands::validate_otos,
+        commands::export_otos,
+        commands::stale_takes,
+        commands::model_notice,
         commands::package_settings,
         commands::set_package_settings,
         commands::set_package_icon,

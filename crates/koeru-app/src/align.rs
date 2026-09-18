@@ -17,7 +17,7 @@
 //! リポジトリに submodule で同梱している（`DEC-ALN-012`）。探す順は3つ。
 //!
 //! 1. 環境変数 `KOERU_MFA_MODEL_DIR`（開発中の差し替え用）
-//! 2. 実行ファイルの隣の `models/japanese_mfa`（配布物の形）
+//! 2. 配布物の資源置き場（`tauri.conf.json` の `bundle.resources`）
 //! 3. リポジトリの `crates/koeru-align/models/japanese_mfa/acoustic`（`cargo run` のとき）
 //!
 //! どこにも無ければ退避経路。実行時に取りに行かない
@@ -29,17 +29,16 @@ use koeru_align::aligner::Aligner;
 use koeru_align::mfa::MfaAligner;
 use koeru_align::segment::HeuristicAligner;
 
-/// MFA のモデルを探す環境変数。
-const MODEL_DIR_ENV: &str = "KOERU_MFA_MODEL_DIR";
-
-/// 実行ファイルからの相対の置き場所（配布物の形）。
-const MODEL_DIR_RELATIVE: &str = "models/japanese_mfa";
-
-/// リポジトリの中の置き場所（`cargo run` のとき）。
+/// 配布物の資源置き場（実行ファイルからの相対）。
 ///
-/// submodule の中を直接指す。 `CARGO_MANIFEST_DIR` はビルドしたときの
-/// `koeru-app` の場所なので、そこから `koeru-align` の submodule へ辿る。
-const MODEL_DIR_IN_REPO: &str = "../koeru-align/models/japanese_mfa/acoustic";
+/// **OS で並びが違う。** Tauri が資源を置くのは
+/// macOS なら `Contents/Resources/`（実行ファイルは `Contents/MacOS/`）、
+/// Windows と Linux なら実行ファイルの隣。両方見る。
+///
+/// 片方だけ見ていた。 実行ファイルの隣しか探していなかったので、
+/// **macOS の配布物では同梱したモデルが見つからず、全員が黙って
+/// 退避経路で動くことになる。**
+const MODEL_DIRS_RELATIVE: [&str; 2] = ["models/japanese_mfa", "../Resources/models/japanese_mfa"];
 
 /// 選んだアライナ。
 #[derive(Debug)]
@@ -68,7 +67,10 @@ impl Chosen {
             );
             return Self::fallback();
         };
-        match MfaAligner::open(&dir, "mfa-japanese@3.0.0") {
+        // 識別子はモデルに名乗らせる（`TR-ALN-29`）。定数で持つと、
+        // submodule を上げたときに指紋だけが古い版を指す。
+        let identity = koeru_align::mfa::model_identity(&dir);
+        match MfaAligner::open(&dir, &identity) {
             Ok(a) => {
                 tracing::info!(dim = a.feature_dim(), "自動原音設定は MFA で動く");
                 Self {
@@ -115,25 +117,24 @@ impl Chosen {
 
 /// モデルの置き場所を探す。先に見つかったものを使う。
 fn model_dir() -> Option<PathBuf> {
-    let has_model = |p: &PathBuf| p.join("final.mdl").is_file();
+    // 両端は `koeru-align` が持つ。 モデルを抱えているのはあちらなので、
+    // 置き場所の規則もあちらに置く。ここが足すのは配布物の形だけ。
+    koeru_align::mfa::env_model_dir()
+        .or_else(exe_model_dir)
+        .or_else(koeru_align::mfa::repo_model_dir)
+}
 
-    if let Ok(p) = std::env::var(MODEL_DIR_ENV) {
-        let p = PathBuf::from(p);
-        if has_model(&p) {
-            return Some(p);
-        }
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let p = dir.join(MODEL_DIR_RELATIVE);
-        if has_model(&p) {
-            return Some(p);
-        }
-    }
-    // `cargo run` のとき。 submodule を初期化していれば、ここで見つかる。
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(MODEL_DIR_IN_REPO);
-    has_model(&p).then_some(p)
+/// 配布物の中（`tauri.conf.json` の `bundle.resources` が置く場所）。
+///
+/// 実体の判定は `koeru-align` のものを通す。 ここだけ `is_file` で見ていたので、
+/// LFS のポインタのまま同梱された配布物が選ばれ、MFA が黙って退避経路へ落ちていた。
+fn exe_model_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    MODEL_DIRS_RELATIVE
+        .into_iter()
+        .map(|rel| dir.join(rel))
+        .find(|p| koeru_align::mfa::has_model(p))
 }
 
 #[cfg(test)]
@@ -161,10 +162,7 @@ mod tests {
     /// 初期化していない環境では退避経路で通る。どちらでも落ちないことを見ている。
     #[test]
     fn リポジトリの中のモデルを見つけられる() {
-        let in_repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(MODEL_DIR_IN_REPO)
-            .join("final.mdl");
-        if !in_repo.is_file() {
+        if koeru_align::mfa::repo_model_dir().is_none() {
             return; // submodule 未初期化
         }
         // 環境変数を使わずに見つかること。

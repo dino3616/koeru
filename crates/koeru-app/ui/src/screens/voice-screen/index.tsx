@@ -2,6 +2,7 @@ import { useMutation, useQueryClient, useSuspenseQueries } from "@tanstack/react
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef, useState } from "react";
 
+import { AlignCard } from "~/components/align-card";
 import { Breath } from "~/components/breath";
 import { Button } from "~/components/button";
 import { CalibrationCard } from "~/components/calibration-card";
@@ -16,6 +17,7 @@ import { PackageContents } from "~/components/package-contents";
 import { PackageExport } from "~/components/package-export";
 import { PackageForm } from "~/components/package-form";
 import { PackagePanel } from "~/components/package-panel";
+import { ReviewPanel } from "~/components/review-panel";
 import { PendingWork } from "~/components/pending-work";
 import { ReleaseList } from "~/components/release-list";
 import { SongDetail } from "~/components/song-detail";
@@ -32,6 +34,7 @@ import {
   ledgerKey,
   openProjectQuery,
   progressQuery,
+  reviewQueueQuery,
   rowsWithTakesQuery,
   songStatusQuery,
   voiceStateQuery,
@@ -139,6 +142,7 @@ const VoiceBody = ({
     { data: progress },
     { data: voice },
     { data: rows },
+    { data: reviewEntries },
     { data: songs },
     { data: devices },
     { data: chosen },
@@ -147,6 +151,7 @@ const VoiceBody = ({
       progressQuery(id),
       voiceStateQuery(id),
       rowsWithTakesQuery(id),
+      reviewQueueQuery(id),
       songStatusQuery(id),
       devicesQuery(),
       chosenDeviceQuery(id),
@@ -441,6 +446,7 @@ const VoiceBody = ({
               <>
                 {take !== null && takeRow !== null && (
                   <LastTake
+                    voiceId={id}
                     take={take}
                     rowText={takeRow.text}
                     units={takeRow.units}
@@ -479,12 +485,17 @@ const VoiceBody = ({
               面を行き来させない。 書いている途中で「何が足りないか」を
               見に行かせると、打った字を持ったまま移動することになる。
 
-              境界は3つに分ける。 まとめて1つの `Suspense` にすると、
-              いちばん重い読み（書き出せるかの判定は WAV を全部開く）が
-              解けるまで欄が1つも出ない。
+              確認が先。 原音設定の確認が残っていると書き出せない
+              （`INV-ALN-003`）ので、直す順に上から並べる。
+
+              境界を1つにまとめない。 いちばん重い読み（書き出せるかの
+              判定は WAV を全部開く）が解けるまで、欄が1つも出なくなる。
             */}
             {tab === "package" && (
               <>
+                <Suspense fallback={<CardSkeleton title="見ておく音" />}>
+                  <ReviewPanel voiceId={id} />
+                </Suspense>
                 <Suspense fallback={<CardSkeleton title="書き出す前に見ること" />}>
                   <PackagePanel voiceId={id} rows={rows} onOpenRow={openTake} />
                 </Suspense>
@@ -523,6 +534,13 @@ const VoiceBody = ({
                   onStatus={setStatus}
                   onChecked={setLeaking}
                 />
+                <Suspense fallback={<CardSkeleton title="切り出しの出どころ" />}>
+                  <AlignCard
+                    voiceId={id}
+                    onOpenRow={openTake}
+                    textOf={(rowId) => rows.find((r) => r.row_id === rowId)?.text ?? "この行"}
+                  />
+                </Suspense>
                 {leaking === false && (
                   <Card title="音の高さ">
                     <p className="text-sm text-slate-12">録りながら音の高さを聞けます。</p>
@@ -566,7 +584,14 @@ const VoiceBody = ({
           </h2>
 
           {tab === "sound" && (
-            <ItemList rows={rows} nextRowId={progress.next_row_id} onOpen={openTake} />
+            <ItemList
+              rows={rows}
+              nextRowId={progress.next_row_id}
+              pendingRowIds={reviewEntries
+                .filter((i) => i.state === "in_queue" || i.state === "blocked")
+                .map((i) => i.row_id)}
+              onOpen={openTake}
+            />
           )}
           {tab === "songs" && (
             <SongList

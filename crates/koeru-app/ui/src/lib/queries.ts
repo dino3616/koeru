@@ -147,8 +147,52 @@ export const releasesQuery = (id: string) =>
  * テイクの識別子は台帳の中で一意なので、音源の識別子を混ぜない。
  * 混ぜても間違いではないが、同じものが音源の数だけ積み上がる。
  */
-export const otosQuery = (takeId: number) =>
-  queryOptions({ queryKey: [LEDGER, "otos", takeId], queryFn: () => api.otosOfTake(takeId) });
+export const otosQuery = (id: string, takeId: number) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "otos", takeId],
+    queryFn: () => api.otosOfTake(takeId),
+  });
+
+/**
+ * 確認の進み具合（`TR-ALN-25`）。
+ *
+ * 台帳の鍵の下に置く。 録るたびにキューが伸び、確認するたびに縮む。
+ */
+export const reviewSummaryQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "review"], queryFn: () => api.reviewSummary() });
+
+/**
+ * 採用テイクのエントリ全部（`TR-ALN-26`）。確認待ちが先。
+ *
+ * 一覧の絞り込みもここを読む。 どの行が確認待ちかは、
+ * エントリの状態からしか分からない（`DEC-PLT-024`）。
+ *
+ * 確定したものも入っている。 固定は確認が済んだあとも残るので、
+ * 確認待ちだけにすると「自動に戻す」が消える。
+ */
+export const reviewQueueQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "review-queue"], queryFn: () => api.reviewQueue() });
+
+/**
+ * モデルが変わって古くなった推定（`TR-ALN-29`）。
+ *
+ * 台帳の鍵の下に置く。 録り直すと指紋が今のモデルで書き直されるので、
+ * テイクが確定するたびに変わる。
+ */
+export const staleTakesQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "stale"], queryFn: () => api.staleTakes() });
+
+/**
+ * 同梱しているモデルのライセンス表記（`TR-ALN-31`）。
+ *
+ * 台帳ではない。 実行ファイルに焼き込んだ台帳から作るので、起動中は変わらない。
+ */
+export const modelNoticeQuery = () =>
+  queryOptions({
+    queryKey: ["model-notice"],
+    queryFn: () => api.modelNotice(),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 
 /**
  * 選べる作り方（`TR-RCL-11`）。
