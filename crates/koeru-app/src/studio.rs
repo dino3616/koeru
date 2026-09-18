@@ -54,6 +54,7 @@ use uuid::Uuid;
 use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
+use crate::packaging;
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::storage;
@@ -1543,6 +1544,72 @@ impl Studio {
         })
     }
 
+    /// 配布に出す値を読む（`PROFILE-M4`）。
+    ///
+    /// まだ決めていなければ既定値。 表示名から作った配布名が入っている
+    /// （`DEC-PKG-008`）ので、画面は空欄から始めなくてよい。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_settings(&mut self) -> Result<koeru_core::db::Distribution> {
+        let manifest = self.opened()?.dir.read_manifest()?;
+        packaging::settings(&mut self.opened_mut()?.ledger, &manifest)
+    }
+
+    /// 配布に出す値を保存する（`PROFILE-M4`）。
+    #[tracing::instrument(skip(self, d), err)]
+    pub fn set_package_settings(&mut self, d: &koeru_core::db::Distribution) -> Result<()> {
+        packaging::check_distribution_name(&d.distribution_name)?;
+        self.opened_mut()?.ledger.set_distribution(d)?;
+        Ok(())
+    }
+
+    /// いま書き出せるか（`TR-PKG-49`, `TR-PKG-51`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_state(&mut self) -> Result<packaging::PackageState> {
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        packaging::state(&dir, &mut self.opened_mut()?.ledger, &manifest)
+    }
+
+    /// 配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_contents(&mut self) -> Result<Vec<(String, u64)>> {
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        packaging::preview(&dir, &mut self.opened_mut()?.ledger, &manifest)
+    }
+
+    /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+    ///
+    /// 先に `TR-REC-32` の関門を通す。 素材の名前が受け手の環境で
+    /// 見つからなくなる状態のまま包まない。
+    // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
+    #[tracing::instrument(skip(self, version), err)]
+    pub fn export_package(&mut self, version: &str) -> Result<packaging::Exported> {
+        let pre = self.preflight()?;
+        if !pre.may_export() {
+            return Err(AppError::new(
+                "package.non_nfc_names",
+                "受け取る側で見つからなくなる名前が残っている",
+            ));
+        }
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        let at = now_rfc3339();
+        packaging::export(
+            &dir,
+            &mut self.opened_mut()?.ledger,
+            &manifest,
+            version,
+            &at,
+        )
+    }
+
+    /// 書き出しの履歴（`TR-PKG-44`）。古い順。
+    #[tracing::instrument(skip(self), err)]
+    pub fn releases(&mut self) -> Result<Vec<koeru_core::release::Release>> {
+        Ok(self.opened_mut()?.ledger.releases()?)
+    }
+
     /// 収録済みのテイクを、指定した音高で合成する。鳴らさない。
     ///
     /// 周波数表は台帳から取る。 書き出しのためだけでなく、試唱もここを使う
@@ -2042,28 +2109,12 @@ impl Studio {
     /// テスト用。 音声デバイス無しで、行を収録済みとして印を付ける。
     ///
     /// 実際の収録は `start_take` → `finish_take` を通る。ここはカバレッジの
-    /// 計算だけを確かめたいときの入口。
+    /// 計算だけを確かめたいときの入口。**WAV も原音設定も置かない**ので、
+    /// 書き出しまで通す試験は [`Self::seed_material_for_test`] を使う。
     #[cfg(any(test, feature = "test-hooks"))]
     #[tracing::instrument(skip(self), err)]
     pub fn mark_recorded_for_test(&mut self, row_id: &str) -> Result<()> {
-        let session_id = {
-            let open = self.opened_mut()?;
-            if open.session_id == 0 {
-                open.session_id = open.ledger.start_session(&SessionSnapshot {
-                    started_at: now_rfc3339(),
-                    device_id: "test".to_owned(),
-                    sample_rate_hz: 44_100,
-                    channels: 1,
-                    effects_state: "clean".to_owned(),
-                    route: "test".to_owned(),
-                    source_channel: 0,
-                    master_rate_hz: 44_100,
-                    resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
-                    upstream_conversion: "unknown".to_owned(),
-                })?;
-            }
-            open.session_id
-        };
+        let session_id = self.test_session()?;
         let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
             row_id: row_id.to_owned(),
             session_id,
@@ -2073,6 +2124,83 @@ impl Studio {
         })?;
         self.opened_mut()?.ledger.adopt_take(row_id, take)?;
         Ok(())
+    }
+
+    /// テスト用。 実体の WAV と原音設定まで置く。
+    ///
+    /// 書き出しは素材を実際に開く（`TR-PKG-49`）ので、印だけでは通らない。
+    /// マスターは 44100 Hz（`TR-REC-02`）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[tracing::instrument(skip(self), err)]
+    pub fn seed_material_for_test(&mut self, row_id: &str) -> Result<i32> {
+        let session_id = self.test_session()?;
+        let root = self.opened()?.dir.root().to_path_buf();
+        let rel = format!("audio/{row_id}_1.wav");
+        let path = root.join(&rel);
+        std::fs::create_dir_all(self.opened()?.dir.audio_dir())?;
+
+        // 1秒の一定振幅。 中身は問わない——見るのは長さとレートだけ。
+        let samples = vec![0.2_f32; MASTER_RATE_HZ as usize];
+        let mut part = koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ)?;
+        part.write(&samples)?;
+        part.finalize()?;
+
+        let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
+            row_id: row_id.to_owned(),
+            session_id,
+            rel_path: rel,
+            frames: i64::try_from(samples.len()).unwrap_or(0),
+            recorded_at: now_rfc3339(),
+        })?;
+        self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+
+        // エイリアスは行が生む収録単位そのもの。 呼ぶ側に渡させない——
+        // 台帳と食い違った名前で置けてしまう。
+        let aliases = self.opened_mut()?.ledger.units_of(row_id)?;
+        for alias in &aliases {
+            self.opened_mut()?.ledger.put_oto(
+                take,
+                alias,
+                &koeru_core::db::koeru_oto::Oto {
+                    offset_ms: 50.0,
+                    consonant_ms: 60.0,
+                    cutoff_ms: -400.0,
+                    preutterance_ms: 40.0,
+                    overlap_ms: 20.0,
+                },
+                1.0,
+                false,
+            )?;
+        }
+        let analysis = koeru_core::analysis::TakeAnalysis::compute(
+            &samples,
+            MASTER_RATE_HZ,
+            &[220.0_f64; 200],
+            0.005,
+        );
+        self.opened_mut()?.ledger.put_analysis(take, &analysis)?;
+        Ok(take)
+    }
+
+    /// テスト用の収録セッション。無ければ1つ始める。
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn test_session(&mut self) -> Result<i32> {
+        let open = self.opened_mut()?;
+        if open.session_id == 0 {
+            open.session_id = open.ledger.start_session(&SessionSnapshot {
+                started_at: now_rfc3339(),
+                device_id: "test".to_owned(),
+                sample_rate_hz: 44_100,
+                channels: 1,
+                effects_state: "clean".to_owned(),
+                route: "test".to_owned(),
+                source_channel: 0,
+                master_rate_hz: 44_100,
+                resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
+                upstream_conversion: "unknown".to_owned(),
+            })?;
+        }
+        Ok(open.session_id)
     }
 
     /// 開いているプロジェクトのディレクトリ。
@@ -2257,7 +2385,7 @@ fn hash_of(path: Option<&PathBuf>) -> u64 {
 /// 現在時刻を RFC 3339 で。
 ///
 /// 秒までで足りる。 台帳に入るのは順序を保つためで、精密な時刻ではない。
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())

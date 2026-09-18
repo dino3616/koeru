@@ -1366,3 +1366,338 @@ mod tests {
         ));
     }
 }
+
+// ## 配り物（`PROFILE-M4`）
+
+/// 配布に出す値（`TR-PKG-02`, `TR-PKG-28`, `DEC-PKG-008`）。
+///
+/// 画像そのものは返さない。 アイコンと立ち絵は別の口で取る——
+/// 設定を1秒ごとに引く画面で、数 MB の画像を毎回運ばない。
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct PackageSettingsView {
+    /// 音源ルートフォルダ名。ASCII 固定（`DEC-PKG-008`）。
+    pub distribution_name: String,
+    /// 書き出しプロファイル（`TR-PKG-12`）。
+    pub profile: String,
+    pub author: Option<String>,
+    pub voice: Option<String>,
+    pub sample: Option<String>,
+    pub web: Option<String>,
+    pub version: Option<String>,
+    /// 音源アイコンを選んであるか（`TR-PKG-07`）。
+    pub has_icon: bool,
+    /// 立ち絵を選んであるか（`TR-PKG-07`）。
+    pub has_portrait: bool,
+    #[specta(type = specta_typescript::Number)]
+    pub portrait_opacity: f64,
+    pub portrait_height: u32,
+    pub tone_range_note: Option<String>,
+    /// 利用規約の本文（`DEC-PKG-011`）。未記入でも書き出しを止めない。
+    pub terms: Option<String>,
+    pub credit_example: Option<String>,
+    pub contact: Option<String>,
+    pub disclaimer: Option<String>,
+    pub character_note: Option<String>,
+}
+
+impl PackageSettingsView {
+    fn of(d: &koeru_core::db::Distribution) -> Self {
+        Self {
+            distribution_name: d.distribution_name.clone(),
+            profile: d.profile.clone(),
+            author: d.author.clone(),
+            voice: d.voice.clone(),
+            sample: d.sample.clone(),
+            web: d.web.clone(),
+            version: d.version.clone(),
+            has_icon: d.icon.is_some(),
+            has_portrait: d.portrait.is_some(),
+            portrait_opacity: d.portrait_opacity,
+            portrait_height: u32::try_from(d.portrait_height.max(0)).unwrap_or(0),
+            tone_range_note: d.tone_range_note.clone(),
+            terms: d.terms.clone(),
+            credit_example: d.credit_example.clone(),
+            contact: d.contact.clone(),
+            disclaimer: d.disclaimer.clone(),
+            character_note: d.character_note.clone(),
+        }
+    }
+}
+
+/// 検証で見つかった1件（`TR-PKG-49`, `TR-PKG-51`）。
+///
+/// 文面は画面が持つ。 ここが返すのは種別と、どこの話かだけ。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct FindingView {
+    /// 音源ルートからの相対パス。
+    pub file: String,
+    pub alias: Option<String>,
+    /// その行の録った回へ入るための行 ID（`TR-PKG-51`）。
+    pub row_id: Option<String>,
+    /// 種別。文面の対応は画面が持つ。
+    pub kind: String,
+    /// 数値を伴うものだけ。
+    pub detail: Option<String>,
+}
+
+/// CP932 で書けない箇所（`TR-PKG-17`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct UnencodableView {
+    /// `voice_name` / `character_field` / `alias` / `readme_section`。
+    pub place: String,
+    /// キー名・節の見出し・エイリアス。音源名のときは `None`。
+    pub target: Option<String>,
+    /// 書けなかった文字。
+    pub chars: Vec<String>,
+    /// 代替案。無ければ本人が決める。
+    pub suggestion: Option<String>,
+    /// エイリアスのときだけ、その行へ戻れる。
+    pub row_id: Option<String>,
+}
+
+/// いま書き出せるか（`TR-PKG-49`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PackageStateView {
+    pub may_export: bool,
+    pub profile: String,
+    /// 使える書き出し方。CP932 が壊れていれば減る（`TR-PKG-13`）。
+    pub available_profiles: Vec<String>,
+    /// 配布物に入るファイルの数。
+    pub file_count: u32,
+    pub alias_count: u32,
+    /// そのまま出せる方式（`INV-PKG-105`）。
+    pub exportable_methods: Vec<String>,
+    pub findings: Vec<FindingView>,
+    pub unencodable: Vec<UnencodableView>,
+}
+
+/// 配布物に入るファイル1つ。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PackageFileView {
+    pub path: String,
+    /// 配布物に入るときの大きさ（バイト）。
+    pub bytes: u32,
+}
+
+/// 書き出した結果（`TR-PKG-44`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ExportedView {
+    /// ZIP の在り処。
+    pub zip: String,
+    /// UAR の在り処（`DEC-PKG-010`）。
+    pub uar: String,
+    pub seq: i32,
+    pub archive_name: String,
+    pub alias_count: i32,
+    pub released_at: String,
+}
+
+/// 書き出しの履歴1件（`TR-PKG-44`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ReleaseView {
+    pub seq: i32,
+    pub version: String,
+    pub method: String,
+    pub alias_count: i32,
+    pub validation: String,
+    pub archive_name: String,
+    pub released_at: String,
+}
+
+/// 配布に出す値を読む。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn package_settings(state: State<'_, AppState>) -> Result<PackageSettingsView> {
+    Ok(PackageSettingsView::of(&lock(&state)?.package_settings()?))
+}
+
+/// 配布に出す値を保存する。
+///
+/// 画像は触らない。 別の口で入れたものを、ここで消してしまわない。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn set_package_settings(state: State<'_, AppState>, input: PackageSettingsView) -> Result<()> {
+    let mut s = lock(&state)?;
+    let current = s.package_settings()?;
+    s.set_package_settings(&koeru_core::db::Distribution {
+        distribution_name: input.distribution_name,
+        profile: input.profile,
+        author: input.author,
+        voice: input.voice,
+        sample: input.sample,
+        web: input.web,
+        version: input.version,
+        icon: current.icon,
+        portrait: current.portrait,
+        portrait_opacity: input.portrait_opacity,
+        portrait_height: i32::try_from(input.portrait_height).unwrap_or(0),
+        tone_range_note: input.tone_range_note,
+        terms: input.terms,
+        credit_example: input.credit_example,
+        contact: input.contact,
+        disclaimer: input.disclaimer,
+        character_note: input.character_note,
+    })
+}
+
+/// 音源アイコンの元画像を入れ替える（`TR-PKG-07`, `DEC-PKG-012`）。
+///
+/// 受け取った時点で 100×100 の BMP にできるかを確かめる。 書き出しまで
+/// 黙っていると、選んだ画像が使えないことに最後の一歩で気づく。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn set_package_icon(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> Result<()> {
+    if let Some(b) = &bytes {
+        koeru_package::icon::to_bmp(b).map_err(|e| AppError::new(e.kind(), e))?;
+    }
+    let mut s = lock(&state)?;
+    let mut d = s.package_settings()?;
+    d.icon = bytes;
+    s.set_package_settings(&d)
+}
+
+/// 立ち絵を入れ替える（`TR-PKG-07`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn set_package_portrait(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> Result<()> {
+    let mut s = lock(&state)?;
+    let mut d = s.package_settings()?;
+    d.portrait = bytes;
+    s.set_package_settings(&d)
+}
+
+/// 音源アイコンの元画像を返す。選んでいなければ `None`。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn package_icon(state: State<'_, AppState>) -> Result<Option<Vec<u8>>> {
+    Ok(lock(&state)?.package_settings()?.icon)
+}
+
+/// 立ち絵を返す。選んでいなければ `None`。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn package_portrait(state: State<'_, AppState>) -> Result<Option<Vec<u8>>> {
+    Ok(lock(&state)?.package_settings()?.portrait)
+}
+
+/// いま書き出せるか（`TR-PKG-49`, `TR-PKG-51`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
+    let st = lock(&state)?.package_state()?;
+    let row_of = |file: &str| st.rows_by_file.get(file).cloned();
+
+    Ok(PackageStateView {
+        may_export: st.may_export(),
+        profile: st.profile.as_str().to_owned(),
+        available_profiles: st
+            .available_profiles
+            .iter()
+            .map(|p| p.as_str().to_owned())
+            .collect(),
+        file_count: count(st.file_count),
+        alias_count: count(st.alias_count),
+        exportable_methods: st
+            .exportable
+            .iter()
+            .map(|m| m.as_str().to_owned())
+            .collect(),
+        findings: st
+            .findings
+            .iter()
+            .map(|f| FindingView {
+                file: f.file.clone(),
+                alias: f.alias.clone(),
+                row_id: row_of(&f.file),
+                kind: f.problem.kind().to_owned(),
+                detail: finding_detail(&f.problem),
+            })
+            .collect(),
+        unencodable: st
+            .unencodable
+            .iter()
+            .map(|u| {
+                use koeru_package::validate::Place;
+                let (place, target, row_id) = match &u.place {
+                    Place::VoiceName => ("voice_name", None, None),
+                    Place::CharacterField { key } => {
+                        ("character_field", Some((*key).to_owned()), None)
+                    }
+                    Place::ReadmeSection { title } => {
+                        ("readme_section", Some((*title).to_owned()), None)
+                    }
+                    Place::Alias { file, alias } => ("alias", Some(alias.clone()), row_of(file)),
+                };
+                UnencodableView {
+                    place: place.to_owned(),
+                    target,
+                    chars: u.chars.iter().map(char::to_string).collect(),
+                    suggestion: u.suggestion.clone(),
+                    row_id,
+                }
+            })
+            .collect(),
+    })
+}
+
+/// 数値を伴う指摘だけ、値を文字列で添える。
+fn finding_detail(p: &koeru_package::validate::Problem) -> Option<String> {
+    use koeru_package::validate::Problem;
+    match p {
+        Problem::WrongSampleRate { found } => Some(format!("{found} Hz")),
+        Problem::FrqTooShort { frames, needed } => Some(format!("{frames} / {needed}")),
+        Problem::OtoValue { violation } => Some(violation.kind().to_owned()),
+        Problem::AliasShape { problem } => Some(problem.kind().to_owned()),
+        _ => None,
+    }
+}
+
+/// 配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn package_contents(state: State<'_, AppState>) -> Result<Vec<PackageFileView>> {
+    Ok(lock(&state)?
+        .package_contents()?
+        .into_iter()
+        .map(|(path, bytes)| PackageFileView {
+            path,
+            bytes: count64(bytes),
+        })
+        .collect())
+}
+
+/// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn export_package(state: State<'_, AppState>, version: String) -> Result<ExportedView> {
+    let e = lock(&state)?.export_package(&version)?;
+    Ok(ExportedView {
+        zip: e.written.zip.to_string_lossy().into_owned(),
+        uar: e.written.uar.to_string_lossy().into_owned(),
+        seq: e.release.seq,
+        archive_name: e.release.archive_name,
+        alias_count: e.release.alias_count,
+        released_at: e.release.released_at,
+    })
+}
+
+/// 書き出しの履歴（`TR-PKG-44`）。新しい順。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn releases(state: State<'_, AppState>) -> Result<Vec<ReleaseView>> {
+    let mut out: Vec<ReleaseView> = lock(&state)?
+        .releases()?
+        .into_iter()
+        .map(|r| ReleaseView {
+            seq: r.seq,
+            version: r.version,
+            method: r.method.as_str().to_owned(),
+            alias_count: r.alias_count,
+            validation: r.validation.as_str().to_owned(),
+            archive_name: r.archive_name,
+            released_at: r.released_at,
+        })
+        .collect();
+    out.reverse();
+    Ok(out)
+}

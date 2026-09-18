@@ -149,6 +149,37 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// `character.txt` / `character.yaml` に出る値（`PROFILE-M4`）。1行だけ。
+    distribution (id) {
+        id -> Integer,
+        distribution_name -> Text,
+        profile -> Text,
+        author -> Nullable<Text>,
+        voice -> Nullable<Text>,
+        sample -> Nullable<Text>,
+        web -> Nullable<Text>,
+        version -> Nullable<Text>,
+        icon -> Nullable<Binary>,
+        portrait -> Nullable<Binary>,
+        portrait_opacity -> Double,
+        portrait_height -> Integer,
+    }
+}
+
+diesel::table! {
+    /// `readme.txt` に出る値（`TR-PKG-28`）。1行だけ。
+    distribution_readme (id) {
+        id -> Integer,
+        tone_range_note -> Nullable<Text>,
+        terms -> Nullable<Text>,
+        credit_example -> Nullable<Text>,
+        contact -> Nullable<Text>,
+        disclaimer -> Nullable<Text>,
+        character_note -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     /// 課題曲（`TR-RCL-12`）。曲バンクを持たない。
     songs (id) {
         id -> Text,
@@ -196,4 +227,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     calibrations,
     songs,
     song_notes,
+    distribution,
+    distribution_readme,
 );
