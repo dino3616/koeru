@@ -257,7 +257,13 @@ export const commands = {
 	 *  黙っていると、選んだ画像が使えないことに最後の一歩で気づく。
 	 */
 	setPackageIcon: (bytes: number[] | null) => typedError<null, AppError>(__TAURI_INVOKE("set_package_icon", { bytes })),
-	/**  立ち絵を入れ替える（`TR-PKG-07`）。 */
+	/**
+	 *  立ち絵を入れ替える（`TR-PKG-07`）。
+	 * 
+	 *  受け取った時点で PNG へ揃える。 配布物に入る名前は `portrait.png` に
+	 *  固定してあるので、JPEG をそのまま持つと中身と拡張子が食い違う。
+	 *  読めない画像もここで断る——書き出しまで黙っていると、最後の一歩で気づく。
+	 */
 	setPackagePortrait: (bytes: number[] | null) => typedError<null, AppError>(__TAURI_INVOKE("set_package_portrait", { bytes })),
 	/**  音源アイコンの元画像を返す。選んでいなければ `None`。 */
 	packageIcon: () => typedError<number[] | null, AppError>(__TAURI_INVOKE("package_icon")),
@@ -544,6 +550,14 @@ export type PackageStateView = {
 	alias_count: number,
 	/**  そのまま出せる方式（`INV-PKG-105`）。 */
 	exportable_methods: string[],
+	/**  この音源の方式に足りていない呼び名（`TR-PKG-23`）。全件返す。 */
+	missing_aliases: string[],
+	/**
+	 *  この作り方に必要な音の表を持っているか（`TR-RCL-02`）。
+	 * 
+	 *  持っていない作り方では被覆を確かめられないので、書き出せない。
+	 */
+	required_table_known: boolean,
 	findings: FindingView[],
 	unencodable: UnencodableView[],
 };

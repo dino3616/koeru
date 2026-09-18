@@ -15,6 +15,7 @@
 //! ファイルを残さない。半端なアーカイブが `exports/` に残ると、
 //! 次に開いた人にはそれが成果物に見える。
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -190,9 +191,9 @@ pub fn write_and_verify(
 
     let result = (|| {
         write(files, root, None, &written.zip)?;
-        verify(&written.zip, files, root, profile, false)?;
+        verify(&written.zip, files, root, profile, None)?;
         write(files, root, Some(&install), &written.uar)?;
-        verify(&written.uar, files, root, profile, true)?;
+        verify(&written.uar, files, root, profile, Some(&install))?;
         Ok(())
     })();
 
@@ -233,8 +234,12 @@ pub fn write(
             Content::Master(path) => {
                 // マスターは 32 bit float。配布は 16 bit（`TR-PKG-20`）。
                 // レートは `distribution_bytes` が 44100 で固定する。
+                //
+                // **ディザを入れる。** `TR-REC-37` が「TPDF ディザ（振幅 1 LSB）
+                // のみを適用する」と定めている。切ると、静かなところの量子化
+                // 誤差が信号と相関して歪みとして聞こえる。
                 let wav = koeru_audio::wav::read(path)?;
-                zip.write_all(&koeru_audio::wav::distribution_bytes(&wav.samples, false))?;
+                zip.write_all(&koeru_audio::wav::distribution_bytes(&wav.samples, true))?;
             }
         }
     }
@@ -258,8 +263,9 @@ pub fn verify(
     files: &[PackagedFile],
     root: &str,
     profile: Profile,
-    expect_install: bool,
+    install: Option<&[u8]>,
 ) -> Result<()> {
+    let expect_install = install.is_some();
     let raw = fs::read(path)?;
     // (1)(2) 中心ディレクトリを直接見る。 crate の解釈ではなく、
     // 実際に書いたバイト列でフラグと名前を確かめる。
@@ -270,6 +276,21 @@ pub fn verify(
         if flags & EFS_FLAG != 0 {
             return Err(fail(VerifyProblem::UnexpectedEfsFlag));
         }
+    }
+
+    // 入れたはずのバイト列。 読み戻しはこれと突き合わせる。
+    //
+    // 復号できるかだけを見ない。 それでは、別の内容でも正しい CP932 で
+    // ありさえすれば通る——改行が変わった `oto.ini` も、古いままの
+    // `character.txt` も素通りする（`TR-PKG-52` の「内部モデルと一致する」）。
+    let mut expected: BTreeMap<String, &[u8]> = BTreeMap::new();
+    for f in files {
+        if let Content::Bytes(b) = &f.content {
+            expected.insert(entry_name(root, &f.path), b);
+        }
+    }
+    if let Some(bytes) = install {
+        expected.insert(INSTALL_FILE.to_owned(), bytes);
     }
 
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&raw))?;
@@ -297,6 +318,14 @@ pub fn verify(
             check_wav_header(&body)?;
         }
         // (5) テキストを指定した符号化で読み戻し、内部モデルと一致するか。
+        //
+        // バイト列の一致と復号の両方を見る。 一致だけでは「宣言した符号化で
+        // 読めるか」が分からず、復号だけでは「同じ内容か」が分からない。
+        if let Some(bytes) = expected.get(name.as_str())
+            && *bytes != body.as_slice()
+        {
+            return Err(fail(VerifyProblem::TextMismatch));
+        }
         if let Some(enc) = text_encoding_of(&name, profile)
             && text::decode(&body, enc).is_err()
         {
@@ -646,6 +675,32 @@ mod tests {
         assert_eq!(e.kind(), "archive.missing_file");
         assert!(!dest.join("x.zip").exists());
         assert!(!dest.join("x.uar").exists());
+    }
+
+    /// `TR-PKG-52` (5)。読み戻したテキストが、入れたものと違えば落ちる。
+    ///
+    /// 復号できるかだけを見ていると、別の内容でも正しい CP932 なら通る。
+    #[test]
+    fn 中身が違えば読み戻しで落ちる() {
+        let d = tmp("mismatch");
+        let b = bank(&d);
+        let files = tree::build(&b, Profile::Both).expect("組み立てられること");
+        let dest = d.join("exports").join("x.zip");
+        fs::create_dir_all(d.join("exports")).expect("作れること");
+        write(&files, "koeru", None, &dest).expect("書けること");
+
+        // 同じ名前で、中身だけ違うものを期待させる。
+        let mut tampered = files.clone();
+        for f in &mut tampered {
+            if f.path == "character.txt" {
+                f.content = Content::Bytes(b"name=\xe3\x81\xa0\xe3\x82\x8c\r\n".to_vec());
+            }
+        }
+        let e = verify(&dest, &tampered, "koeru", Profile::Both, None).expect_err("落ちること");
+        assert_eq!(e.kind(), "archive.text_mismatch");
+
+        // 入れたものと突き合わせれば通る。
+        verify(&dest, &files, "koeru", Profile::Both, None).expect("通ること");
     }
 
     #[test]

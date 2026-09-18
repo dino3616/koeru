@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { packageContentsQuery } from "~/lib/queries";
 
@@ -16,11 +16,27 @@ const ROOT_FILES = 8;
  * 先頭のいくつかと、残りの数にまとめる。説明書の同梱物一覧も同じ形
  * （`koeru-package` の `contents_summary`）。
  *
+ * **中断しない読みにする**（`useQuery`）。 組み立ては失敗しうる——
+ * CP932 で書けない字が音源名に入っていると、そこで止まる（`TR-PKG-17`）。
+ * 中断する読みにすると、**その失敗が経路ごと落として、直すための面
+ * （書けない字の一覧と代替案）へ辿り着けなくなる。**
+ * ここが出せなくても、隣の面は成り立つ。
+ *
  * 枠を持たない。 置く側の領域が枠になる（`docs/design/direction.md`）。
  */
 export const PackageContents = ({ voiceId }: PackageContentsProps) => {
-  const { data: files } = useSuspenseQuery(packageContentsQuery(voiceId));
+  const { data: files, isPending, isError } = useQuery(packageContentsQuery(voiceId));
 
+  if (isPending) {
+    return <p className="text-xs text-slate-11">読んでいます</p>;
+  }
+  if (isError || files === undefined) {
+    return (
+      <p className="text-sm text-slate-11">
+        いまは中身を出せません。上に出ていることを直すと出ます。
+      </p>
+    );
+  }
   if (files.length === 0) {
     return <p className="text-sm text-slate-11">まだ入るものがありません。</p>;
   }

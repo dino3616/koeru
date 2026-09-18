@@ -14,6 +14,7 @@ use koeru_core::project::{Manifest, Method, ProjectDir};
 use koeru_core::release::{NewRelease, Validation, archive_base_name, content_hash};
 use koeru_package::archive::{self, Written};
 use koeru_package::bank::{Character, Portrait, Readme, Sample, Subbank, VoiceBank};
+use koeru_package::coverage::Coverage;
 use koeru_package::profile::{self, Profile};
 use koeru_package::tree::{self, Content, PackagedFile};
 use koeru_package::validate::{self, Finding, Unencodable};
@@ -33,6 +34,15 @@ pub struct PackageState {
     pub unencodable: Vec<Unencodable>,
     /// 出せるようになっている方式（`INV-PKG-105`）。
     pub exportable: Vec<Method>,
+    /// この音源の方式に足りていないエイリアス（`TR-PKG-23`）。
+    ///
+    /// 全件持つ。 「あと3件」だけでは何を録ればよいか分からない。
+    pub missing_aliases: Vec<String>,
+    /// この方式の必要エイリアス表を持っているか（`TR-RCL-02`）。
+    ///
+    /// CVVC は VC 単位をインベントリが持っていないので表が無い。
+    /// **無いことを「足りている」と読まない**——被覆を確かめずに出すことになる。
+    pub required_table_known: bool,
     /// 使えるプロファイル。CP932 が壊れていれば減る（`TR-PKG-13`）。
     pub available_profiles: Vec<Profile>,
     /// 配布物に入るファイルの数。
@@ -47,11 +57,18 @@ pub struct PackageState {
 }
 
 impl PackageState {
-    /// 書き出してよいか（`REQ-PKG-104`）。
+    /// 書き出してよいか（`REQ-PKG-104`, `INV-PKG-102`）。
+    ///
+    /// **被覆が満ちていなければ出さない。** `TR-PKG-23` が「部分的な
+    /// パッケージを出さない」と定めていて、`INV-PKG-002` は「書き出せるのは
+    /// 完成しているときだけ」。半分録ったところで作れると、受け手には
+    /// 「ほとんどの音が無い音源」が渡る。
     #[must_use]
     pub fn may_export(&self) -> bool {
         self.findings.is_empty()
             && self.unencodable.is_empty()
+            && self.required_table_known
+            && self.missing_aliases.is_empty()
             && self.alias_count > 0
             && profile::is_available(self.profile)
     }
@@ -79,11 +96,39 @@ pub fn settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution
     }))
 }
 
+/// 保存してあるプロファイルを解く（`TR-PKG-12`）。
+///
+/// **知らない名前を既定へ倒さない。** `Profile::parse` が `None` を返すのは
+/// 「その名前を知らない」という意味で、両対応のつもりで CP932 を出すのとは
+/// 違う。新しい版が書いた値や、打ち間違えた値が黙って別の符号化になる。
+///
+/// # Errors
+///
+/// 保存してある名前が3つのどれでもない。
+fn resolved_profile(d: &Distribution) -> Result<Profile> {
+    Profile::parse(&d.profile).ok_or_else(|| {
+        AppError::new(
+            "package.unknown_profile",
+            "保存してある書き出し方が分からない",
+        )
+    })
+}
+
+/// この音源の方式の被覆（`TR-PKG-23`）。要求表を持っていなければ `None`。
+fn coverage_of(ledger: &mut Ledger, manifest: &Manifest) -> Result<Option<Coverage>> {
+    let covered = ledger.covered_units()?;
+    Ok(koeru_package::coverage::coverage(
+        alias_method(manifest.method),
+        koeru_core::inventory::UnitSet::Core,
+        &covered,
+    ))
+}
+
 /// いま書き出せるかを調べる（`TR-PKG-49`）。
 #[tracing::instrument(skip(dir, ledger, manifest), err)]
 pub fn state(dir: &ProjectDir, ledger: &mut Ledger, manifest: &Manifest) -> Result<PackageState> {
     let distribution = settings(ledger, manifest)?;
-    let profile = Profile::parse(&distribution.profile).unwrap_or_default();
+    let profile = resolved_profile(&distribution)?;
     let rows_by_file = ledger
         .distribution_samples()?
         .into_iter()
@@ -91,6 +136,7 @@ pub fn state(dir: &ProjectDir, ledger: &mut Ledger, manifest: &Manifest) -> Resu
         .collect();
     let bank = bank_of(dir, ledger, manifest, &distribution)?;
 
+    let coverage = coverage_of(ledger, manifest)?;
     let report = validate::validate(&bank, profile);
     let covered = ledger.covered_units()?;
     let exportable =
@@ -109,6 +155,11 @@ pub fn state(dir: &ProjectDir, ledger: &mut Ledger, manifest: &Manifest) -> Resu
         findings: report.findings,
         unencodable: report.unencodable,
         exportable,
+        missing_aliases: coverage
+            .as_ref()
+            .map(|c| c.missing.clone())
+            .unwrap_or_default(),
+        required_table_known: coverage.is_some(),
         available_profiles: [Profile::Classic, Profile::OpenUtau, Profile::Both]
             .into_iter()
             .filter(|p| profile::is_available(*p))
@@ -133,11 +184,26 @@ pub fn export(
     released_at: &str,
 ) -> Result<Exported> {
     let distribution = settings(ledger, manifest)?;
-    let profile = Profile::parse(&distribution.profile).unwrap_or_default();
+    let profile = resolved_profile(&distribution)?;
     if !profile::is_available(profile) {
         return Err(AppError::new(
             "package.profile_unavailable",
             "この書き出し方は、いまの環境では使えない",
+        ));
+    }
+
+    // 部分的なパッケージを出さない（`TR-PKG-23`, `INV-PKG-102`）。
+    // 画面の関門と別に見る。 コマンドを直に叩かれても素通りさせない。
+    let Some(coverage) = coverage_of(ledger, manifest)? else {
+        return Err(AppError::new(
+            "package.no_required_table",
+            "この作り方に必要な音の表をまだ持っていない",
+        ));
+    };
+    if !coverage.is_complete() {
+        return Err(AppError::new(
+            "package.incomplete_coverage",
+            format!("まだ録れていない音が {} 件ある", coverage.missing.len()),
         ));
     }
 
@@ -161,6 +227,24 @@ pub fn export(
     let written = archive::write_and_verify(&bank, &files, profile, &exports, PENDING)
         .map_err(|e| AppError::new(e.kind(), e))?;
 
+    // 番号を先に見て、最終名まで作ってから台帳へ書く。
+    //
+    // **記録が先だと、改名に落ちた回の記録だけが残る。** 履歴には
+    // 書き出したと書いてあるのに `exports/` に何も無い状態は、
+    // リリースレコードが不変なので（`TR-PKG-44`）あとから消せない。
+    let seq = ledger.next_release_seq()?;
+    let base = archive_base_name(seq, version);
+    let final_written = Written {
+        zip: exports.join(format!("{base}.{}", archive::ZIP_EXT)),
+        uar: exports.join(format!("{base}.{}", archive::UAR_EXT)),
+    };
+    if let Err(e) = rename_both(&written, &final_written) {
+        // 片方だけ動いた状態を残さない。 どちらの名前も当てにならなくなる。
+        discard(&written);
+        discard(&final_written);
+        return Err(e.into());
+    }
+
     let release = ledger.record_release(
         &NewRelease {
             version: version.to_owned(),
@@ -172,22 +256,33 @@ pub fn export(
             released_at: released_at.to_owned(),
         },
         archive::ZIP_EXT,
-    )?;
-
-    // 番号が決まってから最終名にする。 先に名前を決めると、書き出しに
-    // 落ちたときだけ番号が飛ぶ。
-    let base = archive_base_name(release.seq, version);
-    let final_written = Written {
-        zip: exports.join(format!("{base}.{}", archive::ZIP_EXT)),
-        uar: exports.join(format!("{base}.{}", archive::UAR_EXT)),
+    );
+    let release = match release {
+        Ok(r) => r,
+        Err(e) => {
+            // 記録の無いファイルを残さない。 次の回が同じ番号を採って、
+            // 別の内容が同じ名前で並ぶ（`TR-PKG-46`）。
+            discard(&final_written);
+            return Err(e.into());
+        }
     };
-    std::fs::rename(&written.zip, &final_written.zip)?;
-    std::fs::rename(&written.uar, &final_written.uar)?;
 
     Ok(Exported {
         written: final_written,
         release,
     })
+}
+
+/// ZIP と UAR を、同じ回の名前へまとめて移す。
+fn rename_both(from: &Written, to: &Written) -> std::io::Result<()> {
+    std::fs::rename(&from.zip, &to.zip)?;
+    std::fs::rename(&from.uar, &to.uar)
+}
+
+/// 中途半端に残ったものを片付ける。
+fn discard(w: &Written) {
+    let _ = std::fs::remove_file(&w.zip);
+    let _ = std::fs::remove_file(&w.uar);
 }
 
 /// 番号が決まるまでの仮の名前。
@@ -293,6 +388,18 @@ fn oto_bytes(files: &[PackagedFile]) -> Vec<u8> {
     out
 }
 
+/// manifest の方式を、被覆の判定が使う方式へ写す。
+///
+/// 多音階連続音は連続音と同じエイリアス表を要求する。 音階数は独立した軸で、
+/// 方式の一員ではない（`DEC-PKG-005`）。
+const fn alias_method(m: Method) -> koeru_core::alias::Method {
+    match m {
+        Method::Single => koeru_core::alias::Method::Single,
+        Method::Sequential | Method::MultiPitchSequential => koeru_core::alias::Method::Sequential,
+        Method::Cvvc => koeru_core::alias::Method::Cvvc,
+    }
+}
+
 /// 被覆の判定が使う方式を、manifest の方式へ写す。
 const fn project_method(m: koeru_core::alias::Method) -> Method {
     match m {
@@ -302,20 +409,21 @@ const fn project_method(m: koeru_core::alias::Method) -> Method {
     }
 }
 
-/// 配布に出す値を保存する前に、名前を確かめる（`TR-PKG-16`）。
+/// 配布に出す値を保存する前に確かめる（`TR-PKG-16`, `TR-PKG-12`）。
 ///
-/// 使えない配布名を保存させない。 保存できてしまうと、書き出しの直前まで
-/// 気づかない。
+/// 使えない配布名と、知らない書き出し方を保存させない。 保存できてしまうと、
+/// 書き出しの直前まで気づかない。呼び出し口は文字列で受けるので
+/// （`set_package_settings`）、ここが最後の関門。
 ///
 /// # Errors
 ///
-/// 配布名が `TR-PKG-16` の条件を満たさない。
-pub fn check_distribution_name(name: &str) -> Result<()> {
-    let problems = names::check_segment(name);
-    match problems.first() {
-        None => Ok(()),
-        Some(p) => Err(AppError::new(p.kind(), "その配布名は使えない")),
+/// 配布名が `TR-PKG-16` の条件を満たさない、書き出し方が3つのどれでもない。
+pub fn check_settings(d: &Distribution) -> Result<()> {
+    if let Some(p) = names::check_segment(&d.distribution_name).first() {
+        return Err(AppError::new(p.kind(), "その配布名は使えない"));
     }
+    resolved_profile(d)?;
+    Ok(())
 }
 
 /// 音源ルートの中身を、包まずに一覧する。
@@ -332,7 +440,7 @@ pub fn preview(
     manifest: &Manifest,
 ) -> Result<Vec<(String, u64)>> {
     let d = settings(ledger, manifest)?;
-    let profile = Profile::parse(&d.profile).unwrap_or_default();
+    let profile = resolved_profile(&d)?;
     let bank = bank_of(dir, ledger, manifest, &d)?;
     let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
     Ok(files.iter().map(|f| (f.path.clone(), size_of(f))).collect())

@@ -1830,7 +1830,7 @@ impl Studio {
     /// 配布に出す値を保存する（`PROFILE-M4`）。
     #[tracing::instrument(skip(self, d), err)]
     pub fn set_package_settings(&mut self, d: &koeru_core::db::Distribution) -> Result<()> {
-        packaging::check_distribution_name(&d.distribution_name)?;
+        packaging::check_settings(d)?;
         self.opened_mut()?.ledger.set_distribution(d)?;
         Ok(())
     }
@@ -3110,8 +3110,9 @@ impl Studio {
         let path = root.join(&rel);
         std::fs::create_dir_all(self.opened()?.dir.audio_dir())?;
 
-        // 1秒の一定振幅。 中身は問わない——見るのは長さとレートだけ。
-        let samples = vec![0.2_f32; MASTER_RATE_HZ as usize];
+        // 0.5 秒の一定振幅。 中身は問わない——見るのは長さとレートだけ。
+        // 短くしているのは、全行ぶんを置く試験があるため。
+        let samples = vec![0.2_f32; MASTER_RATE_HZ as usize / 2];
         let mut part = koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ)?;
         part.write(&samples)?;
         part.finalize()?;
@@ -3135,7 +3136,7 @@ impl Studio {
                 &koeru_core::db::koeru_oto::Oto {
                     offset_ms: 50.0,
                     consonant_ms: 60.0,
-                    cutoff_ms: -400.0,
+                    cutoff_ms: -300.0,
                     preutterance_ms: 40.0,
                     overlap_ms: 20.0,
                 },

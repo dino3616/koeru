@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, mocked } from "storybook/test";
+import { expect, mocked, waitFor } from "storybook/test";
 
 import { PackageContents } from ".";
 import { api } from "~/lib/ipc";
@@ -30,13 +30,31 @@ export const 入るものがある: Story = {
     ]);
   },
   play: async ({ canvasElement }) => {
-    // 全部は並べない。残りは数でまとめる。
-    await expect(canvasElement.textContent).toContain("ほかに");
+    // 中断しない読みなので、出るまで待つ（`useQuery`）。
+    await waitFor(async () => {
+      // 全部は並べない。残りは数でまとめる。
+      await expect(canvasElement.textContent).toContain("ほかに");
+    });
   },
 };
 
 export const まだ何も無い: Story = {
   beforeEach: () => {
     mocked(api.packageContents).mockResolvedValue([]);
+  },
+};
+
+export const いまは出せない: Story = {
+  beforeEach: () => {
+    // 組み立てが失敗しても、経路ごと落とさない（`TR-PKG-17` の直し途中）。
+    mocked(api.packageContents).mockRejectedValue({
+      kind: "text.unencodable",
+      message: "この符号化で書けない文字がある",
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(async () => {
+      await expect(canvasElement.textContent).toContain("いまは中身を出せません");
+    });
   },
 };

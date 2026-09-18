@@ -852,6 +852,21 @@ impl Ledger {
         })
     }
 
+    /// 次に採る書き出しの連番（`TR-PKG-44`）。
+    ///
+    /// 台帳を変えない。 名前を先に決めてから包み、包み終えてから
+    /// [`Self::record_release`] で確定させるために要る——逆にすると、
+    /// 包むのに失敗した回の記録だけが残る。
+    #[tracing::instrument(skip(self), err)]
+    pub fn next_release_seq(&mut self) -> Result<i32> {
+        Ok(releases::table
+            .select(diesel::dsl::max(releases::seq))
+            .first::<Option<i32>>(&mut self.conn)
+            .map_err(db("next_release_seq"))?
+            .unwrap_or(0)
+            + 1)
+    }
+
     /// 書き出しの履歴を古い順に引く（`TR-PKG-44`）。
     ///
     /// 過去のリリースはここからだけ取り出せる（`TR-PKG-46`）。

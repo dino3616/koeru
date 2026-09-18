@@ -1665,6 +1665,12 @@ pub struct PackageStateView {
     pub alias_count: u32,
     /// そのまま出せる方式（`INV-PKG-105`）。
     pub exportable_methods: Vec<String>,
+    /// この音源の方式に足りていない呼び名（`TR-PKG-23`）。全件返す。
+    pub missing_aliases: Vec<String>,
+    /// この作り方に必要な音の表を持っているか（`TR-RCL-02`）。
+    ///
+    /// 持っていない作り方では被覆を確かめられないので、書き出せない。
+    pub required_table_known: bool,
     pub findings: Vec<FindingView>,
     pub unencodable: Vec<UnencodableView>,
 }
@@ -1755,12 +1761,21 @@ pub fn set_package_icon(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> R
 }
 
 /// 立ち絵を入れ替える（`TR-PKG-07`）。
+///
+/// 受け取った時点で PNG へ揃える。 配布物に入る名前は `portrait.png` に
+/// 固定してあるので、JPEG をそのまま持つと中身と拡張子が食い違う。
+/// 読めない画像もここで断る——書き出しまで黙っていると、最後の一歩で気づく。
 #[tauri::command(async)]
 #[specta::specta]
 pub fn set_package_portrait(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> Result<()> {
+    let png = bytes
+        .as_deref()
+        .map(koeru_package::icon::to_png)
+        .transpose()
+        .map_err(|e| AppError::new(e.kind(), e))?;
     let mut s = lock(&state)?;
     let mut d = s.package_settings()?;
-    d.portrait = bytes;
+    d.portrait = png;
     s.set_package_settings(&d)
 }
 
@@ -1800,6 +1815,8 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
             .iter()
             .map(|m| m.as_str().to_owned())
             .collect(),
+        missing_aliases: st.missing_aliases.clone(),
+        required_table_known: st.required_table_known,
         findings: st
             .findings
             .iter()

@@ -3,7 +3,7 @@ import { useSuspenseQueries } from "@tanstack/react-query";
 import { Button } from "~/components/button";
 import { Card } from "~/components/card";
 import type { RowTakesView } from "~/lib/ipc";
-import { findingLabel, placeLabel } from "~/lib/labels";
+import { detailLabel, findingLabel, placeLabel } from "~/lib/labels";
 import { packageStateQuery, preflightQuery } from "~/lib/queries";
 
 type PackagePanelProps = {
@@ -43,8 +43,12 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
   });
 
   const textOf = (rowId: string) => rows.find((r) => r.row_id === rowId)?.text ?? "この行";
+  const missing = state.missing_aliases.length;
   const stopping =
-    state.findings.length + state.unencodable.length + preflight.non_nfc_names.length;
+    state.findings.length +
+    state.unencodable.length +
+    preflight.non_nfc_names.length +
+    (missing > 0 ? 1 : 0);
   const total = stopping + preflight.clipped_takes.length;
 
   return (
@@ -55,6 +59,21 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
         <p className="text-sm text-slate-12">いまのところ、引っかかるものはありません。</p>
       ) : (
         <ul className="flex flex-col gap-3">
+          {/*
+            部分的なパッケージを出さない（`TR-PKG-23`、`INV-PKG-102`）。
+            件数だけを出す。 100 件並べても読まないし、どれを録るかは
+            左の一覧が持っている。
+          */}
+          {missing > 0 && (
+            <li className="flex gap-3">
+              <Stop />
+              <span className="text-sm text-slate-12">
+                まだ録れていない音が <span className="font-mono tabular-nums">{missing}</span>{" "}
+                あります。全部録れるまで配り物は作れません。
+              </span>
+            </li>
+          )}
+
           {/* 書けない文字（`TR-PKG-17`）。勝手に置き換えないので、本人が直す。 */}
           {state.unencodable.map((u) => (
             <li key={`${u.place}-${u.target ?? ""}`} className="flex gap-3">
@@ -87,6 +106,10 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
                   {findingLabel(f.kind)}
                   {f.alias === null ? "" : `（呼び名「${f.alias}」）`}
                 </span>
+                {/* どの値がどうおかしいのかまで出す（`TR-PKG-51`）。 */}
+                {f.detail !== null && (
+                  <span className="select-text text-xs text-slate-11">{detailLabel(f.detail)}</span>
+                )}
                 {f.row_id !== null && (
                   <Open label={textOf(f.row_id)} onClick={() => onOpenRow(f.row_id ?? "")} />
                 )}

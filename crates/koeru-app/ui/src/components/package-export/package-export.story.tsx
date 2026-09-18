@@ -12,6 +12,8 @@ const ready: PackageStateView = {
   file_count: 210,
   alias_count: 102,
   exportable_methods: ["single"],
+  missing_aliases: [],
+  required_table_known: true,
   findings: [],
   unencodable: [],
 };

@@ -21,14 +21,31 @@ fn library(tag: &str) -> PathBuf {
     root
 }
 
-/// 2行ぶんの素材を置いた音源を開く。
+/// 全行ぶんの素材を置いた音源を開く。
+///
+/// **一部だけでは書き出せない**（`TR-PKG-23`、`INV-PKG-102`）。
+/// 被覆が満ちていない音源は関門で止まるので、書き出しの試験は全行要る。
 fn seeded(tag: &str) -> Studio {
+    let mut studio = partial(tag, usize::MAX);
+    assert!(
+        studio
+            .package_state()
+            .expect("状態を引ける")
+            .missing_aliases
+            .is_empty(),
+        "全行置いたら被覆が満ちること"
+    );
+    studio
+}
+
+/// 先頭 `rows` 行だけ素材を置いた音源を開く。
+fn partial(tag: &str, rows: usize) -> Studio {
     let mut studio = Studio::open(library(tag)).expect("ライブラリを開ける");
     let id = studio.create_project("こえるちゃん").expect("作れる");
     studio.open_project(id).expect("開ける");
 
-    let rows = studio.rows_with_takes().expect("録音リストを引ける");
-    for row in rows.iter().take(2) {
+    let all = studio.rows_with_takes().expect("録音リストを引ける");
+    for row in all.iter().take(rows) {
         studio
             .seed_material_for_test(&row.row_id)
             .expect("素材を置ける");
@@ -102,16 +119,46 @@ fn 使えない配布名は保存させない() {
     assert_eq!(e.kind, "name.disallowed_chars");
 }
 
+/// `TR-PKG-23`、`INV-PKG-102`。部分的なパッケージを出さない。
+#[test]
+fn 録りきっていないと書き出せない() {
+    let mut studio = partial("partial", 2);
+
+    let state = studio.package_state().expect("状態を引ける");
+    assert!(!state.may_export(), "止まること");
+    assert!(
+        !state.missing_aliases.is_empty(),
+        "足りない分を全件出すこと"
+    );
+    assert_eq!(
+        studio.export_package("v1").expect_err("止まること").kind,
+        "package.incomplete_coverage"
+    );
+}
+
+/// `TR-PKG-12`。知らない書き出し方を既定へ倒さない。
+#[test]
+fn 知らない書き出し方は断る() {
+    let mut studio = partial("profile", 1);
+    let mut d = studio.package_settings().expect("引ける");
+    d.profile = "なんだこれ".to_owned();
+
+    // 保存の時点で断る。呼び出し口は文字列で受けるので、ここが関門。
+    assert_eq!(
+        studio
+            .set_package_settings(&d)
+            .expect_err("止まること")
+            .kind,
+        "package.unknown_profile"
+    );
+}
+
 /// `TR-PKG-17`。CP932 で書けない名前は、置換せずに書き出しを止める。
 #[test]
 fn cp932_で書けない名前は書き出しを止める() {
-    let mut studio = Studio::open(library("cp932")).expect("ライブラリを開ける");
-    let id = studio.create_project("こえる🎤").expect("作れる");
-    studio.open_project(id).expect("開ける");
-    let rows = studio.rows_with_takes().expect("引ける");
-    studio
-        .seed_material_for_test(&rows[0].row_id)
-        .expect("素材を置ける");
+    let mut studio = seeded("cp932");
+    let id = studio.project_dir().expect("開いている").id();
+    studio.rename_project(id, "こえる🎤").expect("改名できる");
 
     let state = studio.package_state().expect("状態を引ける");
     assert!(!state.may_export(), "止まること");

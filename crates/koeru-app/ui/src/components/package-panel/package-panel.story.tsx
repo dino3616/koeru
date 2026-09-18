@@ -30,6 +30,8 @@ const ready: PackageStateView = {
   file_count: 12,
   alias_count: 5,
   exportable_methods: ["single"],
+  missing_aliases: [],
+  required_table_known: true,
   findings: [],
   unencodable: [],
 };
@@ -107,9 +109,25 @@ export const 検証で止まっている: Story = {
     });
   },
   play: async ({ canvasElement }) => {
-    // どこを直せばよいかまで出す（`TR-PKG-51`）。
+    // どこを直せばよいかまで出す（`TR-PKG-51`）。種別だけで終わらせない。
     await expect(canvasElement.textContent).toContain("同じ呼び名が2つあります");
+    await expect(canvasElement.textContent).toContain("22050 Hz");
     await expect(canvasElement.querySelectorAll("button").length).toBeGreaterThan(0);
+  },
+};
+
+export const 録りきっていない: Story = {
+  beforeEach: () => {
+    mocked(api.packageState).mockResolvedValue({
+      ...ready,
+      may_export: false,
+      missing_aliases: ["き", "く", "け"],
+    });
+  },
+  play: async ({ canvasElement }) => {
+    // 件数だけを出す。呼び名を並べない（どれを録るかは左の一覧が持つ）。
+    await expect(canvasElement.textContent).toContain("まだ録れていない音が");
+    await expect(canvasElement.textContent).not.toContain("「き」");
   },
 };
 

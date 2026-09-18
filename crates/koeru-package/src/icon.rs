@@ -65,6 +65,29 @@ pub fn to_bmp(source: &[u8]) -> Result<Vec<u8>> {
     Ok(out.into_inner())
 }
 
+/// 立ち絵を PNG に揃える（`TR-PKG-07`）。
+///
+/// 受け取るのは PNG と JPEG（`DEC-PKG-012`）で、配布物に入る名前は
+/// `portrait.png` に固定してある。**そのまま複製すると、JPEG が PNG を
+/// 名乗って入る。** 中身と拡張子が食い違ったものは、読み手によって
+/// 開けたり開けなかったりする。
+///
+/// 透過は畳まない。 立ち絵は背景に重ねるもので、`portrait_opacity` と
+/// 併せて使う（アイコンとは要求が違う）。
+///
+/// # Errors
+///
+/// PNG / JPEG として読めない、または PNG として書けない。
+#[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
+pub fn to_png(source: &[u8]) -> Result<Vec<u8>> {
+    let img =
+        image::load_from_memory(source).map_err(|source| IconError::Undecodable { source })?;
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, ImageFormat::Png)
+        .map_err(|source| IconError::Unencodable { source })?;
+    Ok(out.into_inner())
+}
+
 /// 透過を白へ畳む。
 ///
 /// 24 bit の BMP にアルファの置き場が無い。 畳まずに捨てると、
@@ -128,6 +151,22 @@ mod tests {
             let bmp = to_bmp(&png(w, h)).expect("変換できること");
             assert_eq!(dimensions(&bmp), (100, 100), "{w}x{h}");
         }
+    }
+
+    /// `TR-PKG-07`。立ち絵は PNG に揃える。JPEG が PNG を名乗らないように。
+    #[test]
+    fn 立ち絵は_png_になる() {
+        let src = png(120, 300);
+        let out = to_png(&src).expect("変換できること");
+        assert_eq!(&out[1..4], b"PNG");
+    }
+
+    /// 寸法は変えない。切り出すのはアイコンだけ。
+    #[test]
+    fn 立ち絵の寸法は変えない() {
+        let out = to_png(&png(120, 300)).expect("変換できること");
+        let decoded = image::load_from_memory(&out).expect("読めること");
+        assert_eq!((decoded.width(), decoded.height()), (120, 300));
     }
 
     #[test]

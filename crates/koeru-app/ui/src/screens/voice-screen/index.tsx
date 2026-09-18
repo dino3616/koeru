@@ -428,8 +428,7 @@ const VoiceBody = ({
             {tab === "package" && (
               <p className="max-w-80 text-center text-xs text-slate-11">
                 <span className="font-mono tabular-nums">{voice.required}</span>{" "}
-                音すべてを録るのが、完成までの最後の一歩です。録れているところまでで
-                配り物を作ることもできます。
+                音すべてを録るのが、完成までの最後の一歩です。配り物は、 全部録れてから作れます。
               </p>
             )}
           </div>
@@ -607,9 +606,7 @@ const VoiceBody = ({
               <p className="text-sm text-slate-12">
                 配り物をつくらなくても、この声は完成にできます。
               </p>
-              <Suspense fallback={<p className="text-xs text-slate-11">読んでいます</p>}>
-                <PackageContents voiceId={id} />
-              </Suspense>
+              <PackageContents voiceId={id} />
               <hr className="h-px border-0 bg-slate-6" />
               <h3 className="text-xs text-slate-11">つくったもの</h3>
               <Suspense fallback={<p className="text-xs text-slate-11">読んでいます</p>}>

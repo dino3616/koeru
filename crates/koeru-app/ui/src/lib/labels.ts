@@ -97,6 +97,37 @@ const FINDINGS: Record<string, string> = {
 /** 検査で見つかったものの言い方。知らない種別はそのまま出さない。 */
 export const findingLabel = (kind: string): string => FINDINGS[kind] ?? "書き出せない状態です";
 
+/**
+ * 検査で添えられる細かい理由（`TR-PKG-51`）。
+ *
+ * 種別だけでは「原音設定の値が範囲の外にあります」で止まる。 どの値が
+ * どうおかしいのかまで出さないと、直しに行けない。
+ */
+const DETAILS: Record<string, string> = {
+  "oto.negative_offset": "頭の余白が負になっています",
+  "oto.offset_beyond_file": "頭の余白が、録った音より後ろにあります",
+  "oto.negative_preutterance": "歌い出しの位置が負になっています",
+  "oto.preutterance_beyond_file": "歌い出しの位置が、録った音より後ろにあります",
+  "oto.negative_consonant": "伸ばさないところの長さが負になっています",
+  "oto.consonant_beyond_file": "伸ばさないところが、録った音より後ろにあります",
+  "oto.overlap_beyond_file": "前の音との重なりが、録った音より後ろにあります",
+  "oto.empty_region": "使えるところが残っていません",
+  "alias.edge_space": "前後に空白があります",
+  "alias.double_space": "空白が2つ続いています",
+  "alias.ideographic_space": "全角の空白が入っています",
+  "alias.not_nfc": "分解された字が入っています",
+  "alias.empty": "空です",
+};
+
+/**
+ * 細かい理由の言い方。
+ *
+ * 表に無いものはそのまま出す。 レートやフレーム数のように、
+ * 値そのものが理由になっているものがある（`22050 Hz` など）。
+ */
+export const detailLabel = (detail: string | null): string | null =>
+  detail === null ? null : (DETAILS[detail] ?? detail);
+
 /** 書き出し方（`TR-PKG-12`）。 */
 const PROFILES: Record<string, string> = {
   both: "どちらでも開ける形",
