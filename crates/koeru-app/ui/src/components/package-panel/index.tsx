@@ -44,11 +44,19 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
 
   const textOf = (rowId: string) => rows.find((r) => r.row_id === rowId)?.text ?? "この行";
   const missing = state.missing_aliases.length;
-  const stopping =
-    state.findings.length +
-    state.unencodable.length +
-    preflight.non_nfc_names.length +
-    (missing > 0 ? 1 : 0);
+  /*
+   * 関門ごとに1件として数える。
+   *
+   * **出せない理由を必ず1つは出す。** 数えていない関門があると、
+   * 「引っかかるものはありません」と出ているのに作れない状態になる。
+   */
+  const blockers = [
+    missing > 0,
+    !state.required_table_known,
+    !state.otos_ready,
+    preflight.non_nfc_names.length > 0,
+  ].filter(Boolean).length;
+  const stopping = state.findings.length + state.unencodable.length + blockers;
   const total = stopping + preflight.clipped_takes.length;
 
   return (
@@ -70,6 +78,26 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
               <span className="text-sm text-slate-12">
                 まだ録れていない音が <span className="font-mono tabular-nums">{missing}</span>{" "}
                 あります。全部録れるまで配り物は作れません。
+              </span>
+            </li>
+          )}
+
+          {/* 必要な音の表を持っていない作り方（`TR-RCL-02`）。CVVC がこれ。 */}
+          {!state.required_table_known && (
+            <li className="flex gap-3">
+              <Stop />
+              <span className="text-sm text-slate-12">
+                この作り方に必要な音の一覧を、まだ持っていません。配り物は作れません。
+              </span>
+            </li>
+          )}
+
+          {/* 原音設定の確認が残っている（`INV-ALN-003`）。 */}
+          {!state.otos_ready && (
+            <li className="flex gap-3">
+              <Stop />
+              <span className="text-sm text-slate-12">
+                見ておく音が残っています。上の「見ておく音」を片付けると作れます。
               </span>
             </li>
           )}

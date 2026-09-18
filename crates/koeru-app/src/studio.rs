@@ -1840,7 +1840,28 @@ impl Studio {
     pub fn package_state(&mut self) -> Result<packaging::PackageState> {
         let dir = self.opened()?.dir.clone();
         let manifest = dir.read_manifest()?;
-        packaging::state(&dir, &mut self.opened_mut()?.ledger, &manifest)
+        let gates = self.package_gates()?;
+        packaging::state(&dir, &mut self.opened_mut()?.ledger, &manifest, gates)
+    }
+
+    /// 書き出しの手前にある、配布物の外の関門（`INV-ALN-003`, `TR-REC-32`）。
+    ///
+    /// **読むだけ。** `ensure_otos_ready` の検証は値を直し、`preflight` は
+    /// 名前を付け替える。状態を引くだけのつもりで呼ばれるものが、
+    /// 台帳とファイルを書き換えてはいけない。
+    ///
+    /// 直しの結果はキューに残る（直せない違反は `Blocked` になる）ので、
+    /// ここで読む `all_confirmed` が一度直したあとの姿を映す。
+    #[tracing::instrument(skip(self), err)]
+    fn package_gates(&mut self) -> Result<packaging::Gates> {
+        let names_ready = self.non_nfc_names()?.is_empty();
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
+        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        let confirmed = self.opened()?.review.all_confirmed();
+        Ok(packaging::Gates {
+            otos_ready: confirmed && missing.is_empty() && conflicting.is_empty(),
+            names_ready,
+        })
     }
 
     /// 配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。

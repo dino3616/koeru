@@ -1671,6 +1671,10 @@ pub struct PackageStateView {
     ///
     /// 持っていない作り方では被覆を確かめられないので、書き出せない。
     pub required_table_known: bool,
+    /// 原音設定の確認が済んでいるか（`INV-ALN-003`）。
+    pub otos_ready: bool,
+    /// 素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。
+    pub names_ready: bool,
     pub findings: Vec<FindingView>,
     pub unencodable: Vec<UnencodableView>,
 }
@@ -1721,26 +1725,29 @@ pub fn package_settings(state: State<'_, AppState>) -> Result<PackageSettingsVie
 #[tauri::command(async)]
 #[specta::specta]
 pub fn set_package_settings(state: State<'_, AppState>, input: PackageSettingsView) -> Result<()> {
+    // 外から入る文字列は境界で NFC へ揃える（`TR-PKG-11`）。
+    // 貼り付けで分解形が入ると、受け手の環境で別の文字列として突き合わされる。
+    let nfc = |v: Option<String>| v.map(|t| koeru_core::text::to_nfc(&t));
     let mut s = lock(&state)?;
     let current = s.package_settings()?;
     s.set_package_settings(&koeru_core::db::Distribution {
-        distribution_name: input.distribution_name,
+        distribution_name: koeru_core::text::to_nfc(&input.distribution_name),
         profile: input.profile,
-        author: input.author,
-        voice: input.voice,
-        sample: input.sample,
-        web: input.web,
-        version: input.version,
+        author: nfc(input.author),
+        voice: nfc(input.voice),
+        sample: nfc(input.sample),
+        web: nfc(input.web),
+        version: nfc(input.version),
         icon: current.icon,
         portrait: current.portrait,
         portrait_opacity: input.portrait_opacity,
         portrait_height: i32::try_from(input.portrait_height).unwrap_or(0),
-        tone_range_note: input.tone_range_note,
-        terms: input.terms,
-        credit_example: input.credit_example,
-        contact: input.contact,
-        disclaimer: input.disclaimer,
-        character_note: input.character_note,
+        tone_range_note: nfc(input.tone_range_note),
+        terms: nfc(input.terms),
+        credit_example: nfc(input.credit_example),
+        contact: nfc(input.contact),
+        disclaimer: nfc(input.disclaimer),
+        character_note: nfc(input.character_note),
     })
 }
 
@@ -1768,14 +1775,19 @@ pub fn set_package_icon(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> R
 #[tauri::command(async)]
 #[specta::specta]
 pub fn set_package_portrait(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> Result<()> {
-    let png = bytes
+    let converted = bytes
         .as_deref()
-        .map(koeru_package::icon::to_png)
+        .map(koeru_package::icon::to_portrait)
         .transpose()
         .map_err(|e| AppError::new(e.kind(), e))?;
     let mut s = lock(&state)?;
     let mut d = s.package_settings()?;
-    d.portrait = png;
+    // 高さは絵そのものから決める（`TR-PKG-07`）。画面に欄を置いていないので、
+    // ここで入れないと `portrait_height: 0` のまま配られる。
+    d.portrait_height = converted
+        .as_ref()
+        .map_or(0, |p| i32::try_from(p.height).unwrap_or(i32::MAX));
+    d.portrait = converted.map(|p| p.png);
     s.set_package_settings(&d)
 }
 
@@ -1817,6 +1829,8 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
             .collect(),
         missing_aliases: st.missing_aliases.clone(),
         required_table_known: st.required_table_known,
+        otos_ready: st.otos_ready,
+        names_ready: st.names_ready,
         findings: st
             .findings
             .iter()

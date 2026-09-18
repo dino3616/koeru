@@ -92,6 +92,10 @@ pub enum Problem {
     NfdName,
     /// 小文字化すると衝突する WAV 名がある（`TR-PKG-20`）。
     CaseCollision,
+    /// 同じパスの素材が2つある（`TR-PKG-26`）。
+    DuplicatePath,
+    /// 同じフォルダを2つの区画が使っている（`TR-PKG-01`, `TR-PKG-04`）。
+    DuplicateFolder,
     /// `oto.ini` の参照と実ファイル名の大小が違う（`TR-PKG-20`）。
     CaseMismatch,
     /// `.frq` のフレーム数が WAV の長さを覆っていない（`TR-PKG-49`）。
@@ -100,6 +104,8 @@ pub enum Problem {
     FrqMalformed,
     /// `.frq` に負または非数の F0 がある。無声は 0（`TR-PKG-49`）。
     FrqUnvoicedNotZero,
+    /// 周波数表が無い（`TR-PKG-05`）。同梱すると readme に書いてある。
+    FrqMissing,
 }
 
 impl Problem {
@@ -124,10 +130,13 @@ impl Problem {
             Self::AliasShape { .. } => "package.alias_shape",
             Self::NfdName => "package.nfd_name",
             Self::CaseCollision => "package.case_collision",
+            Self::DuplicatePath => "package.duplicate_path",
+            Self::DuplicateFolder => "package.duplicate_folder",
             Self::CaseMismatch => "package.case_mismatch",
             Self::FrqTooShort { .. } => "package.frq_too_short",
             Self::FrqMalformed => "package.frq_malformed",
             Self::FrqUnvoicedNotZero => "package.frq_unvoiced_not_zero",
+            Self::FrqMissing => "package.frq_missing",
         }
     }
 }
@@ -229,18 +238,51 @@ fn check_names_and_aliases(bank: &VoiceBank, report: &mut Report) {
         }
     }
 
-    // WAV 名の NFD と、小文字化の衝突。 どちらも受け手の環境でだけ壊れる。
+    // 区画のフォルダが重なっていないか（`TR-PKG-01`）。
+    //
+    // 重なると、`oto.ini` が同じ場所に2つ出る。 ZIP は同名のエントリを
+    // 許すので包むところは通り、**展開した側でどちらか片方だけが残る。**
+    let mut folders: BTreeMap<String, ()> = BTreeMap::new();
     for s in &bank.subbanks {
-        let prefix = s.path_prefix();
-        let files: Vec<String> = s.samples.iter().map(|m| m.file.clone()).collect();
-        let refs: Vec<&str> = files.iter().map(String::as_str).collect();
-        for collision in names::case_collisions(&refs) {
+        let folder = s.folder.clone().unwrap_or_default();
+        if folders.insert(folder.clone(), ()).is_some() {
             report.findings.push(Finding {
-                file: format!("{prefix}{collision}"),
+                file: format!("{folder}/oto.ini"),
                 alias: None,
-                problem: Problem::CaseCollision,
+                problem: Problem::DuplicateFolder,
             });
         }
+    }
+
+    // WAV 名の NFD と、パスの衝突。 どちらも受け手の環境でだけ壊れる。
+    //
+    // **音源全体のパスで見る。** 区画ごとに見ると、フォルダ名が同じ区画の
+    // 間で同じパスが出ても気づけない。
+    let paths = bank.wav_paths();
+    let refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let mut exact: BTreeMap<&str, usize> = BTreeMap::new();
+    for p in &refs {
+        *exact.entry(p).or_default() += 1;
+    }
+    for (path, n) in exact {
+        if n > 1 {
+            report.findings.push(Finding {
+                file: path.to_owned(),
+                alias: None,
+                problem: Problem::DuplicatePath,
+            });
+        }
+    }
+    for collision in names::case_collisions(&refs) {
+        report.findings.push(Finding {
+            file: collision,
+            alias: None,
+            problem: Problem::CaseCollision,
+        });
+    }
+
+    for s in &bank.subbanks {
+        let prefix = s.path_prefix();
         for m in &s.samples {
             if text::to_nfc(&m.file) != m.file {
                 report.findings.push(Finding {
@@ -324,10 +366,16 @@ fn check_sample(s: &Subbank, m: &Sample, report: &mut Report) {
         }
     }
 
-    if let Some(frq) = &m.frq {
-        for problem in check_frq(frq, frames) {
-            push(problem, None);
+    match &m.frq {
+        Some(frq) => {
+            for problem in check_frq(frq, frames) {
+                push(problem, None);
+            }
         }
+        // 同梱すると readme に書いてある（`TR-PKG-06`）。 無いまま出すと、
+        // 説明書だけが嘘になる。録音時に作ると決めてあるので（`TR-PKG-05`）、
+        // 無いのは作り損ねたということ。
+        None => push(Problem::FrqMissing, None),
     }
 }
 
@@ -473,11 +521,17 @@ mod tests {
         }
     }
 
+    /// 1秒の WAV に見合う周波数表。 無いと違反になる（`TR-PKG-05`）。
+    fn frq_for(ms: u32) -> Vec<u8> {
+        let frames = (44_100_usize * ms as usize / 1000).div_ceil(256);
+        frq_bytes(frames, &vec![220.0; frames])
+    }
+
     fn sample(file: &str, master: PathBuf, aliases: &[&str]) -> Sample {
         Sample {
             file: file.to_owned(),
             master,
-            frq: None,
+            frq: Some(frq_for(1000)),
             entries: aliases
                 .iter()
                 .map(|a| IniEntry {
@@ -648,6 +702,47 @@ mod tests {
         let k = kinds(&validate(&b, Profile::Both));
         assert!(k.contains(&"package.cutoff_before_preutterance"), "{k:?}");
         assert!(k.contains(&"package.cutoff_not_after_consonant"));
+    }
+
+    /// `TR-PKG-05`。周波数表が無いまま出さない。readme が同梱すると書いている。
+    #[test]
+    fn 周波数表が無ければ止まる() {
+        let d = tmp("nofrq");
+        let w = write_wav(&d, "s001.wav", 1000);
+        let mut m = sample("s001.wav", w, &["あ"]);
+        m.frq = None;
+        let b = bank(vec![subbank(None, "", vec![m])]);
+        assert_eq!(kinds(&validate(&b, Profile::Both)), ["package.frq_missing"]);
+    }
+
+    /// `TR-PKG-01`。区画のフォルダが重なると、`oto.ini` が同じ場所に2つ出る。
+    #[test]
+    fn 同じフォルダの区画を止める() {
+        let d = tmp("dupfolder");
+        let a = write_wav(&d, "a.wav", 1000);
+        let c = write_wav(&d, "b.wav", 1000);
+        let b = bank(vec![
+            subbank(Some("C4"), "", vec![sample("a.wav", a, &["あ"])]),
+            subbank(Some("C4"), "↑", vec![sample("b.wav", c, &["あ"])]),
+        ]);
+        let k = kinds(&validate(&b, Profile::Both));
+        assert!(k.contains(&"package.duplicate_folder"), "{k:?}");
+    }
+
+    /// 区画をまたいで同じパスが出たら止める（`TR-PKG-26`）。
+    ///
+    /// ZIP は同名のエントリを許すので、包むところでは気づけない。
+    #[test]
+    fn 同じパスの素材を止める() {
+        let d = tmp("duppath");
+        let a = write_wav(&d, "a.wav", 1000);
+        let c = write_wav(&d, "b.wav", 1000);
+        let b = bank(vec![
+            subbank(Some("C4"), "", vec![sample("s001.wav", a, &["あ"])]),
+            subbank(Some("C4"), "↑", vec![sample("s001.wav", c, &["い"])]),
+        ]);
+        let k = kinds(&validate(&b, Profile::Both));
+        assert!(k.contains(&"package.duplicate_path"), "{k:?}");
     }
 
     /// `TR-PKG-17`。置換せずに、どこが書けないかを全件返す。

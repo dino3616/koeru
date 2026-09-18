@@ -65,7 +65,16 @@ pub fn to_bmp(source: &[u8]) -> Result<Vec<u8>> {
     Ok(out.into_inner())
 }
 
-/// 立ち絵を PNG に揃える（`TR-PKG-07`）。
+/// PNG へ揃えた立ち絵と、その高さ（`TR-PKG-07`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Portrait {
+    /// PNG のバイト列。
+    pub png: Vec<u8>,
+    /// 絵の高さ（px）。`character.yaml` の `portrait_height` に出る。
+    pub height: u32,
+}
+
+/// 立ち絵を PNG に揃え、高さを測る（`TR-PKG-07`）。
 ///
 /// 受け取るのは PNG と JPEG（`DEC-PKG-012`）で、配布物に入る名前は
 /// `portrait.png` に固定してある。**そのまま複製すると、JPEG が PNG を
@@ -79,13 +88,17 @@ pub fn to_bmp(source: &[u8]) -> Result<Vec<u8>> {
 ///
 /// PNG / JPEG として読めない、または PNG として書けない。
 #[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
-pub fn to_png(source: &[u8]) -> Result<Vec<u8>> {
+pub fn to_portrait(source: &[u8]) -> Result<Portrait> {
     let img =
         image::load_from_memory(source).map_err(|source| IconError::Undecodable { source })?;
+    let height = img.height();
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, ImageFormat::Png)
         .map_err(|source| IconError::Unencodable { source })?;
-    Ok(out.into_inner())
+    Ok(Portrait {
+        png: out.into_inner(),
+        height,
+    })
 }
 
 /// 透過を白へ畳む。
@@ -157,15 +170,17 @@ mod tests {
     #[test]
     fn 立ち絵は_png_になる() {
         let src = png(120, 300);
-        let out = to_png(&src).expect("変換できること");
-        assert_eq!(&out[1..4], b"PNG");
+        let out = to_portrait(&src).expect("変換できること");
+        assert_eq!(&out.png[1..4], b"PNG");
+        // 高さは絵から測る。画面に欄が無いので、ここで入らないと 0 のまま出る。
+        assert_eq!(out.height, 300);
     }
 
     /// 寸法は変えない。切り出すのはアイコンだけ。
     #[test]
     fn 立ち絵の寸法は変えない() {
-        let out = to_png(&png(120, 300)).expect("変換できること");
-        let decoded = image::load_from_memory(&out).expect("読めること");
+        let out = to_portrait(&png(120, 300)).expect("変換できること");
+        let decoded = image::load_from_memory(&out.png).expect("読めること");
         assert_eq!((decoded.width(), decoded.height()), (120, 300));
     }
 

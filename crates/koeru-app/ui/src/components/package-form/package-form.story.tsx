@@ -34,6 +34,8 @@ const state: PackageStateView = {
   exportable_methods: ["single"],
   missing_aliases: [],
   required_table_known: true,
+  otos_ready: true,
+  names_ready: true,
   findings: [],
   unencodable: [],
 };

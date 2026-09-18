@@ -558,6 +558,10 @@ export type PackageStateView = {
 	 *  持っていない作り方では被覆を確かめられないので、書き出せない。
 	 */
 	required_table_known: boolean,
+	/**  原音設定の確認が済んでいるか（`INV-ALN-003`）。 */
+	otos_ready: boolean,
+	/**  素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。 */
+	names_ready: boolean,
 	findings: FindingView[],
 	unencodable: UnencodableView[],
 };

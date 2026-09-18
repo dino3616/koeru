@@ -43,6 +43,13 @@ pub struct PackageState {
     /// CVVC は VC 単位をインベントリが持っていないので表が無い。
     /// **無いことを「足りている」と読まない**——被覆を確かめずに出すことになる。
     pub required_table_known: bool,
+    /// 原音設定の確認が済んでいるか（`INV-ALN-003`）。
+    ///
+    /// 関門そのものは `Studio` が持つが、判定はここへ畳む。
+    /// **押せるのに必ず失敗する的を出さない。**
+    pub otos_ready: bool,
+    /// 素材の名前が受け手の環境で見つかるか（`TR-REC-32`）。
+    pub names_ready: bool,
     /// 使えるプロファイル。CP932 が壊れていれば減る（`TR-PKG-13`）。
     pub available_profiles: Vec<Profile>,
     /// 配布物に入るファイルの数。
@@ -69,6 +76,8 @@ impl PackageState {
             && self.unencodable.is_empty()
             && self.required_table_known
             && self.missing_aliases.is_empty()
+            && self.otos_ready
+            && self.names_ready
             && self.alias_count > 0
             && profile::is_available(self.profile)
     }
@@ -94,6 +103,19 @@ pub fn settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution
         portrait_opacity: 1.0,
         ..Distribution::default()
     }))
+}
+
+/// 書き出しの手前にある、この層の外の関門。
+///
+/// 原音設定の確認（`INV-ALN-003`）と素材の名前（`TR-REC-32`）は
+/// `Studio` が持っている。判定だけを渡してもらい、[`PackageState`] に畳む
+/// ——**画面が「押せるのに必ず失敗する的」を出さないため。**
+#[derive(Debug, Clone, Copy)]
+pub struct Gates {
+    /// 原音設定の確認が済んでいるか。
+    pub otos_ready: bool,
+    /// 素材の名前が受け手の環境で見つかるか。
+    pub names_ready: bool,
 }
 
 /// 保存してあるプロファイルを解く（`TR-PKG-12`）。
@@ -126,7 +148,12 @@ fn coverage_of(ledger: &mut Ledger, manifest: &Manifest) -> Result<Option<Covera
 
 /// いま書き出せるかを調べる（`TR-PKG-49`）。
 #[tracing::instrument(skip(dir, ledger, manifest), err)]
-pub fn state(dir: &ProjectDir, ledger: &mut Ledger, manifest: &Manifest) -> Result<PackageState> {
+pub fn state(
+    dir: &ProjectDir,
+    ledger: &mut Ledger,
+    manifest: &Manifest,
+    gates: Gates,
+) -> Result<PackageState> {
     let distribution = settings(ledger, manifest)?;
     let profile = resolved_profile(&distribution)?;
     let rows_by_file = ledger
@@ -160,6 +187,8 @@ pub fn state(dir: &ProjectDir, ledger: &mut Ledger, manifest: &Manifest) -> Resu
             .map(|c| c.missing.clone())
             .unwrap_or_default(),
         required_table_known: coverage.is_some(),
+        otos_ready: gates.otos_ready,
+        names_ready: gates.names_ready,
         available_profiles: [Profile::Classic, Profile::OpenUtau, Profile::Both]
             .into_iter()
             .filter(|p| profile::is_available(*p))
@@ -304,27 +333,33 @@ fn bank_of(
     let samples = ledger
         .distribution_samples()?
         .into_iter()
-        .map(|s| Sample {
-            file: format!("{}.wav", s.file_stem),
-            master: root.join(&s.rel_path),
-            frq: s.frq.and_then(|f| f.to_bytes().ok()),
-            entries: s
-                .otos
-                .into_iter()
-                .map(|(alias, o)| koeru_align::ini::IniEntry {
-                    file: format!("{}.wav", s.file_stem),
-                    alias,
-                    oto: koeru_core::oto::Oto {
-                        offset_ms: o.offset_ms,
-                        consonant_ms: o.consonant_ms,
-                        cutoff_ms: o.cutoff_ms,
-                        preutterance_ms: o.preutterance_ms,
-                        overlap_ms: o.overlap_ms,
-                    },
-                })
-                .collect(),
+        .map(|s| {
+            // 表を書けなかったことを `None` に畳まない（`TR-PKG-05`）。
+            // 畳むと、同梱すると書いてある readme と中身が食い違ったまま出る。
+            let frq = s.frq.map(|f| f.to_bytes()).transpose()?;
+            Ok(Sample {
+                file: format!("{}.wav", s.file_stem),
+                master: root.join(&s.rel_path),
+                frq,
+                entries: s
+                    .otos
+                    .into_iter()
+                    .map(|(alias, o)| koeru_align::ini::IniEntry {
+                        file: format!("{}.wav", s.file_stem),
+                        alias,
+                        oto: koeru_core::oto::Oto {
+                            offset_ms: o.offset_ms,
+                            consonant_ms: o.consonant_ms,
+                            cutoff_ms: o.cutoff_ms,
+                            preutterance_ms: o.preutterance_ms,
+                            overlap_ms: o.overlap_ms,
+                        },
+                    })
+                    .collect(),
+            })
         })
-        .collect();
+        .collect::<std::result::Result<Vec<_>, koeru_core::frq::FrqError>>()
+        .map_err(|e| AppError::new(e.kind(), e))?;
 
     Ok(VoiceBank {
         distribution_name: if d.distribution_name.is_empty() {

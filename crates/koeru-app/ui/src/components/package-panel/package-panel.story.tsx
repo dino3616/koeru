@@ -32,6 +32,8 @@ const ready: PackageStateView = {
   exportable_methods: ["single"],
   missing_aliases: [],
   required_table_known: true,
+  otos_ready: true,
+  names_ready: true,
   findings: [],
   unencodable: [],
 };
@@ -128,6 +130,34 @@ export const 録りきっていない: Story = {
     // 件数だけを出す。呼び名を並べない（どれを録るかは左の一覧が持つ）。
     await expect(canvasElement.textContent).toContain("まだ録れていない音が");
     await expect(canvasElement.textContent).not.toContain("「き」");
+  },
+};
+
+export const 見ておく音が残っている: Story = {
+  beforeEach: () => {
+    mocked(api.packageState).mockResolvedValue({
+      ...ready,
+      may_export: false,
+      otos_ready: false,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    // 出せない理由を必ず1つは出す（数えていない関門があると無言で止まる）。
+    await expect(canvasElement.textContent).toContain("見ておく音が残っています");
+    await expect(canvasElement.textContent).not.toContain("引っかかるものはありません");
+  },
+};
+
+export const 必要な音の表が無い: Story = {
+  beforeEach: () => {
+    mocked(api.packageState).mockResolvedValue({
+      ...ready,
+      may_export: false,
+      required_table_known: false,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.textContent).toContain("必要な音の一覧を、まだ持っていません");
   },
 };
 
