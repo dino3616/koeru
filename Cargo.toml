@@ -95,6 +95,14 @@ sha2 = "0.11.0"
 # bzip2 / lzma / zstd / AES は引かない（配布 ZIP は UTAU が読める必要がある）。
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
+# 音源アイコンの元画像を読み、100×100 の BMP へ縮める（TR-PKG-07, DEC-PKG-012）。
+# image-rs は Organization。読むのは png / jpeg、書くのは bmp だけに絞る。
+image = { version = "0.25.10", default-features = false, features = [
+  "png",
+  "jpeg",
+  "bmp",
+] }
+
 # CP932（TR-PLT-08, TR-PKG-48）。Firefox の符号化層そのもので Gecko に vendored されている。
 # リポジトリは個人アカウント（hsivonen）だが、実質の保守主体は Mozilla（DEC-PLT-013）。
 encoding_rs = "0.8.41"

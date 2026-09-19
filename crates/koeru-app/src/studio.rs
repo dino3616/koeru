@@ -59,6 +59,7 @@ use uuid::Uuid;
 use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
+use crate::packaging;
 use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::review::slot_of;
@@ -571,7 +572,9 @@ impl Studio {
     pub fn create_project(&mut self, display_name: &str) -> Result<Uuid> {
         let list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
         let dir = self.library.create(&Manifest {
-            display_name: display_name.to_owned(),
+            // 外から入る文字列は境界で NFC へ（`TR-PKG-11`）。
+            // 分解形のまま持つと、配布物の全ファイルがそれを引き継ぐ。
+            display_name: koeru_core::text::to_nfc(display_name),
             method: Method::Single,
             item_count: u32::try_from(list.len()).unwrap_or(0),
             derived_from: None,
@@ -638,7 +641,7 @@ impl Studio {
         }
         let dir = self.library.open_project(id)?;
         let manifest = Manifest {
-            display_name: name.to_owned(),
+            display_name: koeru_core::text::to_nfc(name),
             ..dir.read_manifest()?
         };
         dir.write_manifest(&manifest)?;
@@ -1816,6 +1819,125 @@ impl Studio {
         })
     }
 
+    /// 配布に出す値を読む（`PROFILE-M4`）。
+    ///
+    /// まだ決めていなければ既定値。 表示名から作った配布名が入っている
+    /// （`DEC-PKG-008`）ので、画面は空欄から始めなくてよい。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_settings(&mut self) -> Result<koeru_core::db::Distribution> {
+        let manifest = self.opened()?.dir.read_manifest()?;
+        packaging::settings(&mut self.opened_mut()?.ledger, &manifest)
+    }
+
+    /// 配布に出す値を保存する（`PROFILE-M4`）。
+    #[tracing::instrument(skip(self, d), err)]
+    pub fn set_package_settings(&mut self, d: &koeru_core::db::Distribution) -> Result<()> {
+        packaging::check_settings(d)?;
+        self.opened_mut()?.ledger.set_distribution(d)?;
+        Ok(())
+    }
+
+    /// いま書き出せるか（`TR-PKG-49`, `TR-PKG-51`）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_state(&mut self) -> Result<packaging::PackageState> {
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        let gates = self.package_gates()?;
+        packaging::state(&dir, &mut self.opened_mut()?.ledger, &manifest, gates)
+    }
+
+    /// 書き出しの手前にある、配布物の外の関門（`INV-ALN-003`）。
+    ///
+    /// **読むだけ。** `ensure_otos_ready` の検証は値を直すので、状態を
+    /// 引くだけのつもりで呼ばれるものが台帳を書き換えてはいけない。
+    /// 直しの結果はキューに残る（直せない違反は `Blocked` になる）ので、
+    /// ここで読む `all_confirmed` が一度直したあとの姿を映す。
+    ///
+    /// 素材の名前はここで見ない（`TR-REC-32`）。 判定するには先に直しを
+    /// 走らせる必要があり、`preflight` がそれを持っている。**同じことを
+    /// 2箇所で判定すると、どちらが先に走ったかで答えが変わる。**
+    #[tracing::instrument(skip(self), err)]
+    fn package_gates(&mut self) -> Result<packaging::Gates> {
+        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
+        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        let confirmed = self.opened()?.review.all_confirmed();
+        Ok(packaging::Gates {
+            otos_ready: confirmed && missing.is_empty() && conflicting.is_empty(),
+        })
+    }
+
+    /// 配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。
+    #[tracing::instrument(skip(self), err)]
+    pub fn package_contents(&mut self) -> Result<Vec<(String, u64)>> {
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        packaging::preview(&dir, &mut self.opened_mut()?.ledger, &manifest)
+    }
+
+    /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+    ///
+    /// 先に `TR-REC-32` の関門を通す。 素材の名前が受け手の環境で
+    /// 見つからなくなる状態のまま包まない。
+    ///
+    /// 版の札は受け取らない。 配布に出す値として保存してあるものを使う
+    /// （`TR-PKG-44`）——**2箇所で打たせると、配布物と履歴で違う値になる。**
+    #[tracing::instrument(skip(self), err)]
+    pub fn export_package(&mut self) -> Result<packaging::Exported> {
+        // 原音設定の確認が残っているうちは出さない（`INV-ALN-003`）。
+        // `oto.ini` 単体の書き出しと同じ関門。
+        self.ensure_otos_ready()?;
+        let pre = self.preflight()?;
+        if !pre.may_export() {
+            return Err(AppError::new(
+                "package.non_nfc_names",
+                "受け取る側で見つからなくなる名前が残っている",
+            ));
+        }
+        let dir = self.opened()?.dir.clone();
+        let manifest = dir.read_manifest()?;
+        let at = now_rfc3339();
+        packaging::export(&dir, &mut self.opened_mut()?.ledger, &manifest, &at)
+    }
+
+    /// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
+    ///
+    /// **利用者にフォルダ操作を要求しないが、到達経路は残す。**
+    /// 作れるのに手が届かないと、配り物として成立しない。
+    ///
+    /// 画面へパスを渡さない（`TR-PKG-45`）。 受け取るのは連番で、
+    /// 在り処は台帳から引く。渡すと、通常モードの画面にパスが出る経路ができる。
+    ///
+    /// # Errors
+    ///
+    /// その連番の記録が無い、ファイルが消えている、開けない。
+    #[tracing::instrument(skip(self), fields(seq), err)]
+    pub fn reveal_release(&mut self, seq: i32) -> Result<()> {
+        let dir = self.opened()?.dir.exports_dir();
+        let release = self
+            .opened_mut()?
+            .ledger
+            .releases()?
+            .into_iter()
+            .find(|r| r.seq == seq)
+            .ok_or_else(|| AppError::new("package.unknown_release", "その書き出しの記録が無い"))?;
+
+        let path = dir.join(&release.archive_name);
+        if !path.is_file() {
+            return Err(AppError::new(
+                "package.archive_missing",
+                "その配り物が見つからない",
+            ));
+        }
+        tauri_plugin_opener::reveal_item_in_dir(&path)
+            .map_err(|_| AppError::new("package.reveal_failed", "配り物の置き場所を開けない"))
+    }
+
+    /// 書き出しの履歴（`TR-PKG-44`）。古い順。
+    #[tracing::instrument(skip(self), err)]
+    pub fn releases(&mut self) -> Result<Vec<koeru_core::release::Release>> {
+        Ok(self.opened_mut()?.ledger.releases()?)
+    }
+
     /// 収録済みのテイクを、指定した音高で合成する。鳴らさない。
     ///
     /// 周波数表は台帳から取る。 書き出しのためだけでなく、試唱もここを使う
@@ -2509,21 +2631,15 @@ impl Studio {
         Ok((fixed, blocked))
     }
 
-    /// `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
+    /// 原音設定を外へ出してよい状態か（`INV-ALN-003`）。
     ///
-    /// 先に検証を通し、確認が残っていれば止まる（`INV-ALN-003`）。
-    /// 返るのは書いた先。
+    /// `oto.ini` 単体でも配布パッケージでも、同じ関門を通す。
+    /// 片方だけが緩いと、確認の済んでいない切り出しが配布物に入る。
     ///
-    /// 文字コードを選べる（`TR-ALN-21`）。 既定は CP932 で、UTF-8（BOM なし）も
-    /// 選べる。**固定にすると、CP932 で表せない名前が1つあるだけで
-    /// 書き出す手段が無くなる。**
-    ///
-    /// # Errors
-    ///
-    /// プロジェクトを開いていない、確認が残っている、
-    /// 選んだ文字コードで書けない文字がある。
-    #[tracing::instrument(skip(self, encoding), err)]
-    pub fn export_otos(&mut self, encoding: TextEncoding) -> Result<PathBuf> {
+    /// **「もう書き出したか」はここで見ない。** それは `oto.ini` の書き出しに
+    /// 固有の状態で、一度出したからといって配布パッケージを止める理由が無い。
+    #[tracing::instrument(skip(self), err)]
+    fn ensure_otos_ready(&mut self) -> Result<()> {
         self.validate_otos()?;
         // 切り出しが1つも取れなかった行は、キューにも現れない（`INV-ALN-003`）。
         //
@@ -2547,6 +2663,34 @@ impl Studio {
                 format!("別の回と同じ名前の音が {} 件ある", conflicting.len()),
             ));
         }
+        if !self.opened()?.review.all_confirmed() {
+            return Err(review_error(ReviewError::ReviewPending));
+        }
+        Ok(())
+    }
+
+    /// `oto.ini` を書き出す（`TR-ALN-21`, `REQ-PKG-003`）。
+    ///
+    /// 先に検証を通し、確認が残っていれば止まる（`INV-ALN-003`）。
+    /// 返るのは書いた先。
+    ///
+    /// 文字コードを選べる（`TR-ALN-21`）。 既定は CP932 で、UTF-8（BOM なし）も
+    /// 選べる。**固定にすると、CP932 で表せない名前が1つあるだけで
+    /// 書き出す手段が無くなる。**
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、確認が残っている、
+    /// 選んだ文字コードで書けない文字がある。
+    #[tracing::instrument(skip(self, encoding), err)]
+    pub fn export_otos(&mut self, encoding: TextEncoding) -> Result<PathBuf> {
+        // 「もう出した」を先に言う。 共通の関門（[`Self::ensure_otos_ready`]）は
+        // ここを見ない——配布パッケージの側は、`oto.ini` を一度出したことで
+        // 止まってはいけない。順序を変えると、断る理由の言い方が入れ替わる。
+        if self.opened()?.review.is_exported() {
+            return Err(review_error(ReviewError::AlreadyExported));
+        }
+        self.ensure_otos_ready()?;
         // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。
         //
         // **状態は動かさずに訊く。** 先に `export` を呼ぶと、符号化や書き込みが
@@ -2988,28 +3132,12 @@ impl Studio {
     /// テスト用。 音声デバイス無しで、行を収録済みとして印を付ける。
     ///
     /// 実際の収録は `start_take` → `finish_take` を通る。ここはカバレッジの
-    /// 計算だけを確かめたいときの入口。
+    /// 計算だけを確かめたいときの入口。**WAV も原音設定も置かない**ので、
+    /// 書き出しまで通す試験は [`Self::seed_material_for_test`] を使う。
     #[cfg(any(test, feature = "test-hooks"))]
     #[tracing::instrument(skip(self), err)]
     pub fn mark_recorded_for_test(&mut self, row_id: &str) -> Result<()> {
-        let session_id = {
-            let open = self.opened_mut()?;
-            if open.session_id == 0 {
-                open.session_id = open.ledger.start_session(&SessionSnapshot {
-                    started_at: now_rfc3339(),
-                    device_id: "test".to_owned(),
-                    sample_rate_hz: 44_100,
-                    channels: 1,
-                    effects_state: "clean".to_owned(),
-                    route: "test".to_owned(),
-                    source_channel: 0,
-                    master_rate_hz: 44_100,
-                    resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
-                    upstream_conversion: "unknown".to_owned(),
-                })?;
-            }
-            open.session_id
-        };
+        let session_id = self.test_session()?;
         let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
             row_id: row_id.to_owned(),
             session_id,
@@ -3019,6 +3147,93 @@ impl Studio {
         })?;
         self.opened_mut()?.ledger.adopt_take(row_id, take)?;
         Ok(())
+    }
+
+    /// テスト用。 実体の WAV と原音設定まで置く。
+    ///
+    /// 書き出しは素材を実際に開く（`TR-PKG-49`）ので、印だけでは通らない。
+    /// マスターは 44100 Hz（`TR-REC-02`）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[tracing::instrument(skip(self), err)]
+    pub fn seed_material_for_test(&mut self, row_id: &str) -> Result<i32> {
+        let session_id = self.test_session()?;
+        let root = self.opened()?.dir.root().to_path_buf();
+        let rel = format!("audio/{row_id}_1.wav");
+        let path = root.join(&rel);
+        std::fs::create_dir_all(self.opened()?.dir.audio_dir())?;
+
+        // 0.5 秒の一定振幅。 中身は問わない——見るのは長さとレートだけ。
+        // 短くしているのは、全行ぶんを置く試験があるため。
+        let samples = vec![0.2_f32; MASTER_RATE_HZ as usize / 2];
+        let mut part = koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ)?;
+        part.write(&samples)?;
+        part.finalize()?;
+
+        let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
+            row_id: row_id.to_owned(),
+            session_id,
+            rel_path: rel,
+            frames: i64::try_from(samples.len()).unwrap_or(0),
+            recorded_at: now_rfc3339(),
+        })?;
+        self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+
+        // エイリアスは行が生む収録単位そのもの。 呼ぶ側に渡させない——
+        // 台帳と食い違った名前で置けてしまう。
+        let aliases = self.opened_mut()?.ledger.units_of(row_id)?;
+        for alias in &aliases {
+            self.opened_mut()?.ledger.put_oto(
+                take,
+                alias,
+                &koeru_core::db::koeru_oto::Oto {
+                    offset_ms: 50.0,
+                    consonant_ms: 60.0,
+                    cutoff_ms: -300.0,
+                    preutterance_ms: 40.0,
+                    overlap_ms: 20.0,
+                },
+                1.0,
+                None,
+                false,
+            )?;
+            // 自動で確定したことにする。 確認が残っていると書き出せない
+            // （`INV-ALN-003`）ので、ここを飛ばすと書き出しの試験が通らない。
+            self.opened_mut()?.ledger.set_oto_state(
+                take,
+                alias,
+                koeru_align::review::EntryState::AutoConfirmed.as_str(),
+            )?;
+        }
+        let analysis = koeru_core::analysis::TakeAnalysis::compute(
+            &samples,
+            MASTER_RATE_HZ,
+            &[220.0_f64; 200],
+            0.005,
+        );
+        self.opened_mut()?.ledger.put_analysis(take, &analysis)?;
+        self.refresh_review()?;
+        Ok(take)
+    }
+
+    /// テスト用の収録セッション。無ければ1つ始める。
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn test_session(&mut self) -> Result<i32> {
+        let open = self.opened_mut()?;
+        if open.session_id == 0 {
+            open.session_id = open.ledger.start_session(&SessionSnapshot {
+                started_at: now_rfc3339(),
+                device_id: "test".to_owned(),
+                sample_rate_hz: 44_100,
+                channels: 1,
+                effects_state: "clean".to_owned(),
+                route: "test".to_owned(),
+                source_channel: 0,
+                master_rate_hz: 44_100,
+                resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
+                upstream_conversion: "unknown".to_owned(),
+            })?;
+        }
+        Ok(open.session_id)
     }
 
     /// 開いているプロジェクトのディレクトリ。
@@ -3203,7 +3418,7 @@ fn hash_of(path: Option<&PathBuf>) -> u64 {
 /// 現在時刻を RFC 3339 で。
 ///
 /// 秒までで足りる。 台帳に入るのは順序を保つためで、精密な時刻ではない。
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())

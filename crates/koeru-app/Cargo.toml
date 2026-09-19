@@ -31,6 +31,7 @@ anyhow.workspace = true
 koeru-align = { path = "../koeru-align" }
 koeru-audio = { path = "../koeru-audio" }
 koeru-core = { path = "../koeru-core" }
+koeru-package = { path = "../koeru-package" }
 koeru-synth = { path = "../koeru-synth" }
 serde.workspace = true
 serde_json.workspace = true
@@ -42,6 +43,9 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+# 書き出したものを OS のファイルマネージャで見せる（`TR-PKG-45` の到達経路 (1)）。
+# tauri-apps org、MIT / Apache-2.0。JS へは口を開けず、Rust から関数を呼ぶだけ。
+tauri-plugin-opener = "2.5.5"
 
 [dev-dependencies]
 # 合成結果の音高を測る。鳴らせただけでは音高が合っているか分からない。

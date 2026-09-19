@@ -62,5 +62,10 @@ excludes = [
 decisions = [
   'DEC-PKG-003',
   'DEC-PKG-004',
+  'DEC-PKG-008',
+  'DEC-PKG-009',
+  'DEC-PKG-010',
+  'DEC-PKG-011',
+  'DEC-PKG-012',
 ]
 budgets = []

@@ -1772,7 +1772,7 @@ note = 'toml-rs は Organization。 serde を要さず、コメントを保っ�
 [[component]]
 id = 'CMP-121'
 name = 'zip'
-purpose = 'ライブラリ書き出し（.koerulib）と、配布パッケージ（.zip）'
+purpose = 'ライブラリ書き出し（.koerulib）と、配布パッケージ（.zip / .uar）の生成と読み戻し検証'
 license = 'MIT'
 status = '採用'
 decided_by = 'DEC-PKG-006'
@@ -1780,7 +1780,11 @@ domains = [
   'packaging',
 ]
 supports_requirements = [
+  'TR-PKG-09',
+  'TR-PKG-26',
+  'TR-PKG-27',
   'TR-PKG-47',
+  'TR-PKG-52',
 ]
 note = 'zip-rs は Organization、活発。deflate だけに絞る（bzip2 / lzma / zstd / AES は引かない）。配布 ZIP は UTAU 側が読める必要があるので、圧縮方式を広げる利点がない'
 
@@ -1990,3 +1994,37 @@ React と React DOM 19.3 以上を要求する。 下げると `AnimateView` が
 画面が出ない。
 名前を保つ置き方では、渡した値は消える側の層にしか当たらない（`EVID-PLT-003`）。
 入る側を動かす目的でこれを触らない'''
+
+[[component]]
+id = 'CMP-135'
+name = 'image'
+purpose = '音源アイコンの元画像（PNG / JPEG）を読み、100×100 の BMP へ縮める'
+license = 'MIT OR Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-012'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-07',
+]
+note = '''image-rs は Organization。 default-features を切り、読む側は `png` と `jpeg`、
+書く側は `bmp` だけを引く。gif / tiff / webp / exr / avif は引かない——
+音源アイコンとして受け付ける形式を広げると、その分だけデコーダの面が増える'''
+
+[[component]]
+id = 'CMP-136'
+name = 'tauri-plugin-opener'
+purpose = '書き出した配り物を、OS のファイルマネージャで見せる（TR-PKG-45 の到達経路 (1)）'
+license = 'MIT OR Apache-2.0'
+status = '採用'
+decided_by = 'DEC-PKG-013'
+domains = [
+  'packaging',
+]
+supports_requirements = [
+  'TR-PKG-45',
+]
+note = '''tauri-apps org。 JS へは口を開けず、Rust の `reveal_item_in_dir` を呼ぶだけにする
+——画面から任意のパスを開けるようにすると、通常モードにパスを出さないという
+TR-PKG-45 の条件が崩れる。Linux 向けに zbus 系を引くが、macOS / Windows の木には入らない'''

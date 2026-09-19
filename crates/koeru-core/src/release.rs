@@ -111,8 +111,30 @@ pub fn content_hash(bytes: &[u8]) -> String {
 /// 連番があるので名前は必ず一意。
 #[must_use]
 pub fn archive_name(seq: i32, version: &str, ext: &str) -> String {
+    format!("{}.{ext}", archive_base_name(seq, version))
+}
+
+/// バージョン文字列から名前に使う部分の上限（バイト）。
+///
+/// 連番 6 桁とハイフン、いちばん長い拡張子（`.koerulib`）を引いた残り。
+/// **越えると、書いたあとの改名だけが `ENAMETOOLONG` で落ちる。**
+/// 包んで読み戻すところまで通ってから失敗するので、原因が遠い。
+const MAX_VERSION_BYTES: usize = crate::names::MAX_NAME_BYTES - "000000-".len() - ".koerulib".len();
+
+/// 拡張子を除いた書き出し先の名前（`TR-PKG-44`）。
+///
+/// 1回の書き出しで ZIP と UAR の2つを出す（`DEC-PKG-010`）ので、
+/// 拡張子の手前までを共有する。**同じ回の2つが違う名前になってはいけない。**
+///
+/// バージョン文字列は長さで切る。 名前の長さに上限があり、
+/// 本人が付ける札には上限が無い。切っても連番があるので一意性は落ちない。
+#[must_use]
+pub fn archive_base_name(seq: i32, version: &str) -> String {
     let mut safe = String::with_capacity(version.len());
     for c in version.chars() {
+        if safe.len() >= MAX_VERSION_BYTES {
+            break;
+        }
         if c.is_ascii_alphanumeric() || matches!(c, '.' | '_') {
             safe.push(c);
         } else if !safe.ends_with('-') {
@@ -122,9 +144,9 @@ pub fn archive_name(seq: i32, version: &str, ext: &str) -> String {
     }
     let safe = safe.trim_matches('-');
     if safe.is_empty() {
-        format!("{seq:06}.{ext}")
+        format!("{seq:06}")
     } else {
-        format!("{seq:06}-{safe}.{ext}")
+        format!("{seq:06}-{safe}")
     }
 }
 
@@ -186,6 +208,30 @@ mod tests {
         // 安全な字が1つも残らなくても、連番だけで名前になる。
         assert_eq!(archive_name(4, "正式版", "zip"), "000004.zip");
         assert_eq!(archive_name(5, "", "zip"), "000005.zip");
+    }
+
+    /// 同じ回の ZIP と UAR は、拡張子の手前まで同じ（`DEC-PKG-010`）。
+    #[test]
+    fn zip_と_uar_は同じ名前を共有する() {
+        let base = archive_base_name(7, "v1.0");
+        assert_eq!(archive_name(7, "v1.0", "zip"), format!("{base}.zip"));
+        assert_eq!(archive_name(7, "v1.0", "uar"), format!("{base}.uar"));
+    }
+
+    /// 長い札を付けても、ファイル名の上限を越えない（`TR-PKG-16`）。
+    ///
+    /// 越えると、包んで読み戻したあとの改名だけが落ちる。
+    #[test]
+    fn 長いバージョン文字列でも名前が上限に収まる() {
+        let long = "v".repeat(400);
+        for ext in ["zip", "uar", "koerulib"] {
+            let name = archive_name(999_999, &long, ext);
+            assert!(
+                name.len() <= crate::names::MAX_NAME_BYTES,
+                "{} バイト（{ext}）",
+                name.len()
+            );
+        }
     }
 
     #[test]

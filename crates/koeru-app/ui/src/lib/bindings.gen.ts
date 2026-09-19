@@ -242,6 +242,51 @@ export const commands = {
 	staleTakes: () => typedError<string[], AppError>(__TAURI_INVOKE("stale_takes")),
 	/**  同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
 	modelNotice: () => typedError<string, AppError>(__TAURI_INVOKE("model_notice")),
+	/**  配布に出す値を読む。 */
+	packageSettings: () => typedError<PackageSettingsView, AppError>(__TAURI_INVOKE("package_settings")),
+	/**
+	 *  配布に出す値を保存する。
+	 * 
+	 *  画像は触らない。 別の口で入れたものを、ここで消してしまわない。
+	 */
+	setPackageSettings: (input: PackageSettingsView) => typedError<null, AppError>(__TAURI_INVOKE("set_package_settings", { input })),
+	/**
+	 *  音源アイコンの元画像を入れ替える（`TR-PKG-07`, `DEC-PKG-012`）。
+	 * 
+	 *  受け取った時点で 100×100 の BMP にできるかを確かめる。 書き出しまで
+	 *  黙っていると、選んだ画像が使えないことに最後の一歩で気づく。
+	 */
+	setPackageIcon: (bytes: number[] | null) => typedError<null, AppError>(__TAURI_INVOKE("set_package_icon", { bytes })),
+	/**
+	 *  立ち絵を入れ替える（`TR-PKG-07`）。
+	 * 
+	 *  受け取った時点で PNG へ揃える。 配布物に入る名前は `portrait.png` に
+	 *  固定してあるので、JPEG をそのまま持つと中身と拡張子が食い違う。
+	 *  読めない画像もここで断る——書き出しまで黙っていると、最後の一歩で気づく。
+	 */
+	setPackagePortrait: (bytes: number[] | null) => typedError<null, AppError>(__TAURI_INVOKE("set_package_portrait", { bytes })),
+	/**  音源アイコンの元画像を返す。選んでいなければ `None`。 */
+	packageIcon: () => typedError<number[] | null, AppError>(__TAURI_INVOKE("package_icon")),
+	/**  立ち絵を返す。選んでいなければ `None`。 */
+	packagePortrait: () => typedError<number[] | null, AppError>(__TAURI_INVOKE("package_portrait")),
+	/**  いま書き出せるか（`TR-PKG-49`, `TR-PKG-51`）。 */
+	packageState: () => typedError<PackageStateView, AppError>(__TAURI_INVOKE("package_state")),
+	/**  配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。 */
+	packageContents: () => typedError<PackageFileView[], AppError>(__TAURI_INVOKE("package_contents")),
+	/**
+	 *  書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
+	 * 
+	 *  版の札は受け取らない。 配布に出す値として保存してあるものを使う。
+	 */
+	exportPackage: () => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_package")),
+	/**  書き出しの履歴（`TR-PKG-44`）。新しい順。 */
+	releases: () => typedError<ReleaseView[], AppError>(__TAURI_INVOKE("releases")),
+	/**
+	 *  書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
+	 * 
+	 *  渡すのは連番だけ。 在り処は Rust が台帳から引く。
+	 */
+	revealRelease: (seq: number) => typedError<null, AppError>(__TAURI_INVOKE("reveal_release", { seq })),
 };
 
 /* Types */
@@ -318,6 +363,36 @@ export type EnvelopeView = {
 	 *  （`react-conventions`）、回数としては受け取りにくい。
 	 */
 	clipped_runs: number,
+};
+
+/**
+ *  書き出した結果（`TR-PKG-44`）。
+ * 
+ *  **在り処は返さない**（`TR-PKG-45`）。 通常モードの画面にパスを出さない。
+ *  置き場所を見せる経路は [`reveal_release`] が持ち、受け渡すのは連番だけ。
+ */
+export type ExportedView = {
+	seq: number,
+	archive_name: string,
+	alias_count: number,
+	released_at: string,
+};
+
+/**
+ *  検証で見つかった1件（`TR-PKG-49`, `TR-PKG-51`）。
+ * 
+ *  文面は画面が持つ。 ここが返すのは種別と、どこの話かだけ。
+ */
+export type FindingView = {
+	/**  音源ルートからの相対パス。 */
+	file: string,
+	alias: string | null,
+	/**  その行の録った回へ入るための行 ID（`TR-PKG-51`）。 */
+	row_id: string | null,
+	/**  種別。文面の対応は画面が持つ。 */
+	kind: string,
+	/**  数値を伴うものだけ。 */
+	detail: string | null,
 };
 
 /**
@@ -437,6 +512,73 @@ export type OutputKindView =
 /**  判定できなかった。 */
 "Unknown";
 
+/**  配布物に入るファイル1つ。 */
+export type PackageFileView = {
+	path: string,
+	/**  配布物に入るときの大きさ（バイト）。 */
+	bytes: number,
+};
+
+/**
+ *  配布に出す値（`TR-PKG-02`, `TR-PKG-28`, `DEC-PKG-008`）。
+ * 
+ *  画像そのものは返さない。 アイコンと立ち絵は別の口で取る——
+ *  設定を1秒ごとに引く画面で、数 MB の画像を毎回運ばない。
+ */
+export type PackageSettingsView = {
+	/**  音源ルートフォルダ名。ASCII 固定（`DEC-PKG-008`）。 */
+	distribution_name: string,
+	/**  書き出しプロファイル（`TR-PKG-12`）。 */
+	profile: string,
+	author: string | null,
+	voice: string | null,
+	sample: string | null,
+	web: string | null,
+	version: string | null,
+	/**  音源アイコンを選んであるか（`TR-PKG-07`）。 */
+	has_icon: boolean,
+	/**  立ち絵を選んであるか（`TR-PKG-07`）。 */
+	has_portrait: boolean,
+	portrait_opacity: number,
+	portrait_height: number,
+	tone_range_note: string | null,
+	/**  利用規約の本文（`DEC-PKG-011`）。未記入でも書き出しを止めない。 */
+	terms: string | null,
+	credit_example: string | null,
+	contact: string | null,
+	disclaimer: string | null,
+	character_note: string | null,
+};
+
+/**  いま書き出せるか（`TR-PKG-49`）。 */
+export type PackageStateView = {
+	may_export: boolean,
+	profile: string,
+	/**  使える書き出し方。CP932 が壊れていれば減る（`TR-PKG-13`）。 */
+	available_profiles: string[],
+	/**  配布物に入るファイルの数。 */
+	file_count: number,
+	alias_count: number,
+	/**  そのまま出せる方式（`INV-PKG-105`）。 */
+	exportable_methods: string[],
+	/**  この音源の方式に足りていない呼び名（`TR-PKG-23`）。全件返す。 */
+	missing_aliases: string[],
+	/**
+	 *  この作り方に必要な音の表を持っているか（`TR-RCL-02`）。
+	 * 
+	 *  持っていない作り方では被覆を確かめられないので、書き出せない。
+	 */
+	required_table_known: boolean,
+	/**
+	 *  原音設定の確認が済んでいるか（`INV-ALN-003`）。
+	 * 
+	 *  素材の名前（`TR-REC-32`）はここに入らない。`preflight` が持つ。
+	 */
+	otos_ready: boolean,
+	findings: FindingView[],
+	unencodable: UnencodableView[],
+};
+
 /**  画面へ返す「あと録る行」1件（`TR-RCL-17`）。 */
 export type PlanRowView = {
 	/**  行の識別子。**画面に出さない**（`TR-REC-18`）——録りに行くときに渡すだけ。 */
@@ -494,6 +636,17 @@ export type ProjectView = {
 	item_count: number | null,
 	/**  育ち具合。台帳を読めなければ `None`。 */
 	state: VoiceStateView | null,
+};
+
+/**  書き出しの履歴1件（`TR-PKG-44`）。 */
+export type ReleaseView = {
+	seq: number,
+	version: string,
+	method: string,
+	alias_count: number,
+	validation: string,
+	archive_name: string,
+	released_at: string,
 };
 
 /**  確認キューの1件（`TR-ALN-26`）。 */
@@ -699,6 +852,20 @@ export type TakeView = {
 	 *  足りなくてもテイクは有効。 事実を伝えるだけ。
 	 */
 	has_required_margins: boolean,
+};
+
+/**  CP932 で書けない箇所（`TR-PKG-17`）。 */
+export type UnencodableView = {
+	/**  `voice_name` / `character_field` / `alias` / `readme_section`。 */
+	place: string,
+	/**  キー名・節の見出し・エイリアス。音源名のときは `None`。 */
+	target: string | null,
+	/**  書けなかった文字。 */
+	chars: string[],
+	/**  代替案。無ければ本人が決める。 */
+	suggestion: string | null,
+	/**  エイリアスのときだけ、その行へ戻れる。 */
+	row_id: string | null,
 };
 
 /**  画面へ返す音源のいまの姿。 */

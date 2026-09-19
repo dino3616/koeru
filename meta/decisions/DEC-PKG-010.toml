@@ -1,0 +1,41 @@
+schema = 'decision'
+id = 'DEC-PKG-010'
+constraint_label = 'アーカイブの形'
+constraint = '同じ内容を ZIP と UAR の2つで出す'
+title = 'UAR を ZIP と併せて出す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'ZIP と UAR の両方',
+  'ZIP だけ',
+  'UAR だけ',
+]
+selected = 'ZIP と UAR の両方'
+rationale = '''
+UAR は UTAU 本体へのドラッグ&ドロップでインストールできる（`TR-PKG-09`）。
+classic UTAU の利用者にとっては、展開先を自分で決めずに済む唯一の経路。
+
+UAR だけにしなかったのは、拡張子が受け手を止めるから。 OpenUtau は install.txt を
+無視して展開するので機能としては両対応になるが、`.uar` を見て「自分の環境では
+開けない」と判断されると、そこで止まる。ZIP を並べておけば迷わない。
+
+ZIP だけにしなかったのは、install.txt を書く費用がほぼ無いから。 4項目の
+テキストと二層構造だけで、同じファイル一式から2つ目のアーカイブを作れる。
+
+**中身は同じで、包み方だけが違う。** 音源ルートフォルダの下は1バイトも変えない。
+2つのアーカイブで違うものが配られる状態を作らないため、読み戻し検証（`TR-PKG-52`）
+は両方に対して走らせる。
+'''
+review_triggers = [
+  '2種類あることで受け手が迷うと分かったとき',
+  'UAR を受け付ける経路が UTAU 本体から消えたとき',
+]
+affects_requirements = [
+  'TR-PKG-09',
+  'TR-PKG-26',
+  'TR-PKG-52',
+]
+affects_decisions = [
+  'DEC-PKG-003',
+]
+supersedes = []

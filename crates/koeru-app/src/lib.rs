@@ -16,6 +16,7 @@ pub mod commands;
 pub mod error;
 pub mod external;
 pub mod latency;
+pub mod packaging;
 pub mod preview;
 pub mod pump;
 pub mod review;
@@ -88,6 +89,17 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::export_otos,
         commands::stale_takes,
         commands::model_notice,
+        commands::package_settings,
+        commands::set_package_settings,
+        commands::set_package_icon,
+        commands::set_package_portrait,
+        commands::package_icon,
+        commands::package_portrait,
+        commands::package_state,
+        commands::package_contents,
+        commands::export_package,
+        commands::releases,
+        commands::reveal_release,
     ])
 }
 

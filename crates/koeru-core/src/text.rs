@@ -89,13 +89,21 @@ type Result<T> = std::result::Result<T, TextError>;
 ///
 /// 表現できない文字があれば、代替に置き換えず失敗させる（`TR-PLT-08`）。
 /// 置き換えると、受け手の UTAU で化けたエイリアスがそのまま配られる。
+///
+/// **往復で見る。失敗の報告だけを信じない。** WHATWG の Shift_JIS は
+/// `¥`（U+00A5）を `0x5C` へ、`‾`（U+203E）を `0x7E` へ写す。どちらも
+/// 「書けなかった」とは報告されないのに、読み戻すと `\` と `~` になる。
+/// **踏むのは書き出したあと**——読み戻し検証は符号化済みのバイト列と
+/// 突き合わせるので、この取り違えを見つけられない（`TR-PKG-13` の
+/// 「不可逆な変換が起きた位置を呼び出し側へ返し」）。
 #[tracing::instrument(skip(s), fields(enc = enc.as_str()), err)]
 pub fn encode(s: &str, enc: TextEncoding) -> Result<Vec<u8>> {
     match enc {
         TextEncoding::Utf8 => Ok(s.as_bytes().to_vec()),
         TextEncoding::Cp932 => {
             let (bytes, _, had_errors) = SHIFT_JIS.encode(s);
-            if had_errors {
+            let (back, _, _) = SHIFT_JIS.decode(&bytes);
+            if had_errors || back != s {
                 return Err(TextError::Unencodable {
                     chars: unencodable_chars(s),
                 });
@@ -122,9 +130,12 @@ pub fn decode(bytes: &[u8], enc: TextEncoding) -> Result<String> {
     Ok(text.into_owned())
 }
 
-/// この符号化で書けない文字を挙げる（`TR-PLT-08`）。
+/// この符号化で書けない文字を挙げる（`TR-PLT-08`, `TR-PKG-13`）。
 ///
 /// 書き出し前に見せて、代替を促すために使う。 重複は取り除く。
+///
+/// 往復しない文字も挙げる。 `¥` は `0x5C` として書けてしまい、読み戻すと
+/// `\` になる。書けたかどうかだけを見ると、別の字に変わったことを見逃す。
 #[must_use]
 pub fn unencodable_chars(s: &str) -> Vec<char> {
     let mut seen = std::collections::BTreeSet::new();
@@ -134,13 +145,56 @@ pub fn unencodable_chars(s: &str) -> Vec<char> {
             continue;
         }
         let mut buf = [0_u8; 4];
-        let (_, _, had_errors) = SHIFT_JIS.encode(c.encode_utf8(&mut buf));
-        if had_errors {
+        let one: &str = c.encode_utf8(&mut buf);
+        let (bytes, _, had_errors) = SHIFT_JIS.encode(one);
+        let (back, _, _) = SHIFT_JIS.decode(&bytes);
+        if had_errors || back != one {
             seen.insert(c);
             out.push(c);
         }
     }
     out
+}
+
+/// CP932 で書ける、いちばん近い形を探す（`TR-PKG-17`）。
+///
+/// 「書けません」だけでは直しようがない。 書けない字だけを、互換分解して
+/// 結合文字を落とした形へ置き換える。それでも書けなければ取り除く。
+/// 元と同じなら `None`——直す必要が無い。何も残らなければ `None`——
+/// 空の名前を代替案として出さない。
+///
+/// **書ける字には触らない。** 文字列ごと分解すると、`ガ🎤` が `カ` になる
+/// ——`ガ` は `カ` + U+3099 に分解され、結合文字を落とす段で濁点が消える。
+/// `①` のような互換文字も別の字に書き換わる。直すべきでないものまで
+/// 直した案を出すと、本人はそれが提案だと気づけない。
+///
+/// **これは提案であって、置換ではない。** 採るかどうかは本人が決める
+/// （`TR-PKG-17` が暗黙置換を禁じている）。
+#[must_use]
+pub fn cp932_fallback(s: &str) -> Option<String> {
+    let encodable = |t: &str| unencodable_chars(t).is_empty();
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        let one = c.to_string();
+        if encodable(&one) {
+            out.push(c);
+            continue;
+        }
+        // 結合文字（濁点・アクセント）を落とす。`é` は `e` になる。
+        let folded: String = one
+            .nfkd()
+            .filter(|c| !matches!(*c as u32, 0x0300..=0x036F | 0x3099 | 0x309A))
+            .collect();
+        if !folded.is_empty() && encodable(&folded) {
+            out.push_str(&folded);
+        }
+    }
+    let trimmed = out.trim();
+    if trimmed.is_empty() || trimmed == s {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 /// 取り込むときに使う符号化を決める（`TR-PKG-48`）。
@@ -276,6 +330,50 @@ pub fn find_non_nfc_names(dir: &std::path::Path) -> std::io::Result<Vec<String>>
 
 #[cfg(test)]
 mod tests {
+    /// 書けたと報告されるのに、読み戻すと別の字になるものがある（`TR-PKG-13`）。
+    ///
+    /// WHATWG の Shift_JIS は `¥` を `0x5C` へ写す。`had_errors` は立たない。
+    #[test]
+    fn 往復しない文字を書けないものとして挙げる() {
+        for c in ['¥', '‾'] {
+            let one = c.to_string();
+            assert_eq!(unencodable_chars(&one), vec![c], "{c}");
+            assert!(
+                matches!(
+                    encode(&one, TextEncoding::Cp932),
+                    Err(TextError::Unencodable { .. })
+                ),
+                "{c} を黙って別の字にしない"
+            );
+        }
+    }
+
+    /// 書ける字には触らない（`TR-PKG-17`）。
+    ///
+    /// 文字列ごと分解すると `ガ` の濁点が消える。**直すべきでないものまで
+    /// 直した案を出すと、本人はそれが提案だと気づけない。**
+    #[test]
+    fn 代替案は書けない字だけを置き換える() {
+        assert_eq!(cp932_fallback("ガ🎤").as_deref(), Some("ガ"));
+        assert_eq!(cp932_fallback("①🎤").as_deref(), Some("①"));
+        assert_eq!(cp932_fallback("café").as_deref(), Some("cafe"));
+        assert_eq!(cp932_fallback("こえる🎤").as_deref(), Some("こえる"));
+        // 直すところが無ければ提案しない。
+        assert_eq!(cp932_fallback("こえる"), None);
+        // 何も残らないなら提案しない。空の名前を勧めない。
+        assert_eq!(cp932_fallback("🎤"), None);
+    }
+
+    /// 往復する字は通す。全部を弾いてしまわないこと。
+    #[test]
+    fn 往復する字はそのまま通る() {
+        for s in ["こえる", "abc", "髙﨑", "①②③", "ガギグゲゴ"] {
+            assert!(unencodable_chars(s).is_empty(), "{s}");
+            let bytes = encode(s, TextEncoding::Cp932).expect("書けること");
+            assert_eq!(decode(&bytes, TextEncoding::Cp932).expect("読めること"), s);
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -180,6 +180,30 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// 配布パッケージに出す値（`PROFILE-M4`）。1プロジェクトに1行。
+    distribution (id) {
+        id -> Integer,
+        distribution_name -> Text,
+        profile -> Text,
+        author -> Nullable<Text>,
+        voice -> Nullable<Text>,
+        sample -> Nullable<Text>,
+        web -> Nullable<Text>,
+        version -> Nullable<Text>,
+        icon -> Nullable<Binary>,
+        portrait -> Nullable<Binary>,
+        portrait_opacity -> Double,
+        portrait_height -> Integer,
+        tone_range_note -> Nullable<Text>,
+        terms -> Nullable<Text>,
+        credit_example -> Nullable<Text>,
+        contact -> Nullable<Text>,
+        disclaimer -> Nullable<Text>,
+        character_note -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     /// 課題曲（`TR-RCL-12`）。曲バンクを持たない。
     songs (id) {
         id -> Text,
@@ -230,4 +254,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     song_notes,
     review_state,
     take_fingerprints,
+    distribution,
 );

@@ -31,8 +31,8 @@ use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, calibrations, oto_values, releases, review_state, row_units, rows, sessions,
-    song_notes, songs, take_analysis, take_fingerprints, take_metrics, takes,
+    adopted_takes, calibrations, distribution, oto_values, releases, review_state, row_units, rows,
+    sessions, song_notes, songs, take_analysis, take_fingerprints, take_metrics, takes,
 };
 use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
@@ -852,6 +852,21 @@ impl Ledger {
         })
     }
 
+    /// 次に採る書き出しの連番（`TR-PKG-44`）。
+    ///
+    /// 台帳を変えない。 名前を先に決めてから包み、包み終えてから
+    /// [`Self::record_release`] で確定させるために要る——逆にすると、
+    /// 包むのに失敗した回の記録だけが残る。
+    #[tracing::instrument(skip(self), err)]
+    pub fn next_release_seq(&mut self) -> Result<i32> {
+        Ok(releases::table
+            .select(diesel::dsl::max(releases::seq))
+            .first::<Option<i32>>(&mut self.conn)
+            .map_err(db("next_release_seq"))?
+            .unwrap_or(0)
+            + 1)
+    }
+
     /// 書き出しの履歴を古い順に引く（`TR-PKG-44`）。
     ///
     /// 過去のリリースはここからだけ取り出せる（`TR-PKG-46`）。
@@ -1331,6 +1346,109 @@ impl Ledger {
             .map_err(db("units_of"))
     }
 
+    /// 配布に出す値を読む（`PROFILE-M4`）。まだ決めていなければ `None`。
+    #[tracing::instrument(skip(self), err)]
+    pub fn distribution(&mut self) -> Result<Option<Distribution>> {
+        distribution::table
+            .find(1)
+            .select((
+                distribution::distribution_name,
+                distribution::profile,
+                distribution::author,
+                distribution::voice,
+                distribution::sample,
+                distribution::web,
+                distribution::version,
+                distribution::icon,
+                distribution::portrait,
+                distribution::portrait_opacity,
+                distribution::portrait_height,
+                distribution::tone_range_note,
+                distribution::terms,
+                distribution::credit_example,
+                distribution::contact,
+                distribution::disclaimer,
+                distribution::character_note,
+            ))
+            .first::<DistributionRow>(&mut self.conn)
+            .optional()
+            .map_err(db("distribution"))
+            .map(|r| r.map(Distribution::from))
+    }
+
+    /// 配布に出す値を保存する（`PROFILE-M4`）。
+    ///
+    /// 1行しか無いので、常に差し替える。
+    #[tracing::instrument(skip(self, d), fields(profile = %d.profile), err)]
+    pub fn set_distribution(&mut self, d: &Distribution) -> Result<()> {
+        let values = (
+            distribution::distribution_name.eq(&d.distribution_name),
+            distribution::profile.eq(&d.profile),
+            distribution::author.eq(&d.author),
+            distribution::voice.eq(&d.voice),
+            distribution::sample.eq(&d.sample),
+            distribution::web.eq(&d.web),
+            distribution::version.eq(&d.version),
+            distribution::icon.eq(&d.icon),
+            distribution::portrait.eq(&d.portrait),
+            distribution::portrait_opacity.eq(d.portrait_opacity),
+            distribution::portrait_height.eq(d.portrait_height),
+            distribution::tone_range_note.eq(&d.tone_range_note),
+            distribution::terms.eq(&d.terms),
+            distribution::credit_example.eq(&d.credit_example),
+            distribution::contact.eq(&d.contact),
+            distribution::disclaimer.eq(&d.disclaimer),
+            distribution::character_note.eq(&d.character_note),
+        );
+        diesel::insert_into(distribution::table)
+            .values((distribution::id.eq(1), values))
+            .on_conflict(distribution::id)
+            .do_update()
+            .set(values)
+            .execute(&mut self.conn)
+            .map_err(db("set_distribution"))?;
+        Ok(())
+    }
+
+    /// 配布に出す素材を、行ごとにまとめて引く（`PROFILE-M4`）。
+    ///
+    /// 採用テイクを持つ行だけ。 WAV 名は行の `file_stem` から作る
+    /// （`TR-RCL-08` が ASCII を保証している）ので、テイクの相対パスは
+    /// 配布物の名前に出ない。
+    ///
+    /// エイリアスの並びは決めておく。 同じ音源からは同じ `oto.ini` が出る。
+    #[tracing::instrument(skip(self), err)]
+    pub fn distribution_samples(&mut self) -> Result<Vec<DistributionSample>> {
+        let takes: Vec<(String, String, String, i32)> = rows::table
+            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .order(rows::ordinal.asc())
+            .select((
+                rows::id,
+                rows::file_stem,
+                takes::rel_path,
+                adopted_takes::take_id,
+            ))
+            .load(&mut self.conn)
+            .map_err(db("distribution_samples"))?;
+
+        let mut out = Vec::with_capacity(takes.len());
+        for (row_id, file_stem, rel_path, take_id) in takes {
+            let mut otos = self.otos_of(take_id)?;
+            otos.sort_by(|a, b| a.0.cmp(&b.0));
+            let frq = self.analysis_of(take_id)?.map(|a| a.frq);
+            out.push(DistributionSample {
+                row_id,
+                file_stem,
+                rel_path,
+                take_id,
+                otos,
+                frq,
+            });
+        }
+        Ok(out)
+    }
+
     /// 採用テイクに紐づく oto を、確認の状態ごと全部（`TR-ALN-25`）。
     ///
     /// 採用していないテイクは出さない。 書き出しに出るのは採用したものだけで、
@@ -1668,6 +1786,117 @@ impl Ledger {
     }
 }
 
+/// 配布に出す値（`PROFILE-M4`）。
+///
+/// 表示名は持たない。 manifest.toml が正本で、ここに写すと2箇所になる。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Distribution {
+    /// 音源ルートフォルダ名。ASCII 固定（`DEC-PKG-008`）。
+    pub distribution_name: String,
+    /// 書き出しプロファイル（`TR-PKG-12`）。名前は `koeru-package` が決める。
+    pub profile: String,
+    pub author: Option<String>,
+    pub voice: Option<String>,
+    pub sample: Option<String>,
+    pub web: Option<String>,
+    pub version: Option<String>,
+    /// 音源アイコンの元画像（`DEC-PKG-012`）。変換後ではない。
+    pub icon: Option<Vec<u8>>,
+    /// 立ち絵の PNG（`TR-PKG-07`）。
+    pub portrait: Option<Vec<u8>>,
+    pub portrait_opacity: f64,
+    pub portrait_height: i32,
+    pub tone_range_note: Option<String>,
+    /// 利用規約の本文（`DEC-PKG-011`）。
+    pub terms: Option<String>,
+    pub credit_example: Option<String>,
+    pub contact: Option<String>,
+    pub disclaimer: Option<String>,
+    pub character_note: Option<String>,
+}
+
+/// `distribution` から読んだ1行。欄が多いので、組み立ては
+/// [`Distribution::from`] が持つ。
+type DistributionRow = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    f64,
+    i32,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+impl From<DistributionRow> for Distribution {
+    fn from(r: DistributionRow) -> Self {
+        let (
+            distribution_name,
+            profile,
+            author,
+            voice,
+            sample,
+            web,
+            version,
+            icon,
+            portrait,
+            portrait_opacity,
+            portrait_height,
+            tone_range_note,
+            terms,
+            credit_example,
+            contact,
+            disclaimer,
+            character_note,
+        ) = r;
+        Self {
+            distribution_name,
+            profile,
+            author,
+            voice,
+            sample,
+            web,
+            version,
+            icon,
+            portrait,
+            portrait_opacity,
+            portrait_height,
+            tone_range_note,
+            terms,
+            credit_example,
+            contact,
+            disclaimer,
+            character_note,
+        }
+    }
+}
+
+/// 配布に出す素材1本（`PROFILE-M4`）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct DistributionSample {
+    /// 行 ID。検証結果から行へ戻るのに要る（`TR-PKG-51`）。
+    pub row_id: String,
+    /// 配布 WAV の名前のもと。拡張子を含まない（`TR-RCL-08`）。
+    pub file_stem: String,
+    /// プロジェクト直下からのマスターの相対パス。
+    pub rel_path: String,
+    /// 採用しているテイク。
+    pub take_id: i32,
+    /// この WAV が持つエイリアスと5値。
+    pub otos: Vec<(String, koeru_oto::Oto)>,
+    /// 周波数表（`TR-PKG-05`）。録音時に作ったもの。
+    pub frq: Option<Frq>,
+}
+
 /// `adopted_otos` が読む行。列の並びは `select` と揃える。
 type OtoEntryRow = (
     i32,
@@ -1907,6 +2136,86 @@ mod tests {
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Unrecorded);
         l.commit_take(&take(row, sid, 1)).expect("確定できる");
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Recorded);
+    }
+
+    /// 配布に出す値を往復できる（`PROFILE-M4`）。
+    ///
+    /// スキーマとマイグレーションの食い違いは、実際に SQL を投げないと出ない。
+    #[test]
+    fn 配布に出す値を往復できる() {
+        let (mut l, _sid, _) = ready();
+        assert_eq!(l.distribution().expect("引ける"), None);
+
+        let d = Distribution {
+            distribution_name: "koeru".into(),
+            profile: "both".into(),
+            author: Some("しお".into()),
+            version: Some("1.0".into()),
+            icon: Some(vec![1, 2, 3]),
+            portrait_opacity: 0.8,
+            portrait_height: 800,
+            terms: Some("自由に使えます".into()),
+            ..Distribution::default()
+        };
+        l.set_distribution(&d).expect("書ける");
+        assert_eq!(l.distribution().expect("引ける"), Some(d.clone()));
+
+        // 差し替えても行は増えない。
+        let d2 = Distribution {
+            distribution_name: "koeru2".into(),
+            ..d
+        };
+        l.set_distribution(&d2).expect("書ける");
+        assert_eq!(l.distribution().expect("引ける"), Some(d2));
+    }
+
+    /// 未記入と空文字を分ける（`DEC-PKG-011`）。
+    #[test]
+    fn 未記入は_none_のまま戻る() {
+        let (mut l, _sid, _) = ready();
+        l.set_distribution(&Distribution {
+            distribution_name: "koeru".into(),
+            profile: "both".into(),
+            terms: None,
+            ..Distribution::default()
+        })
+        .expect("書ける");
+        assert_eq!(l.distribution().expect("引ける").expect("ある").terms, None);
+    }
+
+    /// 採用テイクを持つ行だけが配布に出る（`PROFILE-M4`）。
+    #[test]
+    fn 配布に出す素材は採用テイクの分だけ() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        assert!(
+            l.distribution_samples().expect("引ける").is_empty(),
+            "録っていない行は出ない"
+        );
+
+        // 確定すると、その回が採用になる（`TR-REC-21`）。
+        let take_id = l.commit_take(&take(row, sid, 1)).expect("確定できる");
+        l.put_oto(
+            take_id,
+            "あ",
+            &koeru_oto::Oto {
+                offset_ms: 10.0,
+                consonant_ms: 20.0,
+                cutoff_ms: -50.0,
+                preutterance_ms: 15.0,
+                overlap_ms: 5.0,
+            },
+            1.0,
+            None,
+            false,
+        )
+        .expect("書ける");
+
+        let samples = l.distribution_samples().expect("引ける");
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].file_stem, list[0].file_stem);
+        assert_eq!(samples[0].otos.len(), 1);
+        assert_eq!(samples[0].otos[0].0, "あ");
     }
 
     /// 確認の状態と、値ごとの固定が往復する（`TR-ALN-30`）。

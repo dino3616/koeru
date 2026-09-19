@@ -641,14 +641,22 @@ impl ReviewQueue {
         if self.exported {
             return Err(ReviewError::AlreadyExported);
         }
-        if self
-            .entries
-            .values()
-            .any(|e| e.state != EntryState::AutoConfirmed)
-        {
+        if !self.all_confirmed() {
             return Err(ReviewError::ReviewPending);
         }
         Ok(())
+    }
+
+    /// 確認が1件も残っていないか（`INV-ALN-003`）。
+    ///
+    /// **「もう書き出したか」は見ない。** `oto.ini` を一度出したことは、
+    /// 配布パッケージを出せない理由にならない——あちらは音源ルート一式を
+    /// 別の場所へ作るもので、キューの状態を進めない（`PROFILE-M4`）。
+    #[must_use]
+    pub fn all_confirmed(&self) -> bool {
+        self.entries
+            .values()
+            .all(|e| e.state == EntryState::AutoConfirmed)
     }
 
     /// 書き出す。確認が残っている間は通らない（`REQ-PKG-003`, `INV-ALN-003`）。

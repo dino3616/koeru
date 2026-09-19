@@ -11,22 +11,11 @@ prefix = 'TR-PKG'
 
 # この領域が抱える [Risk] と [Unknown]。個別の要件ではなく領域全体にかかる。
 domain_risks = [
-  '[Risk] 音源名の自由入力と classic 互換（CP932）は両立しない場合がある。 音源名は character.txt の name として配布物に現れるため、CP932 で表現できない文字（絵文字、簡体字、ハングル、結合ダイアクリティカル）を含む名前は classic 互換プロファイルで書き出せない。「仮名で始めて後から改名できる」（UC-F01-02）を成立させるには、表示名と配布名を分離してユーザーに配布名を別途決めさせるか、入力時点で文字集合を制限するかのどちらかが要る。どちらも「名前で止まらない」という要件を削る。',
+  '[Risk] 表示名に CP932 で表現できない文字を入れた人は、classic 互換と両対応のプロファイルで書き出せない。 フォルダ名とエントリ名は配布名として分離したが（DEC-PKG-008）、character.txt の name= に出るのは表示名そのもの。絵文字・簡体字・ハングル・結合ダイアクリティカルを含む名前は TR-PKG-17 が書き出し前に止める。「仮名で始めて後から改名できる」（UC-F01-02）は成立するが、改名しないまま配ろうとした時点で詰まる。',
   '[Unknown] classic UTAU 本体および setParam・各リサンプラーが、oto.ini の先頭 `#Charset:` 行と UTF-8 の oto.ini をどこまで許容するかが確認できていない。 許容しないツールが多ければ CP932 固定しか安全な選択肢が無くなる。',
   '[Unknown] 推奨音域を機械可読に持つ場所が、多音階音源の character.yaml の `subbanks.tone_ranges` しか無い。 単一音階の音源では subbanks を持たないため、推奨音域は readme.txt の自由文にしか残らない。単一音階でも subbanks を1つだけ書いて音域を宣言するのが妥当かは、OpenUtau 側の挙動を実機で確認する必要がある。',
-  '[Unknown] UAR（install.txt 同梱・拡張子 `.uar`）を出すかが未決。 UTAU 本体へのドラッグ&ドロップでインストールできる利点があるが、ZIP と UAR の2種類を出すと配布物が増える。OpenUtau は install.txt を無視して展開するため UAR を単独で出しても両対応にはなる。',
   '周波数表は同梱する。 `.frq` は録音時に作ると決めたため、書き出し時の追加コストは無い。ZIP が約3%増える代わりに、受け手の初回再生の待ち時間が消える。',
   '[Unknown] 既存音源の取り込み（他ツールで作った音源を KOERU プロジェクトへ）を製品範囲に含めるかが未決。 含めると符号化の推定、NFD の修復、大小不一致の修復、アーカイブ展開が発生し、本領域の実装量がおよそ倍になる。含めないと、既存音源を持つハルは3本目を必ずゼロから始めることになる。',
-  '''
-[Unknown] 利用規約テンプレートを何種類・どの粒度で同梱するかが未決。 設問から生成する方式は決まるが、生成された文面の法的有効性を KOERU がどこまで表明するか（あるいは一切表明しないか）は決まっていない。
-
----
-
-
----
-
-# 性能予算（エンドツーエンドの内訳）
-''',
 ]
 
 [[requirement]]
@@ -95,7 +84,6 @@ notes = [
 id = 'TR-PKG-07'
 title = 'アイコンと立ち絵を役割で分ける'
 confidence = 'Assumption'
-needs_component = false
 depends_on = []
 statement = 'character.txt の image= が指す音源アイコンは 100×100 の BMP を生成する。立ち絵は character.yaml の portrait / portrait_opacity / portrait_height でのみ指定し、character.txt には書かない。'
 notes = [
@@ -117,7 +105,7 @@ id = 'TR-PKG-09'
 title = 'install.txt と UAR の生成規則'
 confidence = 'Fact'
 depends_on = []
-statement = 'install.txt を生成する場合、type=voiceset、folder=<インストール先ディレクトリ名。省略不可>、contentsdir=<アーカイブ内の格納先ディレクトリ名。同階層なら省略可>、description=<1行の説明。省略可> の4項目のみを書く。install.txt はアーカイブのルート直下に置き、音源フォルダをその下に置く二層構造にする。拡張子を .uar にしたものは UTAU 本体へのドラッグ&ドロップでインストールできる。'
+statement = 'install.txt には type=voiceset、folder=<インストール先ディレクトリ名。省略不可>、contentsdir=<アーカイブ内の格納先ディレクトリ名。同階層なら省略可>、description=<1行の説明。省略可> の4項目のみを書く。install.txt はアーカイブのルート直下に置き、音源フォルダをその下に置く二層構造にする。この形を拡張子 .uar で出し、UTAU 本体へのドラッグ&ドロップでインストールできるようにする。ZIP と UAR は同じ音源ルートフォルダを包み、中身を違えない（DEC-PKG-010）。'
 notes = [
   'ZIP と UAR の2種類を出すと、受け手にどちらを使うか選ばせることになる',
 ]
@@ -147,7 +135,7 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-03',
 ]
-statement = '書き出しプロファイルを3つ実装する。(a) classic 互換: character.txt / oto.ini / prefix.map / readme.txt を CP932、改行 CRLF、ZIP エントリ名を CP932 かつ EFS フラグ無し。(b) OpenUtau 互換: テキストを UTF-8、character.yaml の text_file_encoding に utf-8、ZIP エントリ名を UTF-8 かつ EFS フラグ有り。(c) 両対応: テキストを CP932、character.yaml の text_file_encoding に shift_jis、ZIP エントリ名を CP932。既定は (c) とする。'
+statement = '書き出しプロファイルを3つ実装する。(a) classic 互換: character.txt / oto.ini / prefix.map / readme.txt を CP932、改行 CRLF。(b) OpenUtau 互換: テキストを UTF-8、character.yaml の text_file_encoding に utf-8。(c) 両対応: テキストを CP932、character.yaml の text_file_encoding に shift_jis。既定は (c) とする。character.yaml だけはどのプロファイルでも UTF-8 で書く——読むのは OpenUtau だけで、text_file_encoding が宣言するのはこのファイル自身ではなく他のテキストの符号化。ZIP エントリ名はどのプロファイルでも ASCII 固定とし、EFS フラグを立てない（DEC-PKG-009）'
 notes = [
   'classic UTAU 側の周辺ツール（setParam、各リサンプラー、外部プラグイン）が UTF-8 の oto.ini をどこまで許容するかは未確認で、(b) を既定にできる根拠が無い',
 ]
@@ -168,7 +156,7 @@ confidence = 'Fact'
 depends_on = [
   'TR-PKG-13',
 ]
-statement = 'ZIP エントリ名は、内部モデル（UTF-8 / NFC）の文字列を目的の符号化へ変換したバイト列として明示的に渡す。`zip` crate はエントリ名をバイト列として扱うので、符号化を暗黙の既定に任せない。classic 互換・両対応プロファイルでは CP932、OpenUtau 互換プロファイルでは UTF-8 とする。CP932 へ変換できない文字が含まれる場合は暗黙置換せず、書き出し前検証で止める（TR-PKG-17）。'
+statement = 'ZIP エントリ名は内部モデル（UTF-8 / NFC）から組み立て、ASCII 英数字・ハイフン・アンダースコアと区切りの / だけで構成されていることを書き出し前に検査する（DEC-PKG-009）。収まらない名前を暗黙に変換・置換せず、書き出し前検証で止める（TR-PKG-17）。エントリ名の符号化はプロファイルで変えない。ASCII の範囲では CP932 と UTF-8 のバイト列が一致するため、符号化の宣言（EFS フラグ）も立てない。'
 
 [[requirement]]
 id = 'TR-PKG-15'
@@ -341,7 +329,7 @@ needs_component = false
 depends_on = [
   'TR-PKG-01',
 ]
-statement = 'readme.txt に次の節を必ず含める。音源名 / 制作者名義 / バージョン / 収録方式 / 推奨音域 / 同梱物一覧 / 利用規約 / クレジット表記例 / 連絡先 / 免責 / 周波数表の扱い'
+statement = 'readme.txt に次の節を含める。音源名 / 制作者名義 / バージョン / 収録方式 / 推奨音域 / 同梱物一覧 / 利用規約 / クレジット表記例 / 連絡先 / 免責 / 周波数表の扱い。このうち音源名・収録方式・同梱物一覧・周波数表の扱いは KOERU が持っている情報なので必ず出す。本人が書く節は、書いたものだけを出す（DEC-PKG-011）'
 
 [[requirement]]
 id = 'TR-PKG-29'
@@ -355,13 +343,13 @@ statement = '多音階音源では、推奨音域を character.yaml の subbanks
 
 [[requirement]]
 id = 'TR-PKG-30'
-title = '利用規約を設問から定型文で生成する'
-confidence = 'Fact'
+title = '利用規約は本人が書いた本文をそのまま同梱する'
+confidence = 'Assumption'
 needs_component = false
 depends_on = [
   'TR-PKG-28',
 ]
-statement = '利用規約は自由記述ではなく設問への回答から定型文を生成する。設問は最低限、商用利用（可 / 不可 / 要相談）、クレジット表記（必須 / 任意 / 不要）、改変の可否と範囲、再配布（原本 / 改変版）、成人向け・政治宗教・暴力表現の可否、他の声素材との混用、法人利用、利用報告の要否、免責を含む。生成後に全文をユーザーが編集できる'
+statement = '利用規約は本人が書いた本文をそのまま同梱する。設問からの生成も、KOERU が用意した雛形も持たない（DEC-PKG-011）。未記入でも書き出しを止めず、その場合は readme.txt に規約の節を出さない'
 
 [[requirement]]
 id = 'TR-PKG-31'
@@ -512,7 +500,6 @@ statement = 'バージョン管理は ZIP の書き出し単位で行う。書�
 id = 'TR-PKG-45'
 title = 'ユーザーにフォルダ操作を要求しない'
 confidence = 'Fact'
-needs_component = false
 depends_on = [
   'TR-PKG-37',
   'TR-PKG-42',

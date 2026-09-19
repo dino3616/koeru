@@ -22,6 +22,8 @@ export type {
   ChosenDeviceView,
   DeviceView,
   EnvelopeView,
+  ExportedView,
+  FindingView,
   GainControlView,
   LatencyView,
   LeakView,
@@ -29,12 +31,16 @@ export type {
   MicModeView,
   OtoView,
   OutputKindView,
+  PackageFileView,
+  PackageSettingsView,
+  PackageStateView,
   PlanRowView,
   PreflightView,
   ProgressView,
   ReviewItemView,
   ReviewSummaryView,
   ProjectView,
+  ReleaseView,
   RingView,
   RowTakesView,
   SongPlanView,
@@ -44,11 +50,12 @@ export type {
   SungSongView,
   TakeSummaryView,
   TakeView,
+  UnencodableView,
   VoiceStateView,
   VoiceView,
 } from "~/lib/bindings.gen";
 
-import type { AppError, EnvelopeView, MicModeView } from "~/lib/bindings.gen";
+import type { AppError, EnvelopeView, MicModeView, PackageSettingsView } from "~/lib/bindings.gen";
 
 /** Rust 側の失敗かどうか。 */
 export const isAppError = (e: unknown): e is AppError =>
@@ -170,6 +177,24 @@ export const api = {
   staleTakes: () => unwrap(commands.staleTakes()),
   /** 同梱しているモデルのライセンス表記（`TR-ALN-31`）。 */
   modelNotice: () => unwrap(commands.modelNotice()),
+  /** 配布に出す値（`PROFILE-M4`）。画像は別の口で取る。 */
+  packageSettings: () => unwrap(commands.packageSettings()),
+  setPackageSettings: (input: PackageSettingsView) => unwrap(commands.setPackageSettings(input)),
+  /** 音源アイコンの元画像（`TR-PKG-07`）。`null` で外す。 */
+  setPackageIcon: (bytes: number[] | null) => unwrap(commands.setPackageIcon(bytes)),
+  setPackagePortrait: (bytes: number[] | null) => unwrap(commands.setPackagePortrait(bytes)),
+  packageIcon: () => unwrap(commands.packageIcon()),
+  packagePortrait: () => unwrap(commands.packagePortrait()),
+  /** いま書き出せるか（`TR-PKG-49`）。 */
+  packageState: () => unwrap(commands.packageState()),
+  /** 配り物に入るもの（`TR-PKG-28` の同梱物）。 */
+  packageContents: () => unwrap(commands.packageContents()),
+  /** 書き出す（`REQ-PKG-105`）。ZIP と UAR の2つが出る（`DEC-PKG-010`）。 */
+  exportPackage: () => unwrap(commands.exportPackage()),
+  /** 書き出しの履歴（`TR-PKG-44`）。新しい順。 */
+  releases: () => unwrap(commands.releases()),
+  /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
+  revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
   importUst: (bytes: number[], title: string) => unwrap(commands.importUst(bytes, title)),
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),
