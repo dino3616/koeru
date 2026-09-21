@@ -993,6 +993,8 @@ mod repack_tests {
 
         let full = generate_sequential(UnitSet::Core, 8).expect("生成できる");
         let plan = crate::plan::rows_to_cover(
+            &builtin_rules(),
+            Method::Single,
             &s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core),
             &generate_single(UnitSet::Core, 5).expect("生成できる"),
         );

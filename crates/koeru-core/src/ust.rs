@@ -349,7 +349,9 @@ fn parse_ustx(bytes: &[u8], stem: &str) -> Result<Vec<Song>, UstError> {
             u32::try_from(t.max(0) * i64::from(TICKS_PER_QUARTER) / i64::from(resolution.max(1)))
                 .unwrap_or(u32::MAX)
         };
-        let mut end = notes.first().map_or(0, |(position, _)| *position);
+        // 曲の原点から数える。 **最初の音符の位置から数えていた**ので、
+        // 出だしに置かれた間が消え、取り込んだ曲がいきなり鳴り出していた。
+        let mut end = 0_i64;
         for (position, note) in &mut notes {
             note.rest_ticks = scale(*position - end);
             end = *position

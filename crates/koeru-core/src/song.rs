@@ -489,7 +489,7 @@ pub fn status_of(
 
             // あと何行かを、フルリストの部分集合として数える（`TR-RCL-16`）。
             let still: BTreeSet<String> = required.difference(recorded).cloned().collect();
-            let plan = crate::plan::rows_to_cover(&still, full_list);
+            let plan = crate::plan::rows_to_cover(rules, method, &still, full_list);
 
             SongStatus {
                 id: id.clone(),

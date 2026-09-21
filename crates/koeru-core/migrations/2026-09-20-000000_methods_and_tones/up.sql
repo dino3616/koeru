@@ -41,3 +41,20 @@ CREATE TABLE take_boundaries (
     vowel_end_ms   REAL    NOT NULL,
     PRIMARY KEY (take_id, alias)
 ) STRICT;
+
+-- 既にある行のエイリアスを埋める（TR-RCL-18）。
+--
+-- **埋めていなかった。** この移行より前のプロジェクトは単独音しか作れず、
+-- 単独音のエイリアスは仮名そのもの。被覆も書き出しも `row_aliases` だけを
+-- 読むようになったので、埋めないと**録り終えた音源が「全部足りない」に
+-- 変わり、書き出せなくなる。**
+--
+-- 単独音だと決め打ってよい。 この移行より前に他の方式は作れなかった。
+-- これ以降の行は `install_reclist_for_tones` が方式ごとの綴りで入れる。
+--
+-- 並びは `rows.text` の中での初出順に合わせられないので、仮名順で振る。
+-- `ordinal` は行の中の並びを決定的にするためだけのもので、
+-- 単独音では綴りが仮名と同じなので、どちらでも同じ集合になる。
+INSERT INTO row_aliases (row_id, alias, ordinal)
+SELECT row_id, kana, ROW_NUMBER() OVER (PARTITION BY row_id ORDER BY kana) - 1
+FROM row_units;

@@ -1620,32 +1620,36 @@ impl Ledger {
         Ok(())
     }
 
-    /// その収録単位を鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
+    /// その綴りを鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
     ///
     /// 採用テイクだけ。 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
-    /// 同じ単位を複数の行が持つときは、先に来る行のものを使う（決定的にする）。
-    #[tracing::instrument(skip(self, kana), err)]
-    pub fn take_for_unit(&mut self, kana: &str) -> Result<Option<Take>> {
-        self.take_for_unit_at(kana, None)
+    /// 同じ綴りを複数の行が生むときは、先に来る行のものを使う（決定的にする）。
+    #[tracing::instrument(skip(self, alias), err)]
+    pub fn take_for_alias(&mut self, alias: &str) -> Result<Option<Take>> {
+        self.take_for_alias_at(alias, None)
     }
 
-    /// その収録音高で、その単位を鳴らすためのテイク（`TR-SYN-16`）。
+    /// その収録音高で、その綴りを鳴らすためのテイク（`TR-SYN-16`）。
     ///
     /// `tone` が `None` なら音高を問わない（単音階）。 多音階では
     /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
     /// 1音だけ別人の声になる。
     ///
+    /// **仮名で引いていた。** 原音設定は行が生む綴りで置かれている
+    /// （`TR-RCL-18`）ので、連続音では `か` を引いても何も出ず、
+    /// 試唱の素材が1つも載らなかった。
+    ///
     /// # Errors
     ///
     /// SQLite の操作が失敗した。
-    #[tracing::instrument(skip(self, kana), err)]
-    pub fn take_for_unit_at(&mut self, kana: &str, tone: Option<i32>) -> Result<Option<Take>> {
-        let mut q = row_units::table
-            .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
+    #[tracing::instrument(skip(self, alias), err)]
+    pub fn take_for_alias_at(&mut self, alias: &str, tone: Option<i32>) -> Result<Option<Take>> {
+        let mut q = row_aliases::table
+            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
-            .filter(row_units::kana.eq(kana))
+            .filter(row_aliases::alias.eq(alias))
             .filter(takes::invalid.eq(0))
             .into_boxed();
         if let Some(t) = tone {
@@ -1665,7 +1669,7 @@ impl Ledger {
             ))
             .first::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(&mut self.conn)
             .optional()
-            .map_err(db("take_for_unit"))?;
+            .map_err(db("take_for_alias"))?;
 
         Ok(row.map(build_take))
     }

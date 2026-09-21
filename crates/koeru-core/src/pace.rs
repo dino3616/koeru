@@ -55,21 +55,29 @@ pub const SESSION_SECONDS: f64 = 30.0 * 60.0;
 /// （`DEC-RCL-013`）。`tones` は収録音高の本数——多音階は同じリストを
 /// 音高の数だけ録る。
 #[must_use]
-pub fn fixed_seconds(rows: &[Row], tones: usize) -> f64 {
-    let one_pass: f64 = rows
-        .iter()
-        .map(|r| {
-            let moras = r.units.len();
-            if moras <= 1 {
-                // 単独音の1項目。行読み上げとは周期が違う。
-                SECONDS_PER_UNIT
-            } else if moras <= BASE_MORAS {
-                SECONDS_PER_ROW_BASE
-            } else {
-                SECONDS_PER_ROW_BASE + (moras - BASE_MORAS) as f64 * SECONDS_PER_EXTRA_MORA
-            }
-        })
-        .sum();
+pub fn fixed_seconds(method: Method, rows: &[Row], tones: usize) -> f64 {
+    let one_pass: f64 = match method {
+        // 単独音は単位ごとに数える（`TR-RCL-09` の (1)）。
+        //
+        // **行の長さから式を選んでいた。** `generate_single` は1行に
+        // 5単位まで詰めるので、ほとんどの行が「行読み上げ」の枝に落ち、
+        // 1行 12 秒で数えられていた——102 単位の音源が実際の 1/3 に見える。
+        Method::Single => {
+            rows.iter().map(|r| r.units.len()).sum::<usize>() as f64 * SECONDS_PER_UNIT
+        }
+        // 行読み上げ（`TR-RCL-09` の (2)）。
+        Method::Sequential | Method::Cvvc => rows
+            .iter()
+            .map(|r| {
+                let moras = r.units.len();
+                if moras <= BASE_MORAS {
+                    SECONDS_PER_ROW_BASE
+                } else {
+                    SECONDS_PER_ROW_BASE + (moras - BASE_MORAS) as f64 * SECONDS_PER_EXTRA_MORA
+                }
+            })
+            .sum(),
+    };
     one_pass * tones.max(1) as f64
 }
 
@@ -155,7 +163,7 @@ pub fn offer_of(rows: &[Row]) -> usize {
 /// 方式選択画面の1件を作る（`TR-RCL-11`）。
 #[must_use]
 pub fn offer(method: Method, rows: &[Row], tones: usize) -> MethodOffer {
-    let seconds = fixed_seconds(rows, tones);
+    let seconds = fixed_seconds(method, rows, tones);
     let moras: usize = rows.iter().map(|r| r.units.len()).sum();
     let hard: usize = rows.iter().map(|r| row_risk(r).hard).sum();
     MethodOffer {
@@ -219,10 +227,10 @@ mod tests {
     #[test]
     fn 多音階は音高の本数だけ掛かる() {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
-        let one = fixed_seconds(&rows, 1);
-        assert!((fixed_seconds(&rows, 3) - one * 3.0).abs() < 1e-9);
+        let one = fixed_seconds(Method::Single, &rows, 1);
+        assert!((fixed_seconds(Method::Single, &rows, 3) - one * 3.0).abs() < 1e-9);
         // 0 本は 1 本として扱う。掛け算が 0 になると「一瞬で終わる」と出る。
-        assert!((fixed_seconds(&rows, 0) - one).abs() < 1e-9);
+        assert!((fixed_seconds(Method::Single, &rows, 0) - one).abs() < 1e-9);
     }
 
     /// 難読音は「拗音かつ外来音」（`TR-RCL-07`）。拗音そのものは常用拍。
