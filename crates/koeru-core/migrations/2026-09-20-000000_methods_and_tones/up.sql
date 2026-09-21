@@ -41,24 +41,3 @@ CREATE TABLE take_boundaries (
     vowel_end_ms   REAL    NOT NULL,
     PRIMARY KEY (take_id, alias)
 ) STRICT;
-
--- 行ごとの収録の実測（TR-RCL-10）。
---
--- 残り所要時間の推定にだけ使う。 方式選択画面の値は固定値のままで、
--- ここでは書き換えない——未着手のユーザーには実測が無く、片方だけ実測に
--- すると方式間の比較にならない。
-CREATE TABLE row_measurements (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    row_id       TEXT    NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-    recorded_at  TEXT    NOT NULL,
-    -- 発声開始から終了まで。
-    utterance_ms REAL    NOT NULL,
-    -- 保存から次の行の発声開始まで。
-    gap_ms       REAL    NOT NULL,
-    -- 同一行のテイク数。1 なら録り直していない。
-    takes        INTEGER NOT NULL,
-    -- その行のモーラ数。
-    moras        INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX idx_row_measurements_at ON row_measurements(recorded_at);

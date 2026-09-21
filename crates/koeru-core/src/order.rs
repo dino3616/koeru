@@ -22,6 +22,7 @@
 use std::collections::BTreeSet;
 
 use crate::alias::Method;
+use crate::presamp::Rules;
 use crate::reclist::{Row, row_aliases};
 
 /// 提示順のモード（`TR-SYN-19`）。
@@ -63,8 +64,12 @@ pub const fn auto_switches(song_bank_empty: bool, song_bank_complete: bool) -> b
 /// 台帳からは消えない。
 ///
 /// `covered` は収録済みのエイリアス、`wanted` はそのモードが狙う未収録エイリアス。
+///
+/// 綴りは `rules` から引く（`TR-SYN-36`）。 台帳の収録済みエイリアスと
+/// 突き合わせるので、**ここだけ既定の綴りを使うと噛み合わない。**
 #[must_use]
 pub fn present(
+    rules: &Rules,
     mode: Mode,
     method: Method,
     rows: &[Row],
@@ -83,7 +88,7 @@ pub fn present(
         // 方式全体のうち、まだ無いもの。
         Mode::CoverageEfficiency => rows
             .iter()
-            .flat_map(|r| row_aliases(method, &r.units))
+            .flat_map(|r| row_aliases(rules, method, &r.units))
             .filter(|a| !covered.contains(a))
             .collect(),
     };
@@ -99,7 +104,7 @@ pub fn present(
             .iter()
             .enumerate()
             .max_by_key(|(i, r)| {
-                let gain = row_aliases(method, &r.units)
+                let gain = row_aliases(rules, method, &r.units)
                     .into_iter()
                     .filter(|a| left.contains(a))
                     .count();
@@ -114,7 +119,7 @@ pub fn present(
             .map(|(i, _)| i);
         let Some(i) = pick else { break };
         let row = pool.remove(i);
-        for a in row_aliases(method, &row.units) {
+        for a in row_aliases(rules, method, &row.units) {
             left.remove(&a);
         }
         out.push(row.id.clone());
@@ -141,6 +146,11 @@ fn nearness(a: &Row, b: &Row) -> usize {
 
 #[cfg(test)]
 mod tests {
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
     use super::*;
     use crate::inventory::UnitSet;
     use crate::reclist::generate_single;
@@ -159,6 +169,7 @@ mod tests {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
         let song = have(&["さ", "く", "ら"]);
         let order = present(
+            &builtin_rules(),
             Mode::SongBankFirst,
             Method::Single,
             &rows,
@@ -181,6 +192,7 @@ mod tests {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
         let done = have(&[rows[0].id.as_str()]);
         let order = present(
+            &builtin_rules(),
             Mode::CoverageEfficiency,
             Method::Single,
             &rows,
@@ -199,7 +211,15 @@ mod tests {
     fn すべての行が並ぶ() {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
         for mode in [Mode::SongBankFirst, Mode::CoverageEfficiency] {
-            let order = present(mode, Method::Single, &rows, &empty(), &empty(), &empty());
+            let order = present(
+                &builtin_rules(),
+                mode,
+                Method::Single,
+                &rows,
+                &empty(),
+                &empty(),
+                &empty(),
+            );
             assert_eq!(order.len(), rows.len(), "{mode:?}");
             let uniq: BTreeSet<&String> = order.iter().collect();
             assert_eq!(uniq.len(), rows.len(), "{mode:?} が同じ行を2度出す");
@@ -211,6 +231,7 @@ mod tests {
     fn 提示順は決定的() {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
         let a = present(
+            &builtin_rules(),
             Mode::CoverageEfficiency,
             Method::Single,
             &rows,
@@ -219,6 +240,7 @@ mod tests {
             &empty(),
         );
         let b = present(
+            &builtin_rules(),
             Mode::CoverageEfficiency,
             Method::Single,
             &rows,
@@ -237,6 +259,7 @@ mod tests {
         let rows = generate_single(UnitSet::Core, 5).expect("生成できる");
         let by_id = |id: &String| rows.iter().find(|r| &r.id == id).expect("ある");
         let order = present(
+            &builtin_rules(),
             Mode::CoverageEfficiency,
             Method::Single,
             &rows,

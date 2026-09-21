@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use crate::alias::{self, Method};
 use crate::inventory::UnitSet;
 use crate::mora::{self, Mora};
+use crate::presamp::Rules;
 use crate::tone;
 
 /// 曲の1ノート（`TR-RCL-12` (a)(b)）。
@@ -30,6 +31,15 @@ pub struct Note {
     pub midi: i32,
     /// 長さ（ティック）。UST の 480 ティック = 4分音符。
     pub ticks: u32,
+    /// この音符の前に置く休み（ティック、`TR-RCL-12`）。
+    ///
+    /// **休符を落とさない。** 一度は落としていた——UST の `R` も USTX の
+    /// ノート間の空きも捨てていたので、取り込んだ曲が詰まって鳴り、
+    /// **元の曲と違うリズムになった。**
+    ///
+    /// 休符を音符として持たない。 休みは歌詞もモーラも持たないので、
+    /// 音符の並びに混ぜると被覆の計算に入ってしまう。
+    pub rest_ticks: u32,
 }
 
 /// 曲の出典と許諾（`TR-RCL-12` (f)）。
@@ -59,6 +69,14 @@ pub struct Song {
     /// 音符ごとのベンドは持たない。 UTAU の PBS/PBW/PBY/PBM は音符ごとの形だが、
     /// 試唱はフラグを既定に固定する（`TR-SYN-09`）ので、曲に1つで足りる。
     pub default_portamento_ms: f64,
+    /// 本人が指定した移調量（半音、`TR-SYN-15`）。既定は 0。
+    ///
+    /// **自動では動かさない。** 以前は収録音高に近づくよう曲全体を勝手に
+    /// 移調していた（`DEC-SYN-012`）。本人が「この曲でこの声はどう聴こえるか」を
+    /// 確かめるために入れた曲を黙って別の調にすると、確かめた結果が別物になる。
+    ///
+    /// 推奨値は [`recommended_transpose`] が出す。 出すだけで、当てない。
+    pub transpose: i32,
 }
 
 impl Song {
@@ -97,6 +115,7 @@ impl Song {
             provenance: self.provenance.clone(),
             tempo_bpm: self.tempo_bpm,
             default_portamento_ms: self.default_portamento_ms,
+            transpose: self.transpose,
         }
     }
 
@@ -121,9 +140,14 @@ impl Song {
     ///
     /// 「録音済みサンプルが1件も無い状態」で走らせて事前に算出する（`TR-SYN-17`）。
     #[must_use]
-    pub fn required_aliases(&self, method: Method, set: UnitSet) -> BTreeSet<String> {
+    pub fn required_aliases(
+        &self,
+        rules: &Rules,
+        method: Method,
+        set: UnitSet,
+    ) -> BTreeSet<String> {
         self.moras(set)
-            .map(|m| alias::required_aliases(method, &m, set))
+            .map(|m| alias::required_aliases(rules, method, &m))
             .unwrap_or_default()
     }
 }
@@ -202,8 +226,9 @@ const fn octave_rank(transpose: i32) -> u8 {
     if transpose % 12 == 0 { 0 } else { 1 }
 }
 
-/// ある移調量での整合。
-fn fit_at(song: &Song, tones: &[i32], transpose: i32) -> RangeFit {
+/// ある移調量での整合（`TR-RCL-22`, `TR-SYN-15`）。
+#[must_use]
+pub fn range_fit_at(song: &Song, tones: &[i32], transpose: i32) -> RangeFit {
     let shifts: Vec<Option<i32>> = song
         .notes
         .iter()
@@ -229,31 +254,42 @@ fn fit_at(song: &Song, tones: &[i32], transpose: i32) -> RangeFit {
     }
 }
 
-/// 曲の音域と収録音高の整合を、自動移調を当てたうえで見る（`TR-RCL-22`, `TR-SYN-15`）。
+/// 曲の音域と収録音高の整合を、**本人が指定したキーで**見る（`TR-RCL-22`, `TR-SYN-15`）。
+///
+/// **自動で移調しない**（`DEC-SYN-012`）。 曲は本人が入れた調で鳴る。
+/// 届かないときに何をするかは本人が決める——キーを動かすか、音高を足すか、
+/// そのまま聴くか。推奨は [`recommended_transpose`] と [`rescuing_tone`] が出す。
+#[must_use]
+pub fn range_fit(song: &Song, tones: &[i32]) -> RangeFit {
+    if song.notes.is_empty() || tones.is_empty() {
+        return RangeFit {
+            transpose: song.transpose,
+            strained: song.notes.len(),
+            notes: song.notes.len(),
+            max_shift: i32::MAX,
+            rms_shift: f64::INFINITY,
+        };
+    }
+    range_fit_at(song, tones, song.transpose)
+}
+
+/// 勧めるキー（半音、`TR-SYN-15`）。**当てない。提示するだけ。**
 ///
 /// 選び方は5段。 (1) 外れるノートが最も少ないもの、(2) 試唱の条件を満たすもの、
 /// (3) オクターブ単位のもの、(4) 移調量が小さいもの、(5) 二乗平均シフト量が小さいもの。
 ///
 /// **オクターブを他の移調より先に採る。** 12 半音の移調は調を変えないが、
-/// 11 半音は長7度下——曲が別の調になる。`TR-SYN-15` は「ユーザーにキーを
-/// 選ばせない」と定めているので、選ぶ側が勝手に転調してはいけない。
+/// 11 半音は長7度下——曲が別の調になる。勧める先が転調では困る。
 ///
 /// **二乗平均を先に見ない。** 条件を満たしているのに、平均を数半音下げるためだけに
-/// 調を動かすことになる。曲は書かれた調で鳴るのが既定で、動かすのは届かないときだけ。
+/// 調を動かすことを勧めることになる。曲は書かれた調で鳴るのが既定。
 #[must_use]
-pub fn range_fit(song: &Song, tones: &[i32]) -> RangeFit {
-    let empty = RangeFit {
-        transpose: 0,
-        strained: song.notes.len(),
-        notes: song.notes.len(),
-        max_shift: i32::MAX,
-        rms_shift: f64::INFINITY,
-    };
+pub fn recommended_transpose(song: &Song, tones: &[i32]) -> i32 {
     if song.notes.is_empty() || tones.is_empty() {
-        return empty;
+        return 0;
     }
     TRANSPOSE_SEARCH
-        .map(|t| fit_at(song, tones, t))
+        .map(|t| range_fit_at(song, tones, t))
         .min_by(|a, b| {
             a.strained
                 .cmp(&b.strained)
@@ -262,7 +298,30 @@ pub fn range_fit(song: &Song, tones: &[i32]) -> RangeFit {
                 .then(a.transpose.abs().cmp(&b.transpose.abs()))
                 .then(a.rms_shift.total_cmp(&b.rms_shift))
         })
-        .unwrap_or(empty)
+        .map_or(0, |f| f.transpose)
+}
+
+/// 足すと、この曲がいまのキーのまま届くようになる収録音高（`TR-RCL-22`）。
+///
+/// **キーを動かしたくない人のための道。** 移調を勧めるだけだと、
+/// 「この曲をこの調で歌わせたい」という目的そのものを諦めさせることになる。
+///
+/// 候補は `prefix.map` が覆う範囲。 同じ効果なら低いほうを採る——
+/// 低く録ったほうが上へ伸ばせる幅が広い。
+#[must_use]
+pub fn rescuing_tone(song: &Song, tones: &[i32]) -> Option<i32> {
+    if song.notes.is_empty() || !range_fit(song, tones).is_out_of_range() {
+        return None;
+    }
+    (tone::PREFIX_MAP_LOW..=tone::PREFIX_MAP_HIGH).find(|t| {
+        if tones.contains(t) {
+            return false;
+        }
+        let mut with = tones.to_vec();
+        with.push(*t);
+        with.sort_unstable();
+        !range_fit(song, &with).is_out_of_range()
+    })
 }
 
 /// 歌える曲数が最大になる単一収録音高（`TR-RCL-22`）。
@@ -357,6 +416,12 @@ pub struct SongStatus {
     pub seconds: f64,
     /// 総モーラ数。同数のときの並べ替えに使う（`TR-RCL-17`）。
     pub total_moras: usize,
+    /// 勧めるキー（半音、`TR-SYN-15`）。**当てていない。提示するだけ。**
+    pub recommended_transpose: i32,
+    /// 足すといまのキーのまま届くようになる収録音高（`TR-RCL-22`）。
+    ///
+    /// 届いているなら `None`。 キーを動かしたくない人のための道。
+    pub rescuing_tone: Option<i32>,
     /// 収録音高との音域の整合（`TR-RCL-22`）。
     pub range_fit: RangeFit,
 }
@@ -368,6 +433,7 @@ pub struct SongStatus {
 #[must_use]
 pub fn status_of(
     songs: &[(String, Song)],
+    rules: &Rules,
     method: Method,
     recorded: &BTreeSet<String>,
     set: UnitSet,
@@ -377,7 +443,7 @@ pub fn status_of(
     let mut out: Vec<SongStatus> = songs
         .iter()
         .map(|(id, song)| {
-            let required = song.required_aliases(method, set);
+            let required = song.required_aliases(rules, method, set);
             let covered = required.intersection(recorded).count();
             let missing = required.len().saturating_sub(covered);
 
@@ -390,9 +456,9 @@ pub fn status_of(
                 Singability::Complete
             } else {
                 let resolvable = song.moras(set).is_some_and(|m| {
-                    alias::resolve_phrase(method, &m, recorded, set)
+                    alias::resolve_phrase(rules, method, &m, recorded, set)
                         .iter()
-                        .all(alias::PhraseUnit::is_playable)
+                        .all(|e| e.unit.is_playable())
                 });
                 if resolvable {
                     Singability::WithFallback
@@ -415,6 +481,8 @@ pub fn status_of(
                 missing_rows: plan.rows.len(),
                 seconds: plan.seconds,
                 total_moras: song.total_moras(set),
+                recommended_transpose: recommended_transpose(song, tones),
+                rescuing_tone: rescuing_tone(song, tones),
                 range_fit: fit,
             }
         })
@@ -443,6 +511,11 @@ pub fn singable_count(status: &[SongStatus]) -> usize {
 
 #[cfg(test)]
 mod tests {
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
     use super::*;
 
     fn note(lyric: &str, midi: i32) -> Note {
@@ -450,6 +523,7 @@ mod tests {
             lyric: lyric.to_owned(),
             midi,
             ticks: 480,
+            rest_ticks: 0,
         }
     }
 
@@ -467,6 +541,7 @@ mod tests {
             },
             tempo_bpm: crate::guide::DEFAULT_TEMPO_BPM,
             default_portamento_ms: 0.0,
+            transpose: 0,
         }
     }
 
@@ -490,7 +565,7 @@ mod tests {
         let s = song("test", &["か", "ー"]);
         assert_eq!(s.total_moras(UnitSet::Core), 2, "拍としては2つ");
         assert_eq!(
-            s.required_aliases(Method::Single, UnitSet::Core),
+            s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core),
             have(&["か"]),
             "単位は1つ"
         );
@@ -502,6 +577,7 @@ mod tests {
         let s = song("さくら", &["さ", "く", "ら"]);
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
+            &builtin_rules(),
             Method::Single,
             &have(&["さ", "く", "ら"]),
             UnitSet::Core,
@@ -519,6 +595,7 @@ mod tests {
         let s = song("さくら", &["さ", "く", "ら"]);
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
+            &builtin_rules(),
             Method::Single,
             &have(&["さ", "ら"]),
             UnitSet::Core,
@@ -538,6 +615,7 @@ mod tests {
         // 素の `さ` `く` `ら` は持っている。
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
+            &builtin_rules(),
             Method::Sequential,
             &have(&["さ", "く", "ら"]),
             UnitSet::Core,
@@ -562,6 +640,7 @@ mod tests {
                 ("near".to_owned(), near),
                 ("short".to_owned(), short_tie),
             ],
+            &builtin_rules(),
             Method::Single,
             &have(&["さ", "く"]),
             UnitSet::Core,
@@ -579,6 +658,7 @@ mod tests {
         let s = song("さくら", &["さ", "く", "ら"]);
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
+            &builtin_rules(),
             Method::Single,
             &BTreeSet::new(),
             UnitSet::Core,
@@ -598,13 +678,21 @@ mod tests {
     fn 読めない歌詞は先へ進めない() {
         let s = song("読めない", &["さ", "X"]);
         assert_eq!(s.moras(UnitSet::Core), None);
-        assert!(s.required_aliases(Method::Single, UnitSet::Core).is_empty());
+        assert!(
+            s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core)
+                .is_empty()
+        );
     }
 }
 
 #[cfg(test)]
 mod range_tests {
     use super::*;
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
 
     fn at(midis: &[i32]) -> Song {
         Song {
@@ -615,6 +703,7 @@ mod range_tests {
                     lyric: "あ".to_owned(),
                     midi: *m,
                     ticks: 480,
+                    rest_ticks: 0,
                 })
                 .collect(),
             provenance: Provenance {
@@ -623,6 +712,7 @@ mod range_tests {
             },
             tempo_bpm: crate::guide::DEFAULT_TEMPO_BPM,
             default_portamento_ms: 0.0,
+            transpose: 0,
         }
     }
 
@@ -630,38 +720,73 @@ mod range_tests {
     #[test]
     fn 許容シフト量の境界() {
         let tones = [60];
-        assert_eq!(fit_at(&at(&[67]), &tones, 0).strained, 0, "+7 は許す");
-        assert_eq!(fit_at(&at(&[68]), &tones, 0).strained, 1, "+8 は外れる");
-        assert_eq!(fit_at(&at(&[57]), &tones, 0).strained, 0, "-3 は許す");
-        assert_eq!(fit_at(&at(&[56]), &tones, 0).strained, 1, "-4 は外れる");
+        assert_eq!(range_fit_at(&at(&[67]), &tones, 0).strained, 0, "+7 は許す");
+        assert_eq!(
+            range_fit_at(&at(&[68]), &tones, 0).strained,
+            1,
+            "+8 は外れる"
+        );
+        assert_eq!(range_fit_at(&at(&[57]), &tones, 0).strained, 0, "-3 は許す");
+        assert_eq!(
+            range_fit_at(&at(&[56]), &tones, 0).strained,
+            1,
+            "-4 は外れる"
+        );
     }
 
-    /// 移調してから判定する（`TR-SYN-15`）。
+    /// **勝手に移調しない**（`DEC-SYN-012`）。
     ///
-    /// A3 で録った音源に A4 の曲を当てても、1オクターブ下げれば歌える。
-    /// 移調前の絶対音高で見ると「+12 半音だから音域外」と言ってしまう。
+    /// A3 で録った音源に A4 の曲を当てると届かない。 1オクターブ下げれば
+    /// 歌えるが、**それを黙ってやらない。** 本人が入れた調で鳴らし、
+    /// 下げるかどうかは本人が決める。
     #[test]
-    fn 一オクターブ違いは移調で収まる() {
+    fn 指定が無ければ書かれた調のまま見る() {
         let song = at(&[69, 71, 72, 74]);
         let fit = range_fit(&song, &[57]);
-        assert_eq!(fit.transpose, -12, "1オクターブ下げる");
+        assert_eq!(fit.transpose, 0, "入れた調のまま");
+        assert!(fit.is_out_of_range(), "届いていないことは言う");
+
+        // 勧めはする。当てはしない。
+        assert_eq!(recommended_transpose(&song, &[57]), -12);
+        assert_eq!(range_fit(&song, &[57]).transpose, 0, "勧めても動かない");
+    }
+
+    /// 本人が指定したキーで見る（`TR-SYN-15`）。
+    #[test]
+    fn 指定したキーで判定する() {
+        let mut song = at(&[69, 71, 72, 74]);
+        song.transpose = -12;
+        let fit = range_fit(&song, &[57]);
+        assert_eq!(fit.transpose, -12);
         assert_eq!(fit.strained, 0);
         assert!(!fit.is_out_of_range());
     }
 
-    /// オクターブ以外の移調は調を変える（`TR-SYN-15`）。
+    /// 勧める先が転調では困る（`TR-SYN-15`）。
     ///
     /// -11 半音でも条件は満たせるが、それは長7度下で別の調になる。
     #[test]
-    fn オクターブを他の移調より先に採る() {
-        let fit = range_fit(&at(&[69, 71, 72, 74]), &[57]);
-        assert_eq!(fit.transpose % 12, 0, "転調しない: {}", fit.transpose);
+    fn 勧めるのはオクターブを先に() {
+        let t = recommended_transpose(&at(&[69, 71, 72, 74]), &[57]);
+        assert_eq!(t % 12, 0, "転調を勧めない: {t}");
     }
 
-    /// 条件を満たしているなら、調を動かさない（`TR-SYN-15`）。
+    /// キーを動かしたくない人のために、足せば届く音高を出す（`TR-RCL-22`）。
     #[test]
-    fn 届いているなら移調しない() {
+    fn 足せば届く音高を出す() {
+        let song = at(&[69, 71, 72, 74]);
+        assert!(range_fit(&song, &[57]).is_out_of_range());
+        let add = rescuing_tone(&song, &[57]).expect("足せば届く");
+        assert!(!range_fit(&song, &[57, add]).is_out_of_range());
+        // 届いているなら勧めない。
+        assert_eq!(rescuing_tone(&at(&[60, 62]), &[60]), None);
+    }
+
+    /// 条件を満たしているなら、動かすことを勧めない（`TR-SYN-15`）。
+    #[test]
+    fn 届いているなら移調を勧めない() {
         let fit = range_fit(&at(&[60, 62, 64]), &[60]);
+        assert_eq!(recommended_transpose(&at(&[60, 62, 64]), &[60]), 0);
         assert_eq!(fit.transpose, 0, "理由もなく調を動かさない");
         assert!(fit.is_previewable());
     }
@@ -707,9 +832,15 @@ mod range_tests {
     }
 
     /// 試唱の条件は最大 ±7 半音かつ二乗平均 4 半音以内（`TR-SYN-15`）。
+    ///
+    /// **この数字に実測の裏付けは無い**（`reclist.toml` の領域リスク）。
+    /// だから判定に使うのは「勧めるかどうか」までで、鳴らすのは止めない
+    /// （`DEC-SYN-012`）。
     #[test]
-    fn 試唱の条件は移調後に見る() {
-        assert!(range_fit(&at(&[69, 71, 72]), &[57]).is_previewable());
+    fn 試唱の条件は指定したキーで見る() {
+        let mut song = at(&[69, 71, 72]);
+        song.transpose = -12;
+        assert!(range_fit(&song, &[57]).is_previewable());
         // 2オクターブ以上に広がる曲は、どう移調しても収まらない。
         let wide = at(&[48, 60, 72, 84, 96]);
         assert!(!range_fit(&wide, &[60]).is_previewable());
@@ -746,6 +877,7 @@ mod range_tests {
                     lyric: "あ".to_owned(),
                     midi,
                     ticks: 480,
+                    rest_ticks: 0,
                 })
                 .collect(),
             provenance: Provenance {
@@ -754,9 +886,11 @@ mod range_tests {
             },
             tempo_bpm: crate::guide::DEFAULT_TEMPO_BPM,
             default_portamento_ms: 0.0,
+            transpose: 0,
         };
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s)),
+            &builtin_rules(),
             Method::Single,
             &["あ".to_owned()].into_iter().collect(),
             UnitSet::Core,

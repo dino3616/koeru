@@ -96,34 +96,79 @@ pub const PREFIX_MAP_LOW: i32 = 24;
 /// `prefix.map` が覆う最高音（B7）。
 pub const PREFIX_MAP_HIGH: i32 = 107;
 
-/// 多音階の既定の収録音高（`TR-RCL-06`）。
+/// 多音階の推奨値、女声（G3 / D4 / A4、`TR-RCL-06`）。
 pub const DEFAULT_TONES_FEMALE: [i32; 3] = [55, 62, 69];
-/// 男声の既定（C3 / A3 / E4）。
+/// 男声の推奨値（C3 / A3 / E4）。
 pub const DEFAULT_TONES_MALE: [i32; 3] = [48, 57, 64];
 
-/// 収録音高の間隔として許す下限（半音、`TR-RCL-06`）。
-pub const MIN_TONE_GAP: i32 = 5;
-/// 上限（半音）。
-pub const MAX_TONE_GAP: i32 = 9;
-
-/// 収録音高の並びが `TR-RCL-06` の間隔に収まっているか。
+/// 収録音高として受け取れる並びか見て、揃えて返す（`TR-RCL-01`）。
 ///
-/// 外れても止めない。 警告するだけ——本人が意図して広く取ることはありうる。
-/// 返すのは外れた隣り合わせの組。
-#[must_use]
-pub fn gap_warnings(tones: &[i32]) -> Vec<(i32, i32)> {
+/// **本数も音高も本人が決める。** ここが弾くのは、そもそも鳴らせないものだけ
+/// ——空、`prefix.map` が覆う範囲（C1〜B7）の外、重複。
+///
+/// 並べ替えて返す。 台帳もディレクトリも音高の昇順を前提にしている。
+///
+/// # Errors
+///
+/// 空、範囲の外、重複があるとき。
+pub fn normalize(tones: &[i32]) -> Result<Vec<i32>, ToneError> {
+    if tones.is_empty() {
+        return Err(ToneError::Empty);
+    }
+    if let Some(midi) = tones
+        .iter()
+        .find(|m| !(PREFIX_MAP_LOW..=PREFIX_MAP_HIGH).contains(m))
+    {
+        return Err(ToneError::OutOfRange { midi: *midi });
+    }
     let mut sorted = tones.to_vec();
     sorted.sort_unstable();
+    let before = sorted.len();
     sorted.dedup();
-    sorted
-        .windows(2)
-        .filter(|w| {
-            let gap = w[1] - w[0];
-            !(MIN_TONE_GAP..=MAX_TONE_GAP).contains(&gap)
-        })
-        .map(|w| (w[0], w[1]))
-        .collect()
+    if sorted.len() != before {
+        return Err(ToneError::Duplicate);
+    }
+    Ok(sorted)
 }
+
+/// 収録音高として受け取れない並び。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ToneError {
+    /// 1本も選ばれていない。
+    #[error("収録音高が1つも無い")]
+    Empty,
+    /// `prefix.map` が覆う範囲の外。
+    #[error("prefix.map が覆う範囲の外")]
+    OutOfRange {
+        /// 外れていた音高。
+        midi: i32,
+    },
+    /// 同じ音高が2度ある。
+    #[error("同じ音高が2度ある")]
+    Duplicate,
+}
+
+impl ToneError {
+    /// 送信層へ載せてよい固定文字列。
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::Empty => "tone.empty",
+            Self::OutOfRange { .. } => "tone.out_of_range",
+            Self::Duplicate => "tone.duplicate",
+        }
+    }
+}
+
+/*
+  収録音高の間隔に警告を出さない。
+
+  以前は 5〜9 半音を外れたら警告していた。 **数字の出どころが無かった。**
+  `reclist.toml` の領域リスクが「resampler ごとの劣化量を測定した公開データは
+  見つからなかった」と書いているとおりで、確認できているのは既存音源の
+  prefix.map が 7〜9 半音で切り替わっていることだけ。下限の 5 は何にも
+  基づいていない。**根拠の無い数字で本人の選択を咎めない。**
+*/
 
 /// その音を鳴らすのに使う収録音高（floor 割り当て、`TR-RCL-06`）。
 ///
@@ -262,19 +307,33 @@ mod tests {
         }
     }
 
-    /// 既定の音高は間隔の範囲に収まる（`TR-RCL-06`）。
+    /// 本数も音高も本人が決める（`TR-RCL-01`）。弾くのは鳴らせないものだけ。
     #[test]
-    fn 既定の収録音高は間隔の範囲内() {
-        assert!(gap_warnings(&DEFAULT_TONES_FEMALE).is_empty());
-        assert!(gap_warnings(&DEFAULT_TONES_MALE).is_empty());
+    fn 収録音高は本人が決める() {
+        // 間隔は問わない。 2 半音差でも 24 半音差でも通す。
+        assert_eq!(normalize(&[60, 62]).expect("通る"), [60, 62]);
+        assert_eq!(normalize(&[48, 72]).expect("通る"), [48, 72]);
+        // 並べ替えて返す。台帳もディレクトリも昇順を前提にしている。
+        assert_eq!(normalize(&[69, 55, 62]).expect("通る"), [55, 62, 69]);
+        // 1本でよい。
+        assert_eq!(normalize(&[57]).expect("通る"), [57]);
     }
 
-    /// 外れたら警告する。止めはしない。
     #[test]
-    fn 間隔が外れたら組を返す() {
-        assert_eq!(gap_warnings(&[60, 62]), [(60, 62)], "2半音は狭い");
-        assert_eq!(gap_warnings(&[60, 72]), [(60, 72)], "12半音は広い");
-        assert!(gap_warnings(&[60]).is_empty(), "1本なら間隔が無い");
+    fn 鳴らせない音高は弾く() {
+        assert_eq!(normalize(&[]).expect_err("弾く").kind(), "tone.empty");
+        assert_eq!(
+            normalize(&[PREFIX_MAP_LOW - 1]).expect_err("弾く").kind(),
+            "tone.out_of_range"
+        );
+        assert_eq!(
+            normalize(&[PREFIX_MAP_HIGH + 1]).expect_err("弾く").kind(),
+            "tone.out_of_range"
+        );
+        assert_eq!(
+            normalize(&[60, 60]).expect_err("弾く").kind(),
+            "tone.duplicate"
+        );
     }
 
     /// 割り当てた範囲を合わせると 84 半音になる（`TR-PKG-04`）。

@@ -94,25 +94,32 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
             .or_else(|_| text::decode(bytes, TextEncoding::Cp932))?,
     };
 
-    let mut notes = Vec::new();
+    let mut notes: Vec<Note> = Vec::new();
     let mut lyric: Option<String> = None;
     let mut midi: Option<i32> = None;
     let mut ticks: Option<u32> = None;
     let mut in_note = false;
     let mut tempo = None;
+    // 休符の長さは次の音符へ持ち越す（`TR-RCL-12`）。
+    // **捨てない。** 捨てると曲が詰まって、元と違うリズムで鳴る。
+    let mut pending_rest = 0_u32;
 
     let flush = |notes: &mut Vec<Note>,
+                 pending_rest: &mut u32,
                  lyric: &mut Option<String>,
                  midi: &mut Option<i32>,
                  ticks: &mut Option<u32>| {
-        if let (Some(l), Some(m), Some(t)) = (lyric.take(), midi.take(), ticks.take())
-            && !REST_LYRICS.contains(&l.as_str())
-        {
-            notes.push(Note {
-                lyric: l,
-                midi: m,
-                ticks: t,
-            });
+        if let (Some(l), Some(m), Some(t)) = (lyric.take(), midi.take(), ticks.take()) {
+            if REST_LYRICS.contains(&l.as_str()) {
+                *pending_rest = pending_rest.saturating_add(t);
+            } else {
+                notes.push(Note {
+                    lyric: l,
+                    midi: m,
+                    ticks: t,
+                    rest_ticks: std::mem::take(pending_rest),
+                });
+            }
         }
         *lyric = None;
         *midi = None;
@@ -123,7 +130,13 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
         let line = line.trim();
         if line.starts_with('[') {
             if in_note {
-                flush(&mut notes, &mut lyric, &mut midi, &mut ticks);
+                flush(
+                    &mut notes,
+                    &mut pending_rest,
+                    &mut lyric,
+                    &mut midi,
+                    &mut ticks,
+                );
             }
             // `[#0000]` のような節がノート。 `[#SETTING]` などは飛ばす。
             in_note = line
@@ -154,7 +167,13 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
         }
     }
     if in_note {
-        flush(&mut notes, &mut lyric, &mut midi, &mut ticks);
+        flush(
+            &mut notes,
+            &mut pending_rest,
+            &mut lyric,
+            &mut midi,
+            &mut ticks,
+        );
     }
 
     if notes.is_empty() {
@@ -171,6 +190,8 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
         },
         tempo_bpm: usable_tempo(tempo),
         default_portamento_ms: 0.0,
+        // 本人が指定するまで動かさない（`DEC-SYN-012`）。
+        transpose: 0,
     })
 }
 
@@ -230,32 +251,36 @@ impl Format {
 /// 同じ拍に複数の歌詞が並び、範囲を選ぶ画面で「サビだけ」を指せなくなる。
 /// UST は単トラックなので常に1曲。
 ///
-/// 題はファイル名から採る。 複数のトラックが出るときだけトラック名を足す。
-/// 本人があとから変えられる（`TR-RCL-12`）。
+/// 題はファイル名から採った**候補**。 複数のトラックが出るときだけ
+/// トラック名を足す。**確定させるのは呼び出し側**——本人が入力欄で
+/// 直してから台帳へ入る（`TR-RCL-12`）。
 ///
 /// # Errors
 ///
 /// 符号化を判定できない、ノートが1つも無い、書式が想定と違う。
 #[tracing::instrument(skip(bytes, file_name), fields(len = bytes.len()), err)]
 pub fn parse_file(bytes: &[u8], file_name: &str) -> Result<Vec<Song>, UstError> {
-    let stem = title_of(file_name);
+    let stem = title_hint(file_name);
     match Format::of(file_name, bytes) {
         Format::Ust => Ok(vec![parse_ust(bytes, stem)?]),
         Format::Ustx => parse_ustx(bytes, stem),
     }
 }
 
-/// ファイル名から題を作る。 ディレクトリと拡張子を落とす。
+/// ファイル名から題の**候補**を作る。 ディレクトリと拡張子を落とす。
 ///
-/// 空になったら `曲` にする。 題が空の行が一覧に並ぶと、押す的が見えない。
-fn title_of(file_name: &str) -> &str {
+/// **空でも埋めない。** 以前は空になったら `曲` にしていたが、そうすると
+/// 「曲」という題の行が黙って一覧に並ぶ。ここが返すのは入力欄に置く候補で、
+/// 決めるのは本人（`TR-RCL-12`）。空なら空のまま返し、呼び出し側が
+/// 題の入力を求める。
+#[must_use]
+pub fn title_hint(file_name: &str) -> &str {
     let base = file_name
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(file_name)
         .trim();
-    let stem = base.rsplit_once('.').map_or(base, |(head, _)| head).trim();
-    if stem.is_empty() { "曲" } else { stem }
+    base.rsplit_once('.').map_or(base, |(head, _)| head).trim()
 }
 
 /// USTX（YAML）を読む。
@@ -310,6 +335,27 @@ fn parse_ustx(bytes: &[u8], stem: &str) -> Result<Vec<Song>, UstError> {
     for (track, mut notes) in by_track {
         // 安定ソート。 同じ位置に2つ並んでいたら、書かれていた順を保つ。
         notes.sort_by_key(|(position, _)| *position);
+
+        /*
+          音符のあいだの空きを休みとして持つ（`TR-RCL-12`）。
+
+          **USTX は休符をノートとして持たない。** 空いている時間がそのまま休み。
+          位置を捨てて長さだけ並べると、曲が詰まって元と違うリズムで鳴る。
+
+          分解能を揃えたあとで測る。 位置も `resolution` の刻みなので、
+          そのまま引くと 480 に揃えたティックと単位が合わない。
+        */
+        let scale = |t: i64| -> u32 {
+            u32::try_from(t.max(0) * i64::from(TICKS_PER_QUARTER) / i64::from(resolution.max(1)))
+                .unwrap_or(u32::MAX)
+        };
+        let mut end = notes.first().map_or(0, |(position, _)| *position);
+        for (position, note) in &mut notes {
+            note.rest_ticks = scale(*position - end);
+            end = *position
+                + i64::from(note.ticks) * i64::from(resolution) / i64::from(TICKS_PER_QUARTER);
+        }
+
         songs.push(Song {
             title: if multiple {
                 format!("{stem} — {}", track_name(&names, track))
@@ -324,6 +370,8 @@ fn parse_ustx(bytes: &[u8], stem: &str) -> Result<Vec<Song>, UstError> {
             },
             tempo_bpm: tempo,
             default_portamento_ms: 0.0,
+            // 本人が指定するまで動かさない（`DEC-SYN-012`）。
+            transpose: 0,
         });
     }
     Ok(songs)
@@ -373,6 +421,8 @@ fn ustx_note(raw: &yaml_serde::Value, resolution: u32) -> Result<Option<Note>, U
             u64::from(duration) * u64::from(TICKS_PER_QUARTER) / u64::from(resolution),
         )
         .unwrap_or(u32::MAX),
+        // 休みは並べ直したあとに埋める。 ここでは前の音符が分からない。
+        rest_ticks: 0,
     }))
 }
 
@@ -429,22 +479,31 @@ pub fn bundled_songs() -> Vec<Song> {
 ///
 /// 旋律も歌詞も江戸時代の作で、著作権は存在しない。
 fn sakura_sakura() -> Song {
-    // (歌詞, 半音, 拍数)。A（69）を基準にした都節音階。
+    /*
+      (歌詞, 半音, 拍数)。A3（57）を基準にした都節音階。
+
+      **既定の収録音高で書く**（`preset::DEFAULT_TONE_MIDI`）。 KOERU は曲を
+      勝手に移調しない（`DEC-SYN-012`）ので、A4 で書くと1本目を録り終えても
+      「録った高さから遠い」まま出ることになる。**同梱曲の調はこちらが決める
+      ものなので、移調ではなく記譜で合わせる。**
+
+      別の音高で作った人には遠くなる。 そのときは曲の面がキーを出す。
+    */
     const NOTES: [(&str, i32, u32); 14] = [
-        ("さ", 69, 2),
-        ("く", 69, 2),
-        ("ら", 71, 4),
-        ("さ", 69, 2),
-        ("く", 69, 2),
-        ("ら", 71, 4),
-        ("や", 69, 2),
-        ("よ", 71, 2),
-        ("い", 72, 2),
-        ("の", 74, 2),
-        ("そ", 72, 2),
-        ("ら", 71, 2),
-        ("は", 69, 4),
-        ("ー", 69, 4),
+        ("さ", 57, 2),
+        ("く", 57, 2),
+        ("ら", 59, 4),
+        ("さ", 57, 2),
+        ("く", 57, 2),
+        ("ら", 59, 4),
+        ("や", 57, 2),
+        ("よ", 59, 2),
+        ("い", 60, 2),
+        ("の", 62, 2),
+        ("そ", 60, 2),
+        ("ら", 59, 2),
+        ("は", 57, 4),
+        ("ー", 57, 4),
     ];
     Song {
         title: "さくらさくら".to_owned(),
@@ -455,6 +514,8 @@ fn sakura_sakura() -> Song {
                 midi: *m,
                 // UST の 480 ティック = 4分音符。
                 ticks: beats * 240,
+                // 切れ目なく続く。
+                rest_ticks: 0,
             })
             .collect(),
         provenance: Provenance {
@@ -463,11 +524,18 @@ fn sakura_sakura() -> Song {
         },
         tempo_bpm: crate::guide::DEFAULT_TEMPO_BPM,
         default_portamento_ms: 0.0,
+        // 本人が指定するまで動かさない（`DEC-SYN-012`）。
+        transpose: 0,
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
     use super::*;
     use crate::alias::Method;
     use crate::inventory::UnitSet;
@@ -612,6 +680,51 @@ wave_parts: []
     }
 
     /// `tempos` を `bpm` より先に見る。 古い USTX は `bpm` しか持たない。
+    /// 休符を落とさない（`TR-RCL-12`）。 落とすと曲が詰まって鳴る。
+    #[test]
+    fn ust_の休符を次の音符の休みにする() {
+        // さ(480) / R(240) / く(480)
+        let with_rest = "[#0000]\nLength=480\nLyric=さ\nNoteNum=60\n[#0001]\nLength=240\nLyric=R\nNoteNum=60\n[#0002]\nLength=480\nLyric=く\nNoteNum=62\n[#TRACKEND]\n";
+        let s = parse_ust(with_rest.as_bytes(), "x").expect("読める");
+        assert_eq!(s.notes.len(), 2, "休符は音符として並べない");
+        assert_eq!(s.notes[0].rest_ticks, 0);
+        assert_eq!(s.notes[1].rest_ticks, 240, "休みは次の音符が持つ");
+    }
+
+    /// USTX は休符をノートに持たない。空いている時間がそのまま休み。
+    #[test]
+    fn ustx_のノート間の空きを休みにする() {
+        // Part1 は 0..480（さ）、480..720（く）、720..960（R）で隙間なし。
+        let songs = parse_file(USTX.as_bytes(), "テスト.ustx").expect("読める");
+        assert_eq!(songs[0].notes[1].rest_ticks, 0, "隙間が無ければ 0");
+
+        // 「く」を後ろへずらして 240 ティック空ける。
+        let gapped = USTX.replace(
+            "  - position: 480\n    duration: 240\n    tone: 62\n    lyric: く",
+            "  - position: 720\n    duration: 240\n    tone: 62\n    lyric: く",
+        );
+        let songs = parse_file(gapped.as_bytes(), "テスト.ustx").expect("読める");
+        assert_eq!(songs[0].notes[1].rest_ticks, 240, "空きが休みになる");
+    }
+
+    /// 分解能が違っても、休みも 480 に揃う。
+    #[test]
+    fn 休みも分解能を揃える() {
+        let doubled = USTX
+            .replace("resolution: 480", "resolution: 960")
+            .replace(
+                "  - position: 480\n    duration: 240\n    tone: 62\n    lyric: く",
+                "  - position: 1440\n    duration: 480\n    tone: 62\n    lyric: く",
+            )
+            .replace("duration: 480\n    tone: 60", "duration: 960\n    tone: 60");
+        let songs = parse_file(doubled.as_bytes(), "テスト.ustx").expect("読める");
+        assert_eq!(songs[0].notes[0].ticks, 480);
+        assert_eq!(
+            songs[0].notes[1].rest_ticks, 240,
+            "960 の 480 は 480 の 240"
+        );
+    }
+
     #[test]
     fn ustx_のテンポを落とさない() {
         let songs = parse_file(USTX.as_bytes(), "テスト.ustx").expect("読めること");
@@ -640,7 +753,7 @@ wave_parts: []
         assert_eq!(harmony.total_moras(UnitSet::Core), 2);
         assert_eq!(
             harmony
-                .required_aliases(Method::Single, UnitSet::Core)
+                .required_aliases(&builtin_rules(), Method::Single, UnitSet::Core)
                 .len(),
             1
         );
@@ -718,12 +831,15 @@ wave_parts: []
         assert_eq!(Format::of("曲", &bom), Format::Ust);
     }
 
+    /// 題の候補はファイル名から。 **空でも埋めない**（`TR-RCL-12`）。
     #[test]
-    fn 題はファイル名から採る() {
-        assert_eq!(title_of("/a/b/さくら.ust"), "さくら");
-        assert_eq!(title_of(r"C:\songs\さくら.USTX"), "さくら");
-        assert_eq!(title_of("さくら"), "さくら");
-        assert_eq!(title_of(".ust"), "曲");
+    fn 題の候補はファイル名から採る() {
+        assert_eq!(title_hint("/a/b/さくら.ust"), "さくら");
+        assert_eq!(title_hint(r"C:\songs\さくら.USTX"), "さくら");
+        assert_eq!(title_hint("さくら"), "さくら");
+        // 「曲」で埋めない。 埋めると、題を決めないまま一覧に並ぶ。
+        assert_eq!(title_hint(".ust"), "");
+        assert_eq!(title_hint("  "), "");
     }
 
     /// UST のテンポも落とさない（`TR-SYN-30`）。
@@ -761,13 +877,18 @@ wave_parts: []
         let m = s.moras(UnitSet::Core).expect("読めること");
         assert_eq!(m.len(), s.notes.len());
 
-        let need = s.required_aliases(Method::Single, UnitSet::Core);
+        let need = s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core);
         // さ く ら や よ い の そ は。長音は単位を要求しない。
         assert_eq!(need.len(), 9, "{need:?}");
         assert!(need.contains("さ"));
         assert!(!need.contains("ー"));
 
+        // 既定の収録音高（A3 = 57）のまま届く（`DEC-SYN-012`）。
         let (lo, hi) = s.range().expect("音域");
-        assert!(lo >= 60 && hi <= 84, "歌える範囲にあること: {lo}..{hi}");
+        assert_eq!(lo, 57, "1本目の収録音高から始まる");
+        assert!(
+            hi <= 57 + crate::song::MAX_SHIFT_UP,
+            "上へ伸ばす幅に収まる: {hi}"
+        );
     }
 }

@@ -106,6 +106,31 @@ impl Rules {
         }
     }
 
+    /// 書かれていない表を同梱の既定で埋める（`TR-SYN-36`）。
+    ///
+    /// **落とさない。** `[VOWEL]` / `[CONSONANT]` を書いていないファイルでも、
+    /// その表だけ既定へ戻る——テンプレートだけ差し替えたい人に、所属表を
+    /// 全部書き写させない。
+    ///
+    /// 写させると、写し間違いがそのまま綴りの食い違いになる。 所属表が
+    /// 空のまま解決に入ると `%v%` も `%c%` も空文字になり、
+    /// **`" か"` のような先頭が空白の綴りができる**——録音リストにも
+    /// カバレッジ判定にも同じ綴りが載るので、検査は素通りする。
+    ///
+    /// 節ごとに全部か無か。 半分だけ書かれた表を既定と混ぜない
+    /// ——どちらが効いているか読めなくなる。
+    #[must_use]
+    pub fn or_builtin(mut self, set: UnitSet) -> Self {
+        let d = Self::builtin(set);
+        if self.vowels.is_empty() {
+            self.vowels = d.vowels;
+        }
+        if self.consonants.is_empty() {
+            self.consonants = d.consonants;
+        }
+        self
+    }
+
     /// 節のテンプレートを引く。無ければ既定の綴り。
     ///
     /// **落とさない。** 利用者の `presamp.ini` に節が欠けていても、
@@ -299,9 +324,69 @@ pub fn parse(text: &str) -> Rules {
     }
 }
 
+/// 綴りを突き合わせた OpenUtau（`DEC-SYN-010` の層B）。
+///
+/// **どの KOERU がどの OpenUtau と突き合わされたかの記録。** 配布物の readme
+/// に出す（`koeru_package::readme`）ので、受け取った側も確かめられる。
+///
+/// 正本は `fixtures/phonemizer-parity/openutau.toml`。 CI が同じファイルを読んで
+/// 実際に突き合わせる。**2箇所に書かない**——片方だけが古くなる。
+pub const VERIFIED_OPENUTAU: &str = include_str!("../fixtures/phonemizer-parity/openutau.toml");
+
+/// 突き合わせたチャンネル1つ（`DEC-SYN-010`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Verified {
+    /// OpenUtau のチャンネル名（`stable` / `alpha`）。
+    pub channel: String,
+    /// その版。
+    pub version: String,
+}
+
+/// 突き合わせた版を読む（`DEC-SYN-010`）。
+///
+/// TOML の parser を引かない。 読むのは `name` と `version` の2つだけで、
+/// 形は CI と `openutau-hash-fix` が保っている。**依存を1つ増やすほどの
+/// 用ではない**——ここで読み違えても、CI が本物を使って落ちる。
+#[must_use]
+pub fn verified_openutau() -> Vec<Verified> {
+    let value = |line: &str| {
+        line.split_once('=')
+            .map(|(_, v)| v.trim().trim_matches('"').to_owned())
+    };
+    let mut out = Vec::new();
+    let mut channel: Option<String> = None;
+    for line in VERIFIED_OPENUTAU.lines().map(str::trim) {
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix("name").and_then(|_| value(line)) {
+            channel = Some(name);
+        } else if let Some(version) = line.strip_prefix("version").and_then(|_| value(line))
+            && let Some(channel) = channel.take()
+        {
+            out.push(Verified { channel, version });
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 突き合わせた版を読める（`DEC-SYN-010` の層B）。
+    ///
+    /// **チャンネルは OpenUtau の区分に合わせる。** 既定は stable なので、
+    /// そこを外すと「多くの人が動かしている版」と突き合わせていないことになる。
+    #[test]
+    fn 突き合わせた版を読める() {
+        let v = verified_openutau();
+        let names: Vec<&str> = v.iter().map(|x| x.channel.as_str()).collect();
+        assert_eq!(names, ["stable", "alpha"], "既定の stable を外さない");
+        for x in &v {
+            assert!(!x.version.is_empty(), "{}", x.channel);
+        }
+    }
 
     /// 書いたものを読み戻せる（`TR-RCL-24`, `DEC-SYN-010`）。
     ///

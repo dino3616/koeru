@@ -107,7 +107,14 @@ impl Method {
         }
     }
 
-    fn parse(s: &str) -> Result<Self> {
+    /// manifest の名前から戻す。
+    ///
+    /// 画面から作り方を受け取る口（下位方式の書き出し、`TR-PKG-24`）が要る。
+    ///
+    /// # Errors
+    ///
+    /// 4つのどれでもない名前。
+    pub fn parse(s: &str) -> Result<Self> {
         match s {
             "single" => Ok(Self::Single),
             "sequential" => Ok(Self::Sequential),
@@ -353,6 +360,16 @@ impl ProjectDir {
     #[must_use]
     pub fn manifest_path(&self) -> PathBuf {
         self.root.join("manifest.toml")
+    }
+
+    /// 差し替えるエイリアス規則（`TR-SYN-36`, `DEC-SYN-010`）。
+    ///
+    /// 置いてあれば、綴りの表はこれが正本になる。 無ければ同梱の既定
+    /// （[`crate::presamp::Rules::builtin`]）。書き出す `presamp.ini`
+    /// （`TR-RCL-24`）と同じ形式。
+    #[must_use]
+    pub fn presamp_path(&self) -> PathBuf {
+        self.root.join("presamp.ini")
     }
 
     /// 構造化データ。

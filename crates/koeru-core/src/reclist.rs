@@ -18,9 +18,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::alias::{self, Method};
+use crate::alias::Method;
 use crate::inventory::{Unit, UnitSet, consonants, transition_vowels, units};
 use crate::names;
+use crate::presamp::Rules;
 
 /// 録音リストの1行。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +75,7 @@ pub const DEFAULT_UNITS_PER_ROW: usize = 5;
 /// インベントリが既にその順で並んでいるので、順に詰めるだけで揃う。
 #[tracing::instrument(fields(set = ?set, per_row))]
 pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, ReclistError> {
-    single_for(set, per_row, None)
+    single_for(&Rules::builtin(set), set, per_row, None)
 }
 
 /// 単独音を、欲しいエイリアスだけに絞って生成する（`TR-RCL-16`, `DEC-RCL-011`）。
@@ -82,6 +83,7 @@ pub fn generate_single(set: UnitSet, per_row: usize) -> Result<Vec<Row>, Reclist
 /// 単独音のエイリアスは仮名そのもの。 絞るのは単位の並びを間引くだけで、
 /// 子音行が揃う並び（`TR-RCL-03`）はそのまま保たれる。
 fn single_for(
+    rules: &Rules,
     set: UnitSet,
     per_row: usize,
     wanted: Option<&BTreeSet<String>>,
@@ -92,9 +94,11 @@ fn single_for(
             max: MAX_UNITS_PER_ROW,
         });
     }
+    // 綴りは `rules` から引く（`TR-SYN-36`）。 **仮名で突き合わせていた。**
+    // 差し替えた表では要求集合が別の綴りで並ぶので、1行も作れなくなる。
     let all: Vec<Unit> = units(set)
         .into_iter()
-        .filter(|u| wanted.is_none_or(|w| w.contains(u.kana)))
+        .filter(|u| wanted.is_none_or(|w| w.contains(&head_cv(rules, Method::Single, u.kana))))
         .collect();
     let mut rows = Vec::new();
     let mut chunk: Vec<Unit> = Vec::new();
@@ -128,60 +132,112 @@ fn single_for(
     Ok(rows)
 }
 
-/// 行が生むエイリアス（`TR-RCL-18`）。
+/// 行頭に置いたときの綴り（`TR-SYN-36`）。
+fn head_cv(rules: &Rules, method: Method, kana: &str) -> String {
+    rules
+        .candidates(method, kana, None)
+        .first()
+        .cloned()
+        .unwrap_or_else(|| kana.to_owned())
+}
+
+/// 行の途中に置いたときの綴り（`TR-SYN-36`）。
+fn mid_cv(rules: &Rules, method: Method, kana: &str, previous_vowel: &str) -> String {
+    rules
+        .candidates(method, kana, Some(previous_vowel))
+        .first()
+        .cloned()
+        .unwrap_or_else(|| kana.to_owned())
+}
+
+/// 行のエイリアスが、5値をどのモーラから導くか（`TR-ALN-19`, `TR-RCL-05`）。
+///
+/// 綴りと違って、これは方式と並びだけで決まる。 利用者が `presamp.ini` で
+/// 変えられるのは綴りまでで、音素の時間位置は KOERU の規約プリセットが持つ
+/// （`TR-SYN-36` の「差し替えられるのはエイリアスの綴りまで」）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    /// モーラ1つの CV。
+    Cv { mora: usize },
+    /// 隣り合う2モーラのあいだの渡り。
+    Vc { prev: usize, next: usize },
+    /// 行末の母音が消えていく区間。
+    Ending { mora: usize },
+}
+
+/// 行が生むエイリアスと、その出どころ（`TR-RCL-18`）。
 ///
 /// 行に持たせず、単位列と方式から導く。 同じ値を2箇所に置くと片方だけが変わる
-/// （`TR-RCL-01`）。綴りの定義は [`crate::alias`] が持つ。
+/// （`TR-RCL-01`）。綴りは `rules` が持つ（`TR-SYN-36`）。
 ///
 /// 並びは行の中での初出順。 順がぶれると、同じリストから違う差分が出る
 /// （`TR-RCL-27`）。
 #[must_use]
-pub fn row_aliases(method: Method, line: &[Unit]) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+pub fn row_entries(rules: &Rules, method: Method, line: &[Unit]) -> Vec<(String, Slot)> {
+    let mut out: Vec<(String, Slot)> = Vec::new();
+    let mut push = |a: String, slot: Slot| {
+        if !out.iter().any(|(x, _)| *x == a) {
+            out.push((a, slot));
+        }
+    };
+    let cv = |i: usize, prev: Option<&str>| {
+        rules
+            .candidates(method, line[i].kana, prev)
+            .first()
+            .cloned()
+            .unwrap_or_else(|| line[i].kana.to_owned())
+    };
     match method {
         Method::Single => {
-            for u in line {
-                push_unique(&mut out, u.kana.to_owned());
+            for i in 0..line.len() {
+                push(cv(i, None), Slot::Cv { mora: i });
             }
         }
         // 先頭は `- CV`、以降は「直前の母音 CV」（`TR-SYN-12`）。
         Method::Sequential => {
-            for (i, u) in line.iter().enumerate() {
-                let a = match i.checked_sub(1) {
-                    Some(prev) => format!("{} {}", line[prev].vowel, u.kana),
-                    None => format!("- {}", u.kana),
-                };
-                push_unique(&mut out, a);
+            for i in 0..line.len() {
+                let prev = i.checked_sub(1).map(|p| line[p].vowel);
+                push(cv(i, prev), Slot::Cv { mora: i });
             }
         }
         // CV は先頭だけ語頭形、以降は素（`DEC-SYN-011`）。
         // 隣接から VC、行末から語尾（`TR-RCL-05`）。
         Method::Cvvc => {
-            for (i, u) in line.iter().enumerate() {
-                let cv = if i == 0 {
-                    format!("- {}", u.kana)
-                } else {
-                    u.kana.to_owned()
-                };
-                push_unique(&mut out, cv);
+            for i in 0..line.len() {
+                let prev = i.checked_sub(1).map(|p| line[p].vowel);
+                push(cv(i, prev), Slot::Cv { mora: i });
                 if let Some(next) = line.get(i + 1)
                     && !next.consonant.is_empty()
                 {
-                    push_unique(&mut out, alias::vc_alias(u.vowel, next.consonant));
+                    push(
+                        rules.vc(line[i].vowel, next.consonant),
+                        Slot::Vc {
+                            prev: i,
+                            next: i + 1,
+                        },
+                    );
                 }
             }
             if let Some(last) = line.last() {
-                push_unique(&mut out, alias::ending_alias(last.vowel));
+                push(
+                    rules.ending(last.vowel),
+                    Slot::Ending {
+                        mora: line.len() - 1,
+                    },
+                );
             }
         }
     }
     out
 }
 
-fn push_unique(out: &mut Vec<String>, a: String) {
-    if !out.contains(&a) {
-        out.push(a);
-    }
+/// 行が生むエイリアスだけ（`TR-RCL-18`）。
+#[must_use]
+pub fn row_aliases(rules: &Rules, method: Method, line: &[Unit]) -> Vec<String> {
+    row_entries(rules, method, line)
+        .into_iter()
+        .map(|(a, _)| a)
+        .collect()
 }
 
 /// 行に単位を足してよいか（`TR-RCL-07`）。
@@ -248,13 +304,14 @@ fn check_per_row(per_row: usize, method: &'static str, min: usize) -> Result<(),
 /// その単位の語頭は第1段で既に出ている。重複は書き出し側が1つに畳む。
 #[tracing::instrument(fields(set = ?set, per_row))]
 pub fn generate_sequential(set: UnitSet, per_row: usize) -> Result<Vec<Row>, ReclistError> {
-    sequential_for(set, per_row, None)
+    sequential_for(&Rules::builtin(set), set, per_row, None)
 }
 
 /// 連続音を、欲しいエイリアスだけに絞って生成する（`TR-RCL-16`, `DEC-RCL-011`）。
 ///
 /// `wanted` が `None` なら全部。 与えれば、そこに載っている綴りだけを狙う。
 fn sequential_for(
+    rules: &Rules,
     set: UnitSet,
     per_row: usize,
     wanted: Option<&BTreeSet<String>>,
@@ -267,7 +324,14 @@ fn sequential_for(
     // 辺 = (先行母音の添字, 単位の添字)。
     let mut remaining: BTreeSet<(usize, usize)> = (0..vowels.len())
         .flat_map(|v| (0..table.len()).map(move |u| (v, u)))
-        .filter(|(v, u)| want(&format!("{} {}", vowels[*v], table[*u].kana)))
+        .filter(|(v, u)| {
+            want(&mid_cv(
+                rules,
+                Method::Sequential,
+                table[*u].kana,
+                vowels[*v],
+            ))
+        })
         .collect();
     let vowel_of = |u: usize| {
         vowels
@@ -279,7 +343,7 @@ fn sequential_for(
     let mut lines: Vec<Vec<usize>> = Vec::new();
     // 行頭は `- CV` を生む唯一の位置。 欲しい語頭だけを行頭に置く。
     for start in 0..table.len() {
-        if !want(&format!("- {}", table[start].kana)) {
+        if !want(&head_cv(rules, Method::Sequential, table[start].kana)) {
             continue;
         }
         let mut line = vec![start];
@@ -329,13 +393,18 @@ fn extend_sequential(
 ///
 /// 段が4つある。 第1段で全単位を行頭に置き、ついでに VC と素の CV を拾う。
 /// 残った VC・素の CV・語尾を、第2〜4段がそれぞれ回収する。
-#[tracing::instrument(fields(set = ?set, per_row))]
-pub fn generate_cvvc(set: UnitSet, per_row: usize) -> Result<Vec<Row>, ReclistError> {
-    cvvc_for(set, per_row, None)
+#[tracing::instrument(skip(rules), fields(set = ?set, per_row))]
+pub fn generate_cvvc(
+    rules: &Rules,
+    set: UnitSet,
+    per_row: usize,
+) -> Result<Vec<Row>, ReclistError> {
+    cvvc_for(rules, set, per_row, None)
 }
 
 /// CVVC を、欲しいエイリアスだけに絞って生成する（`TR-RCL-16`, `DEC-RCL-011`）。
 fn cvvc_for(
+    rules: &Rules,
     set: UnitSet,
     per_row: usize,
     wanted: Option<&BTreeSet<String>>,
@@ -353,13 +422,15 @@ fn cvvc_for(
             .unwrap_or_default()
     };
     // 欲しいもの。覆ったら消す。
-    let mut want_mid: BTreeSet<usize> = (0..table.len()).filter(|u| want(table[*u].kana)).collect();
+    let mut want_mid: BTreeSet<usize> = (0..table.len())
+        .filter(|u| want(&mid_cv(rules, Method::Cvvc, table[*u].kana, "a")))
+        .collect();
     let mut want_vc: BTreeSet<(usize, usize)> = (0..vowels.len())
         .flat_map(|v| (0..cons.len()).map(move |c| (v, c)))
-        .filter(|(v, c)| want(&alias::vc_alias(vowels[*v], cons[*c])))
+        .filter(|(v, c)| want(&rules.vc(vowels[*v], cons[*c])))
         .collect();
     let mut want_end: BTreeSet<usize> = (0..vowels.len())
-        .filter(|v| want(&alias::ending_alias(vowels[*v])))
+        .filter(|v| want(&rules.ending(vowels[*v])))
         .collect();
     let consonant_of = |u: usize| cons.iter().position(|c| *c == table[u].consonant);
 
@@ -372,7 +443,7 @@ fn cvvc_for(
 
     // 第1段。欲しい語頭だけを行頭へ。
     for start in 0..table.len() {
-        if !want(&format!("- {}", table[start].kana)) {
+        if !want(&head_cv(rules, Method::Cvvc, table[start].kana)) {
             continue;
         }
         let mut line = vec![start];
@@ -490,29 +561,37 @@ fn extend_cvvc(
 /// 行 ID は `p` で始まる。 プリセットから生成した行（`s` / `q` / `c`）と
 /// 混ざらない——台帳は出どころを見分けられる必要がある（`TR-RCL-18`）。
 ///
+/// **続きは中身から決める。** 一度は `p001` から順に振っていたが、
+/// 2回目の詰め直しが同じ番号を作り、`rows.id` は主鍵なので
+/// **一意制約に当たって台帳ごと落ちた。** 行の中身（読み上げる文字列）の
+/// 指紋を使えば、番号を持ち回らずに一意になる。
+///
+/// 同じ行は同じ ID になる。 選び直した範囲が前と重なっていれば、
+/// そこは同じ行——増やさずに済む（台帳側は衝突を無視して入れる）。
+///
 /// 決定性は保つ（`TR-RCL-27`）。 同じ `required` からは常に同じリストを得る。
 ///
 /// # Errors
 ///
 /// 1行あたりの単位数が範囲外、その方式に短すぎる、ファイル名の条件を満たせない。
-#[tracing::instrument(skip(required), fields(set = ?set, per_row, want = required.len()))]
+#[tracing::instrument(skip(rules, required), fields(set = ?set, per_row, want = required.len()))]
 pub fn repack(
+    rules: &Rules,
     method: Method,
     set: UnitSet,
     required: &BTreeSet<String>,
     per_row: usize,
 ) -> Result<Vec<Row>, ReclistError> {
     let rows = match method {
-        Method::Single => single_for(set, per_row, Some(required))?,
-        Method::Sequential => sequential_for(set, per_row, Some(required))?,
-        Method::Cvvc => cvvc_for(set, per_row, Some(required))?,
+        Method::Single => single_for(rules, set, per_row, Some(required))?,
+        Method::Sequential => sequential_for(rules, set, per_row, Some(required))?,
+        Method::Cvvc => cvvc_for(rules, set, per_row, Some(required))?,
     };
-    // 出どころが分かる ID に振り直す。
+    // 出どころが分かる ID に振り直す。 番号ではなく中身の指紋から作る。
     let rows: Vec<Row> = rows
         .into_iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let id = format!("p{:03}", i + 1);
+        .map(|r| {
+            let id = packed_id(&r.text);
             Row {
                 file_stem: id.clone(),
                 id,
@@ -523,6 +602,26 @@ pub fn repack(
     validate_file_names(&rows)?;
     tracing::debug!(rows = rows.len(), "選択から録音リストを詰め直した");
     Ok(rows)
+}
+
+/// 詰め直した行の ID（`TR-RCL-18`, `DEC-RCL-011`）。
+///
+/// `p` ＋ 読み上げる文字列の指紋。 **番号で振らない**——2回目の詰め直しが
+/// 同じ番号を作り、主鍵に当たって落ちる。
+///
+/// 8桁で切る。 16 進 8 桁は 40 億通りで、1プロジェクトの行数（多くて数千）に対して
+/// 衝突は現実的に起きない。同じ文字列なら同じ ID になるので、
+/// 同じ行を2度入れようとしても増えない。
+///
+/// ファイル名になる（`TR-RCL-08`）。 16 進と `p` だけなので ASCII の条件を満たす。
+fn packed_id(text: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    let digest = Sha256::digest(text.as_bytes());
+    let mut id = String::from("p");
+    for b in &digest[..4] {
+        id.push_str(&format!("{b:02x}"));
+    }
+    id
 }
 
 /// ファイル名の条件を確かめる（`TR-RCL-08`）。
@@ -551,6 +650,11 @@ fn validate_file_names(rows: &[Row]) -> Result<(), ReclistError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 既定の綴り（`TR-SYN-36`）。 差し替えていない音源はこれを通る。
+    fn builtin_rules() -> Rules {
+        Rules::builtin(UnitSet::Core)
+    }
 
     /// 中核 102 単位が全部リストに入る（`DEC-RCL-004`）。
     #[test]
@@ -639,7 +743,7 @@ mod tests {
     fn covered(method: Method, rows: &[Row]) -> BTreeSet<String> {
         let mut out = BTreeSet::new();
         for r in rows {
-            out.extend(row_aliases(method, &r.units));
+            out.extend(row_aliases(&builtin_rules(), method, &r.units));
         }
         out
     }
@@ -681,7 +785,7 @@ mod tests {
     /// 語頭 CV 144 ＋ 素の CV 144 ＋ VC 180 ＋ 語尾 6 = 474。
     #[test]
     fn cvvc_は三種すべてを覆う() {
-        let rows = generate_cvvc(UnitSet::Extended, 8).expect("生成できる");
+        let rows = generate_cvvc(&builtin_rules(), UnitSet::Extended, 8).expect("生成できる");
         let got = covered(Method::Cvvc, &rows);
         let table = units(UnitSet::Extended);
         let vowels = transition_vowels(UnitSet::Extended);
@@ -690,11 +794,11 @@ mod tests {
             assert!(got.contains(u.kana), "素の {}", u.kana);
         }
         for vc in crate::inventory::vc_units(UnitSet::Extended) {
-            let a = alias::vc_alias(vc.vowel, vc.consonant);
+            let a = builtin_rules().vc(vc.vowel, vc.consonant);
             assert!(got.contains(&a), "VC {a}");
         }
         for v in &vowels {
-            assert!(got.contains(&alias::ending_alias(v)), "語尾 {v}");
+            assert!(got.contains(&builtin_rules().ending(v)), "語尾 {v}");
         }
         assert_eq!(got.len(), table.len() * 2 + 180 + vowels.len());
     }
@@ -704,7 +808,7 @@ mod tests {
     /// 語頭 CV は行の先頭にしか出ない。 これを下回る生成は、どこかの語頭を落としている。
     #[test]
     fn cvvc_の行数は語頭_cv_の数を下回らない() {
-        let rows = generate_cvvc(UnitSet::Extended, 8).expect("生成できる");
+        let rows = generate_cvvc(&builtin_rules(), UnitSet::Extended, 8).expect("生成できる");
         assert!(
             rows.len() >= units(UnitSet::Extended).len(),
             "{} 行",
@@ -726,11 +830,11 @@ mod tests {
             ),
             (
                 Method::Cvvc,
-                generate_cvvc(UnitSet::Extended, 8).expect("生成できる"),
+                generate_cvvc(&builtin_rules(), UnitSet::Extended, 8).expect("生成できる"),
             ),
         ] {
             for r in &rows {
-                let a = row_aliases(method, &r.units);
+                let a = row_aliases(&builtin_rules(), method, &r.units);
                 let uniq: BTreeSet<&String> = a.iter().collect();
                 assert_eq!(a.len(), uniq.len(), "行 {} が重複を持つ: {a:?}", r.id);
             }
@@ -771,8 +875,8 @@ mod tests {
             generate_sequential(UnitSet::Extended, 8).expect("生成できる")
         );
         assert_eq!(
-            generate_cvvc(UnitSet::Core, 5).expect("生成できる"),
-            generate_cvvc(UnitSet::Core, 5).expect("生成できる")
+            generate_cvvc(&builtin_rules(), UnitSet::Core, 5).expect("生成できる"),
+            generate_cvvc(&builtin_rules(), UnitSet::Core, 5).expect("生成できる")
         );
     }
 
@@ -784,7 +888,7 @@ mod tests {
             Err(ReclistError::RowTooShort { .. })
         ));
         assert!(matches!(
-            generate_cvvc(UnitSet::Core, 1),
+            generate_cvvc(&builtin_rules(), UnitSet::Core, 1),
             Err(ReclistError::RowTooShort { .. })
         ));
     }
@@ -834,6 +938,11 @@ mod repack_tests {
     use super::*;
     use crate::song::{Note, Provenance, Song};
 
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> Rules {
+        Rules::builtin(UnitSet::Core)
+    }
+
     fn song(lyrics: &[&str], midis: &[i32]) -> Song {
         Song {
             title: "t".to_owned(),
@@ -844,6 +953,7 @@ mod repack_tests {
                     lyric: (*l).to_owned(),
                     midi: *m,
                     ticks: 480,
+                    rest_ticks: 0,
                 })
                 .collect(),
             provenance: Provenance {
@@ -852,12 +962,13 @@ mod repack_tests {
             },
             tempo_bpm: 120.0,
             default_portamento_ms: 0.0,
+            transpose: 0,
         }
     }
 
     fn covered(method: Method, rows: &[Row]) -> BTreeSet<String> {
         rows.iter()
-            .flat_map(|r| row_aliases(method, &r.units))
+            .flat_map(|r| row_aliases(&builtin_rules(), method, &r.units))
             .collect()
     }
 
@@ -866,8 +977,9 @@ mod repack_tests {
     fn 選んだ音だけを覆う() {
         let s = song(&["さ", "く", "ら"], &[60, 60, 62]);
         for method in [Method::Single, Method::Sequential, Method::Cvvc] {
-            let need = s.required_aliases(method, UnitSet::Core);
-            let rows = repack(method, UnitSet::Core, &need, 8).expect("詰め直せる");
+            let need = s.required_aliases(&builtin_rules(), method, UnitSet::Core);
+            let rows =
+                repack(&builtin_rules(), method, UnitSet::Core, &need, 8).expect("詰め直せる");
             let got = covered(method, &rows);
             assert!(need.is_subset(&got), "{method:?} が要るものを覆わない");
         }
@@ -877,14 +989,21 @@ mod repack_tests {
     #[test]
     fn 部分集合より短い() {
         let s = song(&["さ", "く", "ら"], &[60, 60, 62]);
-        let need = s.required_aliases(Method::Sequential, UnitSet::Core);
+        let need = s.required_aliases(&builtin_rules(), Method::Sequential, UnitSet::Core);
 
         let full = generate_sequential(UnitSet::Core, 8).expect("生成できる");
         let plan = crate::plan::rows_to_cover(
-            &s.required_aliases(Method::Single, UnitSet::Core),
+            &s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core),
             &generate_single(UnitSet::Core, 5).expect("生成できる"),
         );
-        let packed = repack(Method::Sequential, UnitSet::Core, &need, 8).expect("詰め直せる");
+        let packed = repack(
+            &builtin_rules(),
+            Method::Sequential,
+            UnitSet::Core,
+            &need,
+            8,
+        )
+        .expect("詰め直せる");
         let packed_moras: usize = packed.iter().map(|r| r.units.len()).sum();
         let subset_moras: usize = plan.rows.iter().map(|r| r.units.len()).sum();
 
@@ -901,8 +1020,9 @@ mod repack_tests {
     #[test]
     fn 詰め直した行は_id_で見分けられる() {
         let s = song(&["か"], &[60]);
-        let need = s.required_aliases(Method::Single, UnitSet::Core);
-        let rows = repack(Method::Single, UnitSet::Core, &need, 5).expect("詰め直せる");
+        let need = s.required_aliases(&builtin_rules(), Method::Single, UnitSet::Core);
+        let rows =
+            repack(&builtin_rules(), Method::Single, UnitSet::Core, &need, 5).expect("詰め直せる");
         assert!(
             rows.iter().all(|r| r.id.starts_with('p')),
             "{:?}",
@@ -915,10 +1035,24 @@ mod repack_tests {
     #[test]
     fn 同じ選択からは同じリスト() {
         let s = song(&["さ", "く", "ら"], &[60, 60, 62]);
-        let need = s.required_aliases(Method::Sequential, UnitSet::Core);
+        let need = s.required_aliases(&builtin_rules(), Method::Sequential, UnitSet::Core);
         assert_eq!(
-            repack(Method::Sequential, UnitSet::Core, &need, 8).expect("詰め直せる"),
-            repack(Method::Sequential, UnitSet::Core, &need, 8).expect("詰め直せる")
+            repack(
+                &builtin_rules(),
+                Method::Sequential,
+                UnitSet::Core,
+                &need,
+                8
+            )
+            .expect("詰め直せる"),
+            repack(
+                &builtin_rules(),
+                Method::Sequential,
+                UnitSet::Core,
+                &need,
+                8
+            )
+            .expect("詰め直せる")
         );
     }
 
@@ -930,17 +1064,17 @@ mod repack_tests {
     fn 綴りがフルリストと同じ() {
         let s = song(&["さ", "く", "ら"], &[60, 60, 62]);
         for method in [Method::Single, Method::Sequential, Method::Cvvc] {
-            let need = s.required_aliases(method, UnitSet::Core);
+            let need = s.required_aliases(&builtin_rules(), method, UnitSet::Core);
             let packed = covered(
                 method,
-                &repack(method, UnitSet::Core, &need, 8).expect("詰め直せる"),
+                &repack(&builtin_rules(), method, UnitSet::Core, &need, 8).expect("詰め直せる"),
             );
             let full = covered(
                 method,
                 &match method {
                     Method::Single => generate_single(UnitSet::Core, 5),
                     Method::Sequential => generate_sequential(UnitSet::Core, 8),
-                    Method::Cvvc => generate_cvvc(UnitSet::Core, 8),
+                    Method::Cvvc => generate_cvvc(&builtin_rules(), UnitSet::Core, 8),
                 }
                 .expect("生成できる"),
             );
@@ -958,7 +1092,7 @@ mod repack_tests {
         let need = BTreeSet::new();
         for method in [Method::Single, Method::Sequential, Method::Cvvc] {
             assert!(
-                repack(method, UnitSet::Core, &need, 8)
+                repack(&builtin_rules(), method, UnitSet::Core, &need, 8)
                     .expect("通る")
                     .is_empty()
             );

@@ -74,19 +74,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    /// 行ごとの収録の実測（`TR-RCL-10`）。
-    row_measurements (id) {
-        id -> Integer,
-        row_id -> Text,
-        recorded_at -> Text,
-        utterance_ms -> Double,
-        gap_ms -> Double,
-        takes -> Integer,
-        moras -> Integer,
-    }
-}
-
-diesel::table! {
     /// 行が生む収録単位。カバレッジはここから導出する。
     row_units (row_id, kana) {
         row_id -> Text,
@@ -260,6 +247,7 @@ diesel::table! {
         added_at -> Text,
         tempo_bpm -> Double,
         default_portamento_ms -> Double,
+        transpose -> Integer,
     }
 }
 
@@ -271,6 +259,7 @@ diesel::table! {
         lyric -> Text,
         midi -> Integer,
         ticks -> Integer,
+        rest_ticks -> Integer,
     }
 }
 
@@ -278,7 +267,6 @@ diesel::joinable!(song_notes -> songs (song_id));
 
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(row_aliases -> rows (row_id));
-diesel::joinable!(row_measurements -> rows (row_id));
 diesel::joinable!(take_boundaries -> takes (take_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
@@ -295,7 +283,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     row_units,
     recording_order,
     row_aliases,
-    row_measurements,
     take_boundaries,
     takes,
     adopted_takes,

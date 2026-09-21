@@ -1,18 +1,25 @@
-//! 収録ペースと所要時間（`TR-RCL-09`, `TR-RCL-10`, `TR-RCL-11`）。
+//! 収録ペースと所要時間（`TR-RCL-09`, `TR-RCL-11`）。
 //!
 //! 式は2本ある。 単独音は1項目＝1モーラなので「1単位あたりのサイクル × 単位数」、
 //! 行読み上げ（連続音 / CVVC）は「1行 12.0 秒＋モーラ超過分」。周期が違う。
 //!
-//! # 固定値と実測を混ぜない
+//! # 実測でペースを推定しない
 //!
-//! 方式選択画面に出す値は固定値のまま（`TR-RCL-10`）。 未着手のユーザーには実測が無く、
-//! 片方だけ実測で書き換えると方式間の比較にならない。実測が効くのは、
-//! そのプロジェクトの「残り所要時間」だけ。
+//! 一度は実装した。 直近20行の中央値から推定して残り時間へ効かせていたが、
+//! **落とした**（`DEC-RCL-013`）。選択画面が固定値・進行中が実測値という
+//! 二重表示になり、席を立った・数行だけ録った・録り直しが続いたといった
+//! 例外を数えはじめることになる。値の出どころが1本なら、その手当てが要らない。
 //!
 //! # 12.0 秒は実務値であって実測ではない
 //!
 //! `DEC-RCL-008` が「暫定値のまま確定する」と決めている。 置き換える条件は
 //! その判断記録の `review_triggers` が持つ。
+//!
+//! # 時間だけで示さない
+//!
+//! 残りは時間と件数の両方で出す（`TR-RCL-09`）。 固定値の見積もりは桁しか
+//! 合っていないので、時間だけ出すと精度を騙ることになる。
+//! 件数は数え上げなので正確で、本人が自分のペースを当てはめられる。
 
 use crate::alias::Method;
 use crate::inventory::{Unit, UnitSet, units};
@@ -35,12 +42,6 @@ const BASE_MORAS: usize = 6;
 /// [Unknown] 実測の裏付けが無い。 `TR-RCL-09` の notes がそう書いている。
 pub const DEFAULT_RETAKE_RATE: f64 = 0.20;
 
-/// 実測が効き始めるまでの行数（`TR-RCL-10` の「実測が 10 行に達するまでは固定値を使う」）。
-pub const MEASUREMENT_WARMUP_ROWS: usize = 10;
-
-/// 実測を見る窓（`TR-RCL-10` の「直近 20 行の中央値」）。
-pub const MEASUREMENT_WINDOW_ROWS: usize = 20;
-
 /// 1回の録音セッションの想定長（秒）。`TR-RCL-11` (c) の回数を出すのに使う。
 ///
 /// [Unknown] 実測も根拠も無い。 `TR-REC-30` はセッションを切る条件（30 分の無操作）を
@@ -48,98 +49,11 @@ pub const MEASUREMENT_WINDOW_ROWS: usize = 20;
 /// 所要時間そのものには効かない。
 pub const SESSION_SECONDS: f64 = 30.0 * 60.0;
 
-/// 収録ペース（`TR-RCL-10`）。
+/// 所要時間（秒、`TR-RCL-09`）。
 ///
-/// 固定値から始まり、実測が溜まると置き換わる。 置き換わるのは残り時間の表示だけで、
-/// 方式選択画面の値は固定値のまま。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Pace {
-    /// 1行あたりの固定オーバーヘッド（秒）。保存から次の発声開始まで。
-    pub overhead_s: f64,
-    /// 1モーラあたりの発声時間（秒）。
-    pub per_mora_s: f64,
-    /// 録り直し率。0.2 なら 1.2 倍かかる。
-    pub retake_rate: f64,
-}
-
-impl Pace {
-    /// 実測が無いときの値（`TR-RCL-09`, `DEC-RCL-008`）。
-    ///
-    /// 1行 12.0 秒を「オーバーヘッド＋6モーラ分の発声」として割る。
-    /// 超過分の 1.2 秒/モーラがそのまま発声時間になる。
-    #[must_use]
-    pub const fn fixed() -> Self {
-        Self {
-            overhead_s: SECONDS_PER_ROW_BASE - BASE_MORAS as f64 * SECONDS_PER_EXTRA_MORA,
-            per_mora_s: SECONDS_PER_EXTRA_MORA,
-            retake_rate: DEFAULT_RETAKE_RATE,
-        }
-    }
-}
-
-/// 1行の実測（`TR-RCL-10`）。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RowMeasurement {
-    /// 発声開始から終了まで（秒）。
-    pub utterance_s: f64,
-    /// 保存から次の行の発声開始まで（秒）。
-    pub gap_s: f64,
-    /// 同一行のテイク数。1 なら録り直していない。
-    pub takes: u32,
-    /// その行のモーラ数。
-    pub moras: usize,
-}
-
-/// 直近の実測からペースを推定する（`TR-RCL-10`）。
-///
-/// 中央値を採る。 平均だと、1行の長い中断（席を立つ）が全体を引っ張る。
-///
-/// 実測が [`MEASUREMENT_WARMUP_ROWS`] に満たなければ `None`。
-/// そのときは固定値を使う——数行の実測で全体を見積もると、最初の慣れない数行が
-/// そのまま「残り3時間」として出る。
-#[must_use]
-pub fn estimate_pace(history: &[RowMeasurement]) -> Option<Pace> {
-    if history.len() < MEASUREMENT_WARMUP_ROWS {
-        return None;
-    }
-    let window = &history[history.len().saturating_sub(MEASUREMENT_WINDOW_ROWS)..];
-    let per_mora: Vec<f64> = window
-        .iter()
-        .filter(|m| m.moras > 0)
-        .map(|m| m.utterance_s / m.moras as f64)
-        .collect();
-    Some(Pace {
-        overhead_s: median(&window.iter().map(|m| m.gap_s).collect::<Vec<_>>()),
-        per_mora_s: median(&per_mora),
-        retake_rate: (median(
-            &window
-                .iter()
-                .map(|m| f64::from(m.takes))
-                .collect::<Vec<_>>(),
-        ) - 1.0)
-            .max(0.0),
-    })
-}
-
-/// 中央値。空なら 0。
-fn median(xs: &[f64]) -> f64 {
-    if xs.is_empty() {
-        return 0.0;
-    }
-    let mut v = xs.to_vec();
-    v.sort_by(f64::total_cmp);
-    let mid = v.len() / 2;
-    if v.len().is_multiple_of(2) {
-        (v[mid - 1] + v[mid]) / 2.0
-    } else {
-        v[mid]
-    }
-}
-
-/// 方式選択画面に出す所要時間（秒、`TR-RCL-09`）。
-///
-/// 固定値で計算する。 実測では書き換えない（`TR-RCL-10`）。
-/// `tones` は収録音高の本数——多音階は同じリストを音高の数だけ録る。
+/// 固定値で計算する。 方式選択画面も残り時間も、同じこの式から出す
+/// （`DEC-RCL-013`）。`tones` は収録音高の本数——多音階は同じリストを
+/// 音高の数だけ録る。
 #[must_use]
 pub fn fixed_seconds(rows: &[Row], tones: usize) -> f64 {
     let one_pass: f64 = rows
@@ -156,21 +70,6 @@ pub fn fixed_seconds(rows: &[Row], tones: usize) -> f64 {
             }
         })
         .sum();
-    one_pass * tones.max(1) as f64
-}
-
-/// 残り所要時間（秒、`TR-RCL-10`）。
-///
-/// 実測があればそれを使い、無ければ固定値へ落ちる。
-/// 式は `行数 × オーバーヘッド + 総モーラ数 × 発声時間 × (1 + 録り直し率) × 音高数`。
-#[must_use]
-pub fn remaining_seconds(rows: &[Row], tones: usize, history: &[RowMeasurement]) -> f64 {
-    let Some(pace) = estimate_pace(history) else {
-        return fixed_seconds(rows, tones);
-    };
-    let moras: usize = rows.iter().map(|r| r.units.len()).sum();
-    let one_pass = rows.len() as f64 * pace.overhead_s
-        + moras as f64 * pace.per_mora_s * (1.0 + pace.retake_rate);
     one_pass * tones.max(1) as f64
 }
 
@@ -308,25 +207,13 @@ pub const MIN_OFFER_GAP_SECONDS: f64 = 5.0 * 60.0;
 
 #[cfg(test)]
 mod tests {
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
     use super::*;
     use crate::reclist::{generate_cvvc, generate_sequential, generate_single};
-
-    fn m(utterance_s: f64, gap_s: f64, takes: u32, moras: usize) -> RowMeasurement {
-        RowMeasurement {
-            utterance_s,
-            gap_s,
-            takes,
-            moras,
-        }
-    }
-
-    /// 固定値の分解が 1行 12.0 秒に戻る（`TR-RCL-09`）。
-    #[test]
-    fn 固定ペースは一行十二秒に一致する() {
-        let p = Pace::fixed();
-        let six = p.overhead_s + 6.0 * p.per_mora_s;
-        assert!((six - SECONDS_PER_ROW_BASE).abs() < 1e-9, "{six}");
-    }
 
     /// 音高の本数だけ掛かる（`TR-RCL-09`）。
     #[test]
@@ -336,49 +223,6 @@ mod tests {
         assert!((fixed_seconds(&rows, 3) - one * 3.0).abs() < 1e-9);
         // 0 本は 1 本として扱う。掛け算が 0 になると「一瞬で終わる」と出る。
         assert!((fixed_seconds(&rows, 0) - one).abs() < 1e-9);
-    }
-
-    /// 実測が 10 行に達するまでは固定値（`TR-RCL-10`）。
-    #[test]
-    fn 実測が足りなければ固定値のまま() {
-        let rows = generate_sequential(UnitSet::Extended, 8).expect("生成できる");
-        let few: Vec<RowMeasurement> = (0..9).map(|_| m(4.0, 2.0, 1, 8)).collect();
-        assert_eq!(estimate_pace(&few), None);
-        assert!((remaining_seconds(&rows, 1, &few) - fixed_seconds(&rows, 1)).abs() < 1e-9);
-    }
-
-    /// 中央値を採る。 1行の長い中断が全体を引っ張らない（`TR-RCL-10`）。
-    #[test]
-    fn 外れ値が推定を引っ張らない() {
-        let mut h: Vec<RowMeasurement> = (0..19).map(|_| m(4.0, 2.0, 1, 8)).collect();
-        let steady = estimate_pace(&h).expect("10 行を超えている");
-        h.push(m(4.0, 600.0, 1, 8));
-        let with_break = estimate_pace(&h).expect("推定できる");
-        assert!(
-            (with_break.overhead_s - steady.overhead_s).abs() < 0.5,
-            "席を立った1行で {} から {} へ動いた",
-            steady.overhead_s,
-            with_break.overhead_s
-        );
-    }
-
-    /// 直近 20 行だけを見る（`TR-RCL-10`）。
-    #[test]
-    fn 窓の外は見ない() {
-        let mut h: Vec<RowMeasurement> = (0..20).map(|_| m(40.0, 20.0, 3, 8)).collect();
-        h.extend((0..20).map(|_| m(4.0, 2.0, 1, 8)));
-        let p = estimate_pace(&h).expect("推定できる");
-        assert!((p.overhead_s - 2.0).abs() < 1e-9, "{}", p.overhead_s);
-        assert!((p.retake_rate - 0.0).abs() < 1e-9);
-    }
-
-    /// 録り直しは時間を増やす。
-    #[test]
-    fn 録り直しが多いと残り時間が伸びる() {
-        let rows = generate_sequential(UnitSet::Extended, 8).expect("生成できる");
-        let clean: Vec<RowMeasurement> = (0..20).map(|_| m(4.0, 2.0, 1, 8)).collect();
-        let retaken: Vec<RowMeasurement> = (0..20).map(|_| m(4.0, 2.0, 3, 8)).collect();
-        assert!(remaining_seconds(&rows, 1, &retaken) > remaining_seconds(&rows, 1, &clean));
     }
 
     /// 難読音は「拗音かつ外来音」（`TR-RCL-07`）。拗音そのものは常用拍。
@@ -421,7 +265,7 @@ mod tests {
     /// 方式選択の1件が要件どおりの成分を持つ（`TR-RCL-11`）。
     #[test]
     fn 方式選択の一件は代表値と到達点の材料を持つ() {
-        let rows = generate_cvvc(UnitSet::Extended, 8).expect("生成できる");
+        let rows = generate_cvvc(&builtin_rules(), UnitSet::Extended, 8).expect("生成できる");
         let o = offer(Method::Cvvc, &rows, 1);
         assert_eq!(o.rows, rows.len());
         assert!(o.seconds > 0.0);
