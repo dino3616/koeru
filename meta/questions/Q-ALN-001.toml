@@ -18,7 +18,8 @@ License.md が `.binhmm` を明示的に列挙していないこと、学習コ�
 
 上流への問い合わせは続ける。 否定されたら DEC-ALN-001 ごと snfa へ戻す。
 '''
-affects_requirements = ["TR-ALN-04"]
+# TR-ALN-04 は DEC-ALN-015 で落とした。Julius は同梱しないので、この論点は動かない。
+affects_requirements = ["TR-ALN-03"]
 affects_decisions = ["DEC-ALN-001"]
 affects_evidence = ["EVID-LIC-001"]
 

@@ -1,0 +1,40 @@
+schema = 'decision'
+id = 'DEC-SYN-011'
+constraint_label = 'CVVC の候補順'
+constraint = '解決が、素材が実際に持つ立ち上がりと噛み合うこと'
+title = 'CVVC の候補順にも直前の音符を見せる'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '直前の音符を見る',
+  '条文のまま、常に語頭形を先に探す',
+]
+selected = '直前の音符を見る'
+rationale = '''
+連続音だけが直前を見ていた。 `TR-SYN-12` は連続音について「直前音符がある場合」と
+「無い場合」を分けているのに、CVVC は「`- {歌詞}` → `{歌詞}`」とだけ書いていた。
+`candidates` も `previous_vowel` を受け取りながら CVVC では捨てている。
+
+このままだとフレーズ中間でも語頭形を先に探す。 `- か` は語頭専用に録った立ち上がりで、
+前に音が無い前提の子音を持つ。中間で鳴らすと子音が硬くなり、渡りの VC と二重になる。
+
+順序を文脈で分ける。 直前音符があれば `{歌詞}` → `- {歌詞}`、無ければ
+`- {歌詞}` → `{歌詞}`。連続音と同じ形になる。
+
+要求表が 144 から 288 へ増える。 語頭形と素の CV の両方が要る。
+`DEC-SYN-010` が目標に置いた音素レベルの一致は、ここを直さないと成り立たない
+——OpenUtau の日本語 CVVC は中間で素の CV を選ぶので、KOERU だけが語頭形を鳴らす。
+'''
+review_triggers = [
+  'OpenUtau の日本語 CVVC phonemizer が候補順を変えたとき',
+  '語頭形と素の CV を録り分けない CVVC の流儀が主流だと分かったとき',
+]
+affects_requirements = [
+  'TR-SYN-12',
+  'TR-RCL-05',
+  'TR-RCL-20',
+  'TR-PKG-23',
+]
+affects_decisions = [
+  'DEC-SYN-010',
+]

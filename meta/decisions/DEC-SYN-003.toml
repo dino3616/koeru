@@ -28,7 +28,7 @@ OS によって別の音になる。KOERU が Wine を用意して埋めるこ�
 独自 ABI を定義する案を採らなかったのは、既存の UTAU resampler 資産がそのまま使えなくなるから。
 
 phonemizer も差し替え点を持つ（TR-SYN-36）が、OpenUtau のものは C# プラグインなので
-そのままは読めない。機構は未決（Q-SYN-004）。
+そのままは読めない。機構は presamp.ini になった（DEC-SYN-010）。
 '''
 review_triggers = [
   '外部エンジンを指した状態での不具合報告が、切り分け不能なほど増えたとき',
@@ -41,9 +41,8 @@ affects_requirements = [
   'TR-SYN-35',
   'TR-SYN-36',
 ]
-affects_questions = [
-  'Q-SYN-004',
-]
+# Q-SYN-004（外部 phonemizer の接続機構）は DEC-SYN-010 で閉じた。
 affects_decisions = [
   'DEC-PLT-011',
+  'DEC-SYN-010',
 ]

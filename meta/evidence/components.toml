@@ -36,14 +36,13 @@ id = 'CMP-002'
 name = 'Julius segmentation-kit + libjulius'
 purpose = '日本語音素セグメンテーション。ライセンスが明確な代替経路'
 license = 'segmentation-kit: MIT（リポジトリ全体。ただし License.md は音響モデルを明示列挙していない → DEC-ALN-004 で判断して通した）/ Julius 本体: BSD-3-Clause'
-status = '採用'
-decided_by = 'DEC-ALN-004'
+status = '不採用'
+decided_by = 'DEC-ALN-015'
 domains = [
   'align',
 ]
 supports_requirements = [
   'TR-ALN-02',
-  'TR-ALN-04',
   'TR-ALN-06',
   'TR-ALN-10',
   'TR-ALN-01',
@@ -900,7 +899,6 @@ domains = [
 ]
 supports_requirements = [
   'TR-RCL-13',
-  'TR-RCL-14',
   'TR-SYN-10',
   'TR-RCL-07',
 ]
@@ -910,13 +908,13 @@ id = 'CMP-064'
 name = 'jpreprocess-naist-jdic'
 purpose = 'jpreprocess 用の日本語辞書'
 license = 'BSD-3-Clause'
-status = '採用候補'
+status = '不適'
+decided_by = 'DEC-RCL-010'
 domains = [
   'reclist',
 ]
-supports_requirements = [
-  'TR-RCL-14',
-]
+note = '''支えていた TR-RCL-14 を DEC-RCL-010 で落とした。 辞書を同梱する理由が無くなった。
+席は残す——要る場面が来たときに、下調べからやり直さないため。展開で約 20MB。'''
 
 [[component]]
 id = 'CMP-065'
@@ -950,13 +948,12 @@ id = 'CMP-067'
 name = 'lindera / vibrato'
 purpose = '形態素解析（読み付与の代替）'
 license = 'MIT / MIT OR Apache-2.0'
-status = '条件付き'
+status = '不適'
+decided_by = 'DEC-RCL-010'
 domains = [
   'reclist',
 ]
-supports_requirements = [
-  'TR-RCL-14',
-]
+note = '支えていた TR-RCL-14 を DEC-RCL-010 で落とした。 IPADIC で約 50MB。'
 
 [[component]]
 id = 'CMP-068'

@@ -28,10 +28,12 @@
 | [DEC-ALN-007](DEC-ALN-007.toml) | 到達水準の判定時期 | M3 では評価ハーネスを持たない。到達水準の判定は M6 へ回す | accepted |
 | [DEC-ALN-008](DEC-ALN-008.toml) | 強制アライメントの一次経路 | MFA 日本語音響モデルを同梱し、Kaldi を Rust から直接叩く。上流コーパスの条件は判断で通す | accepted |
 | [DEC-ALN-009](DEC-ALN-009.toml) | 原音設定の置き場所 | koeru-align を作って原音設定を集約し、アライナは trait で切る | accepted |
-| [DEC-ALN-010](DEC-ALN-010.toml) | 退避経路の段数 | Julius の実装は M5 へ送る。M3 の退避は segment.rs 1段にする | accepted |
+| [DEC-ALN-010](DEC-ALN-010.toml) | 退避経路の段数 | Julius の実装は M5 へ送る。M3 の退避は segment.rs 1段にする | superseded |
 | [DEC-ALN-011](DEC-ALN-011.toml) | 方式別の規約をいつ書くか | CVVC の VC 規約と多音階の扱いを M5 へ送る | accepted |
 | [DEC-ALN-012](DEC-ALN-012.toml) | モデルの同梱方法 | MFA のモデルを HuggingFace の submodule で同梱し、v3.3.0 へ上げる | accepted |
 | [DEC-ALN-013](DEC-ALN-013.toml) | 1ファイルに入るモーラ数 | 単独音も1ファイルに複数モーラが入る。oto はモーラごとに持つ | accepted |
+| [DEC-ALN-014](DEC-ALN-014.toml) | oto の再導出の担当 | アライメント境界を保存し、下位方式の5値の再導出を align に置く | accepted |
+| [DEC-ALN-015](DEC-ALN-015.toml) | 退避経路の段数 | Julius は採らない。退避は segment.rs の1段に確定し、多モーラ方式では MFA を必須にする | accepted |
 | [DEC-EDT-003](DEC-EDT-003.toml) | 違反と確認済み | 上級モードの自動確認済みに「制約違反が残っていない場合に限る」を課す | accepted |
 | [DEC-PKG-001](DEC-PKG-001.toml) | 完成 | 完成状態と手渡し状態を直交させる | accepted |
 | [DEC-PKG-002](DEC-PKG-002.toml) | 周波数表 | `.frq` は録音時に作る | accepted |
@@ -83,8 +85,14 @@
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
 | [DEC-RCL-004](DEC-RCL-004.toml) | 収録単位の数 | 収録単位の数を presamp からの導出結果に合わせ、141/168 という数字を捨てる | accepted |
-| [DEC-RCL-005](DEC-RCL-005.toml) | 辞書の同梱 | 歌詞の g2p を M2 から外す。UST は仮名を持っているので、主経路は g2p 無しで通る | accepted |
+| [DEC-RCL-005](DEC-RCL-005.toml) | 辞書の同梱 | 歌詞の g2p を M2 から外す。UST は仮名を持っているので、主経路は g2p 無しで通る | superseded |
 | [DEC-RCL-006](DEC-RCL-006.toml) | 音源の一覧が持つ情報 | 一覧にも到達度を出す。音源ごとに台帳を開いて、環と色と数を作る | accepted |
+| [DEC-RCL-007](DEC-RCL-007.toml) | 下位方式への移行 | 下位方式への書き出しを用意し、声質は検知せず素材の由来を提示する | accepted |
+| [DEC-RCL-008](DEC-RCL-008.toml) | 所要時間の根拠 | 行読み上げの所要時間を 1行 12.0 秒で確定し、実測は残り時間の側だけに効かせる | accepted |
+| [DEC-RCL-009](DEC-RCL-009.toml) | 生成できる条文であること | 連続音・CVVC の条文の数と制約を、導出結果とグラフの性質に合わせる | accepted |
+| [DEC-RCL-010](DEC-RCL-010.toml) | 歌詞の g2p | 歌詞の g2p を落とす。要件ごと削除し、辞書は同梱しない | accepted |
+| [DEC-RCL-011](DEC-RCL-011.toml) | 曲先行の録音リスト | 選んだノート群から録音リストを詰め直す。部分集合に限らない | accepted |
+| [DEC-RCL-012](DEC-RCL-012.toml) | USTX の取り込み | USTX は yaml_serde で読む。YAML パーサを自前で書かない | accepted |
 | [DEC-REC-001](DEC-REC-001.toml) | 音声 I/O | 音声 I/O は各 OS の API を直接叩く。抽象レイヤを挟まない | accepted |
 | [DEC-REC-002](DEC-REC-002.toml) | 録音条件 | 録音条件は、ある程度の品質のマイクと通常の声量を前提にする | accepted |
 | [DEC-REC-003](DEC-REC-003.toml) | 前処理 | 録音直後のオフライン前処理を、試唱と配布に同じく適用する | accepted |
@@ -103,6 +111,8 @@
 | [DEC-SYN-007](DEC-SYN-007.toml) | F0 推定の同梱 | M2 では Harvest のまま進む。SwiftF0 は実測で差が聞こえてから入れる | accepted |
 | [DEC-SYN-008](DEC-SYN-008.toml) | 周波数表の呼び出し規約 | 周波数表はファイル全体・.frq の格子で渡し、切り出しは合成器がする | accepted |
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
+| [DEC-SYN-010](DEC-SYN-010.toml) | phonemizer の差し替え | phonemizer の差し替えを presamp.ini に置き、音素の時間位置は KOERU の規約に残す | accepted |
+| [DEC-SYN-011](DEC-SYN-011.toml) | CVVC の候補順 | CVVC の候補順にも直前の音符を見せる | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-95 件。
+105 件。

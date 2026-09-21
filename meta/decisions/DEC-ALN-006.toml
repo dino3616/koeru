@@ -45,7 +45,6 @@ review_triggers = [
 ]
 affects_requirements = [
   'TR-ALN-03',
-  'TR-ALN-04',
   'TR-ALN-06',
   'TR-ALN-11',
   'TR-ALN-24',

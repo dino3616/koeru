@@ -46,7 +46,7 @@ depends_on = [
   'TR-PKG-02',
   'TR-PKG-12',
 ]
-statement = 'character.yaml を必ず同時生成する。書き出すキーを name / localized_names / singer_type / text_file_encoding / image / portrait / portrait_opacity / portrait_height / author / voice / web / version / sample / default_phonemizer / symbol_set / subbanks / use_filename_as_alias に限定し、未知のキーを追加しない'
+statement = 'character.yaml を必ず同時生成する。書き出すキーを name / localized_names / singer_type / text_file_encoding / image / portrait / portrait_opacity / portrait_height / author / voice / web / version / sample / default_phonemizer / symbol_set / subbanks / use_filename_as_alias に限定し、未知のキーを追加しない。default_phonemizer には同梱した presamp.ini を読む phonemizer を書く（DEC-SYN-010）。 これを書かないと、受け取った側がどの規則で鳴らすかを選べてしまい、KOERU の中での解決と一致しない'
 
 [[requirement]]
 id = 'TR-PKG-04'
@@ -285,7 +285,7 @@ depends_on = [
 formalized_as = [
   'REQ-PKG-001',
 ]
-statement = '下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。 WAV は複製されるため、コストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる（多音階連続音では 275MB × 2）。再切り出しを行わない点だけが節約になる（デコード・再エンコードは不要）。下位方式が参照する WAV の集合のみを複製することを性能上の最適化として明記する。書き出し前に容量をユーザーに提示する。5値は下位方式の規約プリセットで再導出する（align の新設要件）'
+statement = '下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。 WAV は複製されるため、コストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる（多音階連続音では 275MB × 2）。再切り出しを行わない点だけが節約になる（デコード・再エンコードは不要）。下位方式が参照する WAV の集合のみを複製することを性能上の最適化として明記する。書き出し前に容量をユーザーに提示する。あわせて、その書き出しが参照するテイクが跨ぐ収録セッションの数と、最初から最後までの間隔を提示する（DEC-RCL-007）。 声質の不連続は検知しない。 検知する手段が現在のスコープに無いので、事実だけを出し「声質が揃っている」とは言わない。5値は下位方式の規約プリセットで再導出する（TR-ALN-34）'
 notes = [
   '連続音の語頭 CV は前後の文脈を含むため、単独音として使ったときの先行発声・オーバーラップの許容幅が実用に足るかは未検証',
 ]

@@ -3,7 +3,8 @@ id = 'DEC-RCL-005'
 constraint_label = '辞書の同梱'
 constraint = '配布物に載せる辞書は、要る場面が示されてから積む'
 title = '歌詞の g2p を M2 から外す。UST は仮名を持っているので、主経路は g2p 無しで通る'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-RCL-010'
 owner = 'dino3616'
 options = [
   'M2 から外す',
@@ -32,7 +33,8 @@ review_triggers = [
   '漢字混じりの歌詞を貼り付けたいという要望が実際に出たとき',
   'アライナやアクセント推定で、同じ辞書が別の理由でも要ることになったとき',
 ]
+# TR-RCL-14 は DEC-RCL-010 で削除した。下調べの結果は上の rationale に残る。
 affects_requirements = [
-  'TR-RCL-14',
+  'TR-RCL-12',
 ]
 supersedes = []

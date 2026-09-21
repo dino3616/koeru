@@ -1,0 +1,86 @@
+schema = 'decision'
+id = 'DEC-RCL-012'
+constraint_label = 'USTX の取り込み'
+constraint = '本人が持ち込む USTX を、黙って読み違えずに取り込めること'
+title = 'USTX は yaml_serde で読む。YAML パーサを自前で書かない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'yaml_serde（The YAML Organization）を入れる',
+  '自前の USTX リーダを書く',
+  'saphyr-parser を入れる',
+  'serde_yaml を入れる',
+]
+selected = 'yaml_serde（The YAML Organization）を入れる'
+rationale = '''
+`TR-RCL-12` は「主経路は本人が持ち込む UST / USTX」と定めている。 USTX は
+YAML で、このリポジトリに YAML を読むものが無かった。
+
+## 依存を数えた
+
+このリポジトリは依存を嫌う。 とくに個人が持ち、直近の運用履歴が無いものを嫌う。
+その基準で当たった結果。
+
+| 候補 | 出どころ | 直近の公開 | 増えるクレート | 引っかかる点 |
+|---|---|---|---|---|
+| `yaml_serde` | The YAML Organization（`github.com/yaml`） | 2026-08 | `yaml_serde`, `libyaml-rs` | 読む本体が c2rust の出力 |
+| `saphyr-parser` | org `saphyr-rs` | 2026-09 | `saphyr-parser`, `arraydeque` | `arraydeque` が個人・2023-02 から更新なし |
+| `yaml-rust2` | 個人 | 2026-09 | 本体 ＋ `arraydeque`, `hashlink` | 本体が個人 ＋ 同じ `arraydeque` |
+| `serde_yaml` | dtolnay | 2024（deprecated） | — | 非推奨。未保守の指定が付く |
+
+**維持されている純 Rust の YAML パーサは、どれも `arraydeque` を通る。**
+組織が持っていて更新も続いているのは YAML org の系統だけだった。
+
+## 承知していること
+
+`yaml_serde` は serde の口で、走査と構文解析は推移依存の `libyaml-rs` がする。
+`libyaml-rs` は libyaml を c2rust で機械翻訳したもので、`unsafe` が 237 箇所、
+先頭で `unsafe_op_in_unsafe_fn` を `allow` している——**このワークスペースが
+`deny` にしている lint。** USTX のバイト列は1つ残らずそこを通る。
+
+素性の分からない `unsafe` ではない。 `serde_yaml` が長年使っていた
+`unsafe-libyaml`（dtolnay）が YAML org へ移管されたもので、踏まれた量が違う。
+ライセンスは `yaml_serde` が MIT OR Apache-2.0、`libyaml-rs` が MIT。
+どちらも `deny.toml` の許可リスト内で、`cargo deny check` は通る。
+
+**`Cargo.toml` に書くのは `yaml_serde` だけ。** `libyaml-rs` は `Cargo.lock` に
+推移依存として載るだけで、こちらのコードは名前を出さない。
+
+## serde はドメイン層に入れない
+
+`#[derive(Deserialize)]` を使わず、`yaml_serde::Value` を辿る。 派生を使うと
+`koeru-core` に `serde` が要り、ワークスペースの「ドメイン層には入れない」が崩れる。
+`Value` の `Deserialize` は `yaml_serde` の中にあるので、こちらは名乗らずに済む。
+
+辿る側が長くなる代わりに、**何を読んでいるかがコードに出る。** USTX から採るのは
+歌詞・音高・長さ・速さの4つだけで、残り（ピッチ曲線・ビブラート・表情・`wave_parts`）は
+見ない。派生にすると「見ていない」ことが型から読めない。
+
+## 自前で書かなかった理由
+
+依存は増えないが、引用符・フロー記法（`{x: -40, y: 0, shape: io}`）・
+インデント・ブロックスカラーの取り違えが自分の責任になる。 USTX は本人が
+手で編集できるファイルで、読み違えたときに出るのは例外ではなく**間違ったノート列**。
+それがそのまま録音リストになる（`DEC-RCL-011`）ので、静かに間違える経路を持ちたくない。
+
+## 1トラックが1曲
+
+USTX は複数トラックを持てる。 KOERU の曲は単旋律のノート列1本
+（`Song::notes`）なので、畳み方を決める必要があった。
+
+**ハモリを主旋律と同じ列へ混ぜない。** 混ぜると同じ拍に複数の歌詞が並び、
+範囲を選ぶ画面（`TR-RCL-16`）で「サビだけ」を指せなくなる。
+題はファイル名から採り、トラックが複数あるときだけトラック名を足す。
+'''
+review_triggers = [
+  '`libyaml-rs` に脆弱性の指定が出たとき。そのときは止める（`deny.toml` の advisories に足してよいのは未保守だけ）',
+  '`arraydeque` が引き取られ、運用が戻ったとき。純 Rust の系統へ移せる',
+  'USTX 以外にも YAML を読む箇所が出たとき。派生を使いたくなるので、ドメイン層と serde の関係を引き直す',
+  '取り込んだ USTX が読めない報告が続いたとき。libyaml が拒む書き方をしている可能性がある',
+]
+affects_requirements = [
+  'TR-RCL-12',
+]
+affects_decisions = [
+  'DEC-RCL-011',
+]
