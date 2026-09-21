@@ -2,13 +2,12 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", ":dependencyDashboard", ":prHourlyLimitNone"],
   "timezone": "Asia/Tokyo",
-  "schedule": ["before 9am on monday"],
   "labels": ["dependencies"],
   "commitMessagePrefix": "chore(deps):",
   "commitBody": "Signed-off-by: shio <dino3616@gmail.com>",
   "enabledManagers": ["cargo", "bun", "github-actions", "git-submodules", "nix", "custom.regex"],
   "git-submodules": { "enabled": true },
-  "lockFileMaintenance": { "enabled": true },
+  "lockFileMaintenance": { "enabled": true, "schedule": ["at any time"] },
   "packageRules": [
     {
       "description": "major 以外は automerge する。ライセンスは cargo deny、挙動は CI が機械判定する。落ちた PR は人が直す（DEC-PLT-033）。",
@@ -45,7 +44,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^flake\\.nix$/"],
       "matchStrings": ["fslcVersion\\s*=\\s*\"(?<currentValue>v[0-9][0-9.]*)\""],
-      "datasource": "github-releases",
+      "datasourceTemplate": "github-releases",
       "depNameTemplate": "ymm-oss/fsl"
     }
   ],
