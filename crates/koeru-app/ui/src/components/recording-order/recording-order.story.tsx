@@ -11,7 +11,7 @@ const meta = {
     switching: false,
     hasSongs: true,
     remainingSeconds: 4200,
-    measured: false,
+    remainingRows: 96,
   },
 } satisfies Meta<typeof RecordingOrder>;
 
@@ -58,23 +58,26 @@ export const 曲が無い: Story = {
 export const 切り替え中: Story = { args: { mode: "SongBankFirst", switching: true } };
 
 /**
- * 実測が効くまでは見込みだと言う（`TR-RCL-10`）。
+ * 残りは時間と件数の両方で出す（`TR-RCL-09`、`DEC-RCL-013`）。
  *
- * 言わずに数だけ出すと、最初の数行で「あと3時間」と読まれて手が止まる。
+ * **時間だけにしない。** 時間は固定の見積もりで桁しか合っていない
+ * （`DEC-RCL-008`）ので、数だけ出すと精度を騙ることになる。
+ * 行数は数え上げなので正確。
  */
-export const 見込みの残り時間: Story = {
-  args: { mode: "SongBankFirst", remainingSeconds: 4200, measured: false },
+export const 残りは時間と件数で出す: Story = {
+  args: { mode: "SongBankFirst", remainingSeconds: 4200, remainingRows: 140 },
   play: async ({ canvasElement }) => {
+    await expect(canvasElement.textContent).toContain("140 行");
     await expect(canvasElement.textContent).toContain("約 1 時間");
-    await expect(canvasElement.textContent).toContain("いまは見込みです");
+    await expect(canvasElement.textContent).toContain("時間は目安です");
   },
 };
 
-/** 実測が溜まったら、そのことを言わない——数がそのまま答えになる。 */
-export const 実測が効いている: Story = {
-  args: { mode: "CoverageEfficiency", remainingSeconds: 1800, measured: true },
+/** 1時間を割ったら分で出す。単位を省かない。 */
+export const 残りが一時間を割る: Story = {
+  args: { mode: "CoverageEfficiency", remainingSeconds: 1800, remainingRows: 60 },
   play: async ({ canvasElement }) => {
+    await expect(canvasElement.textContent).toContain("60 行");
     await expect(canvasElement.textContent).toContain("約 30 分");
-    await expect(canvasElement.textContent).not.toContain("いまは見込みです");
   },
 };

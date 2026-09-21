@@ -50,6 +50,7 @@ const row = (id: string, text: string, takes: number): RowTakesView => ({
     peak: 0.71,
     duration_ms: 3100,
     invalid: false,
+    recorded_at: "2026-09-21T18:24:00Z",
   })),
   adopted: takes > 0 ? takes : null,
 });
@@ -76,6 +77,8 @@ const songs: SongView[] = [
     total_moras: 24,
     previewable: true,
     transpose: 0,
+    recommended_transpose: 0,
+    rescuing_tone: null,
   },
   {
     id: "s2",
@@ -90,6 +93,8 @@ const songs: SongView[] = [
     total_moras: 24,
     previewable: true,
     transpose: 0,
+    recommended_transpose: 0,
+    rescuing_tone: null,
   },
 ];
 
@@ -106,7 +111,7 @@ const 台帳 = () => {
     songs_in_bank: 4,
     by_tone: [],
     remaining_seconds: 600,
-    measured: false,
+    remaining_rows: 72,
   });
   mocked(api.progress).mockResolvedValue({
     next_row_id: "s004",
@@ -119,7 +124,7 @@ const 台帳 = () => {
     songs_in_bank: 4,
     by_tone: [],
     remaining_seconds: 600,
-    measured: false,
+    remaining_rows: 72,
   });
   mocked(api.voiceState).mockResolvedValue(voice);
   mocked(api.rowsWithTakes).mockResolvedValue(rows);

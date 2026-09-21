@@ -5,7 +5,7 @@ import { Button } from "~/components/button";
 import { Card } from "~/components/card";
 import { Field } from "~/components/field";
 import { api, errorMessage } from "~/lib/ipc";
-import type { BankSongView } from "~/lib/ipc";
+import type { BankSongView, SongDraftView } from "~/lib/ipc";
 import { allSongsQuery, ledgerKey } from "~/lib/queries";
 
 /**
@@ -39,28 +39,47 @@ type SongBankProps = {
  * **USTX は1トラックが1曲として入る。** ハモリを主旋律と同じノート列へ
  * 混ぜると、同じ拍に複数の歌詞が並び、範囲を選ぶ画面で「サビだけ」を指せない。
  *
- * 題はファイル名から採る。 `New Project.ustx` のまま並ぶと、
- * どれがどれか分からない。その場でも後からでも変えられる。
+ * **題を決めてから入れる**（`TR-RCL-12`）。 ファイルを選ぶと中身だけ読み、
+ * トラックごとに題の欄を出す。ファイル名から採った候補は入れてあるが、
+ * 空のこともある——`New Project.ustx` のまま一覧に並ぶのを避ける。
+ * あとからも変えられる。
  *
  * 外した曲も並べる。 一覧から消すと、戻す的がどこにも無くなる。
  */
 export const SongBank = ({ voiceId, onImported }: SongBankProps) => {
   const inputId = useId();
+  // 欄ごとに名札を結ぶ。 `Field` は `id` が無いと `htmlFor` が宙に浮く。
+  const draftId = useId();
   const queryClient = useQueryClient();
   const { data: songs } = useSuspenseQuery(allSongsQuery(voiceId));
   const [editing, setEditing] = useState<string | null>(null);
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ledgerKey });
 
-  const bring = useMutation({
+  /** 読み終えたが、まだ台帳に入れていないファイル。 */
+  const [draft, setDraft] = useState<{
+    bytes: number[];
+    fileName: string;
+    songs: SongDraftView[];
+    titles: string[];
+  } | null>(null);
+
+  const read = useMutation({
     mutationFn: async (file: File) => {
       if (file.size > MAX_BYTES) {
         throw new Error("ファイルが大きすぎます。4 MB までにしてください。");
       }
       const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-      return api.importSongs(bytes, file.name);
+      return { bytes, fileName: file.name, songs: await api.songFilePreview(bytes, file.name) };
     },
+    onSuccess: (got) => setDraft({ ...got, titles: got.songs.map((x) => x.title_hint) }),
+  });
+
+  const bring = useMutation({
+    mutationFn: (d: { bytes: number[]; fileName: string; titles: string[] }) =>
+      api.importSongs(d.bytes, d.fileName, d.titles),
     onSuccess: (imported) => {
+      setDraft(null);
       invalidate();
       // USTX は1トラックが1曲。 先頭（＝先に書かれていたトラック）を選ぶ。
       const first = imported[0];
@@ -81,7 +100,7 @@ export const SongBank = ({ voiceId, onImported }: SongBankProps) => {
     onSuccess: invalidate,
   });
 
-  const failure = bring.error ?? rename.error ?? shelve.error;
+  const failure = read.error ?? bring.error ?? rename.error ?? shelve.error;
 
   return (
     <Card title="曲を持ち込む">
@@ -92,12 +111,12 @@ export const SongBank = ({ voiceId, onImported }: SongBankProps) => {
         id={inputId}
         type="file"
         accept=".ust,.ustx"
-        disabled={bring.isPending}
+        disabled={read.isPending || bring.isPending}
         onChange={(e) => {
           const file = e.target.files?.[0];
           // 同じファイルを選び直せるようにする。値を残すと、2回目の change が飛ばない。
           e.target.value = "";
-          if (file !== undefined) bring.mutate(file);
+          if (file !== undefined) read.mutate(file);
         }}
         className="min-w-0 select-text text-sm text-slate-12 file:mr-3 file:h-9 file:rounded-lg file:border file:border-slate-7 file:bg-slate-3 file:px-3 file:text-sm file:text-slate-12"
       />
@@ -106,13 +125,58 @@ export const SongBank = ({ voiceId, onImported }: SongBankProps) => {
       </p>
 
       {/*
-        取り込んだ数を言う（`TR-SYN-33` と同じ理由）。押したあとを無言にしない。
-        USTX はトラックの数だけ増えるので、1ファイルでも1曲とは限らない。
+        題を決めてから入れる（`TR-RCL-12`）。
+
+        **選んだ瞬間に台帳へ入れない。** ファイル名がそのまま題になると、
+        `New Project` のような行が並ぶ。読むところまでで止めて、題を聞く。
       */}
-      {bring.data !== undefined && (
-        <p role="status" className="text-xs text-slate-11">
-          <span className="font-mono tabular-nums">{bring.data.length}</span> 曲を取り込みました。
-        </p>
+      {draft !== null && (
+        <div className="flex flex-col gap-3 rounded-lg border border-slate-7 bg-slate-2 p-3">
+          <p className="text-sm text-slate-12">
+            <span className="font-mono tabular-nums">{draft.songs.length}</span>{" "}
+            曲ぶんありました。題を決めると入ります。
+          </p>
+          <ul className="flex flex-col gap-3">
+            {draft.songs.map((d, i) => (
+              // 同じ題の候補が2つ並ぶことがある。位置でしか区別できない。
+              <li key={`${d.title_hint}-${i}`} className="flex flex-col gap-1">
+                <Field
+                  id={`${draftId}-${i}`}
+                  label="題"
+                  value={draft.titles[i] ?? ""}
+                  placeholder="曲の名前"
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      titles: draft.titles.map((t, j) => (i === j ? e.target.value : t)),
+                    })
+                  }
+                />
+                <span className="text-xs text-slate-11">
+                  {d.notes} 拍{d.low !== null && d.high !== null && ` · ${d.low} 〜 ${d.high}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <span className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              disabled={bring.isPending || draft.titles.some((t) => t.trim() === "")}
+              onClick={() =>
+                bring.mutate({
+                  bytes: draft.bytes,
+                  fileName: draft.fileName,
+                  titles: draft.titles.map((t) => t.trim()),
+                })
+              }
+            >
+              {bring.isPending ? "入れています" : "取り込む"}
+            </Button>
+            <Button variant="ghost" onClick={() => setDraft(null)}>
+              やめる
+            </Button>
+          </span>
+        </div>
       )}
 
       {failure !== null && (

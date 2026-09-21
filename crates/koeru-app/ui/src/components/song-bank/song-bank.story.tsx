@@ -29,13 +29,16 @@ const songs: BankSongView[] = [
   },
 ];
 
+/** どの story でも要る読み。story ごとの `beforeEach` は meta のあとに走る。 */
+const 台帳 = () => {
+  mocked(api.allSongs).mockResolvedValue(songs);
+};
+
 const meta = {
   title: "領域/SongBank",
   component: SongBank,
   args: { voiceId: "11111111-1111-4111-8111-111111111111" },
-  beforeEach: () => {
-    mocked(api.allSongs).mockResolvedValue(songs);
-  },
+  beforeEach: 台帳,
   decorators: [(Story) => <div className="w-120">{Story()}</div>],
 } satisfies Meta<typeof SongBank>;
 
@@ -74,6 +77,40 @@ export const 題を打ち直す: Story = {
 
     // 変えていないうちは押せない。同じ題で書き戻さない。
     await expect(canvas.getByRole("button", { name: "変える" })).toBeDisabled();
+  },
+};
+
+/**
+ * 題を決めてから入れる（`TR-RCL-12`）。
+ *
+ * **選んだ瞬間に台帳へ入れない。** ファイル名がそのまま題になると、
+ * `New Project` のような行が黙って並ぶ。
+ */
+export const 題を決めてから入れる: Story = {
+  beforeEach: () => {
+    台帳();
+    mocked(api.songFilePreview).mockResolvedValue([
+      { title_hint: "New Project — 主旋律", notes: 96, low: "A3", high: "D4" },
+      // 候補が空のこともある。 そのときは欄も空で、本人が打つまで進めない。
+      { title_hint: "", notes: 96, low: "D3", high: "A3" },
+    ]);
+    mocked(api.importSongs).mockResolvedValue([{ id: "n1", title: "主", notes: 96 }]);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const file = new File(["name: x\n"], "New Project.ustx", { type: "text/yaml" });
+    await userEvent.upload(await canvas.findByLabelText("UST / USTX のファイル"), file);
+
+    await waitFor(() => expect(canvasElement.textContent).toContain("題を決めると入ります"));
+    const fields = await canvas.findAllByLabelText("題");
+    await expect(fields).toHaveLength(2);
+    await expect(fields[0]).toHaveValue("New Project — 主旋律");
+    await expect(fields[1]).toHaveValue("");
+
+    // 空の題があるうちは入れられない。
+    await expect(canvas.getByRole("button", { name: "取り込む" })).toBeDisabled();
+    await userEvent.type(fields[1] as HTMLInputElement, "ハモリ");
+    await expect(canvas.getByRole("button", { name: "取り込む" })).toBeEnabled();
   },
 };
 

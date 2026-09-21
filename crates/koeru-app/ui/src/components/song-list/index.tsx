@@ -40,9 +40,14 @@ export const SongList = ({
   return (
     <ul className="flex flex-col gap-3">
       {songs.map((s) => {
+        /*
+          いまのキーでどう鳴るか（`TR-SYN-15`、`DEC-SYN-012`）。
+
+          **「合いません」で終わらせない。** 遠いのはキーの問題で、
+          キーは本人が動かせる。何が起きるかを書き、直し方は曲の面が出す。
+        */
         const line = !s.previewable
-          ? // 移調しても収録音高から遠すぎる（`TR-SYN-15`）。録っても届かない。
-            "この曲は音の高さが合いません"
+          ? "このキーだと、録った高さから遠い音があります"
           : s.singable
             ? s.missing_units === 0
               ? "いま歌えます"
@@ -89,24 +94,22 @@ export const SongList = ({
               `aria-busy` で状態を伝え、二重起動は呼び出し側が弾く。
             */}
             {/*
-              音の高さが合わない曲は、的そのものを出さない（`TR-SYN-15`）。
+              遠くても的を出す（`DEC-SYN-012`）。
 
-              > 移調してもこの条件を満たせない課題曲は、試唱の選択肢に出さない
-
-              録れば歌えるようになる曲（`singable` が偽）とは別。 あちらは
-              短縮版で鳴らせるが、こちらは何を録っても届かない。
+              以前は `previewable` が偽なら的ごと消していた。 その基準
+              （±7 半音・二乗平均 4 半音）に実測の裏付けが無いので、
+              **根拠の無い線で「聴かせない」と決めていたことになる。**
+              どうなるかは上の1行が言っていて、押すかどうかは本人。
             */}
-            {s.previewable && (
-              <Button
-                size="sm"
-                variant="secondary"
-                aria-busy={preparingId === s.id}
-                aria-label={`${s.title} を歌わせる`}
-                onClick={() => preparingId === null && onSing(s.id)}
-              >
-                {preparingId === s.id ? "用意しています" : "歌わせる"}
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-busy={preparingId === s.id}
+              aria-label={`${s.title} を歌わせる`}
+              onClick={() => preparingId === null && onSing(s.id)}
+            >
+              {preparingId === s.id ? "用意しています" : "歌わせる"}
+            </Button>
           </li>
         );
       })}

@@ -23,6 +23,7 @@ import { ReleaseList } from "~/components/release-list";
 import { SongDetail } from "~/components/song-detail";
 import { RecordingOrder } from "~/components/recording-order";
 import { SongBank } from "~/components/song-bank";
+import { SongKey } from "~/components/song-key";
 import { SongList } from "~/components/song-list";
 import { SongTarget } from "~/components/song-target";
 import { ToneProgressList } from "~/components/tone-progress";
@@ -531,6 +532,8 @@ const VoiceBody = ({
                         }}
                       />
                     </Suspense>
+                    {/* キーは本人が決める（`TR-SYN-15`, `DEC-SYN-012`）。 */}
+                    <SongKey song={selectedSong} />
                     {/* 歌いたいところを目標にする（`TR-RCL-12`, `TR-RCL-16`）。 */}
                     <Suspense fallback={<CardSkeleton title={selectedSong.title} />}>
                       <SongTarget
@@ -654,7 +657,7 @@ const VoiceBody = ({
               <RecordingOrder
                 mode={order.mode}
                 remainingSeconds={progress.remaining_seconds}
-                measured={progress.measured}
+                remainingRows={progress.remaining_rows}
                 hasSongs={songs.length > 0}
                 switching={switchOrder.isPending}
                 onChange={(m) => switchOrder.mutate(m)}

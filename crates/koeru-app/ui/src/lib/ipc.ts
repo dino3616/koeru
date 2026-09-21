@@ -46,6 +46,7 @@ export type {
   ReleaseView,
   RingView,
   RowTakesView,
+  SongDraftView,
   SongSelection,
   SongPlanView,
   SongView,
@@ -54,6 +55,8 @@ export type {
   SungSongView,
   TakeSummaryView,
   TakeView,
+  ToneOptionView,
+  ToneSuggestionView,
   UnencodableView,
   VoiceStateView,
   VoiceView,
@@ -114,10 +117,22 @@ export const api = {
   listDevices: () => unwrap(commands.listDevices()),
   listProjects: () => unwrap(commands.listProjects()),
   /** 選べる作り方（`TR-RCL-11`）。いまは単独音だけ。 */
-  methodPresets: () => unwrap(commands.methodPresets()),
+  /** 選べる作り方（`TR-RCL-11`）。`tones` は収録音高の本数。 */
+  methodPresets: (tones: number) => unwrap(commands.methodPresets(tones)),
+  /** 選べる収録音高（`TR-RCL-06`）。C1〜B7。 */
+  toneOptions: () => commands.toneOptions(),
+  /** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
+  toneSuggestions: () => commands.toneSuggestions(),
   /** 方式プリセットを選んで作る（`TR-RCL-01`）。 */
-  createProject: ({ displayName, presetId }: { displayName: string; presetId: string }) =>
-    unwrap(commands.createProject(displayName, presetId)),
+  createProject: ({
+    displayName,
+    presetId,
+    tones,
+  }: {
+    displayName: string;
+    presetId: string;
+    tones: number[];
+  }) => unwrap(commands.createProject(displayName, presetId, tones)),
   /** 表示名を変える（`DEC-PKG-007`）。空にはできない。 */
   renameProject: (id: string, displayName: string) =>
     unwrap(commands.renameProject(id, displayName)),
@@ -207,13 +222,27 @@ export const api = {
   packageContents: () => unwrap(commands.packageContents()),
   /** 書き出す（`REQ-PKG-105`）。ZIP と UAR の2つが出る（`DEC-PKG-010`）。 */
   exportPackage: () => unwrap(commands.exportPackage()),
+  /**
+   * 下位方式へ書き出す（`TR-PKG-24`, `TR-PKG-25`）。
+   *
+   * 独立した音源ルート・独立した ZIP。 同じ ZIP には入らない。
+   */
+  exportDowngrade: (method: string) => unwrap(commands.exportDowngrade(method)),
   /** 書き出しの履歴（`TR-PKG-44`）。新しい順。 */
   releases: () => unwrap(commands.releases()),
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
   revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
-  /** UST / USTX を取り込む（`TR-RCL-12`）。USTX は1トラックが1曲になる。 */
-  importSongs: (bytes: number[], fileName: string) => unwrap(commands.importSongs(bytes, fileName)),
+  /** 取り込む前に中身を見る（`TR-RCL-12`）。台帳へ入れない。 */
+  songFilePreview: (bytes: number[], fileName: string) =>
+    unwrap(commands.songFilePreview(bytes, fileName)),
+  /**
+   * UST / USTX を取り込む（`TR-RCL-12`）。USTX は1トラックが1曲になる。
+   *
+   * `titles` は `songFilePreview` が返した並びと同じ長さで、同じ順。
+   */
+  importSongs: (bytes: number[], fileName: string, titles: string[]) =>
+    unwrap(commands.importSongs(bytes, fileName, titles)),
   /** 曲の題を変える（`TR-RCL-12`）。 */
   renameSong: (id: string, title: string) => unwrap(commands.renameSong(id, title)),
   /** 曲のノート列（`TR-RCL-12`）。範囲を選ぶのに要る。 */
@@ -224,6 +253,9 @@ export const api = {
   /** 取り込んだ曲すべて（`TR-RCL-12`）。外した曲も並ぶ。 */
   allSongs: () => unwrap(commands.allSongs()),
   /** 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。 */
+  /** 曲のキーを決める（`TR-SYN-15`）。自動では動かない。 */
+  setSongTranspose: (id: string, semitones: number) =>
+    unwrap(commands.setSongTranspose(id, semitones)),
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),
 
   /*

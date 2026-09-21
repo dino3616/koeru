@@ -28,16 +28,16 @@ const 連続音 = {
   reading: "続けて読みます。行は短めです。",
 };
 
-const 多音階連続音 = {
-  id: "multi-pitch-sequential",
-  label: "多音階連続音",
-  summary: "続けて読むのを、高さを変えて何周かする",
-  rows: 936,
-  units: 3528,
-  seconds: 12420,
-  passes: 3,
-  reach: "高い曲も低い曲も、無理なく歌えます。",
-  reading: "続けて読みます。行は短めです。",
+const cvvc = {
+  id: "cvvc",
+  label: "CVVC",
+  summary: "短い並びを読む。音のつなぎ目も録る",
+  rows: 180,
+  units: 720,
+  seconds: 2400,
+  passes: 1,
+  reach: "速い曲でも言葉が聞き取れます。",
+  reading: "続けて読みます。読みにくい並びが混ざります。",
 };
 
 const meta = {
@@ -45,7 +45,18 @@ const meta = {
   component: NewVoice,
   args: { onCreate: fn(), onClose: fn(), creating: false },
   beforeEach: () => {
-    mocked(api.methodPresets).mockResolvedValue([単独音, 連続音, 多音階連続音]);
+    mocked(api.methodPresets).mockResolvedValue([単独音, cvvc, 連続音]);
+    // 収録音高は作り方とは別に選ぶ（`TR-RCL-01`）。
+    mocked(api.toneOptions).mockResolvedValue([
+      { midi: 55, name: "G3" },
+      { midi: 57, name: "A3" },
+      { midi: 62, name: "D4" },
+      { midi: 69, name: "A4" },
+    ]);
+    mocked(api.toneSuggestions).mockResolvedValue([
+      { label: "1本で始める", why: "まず1本録ります。", midi: [57] },
+      { label: "女声の目安", why: "録る量は3倍。", midi: [55, 62, 69] },
+    ]);
   },
 } satisfies Meta<typeof NewVoice>;
 
@@ -87,9 +98,26 @@ export const 選んで作る: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
     await userEvent.type(await c.findByLabelText("名前"), "ミナ");
-    await userEvent.click((await c.findAllByRole("radio"))[1] as HTMLInputElement);
+    await userEvent.click((await c.findAllByRole("radio"))[2] as HTMLInputElement);
     await userEvent.click(await c.findByRole("button", { name: "作る" }));
-    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "sequential");
+    // 既定は1本（A3）。音高は作り方とは別に渡る（`TR-RCL-01`）。
+    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "sequential", [57]);
+  },
+};
+
+/**
+ * 収録音高は作り方とは別に選ぶ（`TR-RCL-01`）。
+ *
+ * 「多音階連続音」という組で固定しない。 固定すると、本数も音高も
+ * こちらの決め打ちになる。
+ */
+export const 音高を選んで作る: Story = {
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.type(await c.findByLabelText("名前"), "ミナ");
+    await userEvent.click(await c.findByRole("button", { name: /女声の目安/ }));
+    await userEvent.click(await c.findByRole("button", { name: "作る" }));
+    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "single", [55, 62, 69]);
   },
 };
 

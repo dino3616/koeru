@@ -23,7 +23,16 @@ const rows: RowTakesView[] = [
     text: "あ い う え お",
     state: "recorded",
     units: 5,
-    takes: [{ take_id: 9, generation: 1, peak: 0.6, duration_ms: 2900, invalid: false }],
+    takes: [
+      {
+        take_id: 9,
+        generation: 1,
+        peak: 0.6,
+        duration_ms: 2900,
+        invalid: false,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
+    ],
     adopted: 9,
     moras: 5,
     risk_hard: 0,
@@ -34,9 +43,30 @@ const rows: RowTakesView[] = [
     state: "recorded",
     units: 5,
     takes: [
-      { take_id: 10, generation: 1, peak: 0.68, duration_ms: 3020, invalid: false },
-      { take_id: 11, generation: 2, peak: 0.71, duration_ms: 3100, invalid: false },
-      { take_id: 12, generation: 3, peak: 0.65, duration_ms: 2940, invalid: false },
+      {
+        take_id: 10,
+        generation: 1,
+        peak: 0.68,
+        duration_ms: 3020,
+        invalid: false,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
+      {
+        take_id: 11,
+        generation: 2,
+        peak: 0.71,
+        duration_ms: 3100,
+        invalid: false,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
+      {
+        take_id: 12,
+        generation: 3,
+        peak: 0.65,
+        duration_ms: 2940,
+        invalid: false,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
     ],
     adopted: 11,
     moras: 5,
@@ -72,7 +102,7 @@ const 台帳 = () => {
     songs_in_bank: 4,
     by_tone: [],
     remaining_seconds: 600,
-    measured: false,
+    remaining_rows: 72,
   });
   mocked(api.rowsWithTakes).mockResolvedValue(rows);
   // 確認キュー（`TR-ALN-25`）。既定は「見るものが無い」。

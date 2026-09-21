@@ -219,10 +219,27 @@ export const modelNoticeQuery = () =>
  *
  * 台帳ではない。 録音リストの定義から作るので、起動中は変わらない。
  */
-export const methodPresetsQuery = () =>
+export const methodPresetsQuery = (tones: number) =>
   queryOptions({
-    queryKey: ["methods"],
-    queryFn: () => api.methodPresets(),
+    // 本数を鍵に混ぜる。 所要時間が本数に比例するので、別の本数は別の答え。
+    queryKey: ["methods", tones],
+    queryFn: () => api.methodPresets(tones),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/** 選べる収録音高（`TR-RCL-06`）。C1〜B7 の 84 半音。起動中は変わらない。 */
+export const toneOptionsQuery = () =>
+  queryOptions({
+    queryKey: ["tone-options"],
+    queryFn: () => api.toneOptions(),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
+export const toneSuggestionsQuery = () =>
+  queryOptions({
+    queryKey: ["tone-suggestions"],
+    queryFn: () => api.toneSuggestions(),
     staleTime: Number.POSITIVE_INFINITY,
   });
 

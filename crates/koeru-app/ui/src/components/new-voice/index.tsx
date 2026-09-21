@@ -1,14 +1,16 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { Suspense, useId, useState } from "react";
 
 import { Button } from "~/components/button";
 import { Field } from "~/components/field";
+import { TonePicker } from "~/components/tone-picker";
+import { DEFAULT_TONE_MIDI } from "~/lib/tones";
 import { methodPresetsQuery } from "~/lib/queries";
 import { cx } from "~/lib/tv";
 
 type NewVoiceProps = {
-  /** 名前と作り方を決めて作る。作ったら開く。 */
-  onCreate: (displayName: string, presetId: string) => void;
+  /** 名前・作り方・収録音高を決めて作る。作ったら開く。 */
+  onCreate: (displayName: string, presetId: string, tones: number[]) => void;
   /** 作っている最中か。 */
   creating: boolean;
   onClose: () => void;
@@ -34,6 +36,9 @@ const minutes = (seconds: number) => `約 ${Math.max(1, Math.round(seconds / 60)
  * 想定回数、読み上げの難しさ。差が5分未満のものは Rust 側で畳んであるので、
  * ここに並んだものは互いに意味のある差を持つ。
  *
+ * **収録音高は作り方とは別に選ぶ**（`TR-RCL-01`）。 本数が所要時間に比例するので、
+ * 音高の欄を先に置き、作り方の所要時間はその本数で計算し直す。
+ *
  * ラジオで組む。 「どれか1つ」を選ぶ形が役割として伝わり、
  * 矢印キーで行き来できる。
  */
@@ -41,15 +46,16 @@ export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
   const nameId = useId();
   const groupId = useId();
   const [name, setName] = useState("");
-  const { data: presets } = useSuspenseQuery(methodPresetsQuery());
+  const [tones, setTones] = useState<number[]>([DEFAULT_TONE_MIDI]);
+  const { data: presets } = useSuspenseQuery(methodPresetsQuery(tones.length));
   // 先頭は所要時間がいちばん短いもの（Rust 側が並べている）。
   // 初めての人が最初に触るので、いちばん軽いところに置く。
   const [presetId, setPresetId] = useState(presets[0]?.id ?? "");
 
   const submit = () => {
     const trimmed = name.trim();
-    if (trimmed === "" || creating || presetId === "") return;
-    onCreate(trimmed, presetId);
+    if (trimmed === "" || creating || presetId === "" || tones.length === 0) return;
+    onCreate(trimmed, presetId, tones);
   };
 
   return (
@@ -67,6 +73,13 @@ export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
         }}
         placeholder="ミナ"
       />
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-semibold text-slate-11">音の高さ</legend>
+        <Suspense fallback={<p className="text-xs text-slate-11">読み込んでいます</p>}>
+          <TonePicker tones={tones} onChange={setTones} />
+        </Suspense>
+      </fieldset>
 
       <fieldset className="flex flex-col gap-3">
         <legend className="text-sm font-semibold text-slate-11" id={groupId}>
@@ -133,7 +146,7 @@ export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
         <Button
           variant="primary"
           onClick={submit}
-          disabled={name.trim() === "" || creating || presetId === ""}
+          disabled={name.trim() === "" || creating || presetId === "" || tones.length === 0}
         >
           {creating ? "作っています" : "作る"}
         </Button>

@@ -5,9 +5,30 @@ import { TakeGenerations } from ".";
 import type { TakeSummaryView } from "~/lib/ipc";
 
 const takes: TakeSummaryView[] = [
-  { take_id: 1, generation: 1, peak: 0.68, duration_ms: 3020, invalid: false },
-  { take_id: 2, generation: 2, peak: 0.71, duration_ms: 3100, invalid: false },
-  { take_id: 3, generation: 3, peak: 0.65, duration_ms: 2940, invalid: false },
+  {
+    take_id: 1,
+    generation: 1,
+    peak: 0.68,
+    duration_ms: 3020,
+    invalid: false,
+    recorded_at: "2026-09-21T18:24:00Z",
+  },
+  {
+    take_id: 2,
+    generation: 2,
+    peak: 0.71,
+    duration_ms: 3100,
+    invalid: false,
+    recorded_at: "2026-09-21T18:24:00Z",
+  },
+  {
+    take_id: 3,
+    generation: 3,
+    peak: 0.65,
+    duration_ms: 2940,
+    invalid: false,
+    recorded_at: "2026-09-21T18:24:00Z",
+  },
 ];
 
 const meta = {
@@ -44,7 +65,17 @@ export const 三回録った: Story = {
 
 export const 使えない回がある: Story = {
   args: {
-    takes: [...takes, { take_id: 4, generation: 4, peak: 0.4, duration_ms: 1200, invalid: true }],
+    takes: [
+      ...takes,
+      {
+        take_id: 4,
+        generation: 4,
+        peak: 0.4,
+        duration_ms: 1200,
+        invalid: true,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
+    ],
   },
 };
 

@@ -3,10 +3,10 @@ import { Button } from "~/components/button";
 type RecordingOrderProps = {
   /** いまのモード。`SongBankFirst` か `CoverageEfficiency`。 */
   mode: string;
-  /** 残り所要時間（秒、`TR-RCL-10`）。 */
+  /** 残り所要時間（秒、`TR-RCL-09`）。固定の見積もり。 */
   remainingSeconds: number;
-  /** 実測が効いているか（`TR-RCL-10`）。効くまでは見込みの値。 */
-  measured: boolean;
+  /** 残りの行数（`TR-RCL-09`）。多音階では音高の本数を掛けた数。 */
+  remainingRows: number;
   /** 曲バンクに曲があるか。無ければ切り替える先が無い。 */
   hasSongs: boolean;
   onChange: (mode: string) => void;
@@ -53,7 +53,7 @@ const remaining = (seconds: number) => {
 export const RecordingOrder = ({
   mode,
   remainingSeconds,
-  measured,
+  remainingRows,
   hasSongs,
   onChange,
   switching,
@@ -69,22 +69,19 @@ export const RecordingOrder = ({
         <span className="text-sm font-semibold text-slate-12">{current.name}</span>
       </div>
       {/*
-        残り所要時間（`TR-RCL-10`）。
+        残りを時間と件数の両方で出す（`TR-RCL-09`、`DEC-RCL-013`）。
 
-        実測が 10 行に達するまでは見込みの値。 そのことを言わずに数だけ出すと、
-        最初の数行で「あと3時間」と読まれて手が止まる。
+        **時間だけにしない。** 時間は固定の見積もりで、桁が合っているだけ
+        （`DEC-RCL-008`）。数だけ出すと精度を騙ることになる。
+        行数は数え上げなので正確で、本人が自分のペースを当てはめられる。
       */}
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs text-slate-11">残り</span>
         <span className="font-mono text-sm text-slate-12 tabular-nums">
-          {remaining(remainingSeconds)}
+          {remainingRows} 行 · {remaining(remainingSeconds)}
         </span>
       </div>
-      {!measured && (
-        <p className="text-xs text-slate-11">
-          いまは見込みです。何行か録ると、あなたのペースで数え直します。
-        </p>
-      )}
+      <p className="text-xs text-slate-11">時間は目安です。行数は数えた数そのものです。</p>
       <p className="text-xs text-slate-11">{current.why}</p>
       {/* 曲が無ければ曲バンク優先へ戻す先が無い。 押せる的として出さない。 */}
       {(hasSongs || mode === "SongBankFirst") && (

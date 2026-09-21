@@ -15,6 +15,20 @@ type TakeGenerationsProps = {
 };
 
 /**
+ * RFC 3339 を「9月21日 18:24」にする。
+ *
+ * 年を出さない。 テイクの並びは同じ行のものなので、年が違うことはまず無い。
+ * 読めない文字列はそのまま返す——握りつぶすと、何が来ているか分からなくなる。
+ */
+const when = (rfc3339: string) => {
+  const t = new Date(rfc3339);
+  if (Number.isNaN(t.getTime())) return rfc3339;
+  return `${t.getMonth() + 1}月${t.getDate()}日 ${String(t.getHours()).padStart(2, "0")}:${String(
+    t.getMinutes(),
+  ).padStart(2, "0")}`;
+};
+
+/**
  * 録った回（`TR-REC-21`、`TR-RCL-25`）。
  *
  * 録り直しは上書きではなく世代。 過去のものは非採用として残り、
@@ -27,7 +41,12 @@ type TakeGenerationsProps = {
  * 見ることと採ることを分ける。 押して見るだけなら何も変わらない。
  * 採るのは別の的にする——聴き比べているつもりで採用が動くと、
  * 「壊れない操作」でなくなる。
+ *
+ * **録った日時を出す**（`DEC-RCL-015`）。 事実だけを置く——「何日空いたから
+ * 声が揃っていない」のような示唆は出さない。KOERU は声質に関与しない。
+ * どう読むかは本人が決める。
  */
+
 export const TakeGenerations = ({
   takes,
   adoptedId,
@@ -42,6 +61,7 @@ export const TakeGenerations = ({
       {takes.map((t) => {
         const adopted = t.take_id === adoptedId;
         const seconds = (t.duration_ms / 1000).toFixed(2);
+        const at = when(t.recorded_at);
         return (
           <li key={t.take_id} className="flex items-center gap-2">
             <button
@@ -50,8 +70,10 @@ export const TakeGenerations = ({
               onClick={() => onShow(t.take_id)}
               aria-label={
                 t.invalid
-                  ? `${t.generation} 回目、${seconds} 秒。音がとぎれているので使えません`
-                  : `${t.generation} 回目、${seconds} 秒${adopted ? "。これを使っています" : ""}`
+                  ? `${t.generation} 回目、${at}、${seconds} 秒。音がとぎれているので使えません`
+                  : `${t.generation} 回目、${at}、${seconds} 秒${
+                      adopted ? "。これを使っています" : ""
+                    }`
               }
               className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border p-3 text-left hover:bg-slate-4 ${
                 t.take_id === shownId
@@ -63,7 +85,9 @@ export const TakeGenerations = ({
                 <span className="font-mono text-sm text-slate-12 tabular-nums">
                   {t.generation} 回目
                 </span>
-                <span className="font-mono text-xs text-slate-11 tabular-nums">{seconds} 秒</span>
+                <span className="font-mono text-xs text-slate-11 tabular-nums">
+                  {at} · {seconds} 秒
+                </span>
               </span>
               {adopted && (
                 <svg
