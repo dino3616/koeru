@@ -12,7 +12,7 @@
         "@tanstack/react-router": "1.170.38",
         "@tanstack/react-start": "1.168.56",
         "@tauri-apps/api": "2.11.1",
-        "cn": "0.3.0",
+        "cn": "0.3.1",
         "motion": "13.4.0",
         "react": "19.3.0",
         "react-dom": "19.3.0",
@@ -776,7 +776,7 @@
 
     "chokidar": ["chokidar@5.0.0", "", { "dependencies": { "readdirp": "^5.0.0" } }, "sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw=="],
 
-    "cn": ["cn@0.3.0", "", { "bin": { "cn": "bin/cn.mjs" } }, "sha512-qRoU0ARrZD3Bbj1wKFftEKxPjSnzTEdFkf22NVhW+zU9D/wajhoP+qUZ5DChhhSOBCH1onV12hrmGqfu1+5Z2Q=="],
+    "cn": ["cn@0.3.1", "", { "bin": { "cn": "bin/cn.mjs" } }, "sha512-eaA+eCSC8uXwx9S8KGa9E9axdzpqcGNOrKqmfj5LLUGYr3LLz17CtlaNSD+6mMIEN8uOYsQROMs7KD8FO5/XsQ=="],
 
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
