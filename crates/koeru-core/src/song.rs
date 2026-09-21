@@ -164,10 +164,30 @@ pub const PREVIEW_MAX_SHIFT: i32 = 7;
 /// 試唱で許す二乗平均シフト量（半音、`TR-SYN-15`）。
 pub const PREVIEW_MAX_RMS_SHIFT: f64 = 4.0;
 
-/// 自動移調の探索範囲（半音、`TR-SYN-15`）。
+/// 勧めるキーの探索範囲（半音、`TR-SYN-15`）。
 ///
-/// 1オクターブ上下で足りる。 これを超える移調は、元の曲と別の曲になる。
-const TRANSPOSE_SEARCH: std::ops::RangeInclusive<i32> = -12..=12;
+/// 曲と収録音高の両方から出す。 **±12 に固定していた。** 2オクターブ離れた
+/// 曲はどの候補でも許容シフト量に入らず、24 半音動かせば調を変えずに
+/// ちょうど収まるのに「勧める先が無い」と答えていた。
+///
+/// 上下の端は「曲がいちばん外へ出たまま、まだ窓に触れている」位置。
+/// 窓は収録音高の最低から `MAX_SHIFT_DOWN`、最高から `MAX_SHIFT_UP`。
+/// これより外は、どのノートも窓に入らないので見る意味が無い。
+///
+/// オクターブを優先する並べ方は変えない（[`octave_rank`]）。 広げても、
+/// 小さく収まる候補があればそちらが先に来る。
+fn transpose_search(song: &Song, tones: &[i32]) -> std::ops::RangeInclusive<i32> {
+    let (Some(song_lo), Some(song_hi)) = (
+        song.notes.iter().map(|n| n.midi).min(),
+        song.notes.iter().map(|n| n.midi).max(),
+    ) else {
+        return 0..=0;
+    };
+    let (Some(tone_lo), Some(tone_hi)) = (tones.iter().min(), tones.iter().max()) else {
+        return 0..=0;
+    };
+    (tone_lo + MAX_SHIFT_DOWN - song_hi)..=(tone_hi + MAX_SHIFT_UP - song_lo)
+}
 
 /// 収録音高と曲の音域の整合（`TR-RCL-22`, `TR-SYN-15`）。
 ///
@@ -288,7 +308,7 @@ pub fn recommended_transpose(song: &Song, tones: &[i32]) -> i32 {
     if song.notes.is_empty() || tones.is_empty() {
         return 0;
     }
-    TRANSPOSE_SEARCH
+    transpose_search(song, tones)
         .map(|t| range_fit_at(song, tones, t))
         .min_by(|a, b| {
             a.strained
@@ -692,6 +712,35 @@ mod range_tests {
     /// 既定の綴り（`TR-SYN-36`）。
     fn builtin_rules() -> crate::presamp::Rules {
         crate::presamp::Rules::builtin(UnitSet::Core)
+    }
+
+    /// 探索範囲は曲と収録音高から出す（`TR-SYN-15`）。
+    ///
+    /// **±12 に固定していた。** 2オクターブ離れた曲はどの候補も許容シフト量に
+    /// 入らず、24 半音動かせば調を変えずに収まるのに勧められなかった。
+    #[test]
+    fn 二オクターブ離れた曲にもキーを勧められる() {
+        // A3（57）で録った音源に、2オクターブ上の曲。
+        let far = at(&[81, 83, 81]);
+        let tones = [57];
+        assert!(
+            range_fit(&far, &tones).is_out_of_range(),
+            "そのままでは届かない"
+        );
+
+        let t = recommended_transpose(&far, &tones);
+        assert_eq!(t % 12, 0, "オクターブ単位で勧める（調を変えない）: {t}");
+        assert!(
+            !range_fit_at(&far, &tones, t).is_out_of_range(),
+            "勧めた先では届く: {t}"
+        );
+    }
+
+    /// 近い曲では、大きな移調へ逃げない（`TR-SYN-15`）。
+    #[test]
+    fn 届いている曲にはキーを動かさない() {
+        let near = at(&[57, 59, 57]);
+        assert_eq!(recommended_transpose(&near, &[57]), 0);
     }
 
     fn at(midis: &[i32]) -> Song {
