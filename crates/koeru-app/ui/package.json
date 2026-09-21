@@ -38,7 +38,7 @@
     "@storybook/addon-vitest": "10.6.0",
     "@storybook/react-vite": "10.6.0",
     "@tailwindcss/vite": "4.3.3",
-    "@tauri-apps/cli": "2.11.4",
+    "@tauri-apps/cli": "2.11.5",
     "@tsconfig/bun": "1.0.11",
     "@tsconfig/strictest": "2.0.8",
     "@tsconfig/vite-react": "8.1.1",
