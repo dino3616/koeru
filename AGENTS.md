@@ -33,13 +33,14 @@ M2 と M4 を実装中。 録音 → テイク確定 → 試唱 → 配布パッ
 
 正本は `.agents/skills/`。`.claude/skills/` は symlink。 追加・編集は必ず `.agents/skills/` 側で行い、`.claude/skills/` には symlink を張るだけにする。実体を両方に置かない。
 
-このリポジトリが持っているのは4つ。
+このリポジトリが持っているのは5つ。
 
 | Skill | いつ使うか |
 |---|---|
 | `writing-comments` | コメントや説明文を書く・直すとき。言語を問わない。何を書き何を書かないか、要件の引用の形 |
 | `rust-conventions` | Rust のコードを書く・直す・レビューするとき。 エラー型、tracing、clippy、依存追加の方針 |
 | `react-conventions` | 画面を書く・直すとき。tailwind-variants、注入してよいクラスの決め方、部品の粒度、Rust との境界 |
+| `setup-koeru` | 環境を用意するとき。Nix の導入、direnv、submodule と LFS の順序、Nix で覆えないもの |
 | `verify-koeru` | 変更を検証するとき。何をどの順に走らせるか、CI が何を見ているか |
 
 次の skill はリポジトリの外にある（保守者の環境やプラグイン由来）。clone しただけでは付いてこない。
@@ -77,11 +78,26 @@ FSL を書く前に、形式化メモをチャットに出して確認を取る�
 
 手順は `verify-koeru` skill が持つ。 ここには最短の入口だけ置く。
 
+**開発ツールは `flake.nix` が供給する**（`DEC-PLT-033`）。 rustup も Homebrew も
+apt も要らない。以下は devShell の中で走らせる——direnv を入れていれば
+ディレクトリに入った時点で揃っている。
+
 ```bash
+nix develop                                    # 入る
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 ```
+
+エージェントは `nix develop --command` で明示的に包む。 シェルのフックに
+依存しない形のほうが決定的で、`flake.lock` が同じなら機械が変わっても同じ版になる。
+
+```bash
+nix develop --command cargo test --workspace --all-features
+```
+
+`flake.nix` も整形と lint の対象。 `nix fmt` と `statix` と `deadnix` を CI が強制する。
+`systems` を足したら `bunAssets` と `fslcAssets` にも足す——忘れると評価が落ちる。
 
 **レビューに入る前に、変更が触れた契約を出す。** 検査ではなく、読む前の準備。
 
@@ -92,7 +108,9 @@ cargo xtask touched            # main との差分が引いている ID を、�
 要件なら条文と確信度、判断なら選んだ案と覆る条件が出る。 引用の無い変更ファイルは
 別に並ぶ——そこは機械では対応が出ないので、読んで決める。詳細は `verify-koeru` skill。
 
-先に `git-lfs` を入れてから submodule を取る。 取らずに clone すると途中で死ぬ。
+**トップレベルだけ clone し、`nix develop` に入ってから submodule を取る。**
+`git-lfs` は devShell が供給する。`--recurse-submodules` を付けて clone すると、
+`git-lfs` が無い環境では途中で死ぬ。手順は `setup-koeru` skill。
 
 書いていない OS 向けの組み立ても手元で通す。
 音声のバックエンドは macOS しか無く、他 OS では `backend/unsupported.rs` が選ばれる。
@@ -139,7 +157,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - FSL の `const` を写す前に、契約か仮定かを見る。 `ASSUME-` で始まる前置きが「検証用に有限へ閉じる」と言っているものは製品の規則ではない（`MAX_TAKES` を写して、3テイクで収録が止まった。`DEC-REC-005`）
 - 未決の論点は `meta/questions/` が正本。 メモリ予算に触るものは実装着手前に数値を積み直す。どれがリリースを塞いでいるかは `cargo xtask check-profile <ID>` が出す
 - FSL 化してあるのは縦切り1本だけ（録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し）。技術要件を一度に FSL へ移さないこと。形式化できない文章まで入れると、FSL が新しい巨大文書になる
-- `fslc` はバージョンと SHA-256 で固定している（CI 参照）。更新は Renovate 任せにせず、semantic diff を確認してから上げる。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する
+- `fslc` はバージョンと SHA-256 で固定している（`flake.nix`）。**hash を手で書き換えない。** `nix/update-hashes.sh` が上流の公開 digest から作り直し、`nix-hash-fix` ワークフローが PR の中で当てる（`DEC-PLT-033`）。major は PR にならず Dependency Dashboard に載る。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する
 
 ## 注意
 

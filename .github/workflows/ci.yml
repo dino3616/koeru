@@ -26,6 +26,11 @@ jobs:
     # 「書いていない OS でもアプリが組み立つか」を見ているのはこのジョブ。
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        # 開発環境は flake が持つ（`DEC-PLT-033`）。 Rust も Linux の
+        # WebKitGTK 一式も devShell から出るので、apt は要らない。
+        shell: nix develop --command bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,12 +40,24 @@ jobs:
           # MFA のモデルは HuggingFace の LFS に入っている（DEC-ALN-012）。
           # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
           lfs: true
-      # Tauri は Linux で WebKitGTK を要る（DEC-PLT-014）。
-      - uses: ./.github/actions/linux-webview
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
       - name: Show toolchain
         run: rustc --version && cargo --version
       - name: rustfmt
         run: cargo fmt --all --check
+      # 整形の契約を持たないファイルを作らない。形式は RFC 166（nixfmt）。
+      # git から数えるので、`.nix` が増えても漏れない。
+      - name: nixfmt
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty nixfmt --check
+      # 反パターン（statix）と未使用の束縛（deadnix）。
+      # Rust の clippy と同じ規律で、機械で見えるものは機械に見せる。
+      # `errfmt` で出す。 既定の span 描画は日本語コメントの桁を
+      # バイト数で数えるので、指している場所がずれて読めない。
+      - name: statix
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty -n1 statix check -o errfmt
+      - name: deadnix
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty deadnix --fail
       # リポジトリ全体で clippy::all を deny する。設定は Cargo.toml の
       # [workspace.lints] にあり、ここは通過を強制するだけ。
       - name: clippy
@@ -51,23 +68,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # 理由は lint ジョブの同じ箇所。Rust をビルドする job だけが要る。
           submodules: recursive
           lfs: true
-      # Linux だけ WebKitGTK が要る（上と同じ理由）。
-      - uses: ./.github/actions/linux-webview
-        if: matrix.os == 'ubuntu-latest'
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
       # MFA のモデルは submodule ＋ LFS で入る。 実体が来ていないと実モデルの
       # 試験が中身を実行せずに ok と出るので、走らせる前にここで落とす。
       # LFS を引けていないときは 130 バイト程度のポインタが置かれるだけで、
       # ファイルの有無では見分けられない。
       - name: MFA のモデルの実体が来ているか
+        # devShell を要さない。Nix の起動を挟まずに落としたい。
         shell: bash
         run: |
           f=crates/koeru-align/models/japanese_mfa/acoustic/final.mdl
@@ -78,26 +98,46 @@ jobs:
       # CI のランナーにマイクは無いので、通らないのではなく通り抜ける。
       - run: cargo test --workspace --all-features
 
+  test-windows:
+    name: test (windows)
+    # Nix は Windows をネイティブに支えない。公式経路は WSL2 で、
+    # WSL 上の Nix は Linux 環境なので Windows ネイティブの検証にならない。
+    # `TR-PLT-01` は Windows を第一級の対象としているので、ここが唯一の
+    # 検証経路として残る——devShell では覆えない（`DEC-PLT-033`）。
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          lfs: true
+      - name: MFA のモデルの実体が来ているか
+        shell: bash
+        run: |
+          f=crates/koeru-align/models/japanese_mfa/acoustic/final.mdl
+          test -f "$f" || { echo "モデルが無い: $f"; exit 1; }
+          n=$(wc -c < "$f")
+          test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
+      # ツールチェーンはランナーの rustup が `rust-toolchain.toml` を読んで揃える。
+      - run: cargo test --workspace --all-features
+
   specs:
     name: specs (FSL + meta)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
     steps:
       # xtask の依存は toml だけで koeru-* を引かない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # 配布バイナリはバージョンと SHA-256 の両方で固定する。
-      # 更新は Renovate 任せにせず、semantic diff を確認してから上げること。
-      - name: Install fslc
-        env:
-          FSL_VERSION: v4.6.0
-          FSL_SHA256: 98b60a9914bc06225a97a5e579aa409b04e9caaa468d59cd3a7e8da8aa902934
-        run: |
-          set -euo pipefail
-          curl -fsSL -o fslc \
-            "https://github.com/ymm-oss/fsl/releases/download/${FSL_VERSION}/fslc-linux-x64"
-          echo "${FSL_SHA256}  fslc" | sha256sum -c -
-          chmod +x fslc && sudo mv fslc /usr/local/bin/fslc
-          fslc --version
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # fslc は版と SHA-256 の両方で `flake.nix` が固定している。
+      # Renovate が追うのは版だけで、hash は `nix-hash-fix` が PR の中で当てる
+      # （`DEC-PLT-033`）。
+      - name: Show fslc
+        run: fslc --version
       # ID 規約と edition の診断。仕様そのものの検査ではない。
       - name: fslc lint
         run: fslc lint specs/ --project specs/fsl-project.toml
@@ -130,7 +170,7 @@ jobs:
           # 手書き文書とソースコメントの ID 参照が実体に解決するか。
           # check-meta は TOML の中しか見ないので、ここが Markdown とコメントを受け持つ。
           cargo run --package xtask -- check-references
-          # 判断記録の索引は生成物。手で足すと片方だけ古くなる。
+          # 判断記録の索引は生成物。手で足すと片方だけが古くなる。
           cargo run --package xtask -- index-decisions --check
 
   ui:
@@ -142,30 +182,28 @@ jobs:
         # WebView 側は crates/koeru-app/ui にまとめてある。
         # ここだけで完結する bun パッケージなので、ワークスペースを跨がない。
         working-directory: crates/koeru-app/ui
+        # flake はリポジトリの根にあるので、明示して指す。
+        # シェルの作業ディレクトリは上の working-directory のまま。
+        shell: nix develop ${{ github.workspace }} --command bash -eo pipefail {0}
     steps:
       # bun しか使わない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: crates/koeru-app/ui/package.json
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # story は実ブラウザに描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
+      # ブラウザは nixpkgs の playwright-driver から出す。 npm の版と
+      # nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
+      # 揃わないときは、nixpkgs が追いつくまで npm 側を上げない。
+      - name: Playwright の版が揃っているか
+        run: |
+          set -euo pipefail
+          if [ "$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON" != "$KOERU_PLAYWRIGHT_FROM_NIXPKGS" ]; then
+            echo "::error::Playwright の版がずれている。package.json=$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON nixpkgs=$KOERU_PLAYWRIGHT_FROM_NIXPKGS"
+            exit 1
+          fi
+          echo "Playwright $KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON で揃っている"
       - name: Install
         run: bun install --frozen-lockfile
-      # story を実ブラウザで描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
-      # ブラウザは毎回落とさない。 lockfile が変わったときだけ入れ直す。
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('crates/koeru-app/ui/bun.lock') }}
-      # ブラウザ本体だけをキャッシュする。 OS のライブラリは
-      # ~/.cache/ms-playwright の外にあるので、当たっても入れ直す。
-      - name: Install Playwright（ブラウザとライブラリ）
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: bunx playwright install --with-deps chromium
-      - name: Install Playwright（ライブラリだけ）
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: bunx playwright install-deps chromium
       # 整形・lint・型 ＋ story の網羅 ＋ story の axe と play。
       # --fix を付けない。CI は直す場所ではない。
       - name: vp check
@@ -178,11 +216,14 @@ jobs:
     name: license policy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
     steps:
       # cargo deny はマニフェスト解決だけでビルドしない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
       # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。
       # 外部 PR に対する防波堤。
       - name: cargo-deny

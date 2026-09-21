@@ -1,0 +1,115 @@
+schema = 'decision'
+id = 'DEC-PLT-033'
+constraint_label = '開発環境の調達'
+constraint = '開発ツールの版が、開発機と CI とエージェントの間で一致すること'
+title = '開発ツールは Nix の devShell で揃える。Nix を第一級の前提開発環境とする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Nix の devShell で揃える',
+  '各自が rustup / Homebrew / apt で揃える（現状維持）',
+  'devcontainer で揃える',
+  'proto や mise のような版管理器で揃える',
+]
+selected = 'Nix の devShell で揃える'
+rationale = '''
+現状維持は成り立たない。実際にずれていた。 開発機を宣言と突き合わせたところ、
+bun が 1.3.6（`package.json` は 1.4.2）、fslc が 4.0.0（CI は 4.6.0 を SHA-256 で固定）
+だった。**fslc のずれは、CI の門番と違う検証器で `specs/` を検証していたことを意味する。**
+`cargo-deny` は版の固定が無く、`git-lfs` は Homebrew 由来だった。
+
+devcontainer は採れない。 音声のバックエンドは CoreAudio と AVFoundation を直接叩き、
+アライメントは Accelerate にリンクする。**Linux コンテナの中では原理的に動かせない。**
+devShell はコンテナではなくホスト上のシェルなので、macOS ネイティブの経路を保ったまま
+ツールだけを固定できる。ここは Nix の優位が本物。
+
+proto / mise は採らない。 Nix と併用すると版の宣言が2箇所になる（禁止事項6）。
+単体で使う場合も、Linux の WebKitGTK 一式（`DEC-PLT-014`）を供給できない。
+
+版の正本は動かさない。 Rust は `rust-toolchain.toml` を `rust-overlay` が読み、
+bun と Playwright は `package.json` を flake が読む。flake に残るのは hash だけで、
+hash は版から機械的に導かれる事実なので、二重の主張にならない。
+hash は上流が公開している digest から作り直せるので、人が書き写す場所ではない。
+
+`nix build` をリリース経路にしない。 Nix 製の ELF は interpreter と `DT_RUNPATH` が
+`/nix/store` を指すので、**Nix を持たない利用者の機械では動かない**（`patchelf` か
+静的リンクで剥がす作業が別に要る）。Tauri のバンドラも Nix 上では AppImage の生成が
+落ちる報告がある。配布は既存の Tauri バンドラのままにする。
+ビルド時の暗黙依存を暴く用途としては Nix のサンドボックスが最良だが、
+利用者の機械での実行時依存は `/nix/store` の閉包とは別の問題で、そこには答えない。
+
+覆えない領域が3つある。 Windows は Nix がネイティブに支えず、公式経路の WSL2 は
+Linux 環境なので Windows ネイティブの検証にならない——`TR-PLT-01` が第一級の対象と
+している環境が、開発環境としては第二級に置かれる非対称が残る。macOS の Xcode
+Command Line Tools は Tauri 自身が要求する。x86_64-darwin は nixpkgs 26.11 が
+対応を打ち切っており、評価そのものが失敗する。
+
+部品台帳には載せない。 Nix は配布物に入らない開発道具で、ライセンス監査の対象外。
+`deny.toml` と `cargo deny check` が見るのは製品の依存だけ。
+
+Renovate の方針を変えた。 これまで全パッケージで automerge を禁じていたが、
+major 以外は automerge する。ライセンスは `cargo deny check` が機械判定するので、
+`CONTRIBUTING.md` のライセンス審査が守ろうとしていたものは機械で担保される。
+**落ちた PR は人が直す。** Agent に適応させる案は検討して落とした。
+
+**major は PR を出さない。** Dependency Dashboard に載せ、人が着手するものを選ぶ。
+自動で開くと、読む前に列が伸びる。
+
+**submodule は automerge しない。** アライメントと合成の劣化は CI で捕まらない
+（`EVID-ALN-001`）。
+
+fslc は他と同じ扱いにした。 以前は「更新は Renovate 任せにせず semantic diff を
+確認してから上げる」としていたが、non-major でそれを要求する根拠が無い
+——CI が `fslc lint` と `fslc chain` と `document check` を全 manifest に当てるので、
+壊れれば落ちる。major は Dependency Dashboard に載るので、読む機会は残る。
+
+hash は機械が直す。 `flake.nix` の fslc と bun は SHA-256 で固定しているので、
+版だけが上がると合わなくなる。これは判断を含まず、版上げのたびに必ず必要だと
+事前に分かっているので、人にやらせない。`nix-hash-fix` が PR の中で当てる。
+
+**ビルドの失敗から直す方式は採らない。** `determinate-nixd fix hashes` は走った
+system の分しか直せず、hash は 3 system × 2 ツールで 6 個ある。ubuntu のビルドは
+x86_64-linux の分しか取得しないので、残りが古いまま通る。bun は `SHASUMS256.txt`、
+fsl は資産ごとの `.sha256` を公開しているので、`nix/update-hashes.sh` が
+そこを読んで 6 個すべてを確定的に作る。バイナリも落とさない。
+
+**push には `GITHUB_TOKEN` 以外の資格情報が要る。** `GITHUB_TOKEN` で push すると
+GitHub が新しいワークフローを起動せず、失敗した check が残って automerge が発火しない。
+PAT を採った（`HASH_FIX_TOKEN`）。GitHub App のほうが期限が無く人に紐づかないが、
+secret が2つ要り、App の作成も要る。**PAT の期限切れでこのジョブが止まることは
+受け入れた**——止まれば hash が古いまま CI が落ちるので、黙って壊れはしない。
+
+Renovate を self-host して `postUpgradeTasks` で同じコミットに入れる案もあったが、
+Mend ホストの App から自前運用へ移る代償のほうが大きいと判断した。
+
+**`fetchurl` の `name` に版を入れる。** fixed-output derivation の同一性は hash だけで
+決まるので、版を上げて hash が古いままだと、Nix が同じ store path を見て
+「取得済み」と判断し、**古いバイナリを黙って使う**。落ちるより悪い。
+名前に版が入っていれば、取り違えではなく hash 不一致で落ちる。
+'''
+review_triggers = [
+  'nixpkgs の追従が定常業務として重くなったとき。 とくに Playwright の版が nixpkgs に追いつくのを待って開発が止まったとき',
+  'Windows の貢献者が devShell の恩恵を受けられないことが実害になったとき。 そのときは非 Nix 経路を第一級へ戻すか、Windows 向けの別の調達を立てる',
+  'Intel Mac の貢献者が現れたとき。 nixpkgs 26.05 を別の input として引くか、開発機として支えないことを明示するかを決める',
+  'nixpkgs が x86_64-darwin の対応を戻したとき',
+  'Nix 製バイナリの配布が現実的になったとき（relocatability が解決したとき）。 そのときは nix build を配布経路として再検討する',
+  'automerge した patch か minor が回帰を通したとき。 そのときは automerge の範囲を狭める',
+  '落ちた non-major の PR を人が直す手間が積み上がったとき。 そのときは automerge の範囲を狭める',
+  '上流が digest の公開をやめたとき。 `nix/update-hashes.sh` が成り立たなくなるので、ビルドの失敗から直す方式へ移るか、人の作業へ戻す',
+  'Dependency Dashboard の major が読まれずに溜まったとき。 検知しても着手されないなら、載せる意味が無い',
+]
+supersedes = []
+affects_requirements = [
+  'TR-PLT-01',
+  'TR-PLT-02',
+  'TR-PLT-25',
+]
+affects_decisions = [
+  'DEC-PLT-014',
+  'DEC-PLT-016',
+  'DEC-PLT-022',
+  'DEC-ALN-012',
+]
+affects_evidence = [
+  'EVID-ALN-001',
+]

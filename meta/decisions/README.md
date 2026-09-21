@@ -78,6 +78,7 @@
 | [DEC-PLT-030](DEC-PLT-030.toml) | クラス名の畳み | 畳むのは外から来たものとの突き合わせ1箇所だけ。`tv` は畳まない入口から取り、`cn` で後勝ちにする | accepted |
 | [DEC-PLT-031](DEC-PLT-031.toml) | デザインシステムの規則の検査 | デザインシステムの規則は `@shadcn/lint` を oxlint から呼んで見る。`components.json` を置く | accepted |
 | [DEC-PLT-032](DEC-PLT-032.toml) | 画面遷移の持ち場 | 画面遷移は Motion の AnimateView が持ち、CSS には root の抑止だけ残す | accepted |
+| [DEC-PLT-033](DEC-PLT-033.toml) | 開発環境の調達 | 開発ツールは Nix の devShell で揃える。Nix を第一級の前提開発環境とする | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -104,4 +105,4 @@
 | [DEC-SYN-009](DEC-SYN-009.toml) | フレーズの拍と音符の対応 | 長音と促音も拍として返す。長音は直前母音を伸ばす | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-94 件。
+95 件。

@@ -42,15 +42,28 @@ M2 と M4 を実装中です。 録音してテイクを確定し、その場で
 
 ## 開発
 
-先に `git-lfs` を入れてから submodule を取ってください。 WORLD と Kaldi、
-MFA の音響モデルを submodule で調達しており、モデルの実体は LFS にあります。
-入れずに clone すると途中で止まります。手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
+**開発ツールは Nix が供給します。** Rust も bun も `fslc` も `git-lfs` も
+[`flake.nix`](flake.nix) に書いてあり、rustup や Homebrew や apt は要りません。
+トップレベルだけ clone して、シェルに入ってから submodule を取ってください。
+
+```bash
+git clone https://github.com/dino3616/koeru && cd koeru
+nix develop
+git lfs install && git submodule update --init --recursive
+```
+
+WORLD と Kaldi、MFA の音響モデルを submodule で調達しており、モデルの実体は LFS に
+あります。順序を逆にすると clone が途中で止まります。
+Nix の導入から順に書いた手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
+
+以下は devShell の中で走らせます。
 
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo deny check
+nix flake check
 ```
 
 WebView 側は `crates/koeru-app/ui` で完結します。
@@ -59,7 +72,11 @@ WebView 側は `crates/koeru-app/ui` で完結します。
 cd crates/koeru-app/ui && bun install && bun run check && bun run build
 ```
 
-`clippy::all` はリポジトリ全体で deny です。コードの規約は [`.agents/skills/`](.agents/skills/) にあります——コメント、Rust、画面、検証の4つ。作業のときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。
+Windows は Nix の対象外です。 Nix はネイティブに Windows を支えないので、
+Windows で開発する場合はツールを自分で揃えることになります。詳細は
+[`setup-koeru`](.agents/skills/setup-koeru/SKILL.md) を読んでください。
+
+`clippy::all` はリポジトリ全体で deny です。コードの規約は [`.agents/skills/`](.agents/skills/) にあります——コメント、Rust、画面、環境、検証の5つ。作業のときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。
 
 ## 貢献
 
