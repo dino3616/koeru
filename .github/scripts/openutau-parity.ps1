@@ -67,6 +67,26 @@ $phonemizer = [OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer]::new()
 $phonemizer.SetSinger($singer)
 
 $noteType = [OpenUtau.Api.Phonemizer+Note]
+$attrType = [OpenUtau.Api.Phonemizer+PhonemeAttributes]
+
+# 呼び出し先の版が上がったとき、実際に読んだ型と `Process` の形を
+# CI の失敗ログに残す。公開 CLI ではなくアセンブリを直に呼ぶため、
+# これが無いと API の変更と PowerShell の束縛失敗を見分けられない。
+Write-Host "note  : $($noteType.FullName)"
+Write-Host "fields: $(($noteType.GetFields() | ForEach-Object { $_.Name }) -join ', ')"
+foreach ($m in @($phonemizer.GetType().GetMethods() | Where-Object { $_.Name -eq 'Process' })) {
+  Write-Host "Process($(($m.GetParameters() | ForEach-Object { "$($_.ParameterType.Name) $($_.Name)" }) -join ', '))"
+}
+
+# 型つきの配列を作る。 `@(...)` は `object[]` になるので、
+# `Note[]` を取る引数に渡すと束縛に失敗しうる。
+function New-NoteArray([object[]] $items = @()) {
+  # 空配列は束縛で $null に畳まれることがある。 0 件として扱う。
+  $n = if ($null -eq $items) { 0 } else { $items.Count }
+  $a = [Array]::CreateInstance($noteType, $n)
+  for ($i = 0; $i -lt $n; $i++) { $a[$i] = $items[$i] }
+  return , $a
+}
 
 function New-Note([string] $lyric, [int] $position) {
   $n = [Activator]::CreateInstance($noteType)
@@ -74,7 +94,7 @@ function New-Note([string] $lyric, [int] $position) {
   $n.tone = 60          # C4。綴りは音高で変わらない（音高の写像は OpenUtau が後で行う）。
   $n.position = $position
   $n.duration = 480     # 4分音符。
-  $n.phonemeAttributes = @()
+  $n.phonemeAttributes = [Array]::CreateInstance($attrType, 0)
   return $n
 }
 
@@ -89,16 +109,19 @@ foreach ($row in $rows) {
   $method = $cols[0]; $prevLyric = $cols[1]; $lyric = $cols[2]
 
   $note = New-Note $lyric 480
+  # `Note?` へは値か $null をそのまま渡す。 束縛器が包む——
+  # **`[System.Nullable[$noteType]]` と書くと構文解析で落ちる**
+  # （型リテラルの中に変数は置けない）。**踏んだ。**
   if ($prevLyric -eq '-') {
     $prev = $null
-    $prevs = @()
+    $prevs = New-NoteArray @()
   } else {
     $p = New-Note $prevLyric 0
-    $prev = [System.Nullable[$noteType]]::new($p)
-    $prevs = @($p)
+    $prev = $p
+    $prevs = New-NoteArray @($p)
   }
 
-  $result = $phonemizer.Process(@($note), $prev, $null, $prev, $null, $prevs)
+  $result = $phonemizer.Process((New-NoteArray @($note)), $prev, $null, $prev, $null, $prevs)
   # 音符1つに複数の音素が返ることがある（CVVC の VC）。**先頭を見る。**
   # KOERU の候補列も「その音符を鳴らす綴り」が先頭（`presamp::Rules::candidates`）。
   $alias = if ($result.phonemes.Length -gt 0) { $result.phonemes[0].phoneme } else { '' }
