@@ -190,6 +190,7 @@ fn 同梱物だけで一通り動く() {
         &koeru_core::presamp::Rules::builtin(UnitSet::Core),
         Method::Single,
         &m,
+        &std::collections::BTreeSet::new(),
     );
     assert!(!need.is_empty());
 

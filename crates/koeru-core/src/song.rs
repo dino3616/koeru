@@ -136,6 +136,34 @@ impl Song {
         mora::parse(&text, set).ok()
     }
 
+    /// フレーズの切れ目（`TR-RCL-12` の休符）。 モーラの添字で返す。
+    ///
+    /// 休符の手前で綴りの文脈が切れる。 **繋げて解決していた**ので、
+    /// 休符のあとの音符が語頭形（`- か`）ではなく継続（`a か`）に
+    /// 解決され、試唱は別の立ち上がりで鳴り、被覆も別の綴りを要求していた。
+    ///
+    /// 音符ごとに読み直して数える。 総数が全体の解析と合わなければ空を返す
+    /// ——**誤った位置で切るより、切らないほうがよい。**
+    #[must_use]
+    pub fn phrase_breaks(&self, set: UnitSet) -> BTreeSet<usize> {
+        let mut breaks = BTreeSet::new();
+        let mut at = 0_usize;
+        for n in &self.notes {
+            if n.rest_ticks > 0 && at > 0 {
+                breaks.insert(at);
+            }
+            let Ok(m) = mora::parse(&n.lyric, set) else {
+                return BTreeSet::new();
+            };
+            at += m.len();
+        }
+        if self.moras(set).is_some_and(|m| m.len() == at) {
+            breaks
+        } else {
+            BTreeSet::new()
+        }
+    }
+
     /// 方式ごとの必要エイリアス集合（`TR-RCL-12` (e), `TR-RCL-15`, `TR-SYN-17`）。
     ///
     /// 「録音済みサンプルが1件も無い状態」で走らせて事前に算出する（`TR-SYN-17`）。
@@ -147,7 +175,7 @@ impl Song {
         set: UnitSet,
     ) -> BTreeSet<String> {
         self.moras(set)
-            .map(|m| alias::required_aliases(rules, method, &m))
+            .map(|m| alias::required_aliases(rules, method, &m, &self.phrase_breaks(set)))
             .unwrap_or_default()
     }
 }
@@ -463,9 +491,16 @@ pub fn status_of(
                 Singability::Complete
             } else {
                 let resolvable = song.moras(set).is_some_and(|m| {
-                    alias::resolve_phrase(rules, method, &m, recorded, set)
-                        .iter()
-                        .all(|e| e.unit.is_playable())
+                    alias::resolve_phrase(
+                        rules,
+                        method,
+                        &m,
+                        recorded,
+                        set,
+                        &song.phrase_breaks(set),
+                    )
+                    .iter()
+                    .all(|e| e.unit.is_playable())
                 });
                 if resolvable {
                     Singability::WithFallback
@@ -550,6 +585,27 @@ mod tests {
             default_portamento_ms: 0.0,
             transpose: 0,
         }
+    }
+
+    /// 休符で綴りの文脈が切れる（`TR-RCL-12`, `TR-SYN-12`）。
+    ///
+    /// **繋げて解決していた。** 休符のあとの音符が語頭形（`- か`）ではなく
+    /// 継続（`a か`）に解決され、試唱は別の立ち上がりで鳴り、
+    /// 被覆も別の綴りを要求していた。
+    #[test]
+    fn 休符のあとは語頭形を要求する() {
+        let mut s = song("あか", &["あ", "か"]);
+        let rules = builtin_rules();
+
+        // 続けて歌うなら、2音目は直前の母音を見る。
+        let need = s.required_aliases(&rules, Method::Sequential, UnitSet::Core);
+        assert!(need.contains("a か"), "続きは継続形: {need:?}");
+
+        // あいだに休みが入ると、2音目はフレーズの頭になる。
+        s.notes[1].rest_ticks = 480;
+        let need = s.required_aliases(&rules, Method::Sequential, UnitSet::Core);
+        assert!(need.contains("- か"), "休符のあとは語頭形: {need:?}");
+        assert!(!need.contains("a か"), "継続形は要求しない: {need:?}");
     }
 
     fn have(xs: &[&str]) -> BTreeSet<String> {

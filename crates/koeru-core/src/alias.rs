@@ -104,11 +104,21 @@ pub fn resolve(
 /// 何を録れば完全になるのかが分からなくなる。
 /// フォールバックで解決できるかは [`resolve`] が別に答える。
 #[must_use]
-pub fn required_aliases(rules: &Rules, method: Method, moras: &[Mora]) -> BTreeSet<String> {
+pub fn required_aliases(
+    rules: &Rules,
+    method: Method,
+    moras: &[Mora],
+    breaks: &BTreeSet<usize>,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let mut prev_vowel: Option<String> = None;
 
-    for m in moras {
+    for (i, m) in moras.iter().enumerate() {
+        // 休符で綴りの文脈が切れる（`TR-RCL-12`）。 直前の母音を落とすと、
+        // ここからは語頭形を要求する。
+        if breaks.contains(&i) {
+            prev_vowel = None;
+        }
         match m.kind {
             // 長音は直前母音の継続。 新たなエイリアスを要求しない。
             MoraKind::LongVowel => continue,
@@ -252,12 +262,18 @@ pub fn resolve_phrase(
     moras: &[Mora],
     available: &BTreeSet<String>,
     set: UnitSet,
+    breaks: &BTreeSet<usize>,
 ) -> Vec<PhraseEntry> {
     let table = units(set);
     let mut out: Vec<PhraseEntry> = Vec::new();
     let mut prev_vowel: Option<String> = None;
 
     for (i, m) in moras.iter().enumerate() {
+        // 休符で綴りの文脈が切れる（`TR-RCL-12`）。 渡りも挟まない
+        // ——間があるのだから、繋ぐ音は要らない。
+        if breaks.contains(&i) {
+            prev_vowel = None;
+        }
         let main = |unit| PhraseEntry {
             unit,
             mora: i,
@@ -468,10 +484,10 @@ mod tests {
     fn 必要集合は第一候補で作る() {
         let m = parse("さくら", UnitSet::Core).expect("読める");
 
-        let single = required_aliases(&builtin_rules(), Method::Single, &m);
+        let single = required_aliases(&builtin_rules(), Method::Single, &m, &BTreeSet::new());
         assert_eq!(single, have(&["さ", "く", "ら"]));
 
-        let seq = required_aliases(&builtin_rules(), Method::Sequential, &m);
+        let seq = required_aliases(&builtin_rules(), Method::Sequential, &m, &BTreeSet::new());
         assert_eq!(seq, have(&["- さ", "a く", "u ら"]));
     }
 
@@ -479,7 +495,7 @@ mod tests {
     #[test]
     fn 長音と促音は必要集合に入らない() {
         let m = parse("かーきって", UnitSet::Core).expect("読める");
-        let single = required_aliases(&builtin_rules(), Method::Single, &m);
+        let single = required_aliases(&builtin_rules(), Method::Single, &m, &BTreeSet::new());
         assert_eq!(single, have(&["か", "き", "て"]));
     }
 
@@ -493,6 +509,7 @@ mod tests {
             &m,
             &have(&["さ", "ら"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert_eq!(got.len(), 3);
         assert!(got[0].is_playable());
@@ -519,6 +536,7 @@ mod tests {
             &m,
             &have(&["か", "あ", "さ"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert_eq!(got.len(), 3, "音符の数と揃うこと");
         let alias = |i: usize| match &got[i].unit {
@@ -542,6 +560,7 @@ mod tests {
             &m,
             &have(&["き", "い"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert_eq!(got.len(), 3);
         assert_eq!(
@@ -564,6 +583,7 @@ mod tests {
             &m,
             &have(&["き", "て"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert_eq!(got.len(), 3, "っ も1拍として並ぶこと");
         assert_eq!(got[1].unit, PhraseUnit::Rest);
@@ -595,6 +615,7 @@ mod tests {
             &m,
             &have(&["あ"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert_eq!(got.len(), 2, "拍の数は減らさない");
         assert!(!got[0].is_playable());
@@ -606,8 +627,15 @@ mod tests {
     fn 必要集合を全部持っていればフレーズが解決する() {
         let m = parse("さくらさくら", UnitSet::Core).expect("読める");
         for method in [Method::Single, Method::Sequential, Method::Cvvc] {
-            let need = required_aliases(&builtin_rules(), method, &m);
-            let got = resolve_phrase(&builtin_rules(), method, &m, &need, UnitSet::Core);
+            let need = required_aliases(&builtin_rules(), method, &m, &BTreeSet::new());
+            let got = resolve_phrase(
+                &builtin_rules(),
+                method,
+                &m,
+                &need,
+                UnitSet::Core,
+                &BTreeSet::new(),
+            );
             assert!(
                 got.iter().all(PhraseEntry::is_playable),
                 "{method:?}: 必要集合を持てば全部解決すること"
@@ -622,10 +650,17 @@ mod tests {
     #[test]
     fn cvvc_は渡りを挟む() {
         let m = parse("さか", UnitSet::Core).expect("読める");
-        let need = required_aliases(&builtin_rules(), Method::Cvvc, &m);
+        let need = required_aliases(&builtin_rules(), Method::Cvvc, &m, &BTreeSet::new());
         assert!(need.contains("a k"), "必要集合に渡りが入る: {need:?}");
 
-        let got = resolve_phrase(&builtin_rules(), Method::Cvvc, &m, &need, UnitSet::Core);
+        let got = resolve_phrase(
+            &builtin_rules(),
+            Method::Cvvc,
+            &m,
+            &need,
+            UnitSet::Core,
+            &BTreeSet::new(),
+        );
         let seen: Vec<(&str, Role, usize)> = got
             .iter()
             .map(|e| match &e.unit {
@@ -656,6 +691,7 @@ mod tests {
             &m,
             &have(&["- さ", "か"]),
             UnitSet::Core,
+            &BTreeSet::new(),
         );
         assert!(
             got.iter().all(|e| e.is_main()),
@@ -670,8 +706,15 @@ mod tests {
     fn 単独音と連続音は渡りを挟まない() {
         let m = parse("さか", UnitSet::Core).expect("読める");
         for method in [Method::Single, Method::Sequential] {
-            let need = required_aliases(&builtin_rules(), method, &m);
-            let got = resolve_phrase(&builtin_rules(), method, &m, &need, UnitSet::Core);
+            let need = required_aliases(&builtin_rules(), method, &m, &BTreeSet::new());
+            let got = resolve_phrase(
+                &builtin_rules(),
+                method,
+                &m,
+                &need,
+                UnitSet::Core,
+                &BTreeSet::new(),
+            );
             assert!(got.iter().all(|e| e.is_main()), "{method:?}");
             assert_eq!(got.len(), 2, "{method:?}");
         }

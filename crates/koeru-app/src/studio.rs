@@ -3692,12 +3692,16 @@ impl Studio {
             .ok_or_else(|| AppError::new("app.unreadable_lyrics", "この曲の歌詞を読めない"))?;
         // この音源の作り方で解決する（`TR-SYN-36`）。 単独音で解決すると、
         // 連続音の音源が持っている `a か` を一度も引かない。
+        // 休符で綴りの文脈を切る（`TR-RCL-12`）。 繋げて解決すると、
+        // 休符のあとの音符が語頭形ではなく継続に解決される。
+        let breaks = song.phrase_breaks(preset.set);
         let resolved = koeru_core::alias::resolve_phrase(
             &rules,
             preset.method,
             &moras,
             &available,
             preset.set,
+            &breaks,
         );
 
         let mut phrases: Vec<(koeru_synth::phrase::Phrase, bool)> = Vec::new();
