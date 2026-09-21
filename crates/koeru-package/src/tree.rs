@@ -443,7 +443,11 @@ mod tests {
             .insert("BEGINING_CV".to_owned(), "^ %CV%".to_owned());
         let b = VoiceBank {
             rules,
-            ..bank(vec![subbank(None, "", vec![sample("s001.wav", "あ", false)])])
+            ..bank(vec![subbank(
+                None,
+                "",
+                vec![sample("s001.wav", "あ", false)],
+            )])
         };
         let files = build(&b, Profile::Both).expect("組み立てられること");
         let ini = files
