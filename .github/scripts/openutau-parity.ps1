@@ -80,6 +80,19 @@ function Find-Type($asm, [string] $name) {
 
 $loaderType = Find-Type $coreAsm 'VoicebankLoader'
 $singerType = Find-Type $coreAsm 'ClassicSinger'
+
+# 組み立て方も出す。 コンストラクタの形はあちらの都合で変わるので、
+# 落ちたときに「何を渡せばよかったか」がログに残っていないと1往復増える。
+function Show-Api($t) {
+  foreach ($c in $t.GetConstructors()) {
+    Write-Host "  new $($t.Name)($(($c.GetParameters() | ForEach-Object { "$($_.ParameterType.Name) $($_.Name)" }) -join ', '))"
+  }
+  foreach ($m in $t.GetMethods([Reflection.BindingFlags]::Public -bor [Reflection.BindingFlags]::Static)) {
+    Write-Host "  static $($m.Name)($(($m.GetParameters() | ForEach-Object { $_.ParameterType.Name }) -join ', '))"
+  }
+}
+Show-Api $loaderType
+Show-Api $singerType
 $phonemizerBase = Find-Type $coreAsm 'Phonemizer'
 $presampType = Find-Type $pluginAsm 'JapanesePresampPhonemizer'
 
