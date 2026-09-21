@@ -63,16 +63,60 @@ CVVC の VC 6×30 = 180。長音・促音・撥音・拗音の組み合わせを
 層C は全数にできない。 音符長とテンポが連続量なので代表点にしかならない。
 綴りと時間位置で保証の強さが違うことは、要件の側にも書く。
 
-層B の手当ては先に実現性を確かめる。 OpenUtau に公式の CLI が無いので（`EVID-SYN-001`）、
-`pwsh` のリフレクションでリリース物の `OpenUtau.Core.dll` を叩けるかを試す。
-通れば CI で毎回突き合わせ、通らなければ期待値を一度だけ作って固定する——
-`fslc` と同じ運用（版と SHA-256 で固定し、上げるときに semantic diff を見る）。
+層B は CI で毎回突き合わせる。 OpenUtau に公式の CLI が無いので（`EVID-SYN-001`）、
+配布物の中の .NET アセンブリを `pwsh` から直接読み込んで phonemizer を呼ぶ
+（`scripts/openutau-parity.ps1`）。
+
+**Windows は要らない。** 綴りを決めるのは managed なコードで、Linux 向け配布物に
+入っている `OpenUtau.Core.dll` / `OpenUtau.Plugin.Builtin.dll` と同じ IL。
+配布物から DLL 2本だけを取り出す。
+
+## チャンネルは OpenUtau の区分に合わせる
+
+OpenUtau は3つのチャンネルを持つ（`OpenUtau/ViewModels/UpdaterViewModel.cs` の
+`IsReleaseForChannel`）。
+
+| | 何を見るか |
+|---|---|
+| stable | prerelease でないもの。**`Preferences.Default.Channel` の既定** |
+| beta | prerelease のうち `-alpha` で終わらないもの |
+| alpha | prerelease すべて（beta を含む上位集合） |
+
+**stable と alpha の両方を突き合わせる。** stable は多くの人が動かしている版
+（いま `0.1.565`）で、alpha は綴りが変わるなら先に出る側。beta は alpha に
+含まれるので別に見ない。
+
+一度「OpenUtau は安定版を出さない」と書いた。 **嘘だった。** 直近の3件だけを見て
+決めつけていた。実際には 34 件中2件が安定版で、しかもそれが既定のチャンネル。
+**既定を外して突き合わせても、多くの人の手元と一致しているとは言えない。**
+
+## 版と指紋の両方を固定する
+
+`fslc` と同じ運用（`DEC-PLT-033`）。 片方だけだと、同じ札のまま中身を
+差し替えられる。版は Renovate が上げ、指紋は `nix-hash-fix` ワークフローが
+上流の digest から当てる。GitHub の API が資産の digest を返すので、
+100 MB 超を落とさずに取れる。
+
+一度「指紋は入力ではなく記録にする」と書いた。 **これも間違い。**「Renovate に
+任せるから指紋は固定できない」と思い込んでいたが、`fslc` は Renovate に任せた
+うえで指紋も固定している。仕組みは既にあった。
+
+配布物の名前はチャンネルで違う。 stable は zip、alpha は tar.gz。
+共通の名前が無いので、資産名も固定する。
+
+## どの KOERU がどの OpenUtau と突き合わされたか
+
+`crates/koeru-core/fixtures/phonemizer-parity/openutau.toml` がその記録。
+**配布物の readme にも出す**（`koeru_package::readme`）——受け取った側は
+リポジトリを見ない。保証とは言わない。確かめた版を並べるだけ。
 '''
 review_triggers = [
   'OpenUtau が presamp 系 phonemizer の解釈を変えたとき',
   '表で書けない規則を接続したいという要求が出たとき。そのときは WASM を上位経路として足す',
   'UTAU 本体が presamp.ini を読むようになったとき',
   'pwsh のリフレクションで OpenUtau.Core を叩けないと分かったとき。層B の手当てが手動固定へ落ちる',
+  'OpenUtau が beta チャンネルで stable と違う綴りを出すようになったとき。alpha に含まれるので気づけるが、そのときは beta も別に固定する',
+  'OpenUtau が managed でない経路で綴りを決めるようになったとき。Linux の配布物では突合できなくなる',
 ]
 affects_requirements = [
   'TR-SYN-36',

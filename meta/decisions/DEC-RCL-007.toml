@@ -3,7 +3,8 @@ id = 'DEC-RCL-007'
 constraint_label = '下位方式への移行'
 constraint = '検知できないものを、検知したかのように見せないこと'
 title = '下位方式への書き出しを用意し、声質は検知せず素材の由来を提示する'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-RCL-015'
 owner = 'dino3616'
 options = [
   '用意し、素材の由来を提示する',

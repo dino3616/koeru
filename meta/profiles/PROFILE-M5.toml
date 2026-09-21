@@ -16,7 +16,6 @@ includes_requirements = [
   'TR-RCL-06',
   'TR-RCL-07',
   'TR-RCL-09',
-  'TR-RCL-10',
   'TR-RCL-11',
   'TR-RCL-22',
   'TR-RCL-24',
@@ -52,6 +51,7 @@ decisions = [
   'DEC-ALN-011',
   'DEC-ALN-014',
   'DEC-ALN-015',
+  'DEC-ALN-016',
   'DEC-RCL-001',
   'DEC-RCL-002',
   'DEC-RCL-007',
@@ -59,7 +59,10 @@ decisions = [
   'DEC-RCL-009',
   'DEC-RCL-010',
   'DEC-RCL-011',
+  'DEC-RCL-013',
+  'DEC-RCL-014',
   'DEC-SYN-010',
   'DEC-SYN-011',
+  'DEC-SYN-012',
 ]
 budgets = []

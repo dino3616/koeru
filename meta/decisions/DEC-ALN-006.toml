@@ -3,7 +3,8 @@ id = 'DEC-ALN-006'
 constraint_label = '単独音の境界検出'
 constraint = '確信度の成分を、経路が変わっても同じ定義で出せること'
 title = '単独音も Julius を一次経路とし、いまのヒューリスティックは退避に置く'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-ALN-016'
 owner = 'dino3616'
 options = [
   'Julius を一次、koeru-synth の segment を退避に',

@@ -28,6 +28,7 @@ statement = 'Windows x64 を第一級の対応環境とし全機能が動作す�
 notes = [
   '[Risk] OS 分布が [Unknown] のまま3 OS に投資すると、Linux 対応の工数が使われない機能に消える。逆に Windows 単独に絞ると、vLabeler / RecStar / OpenUtau がすべてクロスプラットフォームである環境で唯一の Windows 専用ツールになり、ハルの乗り換え判断で不利になる。',
   '[Risk] Linux の保証水準を下げる判断は、Linux ユーザーが実は無視できない比率だった場合に取り返しづらい（配布後に対応を追加するより、最初から入れる方が安い）。',
+  '[Unmet] いま Windows と Linux では起動しない。 Kaldi を macOS にしか組んでおらず、MFA を使えないときはエラーで止めると決めた（DEC-ALN-016）。「Windows x64 を第一級とし全機能が動作する」は、Kaldi の移植が終わるまで満たされない。',
 ]
 
 [[requirement]]
