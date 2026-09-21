@@ -166,28 +166,15 @@ pub const PREVIEW_MAX_RMS_SHIFT: f64 = 4.0;
 
 /// 勧めるキーの探索範囲（半音、`TR-SYN-15`）。
 ///
-/// 曲と収録音高の両方から出す。 **±12 に固定していた。** 2オクターブ離れた
-/// 曲はどの候補でも許容シフト量に入らず、24 半音動かせば調を変えずに
-/// ちょうど収まるのに「勧める先が無い」と答えていた。
+/// 1オクターブの上下まで。 `TR-SYN-15` の「本人が半音単位で 1 オクターブの
+/// 上下まで指定できる」がそのまま上限で、[`crate::db`] 側の口
+/// （`set_song_transpose`）も同じ範囲しか受け取らない。
 ///
-/// 上下の端は「曲がいちばん外へ出たまま、まだ窓に触れている」位置。
-/// 窓は収録音高の最低から `MAX_SHIFT_DOWN`、最高から `MAX_SHIFT_UP`。
-/// これより外は、どのノートも窓に入らないので見る意味が無い。
-///
-/// オクターブを優先する並べ方は変えない（[`octave_rank`]）。 広げても、
-/// 小さく収まる候補があればそちらが先に来る。
-fn transpose_search(song: &Song, tones: &[i32]) -> std::ops::RangeInclusive<i32> {
-    let (Some(song_lo), Some(song_hi)) = (
-        song.notes.iter().map(|n| n.midi).min(),
-        song.notes.iter().map(|n| n.midi).max(),
-    ) else {
-        return 0..=0;
-    };
-    let (Some(tone_lo), Some(tone_hi)) = (tones.iter().min(), tones.iter().max()) else {
-        return 0..=0;
-    };
-    (tone_lo + MAX_SHIFT_DOWN - song_hi)..=(tone_hi + MAX_SHIFT_UP - song_lo)
-}
+/// **一度これを広げた。** 2オクターブ離れた曲にも勧め先を出そうとしたが、
+/// 出しても本人が選べない値になる——押すと `song.transpose_out_of_range`
+/// で断られる。届かないほど離れた曲に出すのは、キーではなく収録音高
+/// （[`rescuing_tone`]。`TR-SYN-15` の (c)）。
+const TRANSPOSE_SEARCH: std::ops::RangeInclusive<i32> = -12..=12;
 
 /// 収録音高と曲の音域の整合（`TR-RCL-22`, `TR-SYN-15`）。
 ///
@@ -308,7 +295,7 @@ pub fn recommended_transpose(song: &Song, tones: &[i32]) -> i32 {
     if song.notes.is_empty() || tones.is_empty() {
         return 0;
     }
-    transpose_search(song, tones)
+    TRANSPOSE_SEARCH
         .map(|t| range_fit_at(song, tones, t))
         .min_by(|a, b| {
             a.strained
@@ -714,12 +701,13 @@ mod range_tests {
         crate::presamp::Rules::builtin(UnitSet::Core)
     }
 
-    /// 探索範囲は曲と収録音高から出す（`TR-SYN-15`）。
+    /// 勧めるキーは、本人が選べる範囲に収める（`TR-SYN-15`）。
     ///
-    /// **±12 に固定していた。** 2オクターブ離れた曲はどの候補も許容シフト量に
-    /// 入らず、24 半音動かせば調を変えずに収まるのに勧められなかった。
+    /// **探索を広げて 24 半音を勧めたことがある。** 出しても
+    /// `set_song_transpose` が `-12..=12` しか受け取らないので、押すと
+    /// 断られる。届かないほど離れた曲に出すのは収録音高のほう。
     #[test]
-    fn 二オクターブ離れた曲にもキーを勧められる() {
+    fn 勧めるキーは一オクターブの上下に収まる() {
         // A3（57）で録った音源に、2オクターブ上の曲。
         let far = at(&[81, 83, 81]);
         let tones = [57];
@@ -727,12 +715,12 @@ mod range_tests {
             range_fit(&far, &tones).is_out_of_range(),
             "そのままでは届かない"
         );
-
         let t = recommended_transpose(&far, &tones);
-        assert_eq!(t % 12, 0, "オクターブ単位で勧める（調を変えない）: {t}");
+        assert!((-12..=12).contains(&t), "選べる範囲に収まる: {t}");
+        // キーでは届かないので、足す音高のほうを出す（`TR-SYN-15` の (c)）。
         assert!(
-            !range_fit_at(&far, &tones, t).is_out_of_range(),
-            "勧めた先では届く: {t}"
+            rescuing_tone(&far, &tones).is_some(),
+            "足せば届く音高を出す"
         );
     }
 

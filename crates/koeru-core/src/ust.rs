@@ -354,8 +354,13 @@ fn parse_ustx(bytes: &[u8], stem: &str) -> Result<Vec<Song>, UstError> {
         let mut end = 0_i64;
         for (position, note) in &mut notes {
             note.rest_ticks = scale(*position - end);
-            end = *position
-                + i64::from(note.ticks) * i64::from(resolution) / i64::from(TICKS_PER_QUARTER);
+            // 時間軸は戻さない。 **毎回この音符の終わりを入れていた**ので、
+            // 長い音符の中に短い音符が入っていると読み位置が巻き戻り、
+            // 次の音符の手前に無い休符が生まれていた。
+            end = end.max(
+                *position
+                    + i64::from(note.ticks) * i64::from(resolution) / i64::from(TICKS_PER_QUARTER),
+            );
         }
 
         songs.push(Song {
