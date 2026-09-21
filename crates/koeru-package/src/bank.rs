@@ -24,6 +24,11 @@ pub struct VoiceBank {
     pub method: Method,
     /// 音階ごとの区画。単一音階では1つ（`TR-PKG-04`）。
     pub subbanks: Vec<Subbank>,
+    /// 同梱する `presamp.ini` の中身（`TR-RCL-24`）。
+    ///
+    /// 受け取った側が同じ規則で解決するための表（`DEC-SYN-010`）。
+    /// インベントリとフォールバック規則から作り、別定義を持たない。
+    pub rules: koeru_core::presamp::Rules,
 }
 
 /// `character.txt` / `character.yaml` に出る値（`TR-PKG-02`, `TR-PKG-03`）。
@@ -101,8 +106,12 @@ pub struct Subbank {
     pub prefix: String,
     /// エイリアスの後ろに付ける（`TR-PKG-19`）。
     pub suffix: String,
-    /// この区画が担う音階の MIDI 番号。単一音階では空。
-    pub tones: Vec<i32>,
+    /// この区画の収録音高（MIDI、`TR-REC-25`）。単一音階では `None`。
+    ///
+    /// **担う範囲（[`tones`](Self::tones)）と別に持つ。** 収録音高は「実際に録った音」で、
+    /// 担う範囲は floor 割り当ての結果（`TR-RCL-06`）。同じ値ではない——
+    /// G3 で録った区画は G3 から C#4 までを担う。
+    pub tone: Option<i32>,
     /// この区画の素材。
     pub samples: Vec<Sample>,
 }
@@ -250,7 +259,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: Vec::new(),
+            tone: None,
             samples: files.iter().map(|(f, a)| sample(f, a)).collect(),
         }
     }
@@ -262,6 +271,7 @@ mod tests {
             readme: Readme::default(),
             method: Method::Single,
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 

@@ -559,7 +559,7 @@ mod tests {
                 color: String::new(),
                 prefix: String::new(),
                 suffix: String::new(),
-                tones: Vec::new(),
+                tone: None,
                 samples: vec![Sample {
                     file: "s001.wav".to_owned(),
                     master: wav(dir, "s001.wav"),
@@ -577,6 +577,7 @@ mod tests {
                     }],
                 }],
             }],
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 

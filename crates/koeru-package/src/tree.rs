@@ -139,6 +139,13 @@ pub fn build(bank: &VoiceBank, profile: Profile) -> Result<Vec<PackagedFile>> {
     }
 
     let mut root = Vec::new();
+    // 音素体系とエイリアス規則（`TR-RCL-24`）。受け取った側が同じ表で解決する
+    // ための同梱物で、`character.yaml` の `default_phonemizer` がこれを指す。
+    root.push(text_file(
+        "presamp.ini",
+        &koeru_core::presamp::write(&bank.rules, crate::profile::NEWLINE),
+        profile,
+    )?);
     root.push(text_file(
         "character.txt",
         &character::character_txt(&bank.character, icon.is_some()),
@@ -329,11 +336,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: if folder.is_some() {
-                vec![60]
-            } else {
-                Vec::new()
-            },
+            tone: folder.is_some().then_some(60),
             samples,
         }
     }
@@ -348,6 +351,7 @@ mod tests {
             readme: Readme::default(),
             method: Method::Single,
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 

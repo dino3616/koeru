@@ -112,6 +112,7 @@ mod tests {
             readme: Readme::default(),
             method: Method::Single,
             subbanks: Vec::new(),
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 

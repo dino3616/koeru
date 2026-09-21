@@ -557,6 +557,7 @@ mod tests {
             readme: Readme::default(),
             method: Method::Single,
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 
@@ -566,7 +567,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: Vec::new(),
+            tone: None,
             samples,
         }
     }

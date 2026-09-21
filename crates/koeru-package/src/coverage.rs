@@ -9,22 +9,25 @@
 //! # M4 が出せるのは、そのまま満たしている方式だけ
 //!
 //! 連続音の素材から単独音を出すには、語頭 CV を切り直して5値を再導出する
-//! 必要がある。担当が決まっていない（`Q-PKG-001`）ので、M4 は
-//! [`downgradable`] で「構成上は出せる」と答えるところまでにする
-//! （`PROFILE-M4` の excludes）。
+//! 必要がある。M4 は [`downgradable`] で「構成上は出せる」と答えるところまでにした
+//! （`PROFILE-M4` の excludes）。再導出そのものは `koeru-align` が持つ（`TR-ALN-34`）。
 
 use std::collections::BTreeSet;
 
 use koeru_core::alias::{self, Method, Request};
-use koeru_core::inventory::{UnitSet, VOWEL_CLASSES, units};
+use koeru_core::inventory::{UnitSet, transition_vowels, units, vc_units};
 
 /// その方式が要求するエイリアス表（`TR-PKG-23`）。
 ///
 /// 綴りは [`alias::candidates`] から取る。 ここで組み立て直すと、
 /// 解決側と綴りが分かれて「歌えると出たのに書き出せない」が起きる。
 ///
-/// CVVC は表を持たない。 VC 単位をインベントリが持っていないので、
-/// 推測で並べない（`TR-RCL-02` は表を KOERU 自身が持つと定めている）。
+/// 先行母音は実在する単位が持つものだけを回す（`DEC-RCL-009`）。
+/// presamp の体系が持つ `N` を混ぜると、どの単位も作れない `N か` を要求し、
+/// 連続音が 100% 被覆に到達できなくなる。**踏んだ。**
+///
+/// いまはどの方式も表を持つので `None` を返す枝は無い。 返り値の形は残す
+/// ——インベントリを持たない方式を足したときに、推測で並べたくない。
 #[must_use]
 pub fn required(method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
     let table = units(set);
@@ -50,7 +53,7 @@ pub fn required(method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
                 }) {
                     out.insert(a);
                 }
-                for v in VOWEL_CLASSES {
+                for v in transition_vowels(set) {
                     if let Some(a) = first(&Request {
                         lyric: u.kana,
                         previous_vowel: Some(v),
@@ -60,7 +63,29 @@ pub fn required(method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
                 }
             }
         }
-        Method::Cvvc => return None,
+        // CV・VC・語尾の3種（`TR-RCL-05`）。CV の綴りは `candidates` から取り、
+        // VC と語尾は音符に対応しないので専用の綴りを使う。
+        //
+        // CV は2綴り要る（`DEC-SYN-011`）。 語頭形と素の CV で立ち上がりが違い、
+        // 候補順が文脈で分かれるので、どちらが欠けても第一候補を落とす。
+        Method::Cvvc => {
+            for u in &table {
+                for prev in [None, Some("a")] {
+                    if let Some(a) = first(&Request {
+                        lyric: u.kana,
+                        previous_vowel: prev,
+                    }) {
+                        out.insert(a);
+                    }
+                }
+            }
+            for vc in vc_units(set) {
+                out.insert(alias::vc_alias(vc.vowel, vc.consonant));
+            }
+            for v in transition_vowels(set) {
+                out.insert(alias::ending_alias(v));
+            }
+        }
     }
     Some(out)
 }
@@ -115,8 +140,8 @@ pub fn exportable(set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
 /// 単独音になる。**値の流用はしない。** `- CV` を素の `CV` として複製すると、
 /// 語頭の子音区間を持ったままの oto が単独音として配られる。
 ///
-/// **M4 はここへ経路を用意しない**（`PROFILE-M4` の excludes、`Q-PKG-001`）。
-/// 返すのは「M5 で出せるようになるもの」の一覧。
+/// **ここは経路を用意しない。** 返すのは方式の一覧だけで、
+/// 5値の再導出は `koeru-align` が持つ（`TR-ALN-34`）。
 #[must_use]
 pub fn downgradable(set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
     if missing_head_cv(set, provided).is_empty()
@@ -178,11 +203,62 @@ mod tests {
         assert!(r.contains("a か"));
     }
 
-    /// `TR-RCL-02`。持っていない表を推測で並べない。
+    /// `TR-RCL-05`。CVVC は CV・VC・語尾の3種。拡張セットで 144 + 180 + 6 = 330。
     #[test]
-    fn cvvc_の要求表は持たない() {
-        assert!(required(Method::Cvvc, UnitSet::Core).is_none());
-        assert!(coverage(Method::Cvvc, UnitSet::Core, &single_full()).is_none());
+    fn cvvc_の要求表は三種の合計() {
+        let r = required(Method::Cvvc, UnitSet::Extended).expect("表があること");
+        let units = units(UnitSet::Extended).len();
+        let vc = koeru_core::inventory::vc_units(UnitSet::Extended).len();
+        let ending = transition_vowels(UnitSet::Extended).len();
+        assert_eq!((units, vc, ending), (144, 180, 6));
+        // CV は語頭形と素の2綴り（`DEC-SYN-011`）。
+        assert_eq!(r.len(), units * 2 + vc + ending);
+        assert!(r.contains("- か"), "語頭 CV");
+        assert!(r.contains("か"), "素の CV");
+        assert!(r.contains("a k"), "VC");
+        assert!(r.contains("a -"), "語尾");
+    }
+
+    /// `DEC-RCL-009`。要求表に、録音では作れないエイリアスを入れない。
+    ///
+    /// 母音クラス `N` はどの単位も持たない。 要求表に `N か` が入っていると、
+    /// 全部録っても連続音が 100% に届かず、書き出せる方式に入らない。**踏んだ。**
+    #[test]
+    fn 要求表は録音で埋められるものだけを並べる() {
+        // 録音でできることを、要求表を経由せずに作る。
+        // required() から provided を作ると、表が自分自身を満たしてしまう。
+        let recorded = recordable(UnitSet::Extended);
+        for m in [Method::Single, Method::Sequential, Method::Cvvc] {
+            let r = required(m, UnitSet::Extended).expect("表があること");
+            let unreachable: Vec<&String> = r.difference(&recorded).collect();
+            assert!(
+                unreachable.is_empty(),
+                "{m:?} が作れない要求を持つ: {unreachable:?}"
+            );
+        }
+    }
+
+    /// 録音で実際に作れるエイリアスの全体。
+    ///
+    /// 行を読み上げれば得られるものを、インベントリから直に組む。
+    /// 語頭 CV は行の先頭、素の CV は行の途中、VCV は隣接、VC は渡り、語尾は行末。
+    fn recordable(set: UnitSet) -> BTreeSet<String> {
+        let table = units(set);
+        let mut out = BTreeSet::new();
+        for u in &table {
+            out.insert(u.kana.to_owned());
+            out.insert(format!("- {}", u.kana));
+            for v in transition_vowels(set) {
+                out.insert(format!("{v} {}", u.kana));
+            }
+        }
+        for vc in koeru_core::inventory::vc_units(set) {
+            out.insert(alias::vc_alias(vc.vowel, vc.consonant));
+        }
+        for v in transition_vowels(set) {
+            out.insert(alias::ending_alias(v));
+        }
+        out
     }
 
     #[test]
