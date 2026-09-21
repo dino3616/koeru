@@ -1,25 +1,26 @@
 ---
 name: verify-koeru
-description: KOERU の検証手順。手元で何をどの順に走らせるか、CI が何を見ているか、実音声で確かめるべきものは何かを定める。git-lfs と submodule の用意、書いていない OS 向けの組み立て、WebView 側の検査、仕様側（fslc / xtask）の検査、アプリの起動を含む。変更を検証するとき、CI が落ちた原因を切り分けるとき、環境を用意するときに使う。
+description: KOERU の検証手順。手元で何をどの順に走らせるか、CI が何を見ているか、実音声で確かめるべきものは何かを定める。書いていない OS 向けの組み立て、WebView 側の検査、仕様側（fslc / xtask）の検査、Nix の検査、アプリの起動を含む。変更を検証するとき、CI が落ちた原因を切り分けるときに使う。環境の用意そのものは setup-koeru が持つ。
 ---
 
 # KOERU — 検証
 
 手元で通してから出す。 ここに挙げたものは CI（`.github/workflows/ci.yml`）が同じものを実行する。
 
-## 最初に git-lfs を入れてから submodule を取る
+**環境の用意は `setup-koeru` が持つ。** Nix の導入、direnv、git-lfs と submodule の
+順序、Nix で覆えないものはそちら。ここは「揃っている前提で何を走らせるか」だけ。
 
-WORLD と Kaldi は submodule で調達しており（`DEC-PLT-016`）、**MFA の音響モデルは
-HuggingFace のリポジトリを submodule にしている**（`DEC-ALN-012`）。
-モデルの実体は LFS なので、`git-lfs` が無いと
-`git-lfs filter-process: command not found` で clone が途中で死ぬ。**一度やった。**
+## devShell の中で走らせる
+
+ツールは `flake.nix` が供給する（`DEC-PLT-033`）。 direnv を入れていれば
+ディレクトリに入った時点で揃っている。入れていないなら明示的に包む。
 
 ```bash
-brew install git-lfs && git lfs install
-git submodule update --init --recursive
+nix develop                                   # 対話で入る
+nix develop --command cargo test --workspace  # 1つだけ走らせる
 ```
 
-モデルが無くてもアプリは動く。 自動原音設定が音響モデルを使わない退避経路に落ちるだけ。
+以下のコマンドは、すべてこのシェルの中で走らせる。
 
 ## 基本
 
@@ -27,7 +28,7 @@ git submodule update --init --recursive
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo deny check   # 要 cargo install cargo-deny --locked
+cargo deny check
 ```
 
 ## 書いていない OS 向けの組み立ても手元で通す
@@ -46,6 +47,11 @@ doctest だけが本物と違う設定でコンパイルされ、存在しない
 （クロスコンパイルには C のツールチェーンが要り、手元では通せない。これが代わり。）
 
 ## 実音声で見るもの
+
+組んだ Kaldi が動くことは `kaldi_build` が見る。 モデルを開いて特徴の次数と
+フレーム数を突き合わせるので、C++ の組み方が壊れれば落ちる。
+**精度は見ていない。** ツールチェーンを変えたときに気づくためのもので、
+境界が合っているかとは別（`DEC-PLT-033`）。
 
 アライメントは実音声で見る。 合成音の試験は構造しか見ておらず、
 **位置が全部ずれていても1つも落ちない**（CMVN の分散正規化で踏んだ。`EVID-ALN-001`）。
@@ -92,8 +98,16 @@ axe に規則が無い性質を見る（`TR-PLT-25`、`DEC-PLT-022`）。
 検査範囲は story の範囲そのもの。 部品に story が無ければ一度も検査されない。
 配色の段も `src/styles/palette.story.tsx` に並べたものだけが測られる。
 
-実ブラウザなので Playwright が要る。 CI では `~/.cache/ms-playwright` を
-lockfile のハッシュでキャッシュしている。手元では `bunx playwright install chromium`。
+**ブラウザは devShell が供給する。** `PLAYWRIGHT_BROWSERS_PATH` が
+nixpkgs の `playwright-driver.browsers` を指しているので、
+**`playwright install` を走らせない**——入れ直すと NixOS と NixOS-WSL で動かない。
+
+`package.json` の版と nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
+CI が突き合わせて落とす。揃うまで npm 側を上げない（`DEC-PLT-033`）。
+
+```bash
+echo "$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON / $KOERU_PLAYWRIGHT_FROM_NIXPKGS"
+```
 
 目で見るなら `bun run storybook`。
 
@@ -207,6 +221,31 @@ cargo xtask next-id DEC-PLT     # その接頭辞で、まだ使われていな�
 fslc mutate specs/requirements/project-lifecycle.fsl --depth 8
 ```
 
-`fslc` はバージョンと SHA-256 で固定している（CI 参照）。
-更新は Renovate 任せにせず、semantic diff を確認してから上げる。
+`fslc` はバージョンと SHA-256 で固定している（`flake.nix`）。
+**hash を手で書き換えない。** 版を上げたら次を走らせる。
+
+```bash
+bash .github/scripts/update-hashes.sh   # 上流の公開 digest から 6 個すべてを作り直す
+```
+
+CI では `nix-hash-fix` が PR の中で同じものを当てる（`DEC-PLT-033`）。
 FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する。
+
+## Nix 側
+
+`flake.nix` も整形と lint の対象。 整形の契約を持たないファイルを作らない。
+
+```bash
+nix fmt                                              # 整形する
+git ls-files -z '*.nix' | xargs -0 nixfmt --check    # 整形されているか
+git ls-files -z '*.nix' | xargs -0 -n1 statix check -o errfmt
+git ls-files -z '*.nix' | xargs -0 deadnix --fail
+nix flake check                                      # flake が評価できるか
+```
+
+`statix` は `-o errfmt` で出す。 既定の span 描画は日本語コメントの桁を
+バイト数で数えるので、指している場所がずれて読めない。
+
+**`systems` を足したら、`bunAssets` と `fslcAssets` にも足す。** 忘れると
+評価が落ちる。退避経路は置いていない——黙って fslc の無い devShell を配るより、
+組み立たないほうが良い。

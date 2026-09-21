@@ -11,3 +11,8 @@ crates/koeru-app/ui/*.tsbuildinfo
 
 # Tauri が生成する
 crates/koeru-app/gen/
+
+# Nix / direnv（`DEC-PLT-033`）
+.direnv/
+result
+result-*

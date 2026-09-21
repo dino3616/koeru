@@ -1,35 +1,34 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":dependencyDashboard"],
+  "extends": ["config:recommended", ":dependencyDashboard", ":prHourlyLimitNone"],
   "timezone": "Asia/Tokyo",
   "schedule": ["before 9am on monday"],
   "labels": ["dependencies"],
   "commitMessagePrefix": "chore(deps):",
   "commitBody": "Signed-off-by: shio <dino3616@gmail.com>",
-  "prHourlyLimit": 2,
-  "enabledManagers": ["cargo", "bun", "github-actions", "git-submodules"],
+  "enabledManagers": ["cargo", "bun", "github-actions", "git-submodules", "nix", "custom.regex"],
   "git-submodules": { "enabled": true },
+  "lockFileMaintenance": { "enabled": true },
   "packageRules": [
     {
-      "description": "自動マージはしない。ライセンスと挙動を人が見る（CONTRIBUTING の依存追加の規律）。",
-      "matchPackageNames": ["*"],
-      "automerge": false
+      "description": "major 以外は automerge する。ライセンスは cargo deny、挙動は CI が機械判定する。落ちた PR は人が直す（DEC-PLT-033）。",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "lockFileMaintenance"],
+      "groupName": "all non-major dependencies",
+      "automerge": true
     },
     {
-      "description": "パッチと minor はまとめる。個別に来ると読む回数だけが増える。",
-      "matchUpdateTypes": ["patch", "minor"],
-      "groupName": "patch と minor"
-    },
-    {
-      "description": "major は1つずつ。破壊的変更は個別に読む。",
+      "description": "major は PR を出さない。Dependency Dashboard に載せ、人が着手するものを選ぶ（DEC-PLT-033）。",
       "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
       "groupName": null,
-      "dependencyDashboardApproval": true
+      "labels": ["dependencies", "major"]
     },
     {
-      "description": "submodule は同梱の C++ とモデル（DEC-PLT-016, DEC-ALN-012）。上げると build.rs とモデルの互換に効くので、必ず人が判断する。",
+      "description": "submodule は同梱の C++ とモデル（DEC-PLT-016, DEC-ALN-012）。アライメントと合成の劣化は CI で捕まらない（EVID-ALN-001）ので automerge しない。",
       "matchManagers": ["git-submodules"],
       "dependencyDashboardApproval": true,
+      "automerge": false,
       "groupName": null
     },
     {
@@ -39,6 +38,16 @@
     },
     { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
     { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" }
+  ],
+  "customManagers": [
+    {
+      "description": "fslc は GitHub Release のバイナリ。flake.nix の版を追う。SHA-256 は nix-hash-fix ワークフローが当てる（DEC-PLT-033）。",
+      "customType": "regex",
+      "managerFilePatterns": ["/^flake\\.nix$/"],
+      "matchStrings": ["fslcVersion\\s*=\\s*\"(?<currentValue>v[0-9][0-9.]*)\""],
+      "datasource": "github-releases",
+      "depNameTemplate": "ymm-oss/fsl"
+    }
   ],
   "ignoreDeps": [],
   "vulnerabilityAlerts": { "labels": ["security"], "schedule": ["at any time"] }

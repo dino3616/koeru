@@ -1,0 +1,68 @@
+name: nix hash fix
+
+# 版が上がると `flake.nix` の SHA-256 が古くなる。 これは判断を含まない機械的な
+# 更新で、版上げのたびに必ず必要になると事前に分かっている（`DEC-PLT-033`）。
+# だから人にやらせない。
+#
+# push には `GITHUB_TOKEN` 以外の資格情報が要る。 `GITHUB_TOKEN` で push すると
+# GitHub が新しいワークフローを起動しないので、失敗した check が残ったまま
+# automerge が発火しない。 ここでは PAT を使う——要る secret は
+# `HASH_FIX_TOKEN` 1つだけ（fine-grained、このリポジトリの Contents: Read and write）。
+#
+# **PAT には期限がある。** 切れるとこのジョブが認証で落ち、hash が直らなくなる。
+# 落ち方は分かりやすいが、原因は分かりにくい。期限を延ばすか、GitHub App
+# （`actions/create-github-app-token`）へ移すと消える問題。
+#
+# CI が1回無駄に落ちる。 この修正と CI は同じ `pull_request` で並走するので、
+# 古い hash のまま走った CI は落ちる。push が新しい CI を起こし、そちらが緑になる。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # hash に効くのは、版を持っているこの2つだけ。
+    paths:
+      - flake.nix
+      - crates/koeru-app/ui/package.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    name: refresh SHA-256
+    # Renovate の枝だけを触る。 `ref` に枝の名前を渡すので、fork から来たものを
+    # 弾く必要がある——`renovate/` で始まる枝を fork に作られると、そこを
+    # checkout してしまう。Renovate はこのリポジトリ自身に枝を押す。
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # この token で clone しておくと、そのまま push できる。
+          token: ${{ secrets.HASH_FIX_TOKEN }}
+      # `nix hash convert` だけが要る。devShell は組まない。
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - name: 上流の digest から作り直す
+        run: bash .github/scripts/update-hashes.sh
+      - name: 変わっていたら push
+        run: |
+          if git diff --quiet -- flake.nix; then
+            echo "hash は上流と一致している"
+            exit 0
+          fi
+          git diff -- flake.nix
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          # DCO は全コミットを検査する（`AGENTS.md` の禁止事項5）。
+          git commit -s -m "chore(deps): flake.nix の SHA-256 を作り直す"
+          git push

@@ -36,6 +36,8 @@ const CONFIDENCE: &[&str] = &["Fact", "Assumption", "Unknown", "Risk"];
 const SKIPPED_DIRS: &[&str] = &[
     ".git",
     ".claude",
+    // nix-direnv が張る store への symlink 置き場（`DEC-PLT-033`）。
+    ".direnv",
     "target",
     "node_modules",
     "vendor",
@@ -45,7 +47,11 @@ const SKIPPED_DIRS: &[&str] = &[
 ];
 
 /// ID を引きうる本文の拡張子。
-const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx"];
+///
+/// `nix` が入っているのは `flake.nix` が判断記録を引くから（`DEC-PLT-033`）。
+/// 入れないと、あの中の `DEC-*` と `TR-*` だけが検査されないまま残る
+/// ——参照できないものは検査できない（`meta/README.md`）。
+const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "nix"];
 
 /// `touched` が本文として読む拡張子。
 ///
@@ -53,7 +59,7 @@ const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx"];
 /// 実体に解決するかを見るが、こちらは**変更が何に触れたか**を出すので、
 /// ID を引いているものは形を問わず読む——配色の CSS も workflow も引いている。
 const TOUCHED_EXT: &[&str] = &[
-    "md", "rs", "ts", "tsx", "fsl", "css", "yml", "yaml", "json", "toml",
+    "md", "rs", "ts", "tsx", "fsl", "css", "yml", "yaml", "json", "toml", "nix",
 ];
 
 /// 判断記録の索引。`index-decisions` が書く。
@@ -74,7 +80,7 @@ const DIFF_SCOPES: &[(usize, &[&str])] = &[
     (
         3,
         &[
-            "*.md", "*.fsl", "*.css", "*.yml", "*.yaml", "*.json", "*.toml",
+            "*.md", "*.fsl", "*.css", "*.yml", "*.yaml", "*.json", "*.toml", "*.nix",
         ],
     ),
 ];

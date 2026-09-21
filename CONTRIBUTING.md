@@ -4,29 +4,47 @@ Issue と Pull Request を歓迎します。
 
 まず [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を読んでください。設計の前提は [docs/product-vision.md](docs/product-vision.md) にあります。確定している方針に反する変更は、その方針を変えるべき理由から議論してください。 実装の詳細から入ると噛み合いません。
 
-## 最初に git-lfs と submodule を用意してください
+## 開発環境は Nix です
 
-**先に `git-lfs` を入れてください。** MFA の音響モデルは HuggingFace のリポジトリを
-submodule にしていて（`meta/decisions/DEC-ALN-012.toml`）、実体が LFS に入っています。
-入れずに clone すると `git-lfs filter-process: command not found` で途中で死にます。
+**開発ツールは [`flake.nix`](flake.nix) が供給します**（`meta/decisions/DEC-PLT-033.toml`）。
+Rust も bun も `fslc` も `cargo-deny` も `git-lfs` もそこに書いてあるので、
+rustup や Homebrew や apt で個別に入れる必要はありません。
 
 ```bash
-brew install git-lfs   # macOS。他は https://git-lfs.com
-git lfs install
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install --determinate
 ```
 
-C / C++ の依存（WORLD と Kaldi）も submodule です（`meta/decisions/DEC-PLT-016.toml`）。
+**`GID already exists` で落ちたら**、端末管理ソフトが GID 350 か UID 351 を
+使っています。空き帯へずらしてください（手順は
+[`setup-koeru`](.agents/skills/setup-koeru/SKILL.md)）。
+
+**トップレベルだけ clone し、シェルに入ってから submodule を取ってください。**
+`git-lfs` は devShell が供給するので、この順序なら事前に入れる必要がありません。
 
 ```bash
-git clone --recurse-submodules https://github.com/dino3616/koeru
-# もう clone してしまった場合
+git clone https://github.com/dino3616/koeru && cd koeru
+nix develop
+git lfs install
 git submodule update --init --recursive
 ```
+
+順序が逆だと死にます。 MFA の音響モデルは HuggingFace のリポジトリを submodule に
+していて（`meta/decisions/DEC-ALN-012.toml`）、実体が LFS に入っています。
+`--recurse-submodules` を付けて clone すると `git-lfs filter-process: command not found`
+で途中で止まります。C / C++ の依存（WORLD と Kaldi）も submodule です
+（`meta/decisions/DEC-PLT-016.toml`）。
 
 取っていないと `build.rs` が止まります。C++ のコンパイルエラーではなく、この手順を出して落ちるようにしてあります。
 
 モデルが無くてもアプリは動きます。 自動原音設定が音響モデルを使わない退避経路に落ちるだけで、
 録音も試唱も止まりません（ログに「自動原音設定は退避経路で動く」と出ます）。
+
+`direnv` を入れると、ディレクトリに入った時点で揃います。 任意ですが推奨です。
+
+**Nix で覆えないものが3つあります。** macOS の Xcode Command Line Tools（Tauri が
+要求します）、Windows（Nix がネイティブに支えません）、Intel Mac（nixpkgs 26.11 が
+対応を打ち切りました）。Windows と Intel Mac で開発する場合はツールを自分で
+揃えることになります。詳細は [`setup-koeru`](.agents/skills/setup-koeru/SKILL.md)。
 
 ## DCO — すべてのコミットに Signed-off-by が必要です
 
@@ -44,6 +62,14 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 
 依存を追加するとき、AGPL-3.0-or-later に取り込めるライセンスでなければ CI が落ちます。 許可リストは [`deny.toml`](deny.toml) にあり、`cargo deny check` が機械判定します。非商用限定（CC BY-NC 系）、再配布禁止、独自条項のものは通りません。 許可リストに追加が必要な場合は、PR の説明にライセンス種別と一次情報の URL を書いてください。
 
+既存の依存の版上げは、major 以外を自動でマージします（`meta/decisions/DEC-PLT-033.toml`）。
+ライセンスは `cargo deny check` が機械判定し、挙動は CI が見ます。**落ちた PR は人が直します**
+（`flake.nix` の SHA-256 だけは例外で、`nix-hash-fix` ワークフローが機械的に当てます）。
+**major は PR になりません。** Dependency Dashboard に載るので、着手するものを選んでください。
+**submodule（WORLD・Kaldi・音響モデル）も自動でマージしません。**
+アライメントと合成の劣化は CI で捕まらないためです（`meta/evidence/EVID-ALN-001.toml`）。
+**新しい依存の追加は、これとは別です。** 下のライセンス確認が必ず人の目を通ります。
+
 学習済みモデルやデータセットを追加するときは、より慎重に見ます。 モデル側の表示ライセンスが、学習に使われたコーパスの条件を上書きできるとは限りません。「モデルに CC BY と書いてあるから大丈夫」は根拠になりません。 学習データの出所とそれぞれの条件を示してください。この理由で候補をいくつか落としています（`meta/decisions/DEC-ALL-001.toml` 参照）。
 
 ## コードの規約
@@ -55,6 +81,7 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 | [`writing-comments`](.agents/skills/writing-comments/SKILL.md) | コメントの書き方。言語を問わない |
 | [`rust-conventions`](.agents/skills/rust-conventions/SKILL.md) | エラー型、トレース、lint、依存追加 |
 | [`react-conventions`](.agents/skills/react-conventions/SKILL.md) | 画面。tailwind-variants、`className` を受けないこと、Rust との境界 |
+| [`setup-koeru`](.agents/skills/setup-koeru/SKILL.md) | 環境の用意。Nix、direnv、submodule と LFS、覆えないもの |
 | [`verify-koeru`](.agents/skills/verify-koeru/SKILL.md) | 何をどの順に走らせるか |
 
 特に次の3つは PR で必ず見ます。
@@ -75,12 +102,19 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 
 ## 手元での確認
 
+すべて devShell の中で走らせます（`nix develop`）。
+
 ```bash
+# Nix
+nix flake check
+nix fmt                                              # flake.nix を整形する
+git ls-files -z '*.nix' | xargs -0 nixfmt --check    # CI が見ているのはこちら
+
 # Rust
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo deny check   # 要 cargo install cargo-deny --locked
+cargo deny check
 
 # 要件・判断・予算の登録簿と、ID 参照の解決
 cargo xtask check-meta && cargo xtask check-budgets
