@@ -22,4 +22,5 @@ toml_edit.workspace = true
 tracing.workspace = true
 unicode-normalization.workspace = true
 uuid.workspace = true
+yaml_serde.workspace = true
 zip.workspace = true

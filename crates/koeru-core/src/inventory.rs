@@ -222,6 +222,65 @@ const EXTENDED_CV: [Unit; 42] = [
     u("みぇ", "my", "e", false),
 ];
 
+/// VC 単位（先行母音 → 子音の遷移）。CVVC が要求する（`TR-RCL-05`）。
+///
+/// CV と別に録る。 「あか」の「か」の子音部は、前の「あ」から渡ってくる区間として
+/// 1エントリになる。CV だけでは、その渡りが作れない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VcUnit {
+    /// 先行母音クラス。
+    pub vowel: &'static str,
+    /// 子音記号。
+    pub consonant: &'static str,
+}
+
+/// 遷移の始点になる母音クラス（`TR-RCL-04`, `DEC-RCL-009`）。
+///
+/// [`VOWEL_CLASSES`] とは別物。 あちらは presamp の体系で、`presamp.ini` の
+/// `[VOWEL]` に書き出すのはそちら（`TR-RCL-24`）。ここが答えるのは
+/// 「実際に単位が持つ母音クラスはどれか」。
+///
+/// **混ぜると、録音では決して埋まらない辺を要求する。** `N` はどの単位も持たないので、
+/// `N か` を要求表に入れると連続音が 100% 被覆に到達できなくなる。**踏んだ。**
+#[must_use]
+pub fn transition_vowels(set: UnitSet) -> Vec<&'static str> {
+    let all = units(set);
+    VOWEL_CLASSES
+        .into_iter()
+        .filter(|v| all.iter().any(|u| u.vowel == *v))
+        .collect()
+}
+
+/// そのセットに現れる子音記号。VC 単位の軸（`TR-RCL-05`）。
+///
+/// 母音始まりの空文字は含めない。 子音が無いところに VC は無い。
+/// 並びは [`units`] の出現順で、常に同じ（`TR-RCL-27`）。
+#[must_use]
+pub fn consonants(set: UnitSet) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for u in units(set) {
+        if !u.consonant.is_empty() && !out.contains(&u.consonant) {
+            out.push(u.consonant);
+        }
+    }
+    out
+}
+
+/// VC 単位を引く（`TR-RCL-05`）。
+///
+/// 先行母音クラス × 子音の全組み合わせ。拡張セットで 6 × 30 = 180。
+/// 代用による軽量モードは持たない（`DEC-RCL-009`）。
+#[must_use]
+pub fn vc_units(set: UnitSet) -> Vec<VcUnit> {
+    let mut out = Vec::new();
+    for vowel in transition_vowels(set) {
+        for consonant in consonants(set) {
+            out.push(VcUnit { vowel, consonant });
+        }
+    }
+    out
+}
+
 /// 収録単位の集合。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnitSet {
@@ -385,6 +444,45 @@ mod tests {
         for set in [UnitSet::Core, UnitSet::Extended] {
             assert_eq!(units(set), units(set));
         }
+    }
+
+    /// 遷移の始点は6種。`N` はどの単位も持たない（`DEC-RCL-009`）。
+    #[test]
+    fn 遷移の始点は実在する母音クラスだけ() {
+        for set in [UnitSet::Core, UnitSet::Extended] {
+            let v = transition_vowels(set);
+            assert_eq!(v, ["a", "i", "u", "e", "o", "n"], "{set:?}");
+            assert!(!v.contains(&"N"));
+        }
+        // 体系のほうは7種のまま。書き出す presamp.ini はこちらを使う。
+        assert_eq!(VOWEL_CLASSES.len(), 7);
+    }
+
+    /// 拡張セットの子音は 30 種、VC は 180 種（`TR-RCL-05`）。
+    #[test]
+    fn 拡張セットの_vc_は百八十種() {
+        assert_eq!(consonants(UnitSet::Extended).len(), 30);
+        assert_eq!(vc_units(UnitSet::Extended).len(), 180);
+    }
+
+    /// 中核セットは子音が3種少ない（ty / dy / v は外来音だけに出る）。
+    #[test]
+    fn 中核セットの_vc_はセットから決まる() {
+        let c = consonants(UnitSet::Core);
+        assert_eq!(c.len(), 27);
+        assert!(!c.contains(&"v"));
+        assert_eq!(vc_units(UnitSet::Core).len(), 27 * 6);
+    }
+
+    /// 母音始まりに VC は無い。 子音が無いところに渡りは作れない。
+    #[test]
+    fn 母音始まりは_vc_の軸にならない() {
+        assert!(!consonants(UnitSet::Extended).contains(&""));
+    }
+
+    #[test]
+    fn vc_の並びは決定的() {
+        assert_eq!(vc_units(UnitSet::Extended), vc_units(UnitSet::Extended));
     }
 
     /// 無声破裂音が印されている（`TR-ALN-16` のオーバーラップ分岐に使う）。

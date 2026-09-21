@@ -227,6 +227,15 @@ pub struct Manifest {
     /// 複製は「派生」として親子関係を残す。 同名・同内容の別プロジェクトが
     /// 並ぶと、どちらが後のものか分からなくなる。
     pub derived_from: Option<Uuid>,
+    /// 作ったときの方式プリセット（`TR-RCL-01`）。
+    ///
+    /// 方式名では足りない。 同じ VCV でも音高が1本か3本かで別のプリセットになる。
+    ///
+    /// 古いプロジェクトは持っていない。 版を上げて読めなくするより、
+    /// 無いことを表せるほうがよい。
+    pub preset_id: Option<String>,
+    /// 作ったときの音素インベントリの版（`TR-RCL-02`）。
+    pub inventory_version: Option<u32>,
 }
 
 /// manifest の先頭に置く説明。これが「人が見て判別できる」の実体。
@@ -246,6 +255,12 @@ impl Manifest {
         doc["item_count"] = value(i64::from(self.item_count));
         if let Some(parent) = self.derived_from {
             doc["derived_from"] = value(parent.to_string());
+        }
+        if let Some(id) = &self.preset_id {
+            doc["preset_id"] = value(id.as_str());
+        }
+        if let Some(v) = self.inventory_version {
+            doc["inventory_version"] = value(i64::from(v));
         }
         format!("{MANIFEST_HEADER}\n{doc}")
     }
@@ -292,10 +307,23 @@ impl Manifest {
             )?),
         };
 
+        // 無ければ無いまま持つ。 既定を当てると、古いプロジェクトが
+        // 作られたときのプリセットを名乗ることになる。
+        let preset_id = doc
+            .get("preset_id")
+            .and_then(toml_edit::Item::as_str)
+            .map(str::to_owned);
+        let inventory_version = doc
+            .get("inventory_version")
+            .and_then(toml_edit::Item::as_integer)
+            .and_then(|n| u32::try_from(n).ok());
+
         Ok(Self {
             display_name,
             method,
             item_count,
+            preset_id,
+            inventory_version,
             derived_from,
         })
     }
@@ -588,6 +616,8 @@ mod tests {
             method: Method::Single,
             item_count: 102,
             derived_from: None,
+            preset_id: None,
+            inventory_version: None,
         }
     }
 
@@ -641,6 +671,8 @@ mod tests {
             method: Method::Sequential,
             item_count: 7,
             derived_from: None,
+            preset_id: None,
+            inventory_version: None,
         };
         let p = lib.create(&hostile).expect("作れること");
         assert_eq!(p.read_manifest().expect("読めること"), hostile);

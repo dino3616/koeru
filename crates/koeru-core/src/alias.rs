@@ -77,9 +77,38 @@ pub fn candidates(method: Method, req: &Request<'_>) -> Vec<String> {
             None => vec![format!("- {lyric}"), lyric.to_owned()],
         },
 
-        // CVVC の CV 部。VC は該当が無ければ出力せず、CV だけで繋ぐ。
-        Method::Cvvc => vec![format!("- {lyric}"), lyric.to_owned()],
+        // CVVC の CV 部。連続音と同じく文脈で分ける（`DEC-SYN-011`）。
+        //
+        // 語頭形（`- か`）は語頭専用に録った立ち上がりを持つ。 フレーズ中間で
+        // 先に探すと子音が硬くなり、渡りの VC と二重に鳴る。
+        //
+        // VC は該当が無ければ出力せず、CV だけで繋ぐ（`TR-SYN-12`）。
+        // VC は音符に対応しないので、ここでは返さない——綴りは [`vc_alias`]。
+        Method::Cvvc => match req.previous_vowel {
+            Some(_) => vec![lyric.to_owned(), format!("- {lyric}")],
+            None => vec![format!("- {lyric}"), lyric.to_owned()],
+        },
     }
+}
+
+/// CVVC の VC エイリアスの綴り（`TR-RCL-05`）。
+///
+/// [`candidates`] と別に置くのは、VC が音符に対応しないため。 CV は音符1つに
+/// 1つ出るが、VC は音符と音符の「あいだ」に出る。同じ関数の戻り値にすると、
+/// 呼び出し側が音符の添字で引けなくなる（`DEC-SYN-009` で踏んだのと同じ形）。
+///
+/// 綴りの定義はここが唯一。 録音リスト生成・カバレッジ判定・書き出しが同じものを使う。
+#[must_use]
+pub fn vc_alias(previous_vowel: &str, consonant: &str) -> String {
+    format!("{previous_vowel} {consonant}")
+}
+
+/// 語尾エイリアスの綴り（`TR-RCL-05`）。
+///
+/// フレーズの終わりで母音を閉じる区間。 CVVC は 6 種持つ。
+#[must_use]
+pub fn ending_alias(vowel: &str) -> String {
+    format!("{vowel} -")
 }
 
 /// 持っているエイリアスの集合から、1音符を解決する（`TR-SYN-12`）。
@@ -329,13 +358,27 @@ mod tests {
         );
     }
 
+    /// CVVC も直前を見る（`DEC-SYN-011`）。 語頭形は語頭でだけ先に来る。
     #[test]
-    fn cvvc_の_cv_は語頭を先に見る() {
-        let req = Request {
+    fn cvvc_の_cv_は文脈で順序が変わる() {
+        let mid = Request {
             lyric: "か",
             previous_vowel: Some("a"),
         };
-        assert_eq!(candidates(Method::Cvvc, &req), ["- か", "か"]);
+        assert_eq!(candidates(Method::Cvvc, &mid), ["か", "- か"]);
+
+        let head = Request {
+            lyric: "か",
+            previous_vowel: None,
+        };
+        assert_eq!(candidates(Method::Cvvc, &head), ["- か", "か"]);
+    }
+
+    /// VC と語尾の綴りは1箇所（`TR-RCL-05`）。
+    #[test]
+    fn vc_と語尾の綴り() {
+        assert_eq!(vc_alias("a", "k"), "a k");
+        assert_eq!(ending_alias("a"), "a -");
     }
 
     /// 必要集合は第一候補だけ（`TR-RCL-15`）。

@@ -78,6 +78,28 @@ impl Default for GuideSpec {
 }
 
 impl GuideSpec {
+    /// 多音階の基準音（`TR-REC-25`）。
+    ///
+    /// > フレーズの収録開始前に対象音高の基準音を必ず鳴らす
+    /// > （既定 1000 ms、正弦波またはガイド音源の該当音階ファイル）
+    ///
+    /// クリックは鳴らさない。 音高だけを伝える——拍は収録中のガイドが持つ。
+    ///
+    /// **多音階では省略できない。** 単音階なら音高は1つしかないので本人が覚えて
+    /// いられるが、3本を行き来すると、いま何を録っているのか音で確かめる手が要る。
+    #[must_use]
+    pub fn tone_reference() -> Self {
+        Self {
+            moras: 1,
+            // 1モーラ＝1拍なので、テンポで長さを決める。
+            tempo_bpm: 60_000.0 / TONE_REFERENCE_MS,
+            lead_in_ms: 0.0,
+            tail_ms: 0.0,
+            click_level: 0.0,
+            ..Self::default()
+        }
+    }
+
     /// 単独音の音高提示（`TR-REC-23`）。
     ///
     /// ガイドは使わないが、音高は伝える。 持続音だけを、助走なしで短く。
@@ -118,6 +140,9 @@ impl GuideSpec {
         self.tone_level <= 0.0 && self.click_level <= 0.0
     }
 }
+
+/// 多音階の基準音の長さ（ミリ秒、`TR-REC-25`）。
+pub const TONE_REFERENCE_MS: f64 = 1000.0;
 
 /// 次のフレーズへ進むまでの長さ（`TR-REC-20`）。
 ///
@@ -436,5 +461,50 @@ mod tests {
             ..GuideSpec::default()
         };
         assert!((advance_ms(Some(&s)) - s.total_ms()).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod tone_reference_tests {
+    use super::*;
+
+    /// 基準音は既定 1000 ms（`TR-REC-25`）。
+    #[test]
+    fn 基準音は一秒() {
+        let s = GuideSpec::tone_reference();
+        assert!(
+            (s.total_ms() - TONE_REFERENCE_MS).abs() < 1e-9,
+            "{}",
+            s.total_ms()
+        );
+        assert!((s.voice_start_ms() - 0.0).abs() < 1e-9, "助走を挟まない");
+    }
+
+    /// 音高だけを伝える。拍は鳴らさない（`TR-REC-25`）。
+    #[test]
+    fn 基準音はクリックを鳴らさない() {
+        let s = GuideSpec::tone_reference();
+        assert!((s.click_level - 0.0).abs() < 1e-9);
+        assert!(s.tone_level > 0.0);
+        assert!(!s.is_silent());
+    }
+
+    /// 対象音高で鳴る。内部表現は MIDI（`TR-REC-25`）。
+    #[test]
+    fn 対象音高で鳴る() {
+        let s = GuideSpec::tone_reference();
+        let rate = 44_100;
+        for midi in [55, 62, 69] {
+            let pcm = render(&s, midi, rate);
+            let want = (TONE_REFERENCE_MS / 1000.0 * f64::from(rate)).round() as usize;
+            assert!(
+                pcm.len().abs_diff(want) <= 1,
+                "{midi}: {} サンプル（期待 {want}）",
+                pcm.len()
+            );
+            assert!(pcm.iter().any(|x| x.abs() > 0.01), "{midi} が無音");
+        }
+        // A4 = 440Hz（`TR-REC-25` の MIDI 表現）。
+        assert!((midi_to_hz(69) - 440.0).abs() < 1e-9);
     }
 }

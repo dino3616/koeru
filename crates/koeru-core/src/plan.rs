@@ -11,22 +11,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::pace;
 use crate::reclist::Row;
-
-/// 1単位あたりの収録サイクル（秒、`TR-RCL-09`）。
-///
-/// [Unknown] 自前実測まで暫定値。 OREMO の録音周期に固有の値を一次基準に置いている。
-/// KOERU の録音 UI では連続収録でオーバーヘッドが下がるので、実測で確定する。
-pub const SECONDS_PER_UNIT: f64 = 8.3;
-
-/// 行読み上げ方式の1行あたり（秒、`TR-RCL-09`）。6モーラ以下のとき。
-pub const SECONDS_PER_ROW_BASE: f64 = 12.0;
-
-/// 6モーラを超えた分の1モーラあたり（秒）。
-pub const SECONDS_PER_EXTRA_MORA: f64 = 1.2;
-
-/// 1行あたりの基準モーラ数。
-const BASE_MORAS: usize = 6;
 
 /// 追加で録る計画（`TR-RCL-17`）。
 #[derive(Debug, Clone, PartialEq)]
@@ -96,29 +82,17 @@ pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
 
 /// 行を録るのに掛かる時間（秒、`TR-RCL-09`）。
 ///
-/// 単独音は「1単位あたり × 単位数」、行読み上げは「1行 12 秒 ＋ 超過分」。
-/// 式を2本に分けるのは、単独音が1項目＝1モーラで、行読み上げとは周期が違うから。
+/// 式は [`crate::pace`] が持つ。 ここは単音階の場合の入口。
 #[must_use]
 pub fn estimate_seconds(rows: &[Row]) -> f64 {
-    rows.iter()
-        .map(|r| {
-            let moras = r.units.len();
-            if moras <= 1 {
-                // 単独音の1項目。
-                SECONDS_PER_UNIT
-            } else if moras <= BASE_MORAS {
-                SECONDS_PER_ROW_BASE
-            } else {
-                SECONDS_PER_ROW_BASE + (moras - BASE_MORAS) as f64 * SECONDS_PER_EXTRA_MORA
-            }
-        })
-        .sum()
+    pace::fixed_seconds(rows, 1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::inventory::UnitSet;
+    use crate::pace::{SECONDS_PER_EXTRA_MORA, SECONDS_PER_ROW_BASE, SECONDS_PER_UNIT};
     use crate::reclist::generate_single;
 
     fn set(xs: &[&str]) -> BTreeSet<String> {

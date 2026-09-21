@@ -108,4 +108,10 @@ image = { version = "0.25.10", default-features = false, features = [
 encoding_rs = "0.8.41"
 # NFC 正規化（TR-PKG-48）。macOS が NFD で返すファイル名を揃える。unicode-rs は Organization。
 unicode-normalization = "0.1.25"
+# USTX を読む（TR-RCL-12、DEC-RCL-012）。USTX は YAML で、自前では読まない。
+# The YAML Organization（github.com/yaml）が持つ。serde_yaml の後継。
+# **読む本体は推移依存の libyaml-rs で、c2rust が吐いた unsafe の塊。**
+# 素性の分からない unsafe ではない（serde_yaml が長年使っていた
+# unsafe-libyaml の移管先）が、承知で通している。DEC-RCL-012 に理由を書いた。
+yaml_serde = "0.10.7"
 
