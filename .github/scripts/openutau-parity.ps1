@@ -104,15 +104,19 @@ if ($null -eq $noteType) {
 
 # 音源を読む。 `SearchAll` は basePath の下を掘るので、親を渡す。
 $base = Split-Path -Parent (Resolve-Path $Voicebank)
-$loader = [Activator]::CreateInstance($loaderType, @($base))
+# 型変数から直に組む。 **`[Activator]::CreateInstance($t, @($x))` は
+# 「Constructor not found」で落ちた**——`new VoicebankLoader(String)` は
+# 反射で見えているので、束ねた配列の解決に失敗している。
+# `$type::new(...)` は通常のメソッド解決を通るので、素直に当たる。
+$loader = $loaderType::new([string] $base)
 $bank = @($loader.SearchAll())[0]
 if ($null -eq $bank) { throw "音源が見つからない: $Voicebank" }
 $loaderType.GetMethod('LoadVoicebank').Invoke($null, @($bank))
 
-$singer = [Activator]::CreateInstance($singerType, @($bank))
+$singer = $singerType::new($bank)
 $singer.EnsureLoaded()
 
-$phonemizer = [Activator]::CreateInstance($presampType)
+$phonemizer = $presampType::new()
 $phonemizer.SetSinger($singer)
 
 # 呼び出し先の版が上がったとき、実際に読んだ型と `Process` の形を
