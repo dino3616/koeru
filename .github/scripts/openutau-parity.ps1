@@ -50,24 +50,57 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-Add-Type -Path (Join-Path $Assemblies 'OpenUtau.Core.dll')
-Add-Type -Path (Join-Path $Assemblies 'OpenUtau.Plugin.Builtin.dll')
+$coreAsm = [Reflection.Assembly]::LoadFrom((Resolve-Path (Join-Path $Assemblies 'OpenUtau.Core.dll')).Path)
+$pluginAsm = [Reflection.Assembly]::LoadFrom((Resolve-Path (Join-Path $Assemblies 'OpenUtau.Plugin.Builtin.dll')).Path)
+
+# 名前空間を書かずに、載っているアセンブリから型を引く。
+#
+# **`[Classic.VoicebankLoader]` と書いて落ちた。** 実体は
+# `OpenUtau.Classic`。公開 CLI が無く（`EVID-SYN-001`）アセンブリを
+# 直に呼ぶので、名前空間はあちらの都合でいつでも動く。単純名で引けば、
+# 動いたときに落ちるのは「型が消えたとき」だけになる。
+function Get-Types($asm) {
+  try { return $asm.GetTypes() }
+  # 依存が欠けて一部が読めなくても、読めたぶんで続ける。
+  catch [Reflection.ReflectionTypeLoadException] {
+    return @($_.Exception.Types | Where-Object { $null -ne $_ })
+  }
+}
+
+function Find-Type($asm, [string] $name) {
+  $all = Get-Types $asm
+  $hit = @($all | Where-Object { $_.Name -eq $name })
+  if ($hit.Count -eq 0) {
+    $near = @($all | Where-Object { $_.Name -like "*$name*" } | ForEach-Object { $_.FullName })
+    throw "型が見つからない: $name`n近いもの: $($near -join ', ')"
+  }
+  Write-Host "$name -> $($hit[0].FullName)"
+  return $hit[0]
+}
+
+$loaderType = Find-Type $coreAsm 'VoicebankLoader'
+$singerType = Find-Type $coreAsm 'ClassicSinger'
+$phonemizerBase = Find-Type $coreAsm 'Phonemizer'
+$presampType = Find-Type $pluginAsm 'JapanesePresampPhonemizer'
+
+$noteType = $phonemizerBase.GetNestedType('Note')
+$attrType = $phonemizerBase.GetNestedType('PhonemeAttributes')
+if ($null -eq $noteType) {
+  throw "Phonemizer の入れ子型が見つからない: $(($phonemizerBase.GetNestedTypes() | ForEach-Object { $_.Name }) -join ', ')"
+}
 
 # 音源を読む。 `SearchAll` は basePath の下を掘るので、親を渡す。
 $base = Split-Path -Parent (Resolve-Path $Voicebank)
-$loader = [Classic.VoicebankLoader]::new($base)
+$loader = [Activator]::CreateInstance($loaderType, @($base))
 $bank = @($loader.SearchAll())[0]
 if ($null -eq $bank) { throw "音源が見つからない: $Voicebank" }
-[Classic.VoicebankLoader]::LoadVoicebank($bank)
+$loaderType.GetMethod('LoadVoicebank').Invoke($null, @($bank))
 
-$singer = [Classic.ClassicSinger]::new($bank)
+$singer = [Activator]::CreateInstance($singerType, @($bank))
 $singer.EnsureLoaded()
 
-$phonemizer = [OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer]::new()
+$phonemizer = [Activator]::CreateInstance($presampType)
 $phonemizer.SetSinger($singer)
-
-$noteType = [OpenUtau.Api.Phonemizer+Note]
-$attrType = [OpenUtau.Api.Phonemizer+PhonemeAttributes]
 
 # 呼び出し先の版が上がったとき、実際に読んだ型と `Process` の形を
 # CI の失敗ログに残す。公開 CLI ではなくアセンブリを直に呼ぶため、
