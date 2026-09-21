@@ -18,6 +18,7 @@ import { commands } from "~/lib/bindings.gen";
 export { Channel };
 export type {
   AppError,
+  BankSongView,
   CalibrationView,
   ChosenDeviceView,
   DeviceView,
@@ -25,10 +26,12 @@ export type {
   ExportedView,
   FindingView,
   GainControlView,
+  ImportedSongView,
   LatencyView,
   LeakView,
   MethodPresetView,
   MicModeView,
+  NoteView,
   OtoView,
   OutputKindView,
   PackageFileView,
@@ -43,6 +46,7 @@ export type {
   ReleaseView,
   RingView,
   RowTakesView,
+  SongSelection,
   SongPlanView,
   SongView,
   SpaceView,
@@ -55,7 +59,13 @@ export type {
   VoiceView,
 } from "~/lib/bindings.gen";
 
-import type { AppError, EnvelopeView, MicModeView, PackageSettingsView } from "~/lib/bindings.gen";
+import type {
+  AppError,
+  EnvelopeView,
+  MicModeView,
+  PackageSettingsView,
+  SongSelection,
+} from "~/lib/bindings.gen";
 
 /** Rust 側の失敗かどうか。 */
 export const isAppError = (e: unknown): e is AppError =>
@@ -105,7 +115,9 @@ export const api = {
   listProjects: () => unwrap(commands.listProjects()),
   /** 選べる作り方（`TR-RCL-11`）。いまは単独音だけ。 */
   methodPresets: () => unwrap(commands.methodPresets()),
-  createProject: (displayName: string) => unwrap(commands.createProject(displayName)),
+  /** 方式プリセットを選んで作る（`TR-RCL-01`）。 */
+  createProject: ({ displayName, presetId }: { displayName: string; presetId: string }) =>
+    unwrap(commands.createProject(displayName, presetId)),
   /** 表示名を変える（`DEC-PKG-007`）。空にはできない。 */
   renameProject: (id: string, displayName: string) =>
     unwrap(commands.renameProject(id, displayName)),
@@ -122,6 +134,10 @@ export const api = {
   /** 行を指定して録り直す（`TR-REC-21`）。既存のテイクは消えない。 */
   startRetake: (rowId: string) => unwrap(commands.startRetake(rowId)),
   rowsWithTakes: () => unwrap(commands.rowsWithTakes()),
+  /** いまの録る順と、その並び（`TR-SYN-19`）。 */
+  recordingOrder: () => unwrap(commands.recordingOrder()),
+  /** 録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
+  setRecordingOrder: (mode: string) => unwrap(commands.setRecordingOrder(mode)),
   /** 採用テイクを切り替える（`TR-RCL-25`）。カバレッジは変わらない。 */
   adoptTake: (rowId: string, takeId: number) => unwrap(commands.adoptTake(rowId, takeId)),
   finishTake: () => unwrap(commands.finishTake()),
@@ -196,7 +212,18 @@ export const api = {
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
   revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
-  importUst: (bytes: number[], title: string) => unwrap(commands.importUst(bytes, title)),
+  /** UST / USTX を取り込む（`TR-RCL-12`）。USTX は1トラックが1曲になる。 */
+  importSongs: (bytes: number[], fileName: string) => unwrap(commands.importSongs(bytes, fileName)),
+  /** 曲の題を変える（`TR-RCL-12`）。 */
+  renameSong: (id: string, title: string) => unwrap(commands.renameSong(id, title)),
+  /** 曲のノート列（`TR-RCL-12`）。範囲を選ぶのに要る。 */
+  songNotes: (id: string) => unwrap(commands.songNotes(id)),
+  /** 選んだノート群から録音リストを詰め直す（`TR-RCL-16`）。 */
+  repackForSelection: (selections: SongSelection[]) =>
+    unwrap(commands.repackForSelection(selections)),
+  /** 取り込んだ曲すべて（`TR-RCL-12`）。外した曲も並ぶ。 */
+  allSongs: () => unwrap(commands.allSongs()),
+  /** 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。 */
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),
 
   /*

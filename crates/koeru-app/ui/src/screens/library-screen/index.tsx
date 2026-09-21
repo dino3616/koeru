@@ -88,7 +88,7 @@ const Gallery = ({
    * 一覧が出ていない——見えないものの更新のために足止めしない。
    */
   const create = useMutation({
-    mutationFn: (displayName: string) => api.createProject(displayName),
+    mutationFn: (v: { displayName: string; presetId: string }) => api.createProject(v),
     onSuccess: async (id) => {
       onCreating(false);
       void queryClient.invalidateQueries(projectsQuery());
@@ -109,7 +109,7 @@ const Gallery = ({
         >
           <NewVoice
             creating={create.isPending}
-            onCreate={(name) => create.mutate(name)}
+            onCreate={(displayName, presetId) => create.mutate({ displayName, presetId })}
             onClose={() => onCreating(false)}
           />
         </Suspense>

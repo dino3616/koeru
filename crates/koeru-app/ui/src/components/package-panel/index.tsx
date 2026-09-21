@@ -1,3 +1,4 @@
+import { DowngradeNotice } from "~/components/downgrade-notice";
 import { useSuspenseQueries } from "@tanstack/react-query";
 
 import { Button } from "~/components/button";
@@ -187,6 +188,9 @@ export const PackagePanel = ({ voiceId, rows, onOpenRow }: PackagePanelProps) =>
           件の名前は、受け取る側で読める形に直してあります。
         </p>
       )}
+
+      {/* 下位方式へ降りられるなら、容量と由来を書き出し前に出す（`TR-PKG-24`）。 */}
+      <DowngradeNotice downgrades={state.downgrades} />
     </Card>
   );
 };

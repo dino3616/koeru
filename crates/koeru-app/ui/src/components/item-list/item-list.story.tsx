@@ -9,6 +9,8 @@ const row = (id: string, text: string, takes: number): RowTakesView => ({
   text,
   state: takes > 0 ? "recorded" : "unrecorded",
   units: text.split(" ").length,
+  moras: text.split(" ").length,
+  risk_hard: 0,
   takes: Array.from({ length: takes }, (_, i) => ({
     take_id: i + 1,
     generation: i + 1,

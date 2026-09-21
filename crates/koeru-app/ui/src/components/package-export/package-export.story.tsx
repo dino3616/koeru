@@ -44,6 +44,7 @@ const ready: PackageStateView = {
   otos_ready: true,
   findings: [],
   unencodable: [],
+  downgrades: [],
 };
 
 const meta = {

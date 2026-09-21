@@ -76,6 +76,15 @@ export const songStatusQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "songs"], queryFn: () => api.songStatus() });
 
 /**
+ * 取り込んだ曲すべて（`TR-RCL-12`）。曲バンクを組み替える画面が読む。
+ *
+ * `songStatusQuery` とは別の鍵にする。 あちらはバンクの中だけで、
+ * 外した曲が出てこない——同じ鍵に載せると、外した瞬間に戻す的も消える。
+ */
+export const allSongsQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "all-songs"], queryFn: () => api.allSongs() });
+
+/**
  * その曲を歌うために、あと録る行（`TR-RCL-17`）。
  *
  * 曲ごとに引く。 収録済み単位が増えるたびに変わるので、台帳の鍵の下に置く。
@@ -88,6 +97,17 @@ export const songPlanQuery = (id: string, songId: string) =>
 
 export const rowsWithTakesQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "rows"], queryFn: () => api.rowsWithTakes() });
+
+/** 曲のノート列（`TR-RCL-12`）。範囲を選ぶ画面が読む。 */
+export const songNotesQuery = (id: string, songId: string) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "song-notes", songId],
+    queryFn: () => api.songNotes(songId),
+  });
+
+/** いまの録る順（`TR-SYN-19`）。台帳が変われば並びも変わる。 */
+export const recordingOrderQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "order"], queryFn: () => api.recordingOrder() });
 
 /**
  * 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。

@@ -40,12 +40,15 @@ export const SongList = ({
   return (
     <ul className="flex flex-col gap-3">
       {songs.map((s) => {
-        const line = s.singable
-          ? s.missing_units === 0
-            ? "いま歌えます"
-            : `近い音で置き換えて、いま歌えます（本来の音まであと ${s.missing_units} 音）`
-          : // 単位を1つの節に混ぜない。 録るのは行、そこから取れるのが音。
-            `あと ${s.missing_rows} 行（${s.missing_units} 音）を録ると歌えます`;
+        const line = !s.previewable
+          ? // 移調しても収録音高から遠すぎる（`TR-SYN-15`）。録っても届かない。
+            "この曲は音の高さが合いません"
+          : s.singable
+            ? s.missing_units === 0
+              ? "いま歌えます"
+              : `近い音で置き換えて、いま歌えます（本来の音まであと ${s.missing_units} 音）`
+            : // 単位を1つの節に混ぜない。 録るのは行、そこから取れるのが音。
+              `あと ${s.missing_rows} 行（${s.missing_units} 音）を録ると歌えます`;
 
         const body = (
           <>
@@ -85,15 +88,25 @@ export const SongList = ({
               押したボタン自身を disabled にしない。 フォーカスが body へ落ちる。
               `aria-busy` で状態を伝え、二重起動は呼び出し側が弾く。
             */}
-            <Button
-              size="sm"
-              variant="secondary"
-              aria-busy={preparingId === s.id}
-              aria-label={`${s.title} を歌わせる`}
-              onClick={() => preparingId === null && onSing(s.id)}
-            >
-              {preparingId === s.id ? "用意しています" : "歌わせる"}
-            </Button>
+            {/*
+              音の高さが合わない曲は、的そのものを出さない（`TR-SYN-15`）。
+
+              > 移調してもこの条件を満たせない課題曲は、試唱の選択肢に出さない
+
+              録れば歌えるようになる曲（`singable` が偽）とは別。 あちらは
+              短縮版で鳴らせるが、こちらは何を録っても届かない。
+            */}
+            {s.previewable && (
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-busy={preparingId === s.id}
+                aria-label={`${s.title} を歌わせる`}
+                onClick={() => preparingId === null && onSing(s.id)}
+              >
+                {preparingId === s.id ? "用意しています" : "歌わせる"}
+              </Button>
+            )}
           </li>
         );
       })}

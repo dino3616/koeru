@@ -16,6 +16,8 @@ const song: SongView = {
   missing_rows: 3,
   seconds: 36,
   total_moras: 24,
+  previewable: true,
+  transpose: 0,
 };
 
 const meta = {
