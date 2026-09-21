@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 
 use koeru_core::alias::{self, Method, Request};
 use koeru_core::inventory::{UnitSet, transition_vowels, units, vc_units};
+use koeru_core::presamp::Rules;
 
 /// その方式が要求するエイリアス表（`TR-PKG-23`）。
 ///
@@ -29,9 +30,9 @@ use koeru_core::inventory::{UnitSet, transition_vowels, units, vc_units};
 /// いまはどの方式も表を持つので `None` を返す枝は無い。 返り値の形は残す
 /// ——インベントリを持たない方式を足したときに、推測で並べたくない。
 #[must_use]
-pub fn required(method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
+pub fn required(rules: &Rules, method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
     let table = units(set);
-    let first = |req: &Request<'_>| alias::candidates(method, req).first().cloned();
+    let first = |req: &Request<'_>| alias::candidates(rules, method, req).first().cloned();
     let mut out = BTreeSet::new();
     match method {
         Method::Single => {
@@ -80,10 +81,10 @@ pub fn required(method: Method, set: UnitSet) -> Option<BTreeSet<String>> {
                 }
             }
             for vc in vc_units(set) {
-                out.insert(alias::vc_alias(vc.vowel, vc.consonant));
+                out.insert(rules.vc(vc.vowel, vc.consonant));
             }
             for v in transition_vowels(set) {
-                out.insert(alias::ending_alias(v));
+                out.insert(rules.ending(v));
             }
         }
     }
@@ -113,8 +114,13 @@ impl Coverage {
 ///
 /// 要求表を持たない方式には `None`。
 #[must_use]
-pub fn coverage(method: Method, set: UnitSet, provided: &BTreeSet<String>) -> Option<Coverage> {
-    let required = required(method, set)?;
+pub fn coverage(
+    rules: &Rules,
+    method: Method,
+    set: UnitSet,
+    provided: &BTreeSet<String>,
+) -> Option<Coverage> {
+    let required = required(rules, method, set)?;
     let missing: Vec<String> = required.difference(provided).cloned().collect();
     Some(Coverage {
         required: required.len(),
@@ -127,10 +133,10 @@ pub fn coverage(method: Method, set: UnitSet, provided: &BTreeSet<String>) -> Op
 ///
 /// 素材が要求表を全部持っているものだけ。M4 が実際に出せるのはこれ。
 #[must_use]
-pub fn exportable(set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
+pub fn exportable(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
     [Method::Single, Method::Sequential, Method::Cvvc]
         .into_iter()
-        .filter(|m| coverage(*m, set, provided).is_some_and(|c| c.is_complete()))
+        .filter(|m| coverage(rules, *m, set, provided).is_some_and(|c| c.is_complete()))
         .collect()
 }
 
@@ -143,9 +149,9 @@ pub fn exportable(set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
 /// **ここは経路を用意しない。** 返すのは方式の一覧だけで、
 /// 5値の再導出は `koeru-align` が持つ（`TR-ALN-34`）。
 #[must_use]
-pub fn downgradable(set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
+pub fn downgradable(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
     if missing_head_cv(set, provided).is_empty()
-        && !exportable(set, provided).contains(&Method::Single)
+        && !exportable(rules, set, provided).contains(&Method::Single)
     {
         vec![Method::Single]
     } else {
@@ -171,6 +177,15 @@ pub fn missing_head_cv(set: UnitSet, provided: &BTreeSet<String>) -> Vec<String>
 mod tests {
     use super::*;
 
+    /// 既定の綴り（`TR-SYN-36`）。 差し替えていない音源はこれを通る。
+    fn core() -> Rules {
+        Rules::builtin(UnitSet::Core)
+    }
+
+    fn ext() -> Rules {
+        Rules::builtin(UnitSet::Extended)
+    }
+
     fn provided(items: &[&str]) -> BTreeSet<String> {
         items.iter().map(|s| (*s).to_owned()).collect()
     }
@@ -183,12 +198,12 @@ mod tests {
     }
 
     fn sequential_full() -> BTreeSet<String> {
-        required(Method::Sequential, UnitSet::Core).expect("表があること")
+        required(&core(), Method::Sequential, UnitSet::Core).expect("表があること")
     }
 
     #[test]
     fn 単独音の要求表は収録単位そのもの() {
-        let r = required(Method::Single, UnitSet::Core).expect("表があること");
+        let r = required(&core(), Method::Single, UnitSet::Core).expect("表があること");
         assert_eq!(r.len(), units(UnitSet::Core).len());
         assert!(r.contains("あ"));
     }
@@ -206,7 +221,7 @@ mod tests {
     /// `TR-RCL-05`。CVVC は CV・VC・語尾の3種。拡張セットで 144 + 180 + 6 = 330。
     #[test]
     fn cvvc_の要求表は三種の合計() {
-        let r = required(Method::Cvvc, UnitSet::Extended).expect("表があること");
+        let r = required(&ext(), Method::Cvvc, UnitSet::Extended).expect("表があること");
         let units = units(UnitSet::Extended).len();
         let vc = koeru_core::inventory::vc_units(UnitSet::Extended).len();
         let ending = transition_vowels(UnitSet::Extended).len();
@@ -229,7 +244,7 @@ mod tests {
         // required() から provided を作ると、表が自分自身を満たしてしまう。
         let recorded = recordable(UnitSet::Extended);
         for m in [Method::Single, Method::Sequential, Method::Cvvc] {
-            let r = required(m, UnitSet::Extended).expect("表があること");
+            let r = required(&ext(), m, UnitSet::Extended).expect("表があること");
             let unreachable: Vec<&String> = r.difference(&recorded).collect();
             assert!(
                 unreachable.is_empty(),
@@ -253,25 +268,28 @@ mod tests {
             }
         }
         for vc in koeru_core::inventory::vc_units(set) {
-            out.insert(alias::vc_alias(vc.vowel, vc.consonant));
+            out.insert(core().vc(vc.vowel, vc.consonant));
         }
         for v in transition_vowels(set) {
-            out.insert(alias::ending_alias(v));
+            out.insert(core().ending(v));
         }
         out
     }
 
     #[test]
     fn 揃っていれば書き出せる() {
-        assert_eq!(exportable(UnitSet::Core, &single_full()), [Method::Single]);
+        assert_eq!(
+            exportable(&core(), UnitSet::Core, &single_full()),
+            [Method::Single]
+        );
     }
 
     #[test]
     fn 足りなければ書き出せない() {
         let mut p = single_full();
         p.remove("あ");
-        assert!(exportable(UnitSet::Core, &p).is_empty());
-        let c = coverage(Method::Single, UnitSet::Core, &p).expect("表があること");
+        assert!(exportable(&core(), UnitSet::Core, &p).is_empty());
+        let c = coverage(&core(), Method::Single, UnitSet::Core, &p).expect("表があること");
         assert!(!c.is_complete());
         assert_eq!(c.missing, ["あ"]);
     }
@@ -279,18 +297,18 @@ mod tests {
     /// `ASSUME-3`。逆方向は禁止を宣言しなくても出てこない。
     #[test]
     fn 単独音の素材から連続音は出てこない() {
-        let out = exportable(UnitSet::Core, &single_full());
+        let out = exportable(&core(), UnitSet::Core, &single_full());
         assert!(!out.contains(&Method::Sequential));
-        assert!(downgradable(UnitSet::Core, &single_full()).is_empty());
+        assert!(downgradable(&core(), UnitSet::Core, &single_full()).is_empty());
     }
 
     /// `TR-RCL-21`。連続音の素材は、構成上は単独音を出せる。
     #[test]
     fn 連続音の素材は単独音へ降りられる() {
         let p = sequential_full();
-        assert_eq!(exportable(UnitSet::Core, &p), [Method::Sequential]);
+        assert_eq!(exportable(&core(), UnitSet::Core, &p), [Method::Sequential]);
         assert!(missing_head_cv(UnitSet::Core, &p).is_empty());
-        assert_eq!(downgradable(UnitSet::Core, &p), [Method::Single]);
+        assert_eq!(downgradable(&core(), UnitSet::Core, &p), [Method::Single]);
     }
 
     #[test]
@@ -298,11 +316,11 @@ mod tests {
         let mut p = sequential_full();
         p.remove("- あ");
         assert_eq!(missing_head_cv(UnitSet::Core, &p), ["- あ"]);
-        assert!(downgradable(UnitSet::Core, &p).is_empty());
+        assert!(downgradable(&core(), UnitSet::Core, &p).is_empty());
     }
 
     #[test]
     fn 何も無ければ何も出せない() {
-        assert!(exportable(UnitSet::Core, &provided(&[])).is_empty());
+        assert!(exportable(&core(), UnitSet::Core, &provided(&[])).is_empty());
     }
 }

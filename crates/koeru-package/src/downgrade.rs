@@ -15,16 +15,18 @@
 //! 単独音として配られる（`TR-RCL-21`）。5値は対象方式の規約プリセットで
 //! 再導出する（`TR-ALN-34`。`koeru-align` の `derive::rederive`）。
 //!
-//! # 声質は検知しない
+//! # 声質は検知せず、推測材料も置かない
 //!
-//! 検知する手段が現在のスコープに無い（`DEC-RCL-007`）。代わりに事実だけ出す
-//! ——その書き出しが跨ぐ収録セッションの数と、最初から最後までの間隔。
-//! **「声質が揃っている」とは言わない。**
+//! 検知する手段が現在のスコープに無い。 一度は「跨いだ収録セッションの数と
+//! 期間」を事実として出していたが、**落とした**（`DEC-RCL-015`）。
+//! その数字から読めるのは「声が揃っていないかもしれない」だけで、
+//! 判定しないと言いながら判断材料を置いていたことになる。
 
 use std::collections::BTreeSet;
 
 use koeru_core::alias::Method;
 use koeru_core::inventory::UnitSet;
+use koeru_core::presamp::Rules;
 
 use crate::coverage;
 
@@ -37,17 +39,6 @@ pub enum Blocked {
     Missing(Vec<String>),
     /// その方式の要求表を持たない。
     NoRequirementTable,
-}
-
-/// 素材の由来（`DEC-RCL-007`）。
-///
-/// 判定ではない。 「声質が揃っている」とは言わないための、事実だけの欄。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Provenance {
-    /// 跨ぐ収録セッションの数。
-    pub sessions: usize,
-    /// 最初と最後の間隔（日）。同日なら 0。
-    pub span_days: u32,
 }
 
 /// 下位方式の書き出し計画（`TR-PKG-24`）。
@@ -65,8 +56,6 @@ pub struct Plan {
     /// 「oto.ini 1ファイル分」ではない。 元パッケージとほぼ同等の容量が
     /// もう1本できる（`TR-PKG-24`）。
     pub bytes: u64,
-    /// 素材の由来（`DEC-RCL-007`）。
-    pub provenance: Provenance,
 }
 
 /// 下位方式へ書き出せるか（`TR-PKG-23`）。
@@ -76,8 +65,13 @@ pub struct Plan {
 /// # Errors
 ///
 /// 不足があるとき、またはその方式の要求表が無いとき。
-pub fn check(method: Method, set: UnitSet, provided: &BTreeSet<String>) -> Result<(), Blocked> {
-    let Some(c) = coverage::coverage(method, set, provided) else {
+pub fn check(
+    rules: &Rules,
+    method: Method,
+    set: UnitSet,
+    provided: &BTreeSet<String>,
+) -> Result<(), Blocked> {
+    let Some(c) = coverage::coverage(rules, method, set, provided) else {
         return Err(Blocked::NoRequirementTable);
     };
     if c.is_complete() {
@@ -90,8 +84,11 @@ pub fn check(method: Method, set: UnitSet, provided: &BTreeSet<String>) -> Resul
 /// 書き出しに要る WAV とその容量から計画を作る（`TR-PKG-24`）。
 ///
 /// `sources` は (相対パス, バイト数) の並び。 呼び出し側が台帳から引く。
+///
+/// **素材の由来は返さない**（`DEC-RCL-015`）。 跨いだセッション数や期間を出すと、
+/// 声質の推測材料を置いたことになる。KOERU は声質に関与しない。
 #[must_use]
-pub fn plan(method: Method, sources: &[(String, u64)], provenance: Provenance) -> Plan {
+pub fn plan(method: Method, sources: &[(String, u64)]) -> Plan {
     let mut wav_files: Vec<String> = sources.iter().map(|(p, _)| p.clone()).collect();
     wav_files.sort_unstable();
     wav_files.dedup();
@@ -106,7 +103,6 @@ pub fn plan(method: Method, sources: &[(String, u64)], provenance: Provenance) -
         method,
         wav_files,
         bytes,
-        provenance,
     }
 }
 
@@ -127,10 +123,16 @@ pub fn root_name(original: &str, method: Method) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn core() -> Rules {
+        Rules::builtin(UnitSet::Core)
+    }
+
     use koeru_core::inventory::units;
 
     fn sequential_full() -> BTreeSet<String> {
-        coverage::required(Method::Sequential, UnitSet::Core).expect("表がある")
+        coverage::required(&core(), Method::Sequential, UnitSet::Core).expect("表がある")
     }
 
     fn single_full() -> BTreeSet<String> {
@@ -143,7 +145,10 @@ mod tests {
     /// 100% 被覆のときだけ許す（`TR-PKG-23`）。
     #[test]
     fn 被覆していれば書き出せる() {
-        assert_eq!(check(Method::Single, UnitSet::Core, &single_full()), Ok(()));
+        assert_eq!(
+            check(&core(), Method::Single, UnitSet::Core, &single_full()),
+            Ok(())
+        );
     }
 
     /// 不足は全件返す。件数だけにしない（`TR-PKG-23`）。
@@ -152,7 +157,8 @@ mod tests {
         let mut p = single_full();
         p.remove("あ");
         p.remove("か");
-        let Err(Blocked::Missing(missing)) = check(Method::Single, UnitSet::Core, &p) else {
+        let Err(Blocked::Missing(missing)) = check(&core(), Method::Single, UnitSet::Core, &p)
+        else {
             panic!("足りないはず");
         };
         assert_eq!(missing.len(), 2);
@@ -166,9 +172,12 @@ mod tests {
         // 連続音の要求表は素の CV を第一候補に持たないので、
         // 降りるには語頭 CV を切り直すことになる。ここが見るのは可否だけ。
         let p = sequential_full();
-        assert_eq!(check(Method::Sequential, UnitSet::Core, &p), Ok(()));
         assert_eq!(
-            coverage::downgradable(UnitSet::Core, &p),
+            check(&core(), Method::Sequential, UnitSet::Core, &p),
+            Ok(())
+        );
+        assert_eq!(
+            coverage::downgradable(&core(), UnitSet::Core, &p),
             [Method::Single],
             "構成上は出せる"
         );
@@ -178,7 +187,7 @@ mod tests {
     #[test]
     fn 単独音から連続音へは上がれない() {
         assert!(matches!(
-            check(Method::Sequential, UnitSet::Core, &single_full()),
+            check(&core(), Method::Sequential, UnitSet::Core, &single_full()),
             Err(Blocked::Missing(_))
         ));
     }
@@ -191,24 +200,9 @@ mod tests {
             ("a.wav".to_owned(), 100),
             ("b.wav".to_owned(), 50),
         ];
-        let p = plan(Method::Single, &sources, Provenance::default());
+        let p = plan(Method::Single, &sources);
         assert_eq!(p.wav_files, ["a.wav", "b.wav"]);
         assert_eq!(p.bytes, 150);
-    }
-
-    /// 由来は事実だけ（`DEC-RCL-007`）。
-    #[test]
-    fn 由来はセッション数と間隔() {
-        let p = plan(
-            Method::Single,
-            &[("a.wav".to_owned(), 10)],
-            Provenance {
-                sessions: 4,
-                span_days: 12,
-            },
-        );
-        assert_eq!(p.provenance.sessions, 4);
-        assert_eq!(p.provenance.span_days, 12);
     }
 
     /// 別の音源ルートになる（`TR-PKG-24`, `TR-PKG-25`）。

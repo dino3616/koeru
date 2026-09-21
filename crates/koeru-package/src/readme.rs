@@ -52,8 +52,31 @@ pub fn readme_txt(bank: &VoiceBank, contents: &[String]) -> String {
     out.written("連絡先", r.contact.as_deref());
     out.written("免責", r.disclaimer.as_deref());
     out.always("周波数表の扱い", FRQ_NOTE);
+    out.always("綴りを確かめた OpenUtau", &verified_note());
 
     out.finish()
+}
+
+/// 綴りを突き合わせた OpenUtau の版（`DEC-SYN-010` の層B）。
+///
+/// **受け取った側に届かないと意味が無い。** 「どの KOERU がどの OpenUtau と
+/// 突き合わされたか」はリポジトリを見れば分かるが、配布物を受け取った人は
+/// リポジトリを見ない。同梱の `presamp.ini` がどの版で確かめられたかを、
+/// 音源の中に書いておく。
+///
+/// 保証とは言わない。 確かめた版を並べるだけで、他の版で動くとも
+/// 動かないとも言わない。
+fn verified_note() -> String {
+    let versions: Vec<String> = koeru_core::presamp::verified_openutau()
+        .into_iter()
+        .map(|v| format!("  {} {}", v.channel, v.version))
+        .collect();
+    format!(
+        "同梱の presamp.ini は、次の OpenUtau で綴りが一致することを確かめています。\
+{NEWLINE}{}{NEWLINE}\
+これ以外の版で動かないという意味ではありません。",
+        versions.join(NEWLINE)
+    )
 }
 
 /// 節を積む。見出しの形をここ1箇所に閉じる。
