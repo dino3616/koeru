@@ -130,7 +130,7 @@ nix develop --command cargo test --workspace --all-features
 
 **hash は機械が直す。** `flake.nix` の `fslc` と bun は SHA-256 で固定しているので、
 版だけが上がると合わなくなる。上流が digest を公開しているので、
-`nix/update-hashes.sh` が 6 個すべてを作り直す。CI では `nix-hash-fix` が
+`.github/scripts/update-hashes.sh` が 6 個すべてを作り直す。CI では `nix-hash-fix` が
 PR の中で当てる。**手で書き換えない。**
 
 **版が上がって hash が古いと、黙って古いものを使う経路がある。** `fetchurl` の

@@ -52,7 +52,7 @@ jobs:
       # `nix hash convert` だけが要る。devShell は組まない。
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - name: 上流の digest から作り直す
-        run: bash nix/update-hashes.sh
+        run: bash .github/scripts/update-hashes.sh
       - name: 変わっていたら push
         run: |
           if git diff --quiet -- flake.nix; then

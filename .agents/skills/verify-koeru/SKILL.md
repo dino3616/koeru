@@ -225,7 +225,7 @@ fslc mutate specs/requirements/project-lifecycle.fsl --depth 8
 **hash を手で書き換えない。** 版を上げたら次を走らせる。
 
 ```bash
-bash nix/update-hashes.sh   # 上流の公開 digest から 6 個すべてを作り直す
+bash .github/scripts/update-hashes.sh   # 上流の公開 digest から 6 個すべてを作り直す
 ```
 
 CI では `nix-hash-fix` が PR の中で同じものを当てる（`DEC-PLT-033`）。

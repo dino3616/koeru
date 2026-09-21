@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 readonly FLAKE=flake.nix
 readonly PACKAGE_JSON=crates/koeru-app/ui/package.json

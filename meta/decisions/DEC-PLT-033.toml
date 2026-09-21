@@ -70,7 +70,7 @@ hash は機械が直す。 `flake.nix` の fslc と bun は SHA-256 で固定し
 **ビルドの失敗から直す方式は採らない。** `determinate-nixd fix hashes` は走った
 system の分しか直せず、hash は 3 system × 2 ツールで 6 個ある。ubuntu のビルドは
 x86_64-linux の分しか取得しないので、残りが古いまま通る。bun は `SHASUMS256.txt`、
-fsl は資産ごとの `.sha256` を公開しているので、`nix/update-hashes.sh` が
+fsl は資産ごとの `.sha256` を公開しているので、`.github/scripts/update-hashes.sh` が
 そこを読んで 6 個すべてを確定的に作る。バイナリも落とさない。
 
 **push には `GITHUB_TOKEN` 以外の資格情報が要る。** `GITHUB_TOKEN` で push すると
@@ -95,7 +95,7 @@ review_triggers = [
   'Nix 製バイナリの配布が現実的になったとき（relocatability が解決したとき）。 そのときは nix build を配布経路として再検討する',
   'automerge した patch か minor が回帰を通したとき。 そのときは automerge の範囲を狭める',
   '落ちた non-major の PR を人が直す手間が積み上がったとき。 そのときは automerge の範囲を狭める',
-  '上流が digest の公開をやめたとき。 `nix/update-hashes.sh` が成り立たなくなるので、ビルドの失敗から直す方式へ移るか、人の作業へ戻す',
+  '上流が digest の公開をやめたとき。 `.github/scripts/update-hashes.sh` が成り立たなくなるので、ビルドの失敗から直す方式へ移るか、人の作業へ戻す',
   'Dependency Dashboard の major が読まれずに溜まったとき。 検知しても着手されないなら、載せる意味が無い',
 ]
 supersedes = []

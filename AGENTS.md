@@ -157,7 +157,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - FSL の `const` を写す前に、契約か仮定かを見る。 `ASSUME-` で始まる前置きが「検証用に有限へ閉じる」と言っているものは製品の規則ではない（`MAX_TAKES` を写して、3テイクで収録が止まった。`DEC-REC-005`）
 - 未決の論点は `meta/questions/` が正本。 メモリ予算に触るものは実装着手前に数値を積み直す。どれがリリースを塞いでいるかは `cargo xtask check-profile <ID>` が出す
 - FSL 化してあるのは縦切り1本だけ（録音 → テイク確定 → 完成 → 非公開のまま終了 → ZIP 書き出し）。技術要件を一度に FSL へ移さないこと。形式化できない文章まで入れると、FSL が新しい巨大文書になる
-- `fslc` はバージョンと SHA-256 で固定している（`flake.nix`）。**hash を手で書き換えない。** `nix/update-hashes.sh` が上流の公開 digest から作り直し、`nix-hash-fix` ワークフローが PR の中で当てる（`DEC-PLT-033`）。major は PR にならず Dependency Dashboard に載る。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する
+- `fslc` はバージョンと SHA-256 で固定している（`flake.nix`）。**hash を手で書き換えない。** `.github/scripts/update-hashes.sh` が上流の公開 digest から作り直し、`nix-hash-fix` ワークフローが PR の中で当てる（`DEC-PLT-033`）。major は PR にならず Dependency Dashboard に載る。FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する
 
 ## 注意
 

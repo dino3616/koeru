@@ -66,7 +66,7 @@
           # 版は package.json から読み、ここに残るのは hash だけ——hash は版から
           # 機械的に導かれる事実なので、二重の主張にならない。
           #
-          # hash は `nix/update-hashes.sh` が上流の `SHASUMS256.txt` から作り直す。
+          # hash は `.github/scripts/update-hashes.sh` が上流の `SHASUMS256.txt` から作り直す。
           # 手で書き換えない。 版上げのたびに必ず必要な機械的な更新なので、
           # `nix-hash-fix` ワークフローが PR の中で当てる（`DEC-PLT-033`）。
           #
@@ -125,7 +125,7 @@
           # fslc
           #
           # 版と SHA-256 の両方で固定する。 Renovate が追うのは版だけなので、
-          # hash は `nix/update-hashes.sh` が上流の `.sha256` から作り直す。
+          # hash は `.github/scripts/update-hashes.sh` が上流の `.sha256` から作り直す。
           # 手で書き換えない（`DEC-PLT-033`）。
           # ---------------------------------------------------------------
           fslcVersion = "v4.6.0";
@@ -193,7 +193,7 @@
               # submodule の取得が途中で死ぬ。
               pkgs.git-lfs
               pkgs.pkg-config
-              # `nix/update-hashes.sh` が上流の digest を引く。 ホストの curl に
+              # `.github/scripts/update-hashes.sh` が上流の digest を引く。 ホストの curl に
               # 頼ると、最小構成の NixOS で hash を更新できない。
               pkgs.curl
               pkgs.playwright-driver.browsers
