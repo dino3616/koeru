@@ -884,9 +884,11 @@ impl Studio {
     pub fn progress(&mut self) -> Result<Progress> {
         let name = self.display_name()?;
         let preset = self.current_preset()?;
+        // 提示順の先頭（`TR-SYN-19`）。 正準順で引くと、モードを切り替えても
+        // 次のフレーズが変わらない。
+        let next_row = self.next_presented_row()?;
         let open = self.opened_mut()?;
         let covered = open.ledger.covered_units()?;
-        let next_row = open.ledger.next_row()?;
         let handoff = if open.ledger.has_been_exported()? {
             HandoffState::Exported
         } else {
@@ -1752,13 +1754,33 @@ impl Studio {
     /// 人は「録音」を押してから息を吸わない。指示の時点から書くと語頭が欠ける。
     #[tracing::instrument(skip(self), err)]
     pub fn start_take(&mut self) -> Result<String> {
+        // 録るのは提示順の先頭（`TR-SYN-19`）。 **正準順で引いていた**
+        // ——曲バンク優先を選んでも、録り始めるのは常に ordinal の最小だった。
         let row_id = self
-            .opened_mut()?
-            .ledger
-            .next_row()?
+            .next_presented_row()?
             .ok_or_else(|| AppError::new("app.nothing_to_record", "録るべき行がもう無い"))?
             .0;
         self.start_take_for(&row_id)
+    }
+
+    /// 次に録る行を、提示順の先頭から引く（`TR-SYN-19`, `TR-REC-18`）。
+    ///
+    /// `TR-SYN-19` は「変わるのは『次に何を録るか』の並びだけ」と定めている。
+    /// **一覧の並び替えだけに使っていた。** 次のフレーズの札も録音の開始も
+    /// 台帳の正準順（`Ledger::next_row`）で引いていたので、モードを
+    /// 切り替えても録る順は動かなかった。
+    ///
+    /// 提示順が空なら正準順へ落ちる。 提示は未収録の行だけを並べるので、
+    /// 除外や再生成で空になっても、録れる行が残っていれば録れる。
+    fn next_presented_row(&mut self) -> Result<Option<(String, String)>> {
+        let (_, order) = self.recording_order()?;
+        let open = self.opened_mut()?;
+        for id in order {
+            if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
+                return Ok(Some((id, text)));
+            }
+        }
+        open.ledger.next_row().map_err(Into::into)
     }
 
     /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。

@@ -316,7 +316,6 @@ fn 置いた_presamp_が綴りを決める() {
         "文脈つきの綴りは既定の所属表で解ける: {:?}",
         aliases.iter().take(8).collect::<Vec<_>>()
     );
-
 }
 
 /// 最初の行の ID。
@@ -339,4 +338,44 @@ fn exported_aliases(s: &mut Studio) -> Vec<String> {
         .into_iter()
         .flat_map(|x| x.otos.into_iter().map(|(a, _)| a))
         .collect()
+}
+
+/// 録る順は「次に何を録るか」に効く（`TR-SYN-19`, `TR-REC-18`）。
+///
+/// **一覧の並び替えだけに使っていた。** 次のフレーズの札も録音の開始も
+/// 台帳の正準順で引いていたので、モードを切り替えても録る順は動かなかった。
+/// `TR-SYN-19` は「変わるのは『次に何を録るか』の並びだけ」と定めている。
+#[test]
+fn 録る順が次のフレーズに効く() {
+    use koeru_core::order::Mode;
+
+    let (mut s, _root) = studio("order");
+    let id = s.create_project("順番").expect("作れる");
+    s.open_project(id).expect("開ける");
+
+    // 被覆効率の先頭。 正準順の先頭とは一致しないはず。
+    s.set_recording_order(Mode::CoverageEfficiency)
+        .expect("切り替えられる");
+    let (_, order) = s.recording_order().expect("引ける");
+    let head = order.first().cloned().expect("提示順がある");
+    assert_eq!(
+        s.progress().expect("引ける").next_row.map(|(id, _)| id),
+        Some(head.clone()),
+        "次のフレーズは提示順の先頭"
+    );
+
+    // 曲バンク優先へ戻すと、先頭も変わる。 切り替えは可逆（`TR-SYN-19`）。
+    s.set_recording_order(Mode::SongBankFirst).expect("戻せる");
+    let (mode, bank_order) = s.recording_order().expect("引ける");
+    assert_eq!(mode, Mode::SongBankFirst);
+    assert_ne!(
+        bank_order.first(),
+        Some(&head),
+        "同梱曲を優先すると先頭が変わる"
+    );
+    assert_eq!(
+        s.progress().expect("引ける").next_row.map(|(id, _)| id),
+        bank_order.first().cloned(),
+        "戻したモードの先頭になる"
+    );
 }

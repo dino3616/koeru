@@ -897,7 +897,25 @@ impl Ledger {
             .collect())
     }
 
+    /// その行が未収録なら、読み上げるテキストを返す（`TR-REC-18`）。
+    ///
+    /// 提示順（`TR-SYN-19`）は行 ID の並びしか持たないので、先頭の行の
+    /// 本文を引くのに要る。状態もここで見る。提示順が古くても、
+    /// 収録済みや除外済みの行を次の収録に戻さない。
+    pub fn unrecorded_row_text(&mut self, row_id: &str) -> Result<Option<String>> {
+        rows::table
+            .find(row_id)
+            .filter(rows::state.eq(RowState::Unrecorded.as_str()))
+            .select(rows::text)
+            .first::<String>(&mut self.conn)
+            .optional()
+            .map_err(db("unrecorded_row_text"))
+    }
+
     /// 次に録る行（`TR-REC-18`）。未録音のうち並び順が最も早いもの。
+    ///
+    /// **提示順（`TR-SYN-19`）は見ない。** ここは正準順の退避経路で、
+    /// モードを反映した並びは `Studio::next_presented_row` が持つ。
     pub fn next_row(&mut self) -> Result<Option<(String, String)>> {
         rows::table
             .filter(rows::state.eq(RowState::Unrecorded.as_str()))
@@ -2575,8 +2593,17 @@ mod tests {
         let (mut l, sid, list) = ready();
         let row = &list[0].id;
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Unrecorded);
+        assert!(
+            l.unrecorded_row_text(row).expect("引ける").is_some(),
+            "未収録の間は提示できる"
+        );
         l.commit_take(&take(row, sid, 1)).expect("確定できる");
         assert_eq!(l.row_state(row).expect("引ける"), RowState::Recorded);
+        assert_eq!(
+            l.unrecorded_row_text(row).expect("引ける"),
+            None,
+            "古い提示順に残っても録音済みは返さない"
+        );
     }
 
     /// 配布に出す値を往復できる（`PROFILE-M4`）。
