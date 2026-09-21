@@ -29,7 +29,16 @@ export const SongTarget = ({ voiceId, songId, title }: SongTargetProps) => {
 
   return (
     <Card title={`${title} のどこを歌うか`}>
+      {/*
+        曲が変わったら選び直しから始める。 **鍵を付けていなかった。**
+        React は同じ位置の部品を使い回すので、選んだ添字が次の曲へ持ち越され、
+        押すと別の曲の無関係なところを目標にしていた。
+
+        effect で消さない（`react-conventions`）。 鍵を変えれば、
+        持ち越しうる状態そのものが無くなる。
+      */}
       <SongRange
+        key={songId}
         notes={notes}
         building={repack.isPending}
         onRepack={(ranges) => repack.mutate(ranges)}
