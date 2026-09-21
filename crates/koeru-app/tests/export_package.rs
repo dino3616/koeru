@@ -6,6 +6,11 @@
 //! 形式的な契約は `specs/requirements/packaging-export.fsl`。
 //! ここで見るのは、その契約どおりに実装が動くかどうか。
 
+// MFA を組んでいない OS では KOERU が起動しない（`DEC-ALN-016`）。
+// `Studio::open` が設計どおり失敗するので、ここは走らせない——
+// その契約そのものは `align.rs` の単体試験が見ている。
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+
 use std::path::PathBuf;
 
 use koeru_app_lib::Studio;
@@ -192,4 +197,65 @@ fn 規約は未記入でも書き出せる() {
     assert!(contents.iter().any(|(p, _)| p == "readme.txt"));
 
     studio.export_package().expect("規約が無くても書き出せる");
+}
+
+/// 下位方式は独立した音源ルート・独立した ZIP で出る（`TR-PKG-24`, `TR-PKG-25`）。
+///
+/// **口が無かった。** 画面は「別の作り方でも出せます」と書いていたが、
+/// 受ける側のコマンドが無く、押せる的も無かった。
+#[test]
+fn 下位方式は別の_zip_として出る() {
+    use koeru_core::project::Method;
+
+    let mut studio = seeded("downgrade");
+    let mut d = studio.package_settings().expect("引ける");
+    d.version = Some("v1".to_owned());
+    studio.set_package_settings(&d).expect("保存できる");
+
+    // 単独音の素材から単独音は出せる。 そのままの方式は下位に出てこない
+    // （`coverage::downgradable`）ので、ここは判定ごと通ることを見る。
+    let state = studio.package_state().expect("引ける");
+    assert!(
+        state.downgrades.is_empty(),
+        "そのまま出せる方式は下位に並ばない: {:?}",
+        state.downgrades
+    );
+
+    // 出せない方式は断る。 コマンドを直に叩かれても素通りさせない
+    // （`TR-PKG-23`）。
+    let e = studio
+        .export_downgrade(Method::Cvvc)
+        .expect_err("被覆が満ちていないので断る");
+    assert_eq!(e.kind, "package.incomplete_coverage");
+
+    // 出せる方式は、元とは別の名前の ZIP になる（`TR-PKG-25`）。
+    let first = studio.export_package().expect("書き出せる");
+    let again = studio
+        .export_downgrade(Method::Single)
+        .expect("単独音は出せる");
+    assert_ne!(again.written.zip, first.written.zip, "別のファイル");
+    assert!(again.written.zip.is_file(), "ZIP が残る");
+    assert!(again.written.uar.is_file(), "UAR が残る");
+
+    // 音源ルートは方式を足した別の名前（`TR-PKG-24`）。
+    let base = studio.package_settings().expect("引ける").distribution_name;
+    let names = archive::entry_names(&again.written.zip).expect("読める");
+    let root = format!("{base}-single/");
+    assert!(
+        names.iter().all(|n| n.starts_with(&root)),
+        "別のルート名になる: {:?}",
+        names.first()
+    );
+
+    // 記録も別に1つ増える（`TR-PKG-44`）。 残すのは出した方式で、
+    // プロジェクトの方式ではない——どの回に何を配ったかが読めなくなる。
+    let releases = studio.releases().expect("引ける");
+    assert_eq!(releases.len(), 2);
+    assert_eq!(
+        releases
+            .iter()
+            .find(|r| r.seq == again.release.seq)
+            .map(|r| r.method),
+        Some(Method::Single)
+    );
 }

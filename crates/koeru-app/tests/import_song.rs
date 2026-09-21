@@ -2,6 +2,11 @@
 //!
 //! 音を鳴らさないので、どの OS でも通る。
 
+// MFA を組んでいない OS では KOERU が起動しない（`DEC-ALN-016`）。
+// `Studio::open` が設計どおり失敗するので、ここは走らせない——
+// その契約そのものは `align.rs` の単体試験が見ている。
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+
 use koeru_app_lib::Studio;
 
 /// OpenUtau が書く USTX。2トラック。
@@ -44,6 +49,11 @@ wave_parts: []
 
 const UST: &str = "[#VERSION]\nUST Version1.2\n[#SETTING]\nTempo=150.00\n[#0000]\nLength=480\nLyric=な\nNoteNum=62\n[#0001]\nLength=480\nLyric=R\nNoteNum=62\n[#0002]\nLength=480\nLyric=に\nNoteNum=64\n[#TRACKEND]\n";
 
+/// 題は本人が決める（`TR-RCL-12`）。試験でも明示的に渡す。
+fn t(s: &str) -> String {
+    s.to_owned()
+}
+
 fn opened(tag: &str) -> (Studio, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("koeru-import-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -58,7 +68,7 @@ fn opened(tag: &str) -> (Studio, std::path::PathBuf) {
 fn ust_を取り込める() {
     let (mut s, _root) = opened("ust");
     let got = s
-        .import_songs(UST.as_bytes(), "/どこか/ふるさと.ust")
+        .import_songs(UST.as_bytes(), "/どこか/ふるさと.ust", &[t("ふるさと")])
         .expect("取り込める");
 
     assert_eq!(got.len(), 1);
@@ -79,7 +89,11 @@ fn ust_を取り込める() {
 fn ustx_はトラックごとに曲になる() {
     let (mut s, _root) = opened("ustx");
     let got = s
-        .import_songs(USTX.as_bytes(), "デモ.ustx")
+        .import_songs(
+            USTX.as_bytes(),
+            "デモ.ustx",
+            &[t("デモ — 主旋律"), t("デモ — ハモリ")],
+        )
         .expect("取り込める");
 
     let titles: Vec<&str> = got.iter().map(|(_, song)| song.title.as_str()).collect();
@@ -101,7 +115,7 @@ fn 歌詞を読めない曲は取り込まない() {
     let (mut s, _root) = opened("unreadable");
     let romaji = USTX.replace("lyric: さ", "lyric: sa");
     let e = s
-        .import_songs(romaji.as_bytes(), "ローマ字.ustx")
+        .import_songs(romaji.as_bytes(), "ローマ字.ustx", &[t("主"), t("ハモ")])
         .expect_err("拒むこと");
     assert_eq!(e.kind, "app.unreadable_lyrics");
 
@@ -123,7 +137,7 @@ fn 歌詞を読めない曲は取り込まない() {
 fn 題を後から変えられる() {
     let (mut s, _root) = opened("rename");
     let got = s
-        .import_songs(USTX.as_bytes(), "New Project.ustx")
+        .import_songs(USTX.as_bytes(), "New Project.ustx", &[t("主"), t("ハモ")])
         .expect("取り込める");
     let id = got[0].0.clone();
 
@@ -146,12 +160,49 @@ fn 題を後から変えられる() {
     );
 }
 
+/// 取り込む前に中身を見せ、題を決めさせる（`TR-RCL-12`）。
+///
+/// **題を勝手に埋めない。** 以前はファイル名から採れなければ「曲」にしていた。
+#[test]
+fn 題を決めてから取り込む() {
+    let (mut s, _root) = opened("draft");
+    let drafts = s
+        .song_file_preview(USTX.as_bytes(), "New Project.ustx")
+        .expect("読める");
+    assert_eq!(drafts.len(), 2, "1トラックが1曲");
+    assert_eq!(drafts[0].title, "New Project — 主旋律", "候補を出す");
+
+    // 見ただけでは台帳に入らない。
+    assert!(
+        !s.all_songs()
+            .expect("引ける")
+            .iter()
+            .any(|(_, song, _)| song.title.starts_with("New Project")),
+        "見ただけで入らない"
+    );
+
+    // 空の題は受け取らない。
+    assert_eq!(
+        s.import_songs(USTX.as_bytes(), "x.ustx", &[t("主"), t("  ")])
+            .expect_err("断る")
+            .kind,
+        "app.empty_title"
+    );
+    // 数が合わなければ受け取らない。
+    assert_eq!(
+        s.import_songs(USTX.as_bytes(), "x.ustx", &[t("主")])
+            .expect_err("断る")
+            .kind,
+        "song.title_count"
+    );
+}
+
 /// 外した曲も一覧には残る。残さないと、戻す道が無くなる。
 #[test]
 fn バンクから外して戻せる() {
     let (mut s, _root) = opened("bank");
     let got = s
-        .import_songs(UST.as_bytes(), "ふるさと.ust")
+        .import_songs(UST.as_bytes(), "ふるさと.ust", &[t("ふるさと")])
         .expect("取り込める");
     let id = got[0].0.clone();
 
@@ -183,7 +234,11 @@ fn バンクから外して戻せる() {
 fn 取り込んだ曲の一部から録音リストを詰め直せる() {
     let (mut s, _root) = opened("repack");
     let got = s
-        .import_songs(USTX.as_bytes(), "デモ.ustx")
+        .import_songs(
+            USTX.as_bytes(),
+            "デモ.ustx",
+            &[t("デモ — 主旋律"), t("デモ — ハモリ")],
+        )
         .expect("取り込める");
     let id = got[0].0.clone();
 
@@ -194,7 +249,40 @@ fn 取り込んだ曲の一部から録音リストを詰め直せる() {
 
     // 「く ら」だけを歌えるようにする。
     let added = s
-        .repack_for_selection(&[(id, vec![(1, 3)])])
+        .repack_for_selection(&[(id.clone(), vec![(1, 3)])])
         .expect("詰め直せる");
     assert!(added > 0, "行が足りていない");
+}
+
+/// 2回目の詰め直しで落ちない（`TR-RCL-16`）。
+///
+/// **一度は落ちていた。** 行 ID を `p001` から順に振っていたので、
+/// 2回目が同じ番号を作り、`rows.id` の主鍵に当たって台帳ごと失敗した。
+/// いまは行の中身の指紋を ID にする。
+#[test]
+fn 何度でも詰め直せる() {
+    let (mut s, _root) = opened("repack-twice");
+    let got = s
+        .import_songs(USTX.as_bytes(), "デモ.ustx", &[t("主"), t("ハモ")])
+        .expect("取り込める");
+    let id = got[0].0.clone();
+
+    // 同じ範囲を2度。 同じ行になるので、2回目は増えない。
+    let first = s
+        .repack_for_selection(&[(id.clone(), vec![(0, 2)])])
+        .expect("1回目");
+    assert!(first > 0);
+    let rows_after_first = s.rows_with_takes().expect("引ける").len();
+    s.repack_for_selection(&[(id.clone(), vec![(0, 2)])])
+        .expect("2回目でも落ちない");
+    assert_eq!(
+        s.rows_with_takes().expect("引ける").len(),
+        rows_after_first,
+        "同じ行は増えない"
+    );
+
+    // 別の範囲。 新しい行は増える。
+    s.repack_for_selection(&[(id, vec![(2, 3)])])
+        .expect("3回目でも落ちない");
+    assert!(s.rows_with_takes().expect("引ける").len() >= rows_after_first);
 }

@@ -6,11 +6,15 @@
 //! 順序は `packaging-export.fsl` が決めている。 被覆 → 検証 → ZIP →
 //! 読み戻し。検証を通っていないものは包まない（`FB-PKG-102`）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use koeru_align::preset::Preset;
+use koeru_audio::wav::MASTER_RATE_HZ;
 use koeru_core::db::{Distribution, Ledger};
 use koeru_core::names;
+use koeru_core::presamp::Rules;
 use koeru_core::project::{Manifest, Method, ProjectDir};
+use koeru_core::reclist::Slot;
 use koeru_core::release::{NewRelease, Validation, archive_base_name, content_hash};
 use koeru_package::archive::{self, Written};
 use koeru_package::bank::{Character, Portrait, Readme, Sample, Subbank, VoiceBank};
@@ -142,21 +146,60 @@ fn resolved_profile(d: &Distribution) -> Result<Profile> {
     })
 }
 
-/// この音源の方式の被覆（`TR-PKG-23`）。要求表を持っていなければ `None`。
-fn coverage_of(ledger: &mut Ledger, manifest: &Manifest) -> Result<Option<Coverage>> {
-    let covered = ledger.covered_units()?;
-    Ok(koeru_package::coverage::coverage(
-        alias_method(manifest.method),
-        koeru_core::inventory::UnitSet::Core,
-        &covered,
-    ))
+/// この音源の方式の被覆（`TR-PKG-23`, `TR-RCL-26`）。要求表を持っていなければ `None`。
+///
+/// **音高ごとに独立して見る。** 一度は `covered_units()`（音高をまたいだ和集合）で
+/// 見ていた。多音階では区画も `oto.ini` も音高ごとに分かれる（`TR-PKG-04`）ので、
+/// **1音高だけ埋めれば関門を通り、残りの区画が空のまま配れた。**
+/// 受け取った側は、その音域のエイリアスを1つも引けない。
+///
+/// `TR-RCL-26` の「進捗表示では音高を跨いだ最小値で扱う」と同じ向き。
+/// 足りないエイリアスは全音高ぶんを合わせて返す——どの音高が足りないかは
+/// 画面が音高ごとの消化率（`progress_by_tone`）で別に出す。
+fn coverage_of(
+    ledger: &mut Ledger,
+    rules: &Rules,
+    manifest: &Manifest,
+) -> Result<Option<Coverage>> {
+    let method = alias_method(manifest.method);
+    let set = koeru_core::inventory::UnitSet::Core;
+    let by_tone = ledger.covered_aliases_by_tone()?;
+
+    // 1音高も録っていないときは、和集合（＝空）で見る。
+    // `by_tone` が空なので、そのまま畳むと「全部揃っている」に見える。
+    if by_tone.is_empty() {
+        return Ok(koeru_package::coverage::coverage(
+            rules,
+            method,
+            set,
+            &BTreeSet::new(),
+        ));
+    }
+
+    let mut required = 0;
+    let mut provided = 0;
+    let mut missing: BTreeSet<String> = BTreeSet::new();
+    for covered in by_tone.values() {
+        let Some(c) = koeru_package::coverage::coverage(rules, method, set, covered) else {
+            return Ok(None);
+        };
+        required += c.required;
+        provided += c.provided;
+        missing.extend(c.missing);
+    }
+    Ok(Some(Coverage {
+        required,
+        provided,
+        missing: missing.into_iter().collect(),
+    }))
 }
 
 /// いま書き出せるかを調べる（`TR-PKG-49`）。
-#[tracing::instrument(skip(dir, ledger, manifest), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest), err)]
 pub fn state(
     dir: &ProjectDir,
     ledger: &mut Ledger,
+    rules: &Rules,
     manifest: &Manifest,
     gates: Gates,
 ) -> Result<PackageState> {
@@ -167,13 +210,13 @@ pub fn state(
         .into_iter()
         .map(|s| (format!("{}.wav", s.file_stem), s.row_id))
         .collect();
-    let bank = bank_of(dir, ledger, manifest, &distribution)?;
+    let bank = bank_of(dir, ledger, rules, manifest, &distribution, None)?;
 
-    let coverage = coverage_of(ledger, manifest)?;
+    let coverage = coverage_of(ledger, rules, manifest)?;
     let report = validate::validate(&bank, profile);
     let covered = ledger.covered_units()?;
     let exportable =
-        koeru_package::coverage::exportable(koeru_core::inventory::UnitSet::Core, &covered)
+        koeru_package::coverage::exportable(rules, koeru_core::inventory::UnitSet::Core, &covered)
             .into_iter()
             .map(project_method)
             .collect();
@@ -182,24 +225,20 @@ pub fn state(
     //
     // 判定はエイリアスの被覆から（`TR-PKG-22`）。 容量は「oto.ini 1ファイル分」
     // ではなく、元パッケージとほぼ同等の容量がもう1本——WAV を複製するため。
+    //
+    // **全素材を数えていた。** 実際に複製するのは対象方式が参照するものだけ
+    // （`TR-PKG-24` の性能上の最適化）なので、出す数と作る量が食い違う。
     let aliases = ledger.covered_aliases()?;
-    let (sessions, first, last) = ledger.adopted_session_span()?;
-    let wav_bytes: u64 = bank
-        .subbanks
-        .iter()
-        .flat_map(|s| &s.samples)
-        .filter_map(|m| std::fs::metadata(&m.master).ok().map(|f| f.len()))
-        .sum();
-    let downgrades =
-        koeru_package::coverage::downgradable(koeru_core::inventory::UnitSet::Core, &aliases)
-            .into_iter()
-            .map(|m| Downgrade {
-                method: project_method(m),
-                bytes: wav_bytes,
-                sessions,
-                span_days: span_days(first.as_deref(), last.as_deref()),
-            })
-            .collect();
+    let mut downgrades = Vec::new();
+    for m in
+        koeru_package::coverage::downgradable(rules, koeru_core::inventory::UnitSet::Core, &aliases)
+    {
+        let sources = downgrade_sources(dir, ledger, rules, m)?;
+        downgrades.push(Downgrade {
+            method: project_method(m),
+            bytes: koeru_package::downgrade::plan(m, &sources).bytes,
+        });
+    }
 
     // 組み立てて初めて分かる数（同梱物の件数）を出す。 検証が通らない間は
     // 組み立てられないので、そのときは 0。
@@ -229,35 +268,15 @@ pub fn state(
 }
 
 /// 下位方式の書き出し1件（`TR-PKG-24`, `TR-PKG-25`）。
+///
+/// **素材の由来は持たない**（`DEC-RCL-015`）。 跨いだ収録セッションの数と
+/// 期間を出していたが、そこから読めるのは「声が揃っていないかもしれない」だけで、
+/// 声質に関与しないと言いながら判断材料を置いていたことになる。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Downgrade {
     pub method: Method,
     /// 複製される WAV の概算バイト数。
     pub bytes: u64,
-    /// 素材が跨ぐ収録セッションの数（`DEC-RCL-007`）。
-    pub sessions: usize,
-    /// 最初と最後の間隔（日）。
-    pub span_days: u32,
-}
-
-/// 2つの時刻の間隔（日）。読めなければ 0。
-///
-/// 判定ではない。 「声質が揃っている」とは言わないための事実（`DEC-RCL-007`）。
-fn span_days(first: Option<&str>, last: Option<&str>) -> u32 {
-    let parse = |s: &str| {
-        // RFC 3339 の日付部分だけを見る。時刻の差は表示に使わない。
-        let d = s.get(..10)?;
-        let mut it = d.split('-');
-        let y: i64 = it.next()?.parse().ok()?;
-        let m: i64 = it.next()?.parse().ok()?;
-        let day: i64 = it.next()?.parse().ok()?;
-        // 月ごとの長さを持たない概算。 表示用の刻みでしかない。
-        Some(y * 372 + m * 31 + day)
-    };
-    let (Some(a), Some(b)) = (first.and_then(parse), last.and_then(parse)) else {
-        return 0;
-    };
-    u32::try_from((b - a).max(0)).unwrap_or(u32::MAX)
 }
 
 /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`, `TR-PKG-44`）。
@@ -268,26 +287,17 @@ fn span_days(first: Option<&str>, last: Option<&str>) -> u32 {
 /// 版の札は設定から取る（`TR-PKG-44`）。 **書き出しのときに別に打たせない**
 /// ——同じ札が2つあると、配布物の `character.txt` と履歴で違う値になる。
 // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
-#[tracing::instrument(skip(dir, ledger, manifest, released_at), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at), err)]
 pub fn export(
     dir: &ProjectDir,
     ledger: &mut Ledger,
+    rules: &Rules,
     manifest: &Manifest,
     released_at: &str,
 ) -> Result<Exported> {
-    let distribution = settings(ledger, manifest)?;
-    let version = distribution.version.clone().unwrap_or_default();
-    let profile = resolved_profile(&distribution)?;
-    if !profile::is_available(profile) {
-        return Err(AppError::new(
-            "package.profile_unavailable",
-            "この書き出し方は、いまの環境では使えない",
-        ));
-    }
-
     // 部分的なパッケージを出さない（`TR-PKG-23`, `INV-PKG-102`）。
     // 画面の関門と別に見る。 コマンドを直に叩かれても素通りさせない。
-    let Some(coverage) = coverage_of(ledger, manifest)? else {
+    let Some(coverage) = coverage_of(ledger, rules, manifest)? else {
         return Err(AppError::new(
             "package.no_required_table",
             "この作り方に必要な音の表をまだ持っていない",
@@ -299,8 +309,104 @@ pub fn export(
             format!("まだ録れていない音が {} 件ある", coverage.missing.len()),
         ));
     }
+    write_package(dir, ledger, rules, manifest, released_at, None)
+}
 
-    let bank = bank_of(dir, ledger, manifest, &distribution)?;
+/// 下位方式へ書き出す（`TR-PKG-23`, `TR-PKG-24`, `TR-PKG-25`）。
+///
+/// 独立した音源ルート・独立した ZIP。 同一 ZIP へ同梱しない——接頭辞を
+/// 付ければ単独音として使えなくなり、付けなければ全 `oto.ini` 横断の
+/// エイリアス重複で落ちる。両立しない。
+///
+/// **5値は対象方式の規約プリセットで再導出する**（`TR-ALN-34`）。
+/// 値を流用すると、語頭の子音区間を持ったままの oto が単独音として配られる。
+///
+/// WAV は対象方式が参照するものだけを複製する（`TR-PKG-24` の性能上の最適化）。
+///
+/// # Errors
+///
+/// 被覆が満ちていない、検証に通らない、包めない、台帳へ書けない。
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at), err)]
+pub fn export_downgrade(
+    dir: &ProjectDir,
+    ledger: &mut Ledger,
+    rules: &Rules,
+    manifest: &Manifest,
+    method: Method,
+    released_at: &str,
+) -> Result<Exported> {
+    let set = koeru_core::inventory::UnitSet::Core;
+    let target = alias_method(method);
+    // 100% 被覆のときだけ（`TR-PKG-23`）。画面の関門と別に見る。
+    let provided = ledger.covered_aliases()?;
+    if let Err(blocked) = koeru_package::downgrade::check(rules, target, set, &provided) {
+        return Err(match blocked {
+            koeru_package::downgrade::Blocked::Missing(m) => AppError::new(
+                "package.incomplete_coverage",
+                format!("その作り方に足りない音が {} 件ある", m.len()),
+            ),
+            koeru_package::downgrade::Blocked::NoRequirementTable => AppError::new(
+                "package.no_required_table",
+                "その作り方に必要な音の表をまだ持っていない",
+            ),
+        });
+    }
+    let Some(required) = koeru_package::coverage::required(rules, target, set) else {
+        return Err(AppError::new(
+            "package.no_required_table",
+            "その作り方に必要な音の表をまだ持っていない",
+        ));
+    };
+    let preset = Preset::default_for(target)
+        .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+    write_package(
+        dir,
+        ledger,
+        rules,
+        manifest,
+        released_at,
+        Some(&Downgraded {
+            method: target,
+            required,
+            preset,
+        }),
+    )
+}
+
+/// 包んで、読み戻して、台帳へ残す。
+///
+/// 素の書き出しと下位方式で違うのは、組み立てる中身と音源ルートの名前だけ。
+/// **2本書くと片方だけが直る**——検証・改名・記録の順序は1箇所に置く。
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, down), err)]
+fn write_package(
+    dir: &ProjectDir,
+    ledger: &mut Ledger,
+    rules: &Rules,
+    manifest: &Manifest,
+    released_at: &str,
+    down: Option<&Downgraded>,
+) -> Result<Exported> {
+    let mut distribution = settings(ledger, manifest)?;
+    let version = distribution.version.clone().unwrap_or_default();
+    let profile = resolved_profile(&distribution)?;
+    if !profile::is_available(profile) {
+        return Err(AppError::new(
+            "package.profile_unavailable",
+            "この書き出し方は、いまの環境では使えない",
+        ));
+    }
+    // 元の名前に方式を足した別の名前（`TR-PKG-24`）。 同じ名前にすると、
+    // 受け取った側のフォルダで上書きが起きる。
+    if let Some(t) = down {
+        let base = if distribution.distribution_name.is_empty() {
+            names::default_distribution_name(&manifest.display_name)
+        } else {
+            distribution.distribution_name.clone()
+        };
+        distribution.distribution_name = koeru_package::downgrade::root_name(&base, t.method);
+    }
+
+    let bank = bank_of(dir, ledger, rules, manifest, &distribution, down)?;
     let report = validate::validate(&bank, profile);
     if !report.may_export() {
         return Err(AppError::new(
@@ -347,7 +453,10 @@ pub fn export(
     let release = ledger.record_release(
         &NewRelease {
             version: version.clone(),
-            method: manifest.method,
+            // 下位方式の回は、出した方式を残す（`TR-PKG-44`）。
+            // **プロジェクトの方式を書いていた。** どの回に何を配ったかが
+            // 履歴から読めなくなる。
+            method: down.map_or(manifest.method, |t| project_method(t.method)),
             alias_count: i32::try_from(bank.aliases().len()).unwrap_or(i32::MAX),
             validation: Validation::Passed,
             oto_hash: content_hash(&oto_bytes(&files)),
@@ -392,21 +501,60 @@ const PENDING: &str = "pending";
 /// 区画は1つだけ。 音階の軸は録音リストのプリセットが持つもので、
 /// いまあるのは単一音階のプリセットだけ（`PROFILE-M5`）。
 /// `koeru-package` の側は多音階を扱えるので、ここが増えるときに繋ぐ。
-#[tracing::instrument(skip(dir, ledger, manifest, d), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, d, down), err)]
 fn bank_of(
     dir: &ProjectDir,
     ledger: &mut Ledger,
+    rules: &Rules,
     manifest: &Manifest,
     d: &Distribution,
+    down: Option<&Downgraded>,
 ) -> Result<VoiceBank> {
     let root = dir.root();
     let tones = ledger.recording_tones()?;
     let multi = tones.len() > 1;
     let raw = ledger.distribution_samples()?;
-    let sample_tones: Vec<i32> = raw.iter().map(|s| s.tone).collect();
+
+    // 下位方式では、素材ごとにエントリを作り直す（`TR-PKG-24`）。
+    // 素の書き出しは、確認を通った5値（`TR-ALN-25`）をそのまま出す。
+    let mut entries_of: Vec<Vec<koeru_align::ini::IniEntry>> = Vec::with_capacity(raw.len());
+    for sample in &raw {
+        let file = format!("{}.wav", sample.file_stem);
+        entries_of.push(match down {
+            None => sample
+                .otos
+                .iter()
+                .map(|(alias, o)| koeru_align::ini::IniEntry {
+                    file: file.clone(),
+                    alias: alias.clone(),
+                    oto: koeru_core::oto::Oto {
+                        offset_ms: o.offset_ms,
+                        consonant_ms: o.consonant_ms,
+                        cutoff_ms: o.cutoff_ms,
+                        preutterance_ms: o.preutterance_ms,
+                        overlap_ms: o.overlap_ms,
+                    },
+                })
+                .collect(),
+            Some(t) => rederived_entries(ledger, rules, manifest, sample, &file, t)?,
+        });
+    }
+
+    // 出す素材だけの音高。 エントリを1つも持たない素材は落ちるので
+    // （下位方式が参照しない WAV を複製しない、`TR-PKG-24`）、
+    // **落とす前の並びで音高を持つと、区画分けが1つずつずれる。**
+    let sample_tones: Vec<i32> = raw
+        .iter()
+        .zip(&entries_of)
+        .filter(|(_, e)| !e.is_empty())
+        .map(|(s, _)| s.tone)
+        .collect();
+
     let samples = raw
         .into_iter()
-        .map(|s| {
+        .zip(entries_of)
+        .filter(|(_, entries)| !entries.is_empty())
+        .map(|(s, entries)| {
             // 表を書けなかったことを `None` に畳まない（`TR-PKG-05`）。
             // 畳むと、同梱すると書いてある readme と中身が食い違ったまま出る。
             let frq = s.frq.map(|f| f.to_bytes()).transpose()?;
@@ -414,21 +562,7 @@ fn bank_of(
                 file: format!("{}.wav", s.file_stem),
                 master: root.join(&s.rel_path),
                 frq,
-                entries: s
-                    .otos
-                    .into_iter()
-                    .map(|(alias, o)| koeru_align::ini::IniEntry {
-                        file: format!("{}.wav", s.file_stem),
-                        alias,
-                        oto: koeru_core::oto::Oto {
-                            offset_ms: o.offset_ms,
-                            consonant_ms: o.consonant_ms,
-                            cutoff_ms: o.cutoff_ms,
-                            preutterance_ms: o.preutterance_ms,
-                            overlap_ms: o.overlap_ms,
-                        },
-                    })
-                    .collect(),
+                entries,
             })
         })
         .collect::<std::result::Result<Vec<_>, koeru_core::frq::FrqError>>()
@@ -506,8 +640,118 @@ fn bank_of(
             }]
         },
         // 音素体系とエイリアス規則（`TR-RCL-24`）。受け取った側が同じ表で解決する。
-        rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+        //
+        // **同梱の既定を書いていた。** 音源に `presamp.ini` を置いて綴りを
+        // 差し替えると（`TR-SYN-36`）、配る `presamp.ini` だけが既定のまま
+        // 出て、同じ配布物の `oto.ini` と食い違う。受け取った側は
+        // 1つも引けない。
+        rules: rules.clone(),
     })
+}
+
+/// 下位方式が参照する素材と、その大きさ（`TR-PKG-24`）。
+///
+/// 複製するのは対象方式が要求する綴りを持つ素材だけ。 全部数えると、
+/// 書き出し前に出す容量が実際より大きくなる。
+///
+/// 綴りだけで決める。 境界も5値も読まない——ここは押す前に出す数で、
+/// 作り直しは書き出しのときにする。
+fn downgrade_sources(
+    dir: &ProjectDir,
+    ledger: &mut Ledger,
+    rules: &Rules,
+    target: koeru_core::alias::Method,
+) -> Result<Vec<(String, u64)>> {
+    let set = koeru_core::inventory::UnitSet::Core;
+    let Some(required) = koeru_package::coverage::required(rules, target, set) else {
+        return Ok(Vec::new());
+    };
+    let root = dir.root();
+    let mut out = Vec::new();
+    for s in ledger.distribution_samples()? {
+        let line = ledger.row_units_of(&s.row_id, set)?;
+        let hit = koeru_core::reclist::row_aliases(rules, target, &line)
+            .into_iter()
+            .any(|a| required.contains(&a));
+        if !hit {
+            continue;
+        }
+        let bytes = std::fs::metadata(root.join(&s.rel_path)).map_or(0, |m| m.len());
+        out.push((s.rel_path, bytes));
+    }
+    Ok(out)
+}
+
+/// 下位方式で組み立て直すときの上書き（`TR-PKG-24`）。
+#[derive(Debug)]
+struct Downgraded {
+    /// 書き出す方式。
+    method: koeru_core::alias::Method,
+    /// その方式の要求表。 ここに無い綴りは出さない。
+    required: BTreeSet<String>,
+    /// 5値を作り直すときの規約プリセット（`TR-ALN-34`）。
+    preset: Preset,
+}
+
+/// 素材1つぶんのエントリを、下位方式の規約で作り直す（`TR-PKG-24`）。
+///
+/// **値を流用しない。** 連続音の `- CV` を素の `CV` として複製すると、
+/// 語頭の子音区間を持ったままの oto が単独音として配られる（`TR-RCL-21`）。
+/// 入力は保存した境界（`TR-ALN-34`）と対象方式の規約プリセットだけで、
+/// アライナは呼ばない。
+///
+/// 境界は行の CV エイリアスで引く。 保存側も同じ名前で置いている
+/// （`Studio::finish_take`）ので、元の方式の綴りから並べ直せる。
+fn rederived_entries(
+    ledger: &mut Ledger,
+    rules: &Rules,
+    manifest: &Manifest,
+    sample: &koeru_core::db::DistributionSample,
+    file: &str,
+    target: &Downgraded,
+) -> Result<Vec<koeru_align::ini::IniEntry>> {
+    let set = koeru_core::inventory::UnitSet::Core;
+    let line = ledger.row_units_of(&sample.row_id, set)?;
+    let saved: BTreeMap<String, koeru_core::oto::Boundary> = ledger
+        .boundaries_for_take(sample.take_id)?
+        .into_iter()
+        .collect();
+
+    // モーラ順に戻す。 元の方式の CV の綴りが、そのモーラの境界の名前。
+    let source = koeru_core::reclist::row_entries(rules, alias_method(manifest.method), &line);
+    let mut boundaries: Vec<koeru_core::oto::Boundary> = Vec::with_capacity(line.len());
+    for mora in 0..line.len() {
+        let found = source.iter().find_map(|(a, slot)| match *slot {
+            Slot::Cv { mora: m } if m == mora => saved.get(a),
+            _ => None,
+        });
+        // 1つでも欠ければ、この素材からは作り直せない。
+        // **部分的に作らない**——欠けたモーラより後ろが全部ずれる。
+        let Some(b) = found else {
+            return Ok(Vec::new());
+        };
+        boundaries.push(*b);
+    }
+
+    // マスターは常に 44100（`TR-REC-02`）。素材の長さはフレーム数から出す。
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "収録の長さは 2^53 サンプルに届かない"
+    )]
+    let file_len_ms = sample.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+
+    let entries = koeru_core::reclist::row_entries(rules, target.method, &line);
+    Ok(
+        koeru_align::derive::derive_row(&entries, &boundaries, &line, file_len_ms, &target.preset)
+            .into_iter()
+            .filter(|(alias, _)| target.required.contains(alias))
+            .map(|(alias, oto)| koeru_align::ini::IniEntry {
+                file: file.to_owned(),
+                alias,
+                oto,
+            })
+            .collect(),
+    )
 }
 
 /// 生成した `oto.ini` を1つに繋いだバイト列（`TR-PKG-44`）。
@@ -576,11 +820,12 @@ pub fn check_settings(d: &Distribution) -> Result<()> {
 pub fn preview(
     dir: &ProjectDir,
     ledger: &mut Ledger,
+    rules: &Rules,
     manifest: &Manifest,
 ) -> Result<Vec<(String, u64)>> {
     let d = settings(ledger, manifest)?;
     let profile = resolved_profile(&d)?;
-    let bank = bank_of(dir, ledger, manifest, &d)?;
+    let bank = bank_of(dir, ledger, rules, manifest, &d, None)?;
     let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
     Ok(files.iter().map(|f| (f.path.clone(), size_of(f))).collect())
 }

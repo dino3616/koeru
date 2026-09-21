@@ -186,7 +186,11 @@ fn 同梱物だけで一通り動く() {
 
     // phonemizer。辞書を外から取らない（`TR-SYN-11`）。
     let m = mora::parse("さくらさくら", UnitSet::Core).expect("読めること");
-    let need = koeru_core::alias::required_aliases(Method::Single, &m, UnitSet::Core);
+    let need = koeru_core::alias::required_aliases(
+        &koeru_core::presamp::Rules::builtin(UnitSet::Core),
+        Method::Single,
+        &m,
+    );
     assert!(!need.is_empty());
 
     // 合成コア。同梱した WORLD（`TR-SYN-05`）。

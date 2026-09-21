@@ -1,6 +1,11 @@
 //! 方式プリセットを選んでプロジェクトを作る（`TR-RCL-01`, `TR-REC-36`, `TR-RCL-26`）。
 //!
-//! 音を鳴らさないので、どの OS でも通る。
+//! 音を鳴らさない。 ただし MFA を組んでいない OS では走らない（下の `cfg`）。
+
+// MFA を組んでいない OS では KOERU が起動しない（`DEC-ALN-016`）。
+// `Studio::open` が設計どおり失敗するので、ここは走らせない——
+// その契約そのものは `align.rs` の単体試験が見ている。
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_app_lib::Studio;
 use koeru_core::db::Ledger;
@@ -41,7 +46,7 @@ fn 既定は単独音() {
 fn 連続音のプロジェクトが作れる() {
     let (mut s, _root) = studio("seq");
     let id = s
-        .create_project_with("連続音", "sequential")
+        .create_project_with("連続音", "sequential", &[57])
         .expect("作れる");
     s.open_project(id).expect("開ける");
     let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
@@ -53,11 +58,14 @@ fn 連続音のプロジェクトが作れる() {
 }
 
 /// 多音階は音高ごとにディレクトリと行集合を持つ（`TR-REC-36`, `TR-RCL-26`）。
+///
+/// **音高は方式とは別に選ぶ**（`TR-RCL-01`）。 ここで渡しているのは
+/// `TR-RCL-06` の推奨値だが、本数も音高も本人が決められる。
 #[test]
 fn 多音階は音高ごとに分かれる() {
     let (mut s, _root) = studio("multi");
     let id = s
-        .create_project_with("多音階", "multi-pitch-sequential")
+        .create_project_with("多音階", "sequential", &[55, 62, 69])
         .expect("作れる");
     let manifest = manifest_of(&s, id);
     s.open_project(id).expect("開ける");
@@ -91,8 +99,47 @@ fn 多音階は音高ごとに分かれる() {
 #[test]
 fn 知らないプリセットは断る() {
     let (mut s, _root) = studio("unknown");
-    let e = s.create_project_with("なに", "なにこれ").expect_err("断る");
+    let e = s
+        .create_project_with("なに", "なにこれ", &[57])
+        .expect_err("断る");
     assert_eq!(e.kind, "preset.unknown");
+}
+
+/// 本数も音高も本人が決める（`TR-RCL-01`）。間隔で咎めない。
+#[test]
+fn 収録音高は本人が決める() {
+    let (mut s, _root) = studio("tones");
+    // 2 半音差の 2 本。以前は「狭すぎる」と警告していた組み合わせ。
+    let id = s
+        .create_project_with("せまい", "single", &[60, 62])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    assert_eq!(l.recording_tones().expect("引ける"), [60, 62]);
+}
+
+/// 鳴らせない音高は断る。`prefix.map` が覆うのは C1〜B7。
+#[test]
+fn 鳴らせない音高は断る() {
+    let (mut s, _root) = studio("badtones");
+    assert_eq!(
+        s.create_project_with("から", "single", &[])
+            .expect_err("断る")
+            .kind,
+        "tone.empty"
+    );
+    assert_eq!(
+        s.create_project_with("そと", "single", &[0])
+            .expect_err("断る")
+            .kind,
+        "tone.out_of_range"
+    );
+    assert_eq!(
+        s.create_project_with("だぶり", "single", &[60, 60])
+            .expect_err("断る")
+            .kind,
+        "tone.duplicate"
+    );
 }
 
 /// 多音階の配布物は、音高ごとに区画と oto.ini を分ける（`TR-ALN-22`, `TR-PKG-04`）。
@@ -157,4 +204,139 @@ fn 多音階は音高ごとに区画を分ける() {
         files.iter().any(|f| f.path == "presamp.ini"),
         "presamp.ini を同梱する"
     );
+}
+
+/// 書き出す `oto.ini` の綴りは、その方式のもの（`TR-SYN-12`, `TR-RCL-18`）。
+///
+/// **仮名をそのまま並べていた。** 連続音を選んでも配られる `oto.ini` は
+/// 単独音のもので、受け取った側は `a か` を1つも引けなかった。
+#[test]
+fn 連続音の書き出しは文脈つきの綴りになる() {
+    let (mut s, _root) = studio("seq-oto");
+    let id = s
+        .create_project_with("連続音", "sequential", &[57])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+
+    // 1行だけ録る。 全部録らなくても、綴りは1行で分かる。
+    let row = first_row(&mut s);
+    s.seed_material_for_test(&row).expect("置ける");
+
+    let aliases = exported_aliases(&mut s);
+    assert!(
+        aliases.iter().any(|a| a.starts_with("- ")),
+        "語頭 CV がある: {aliases:?}"
+    );
+    assert!(
+        aliases
+            .iter()
+            .any(|a| a.contains(' ') && !a.starts_with("- ")),
+        "文脈つきの CV がある: {aliases:?}"
+    );
+}
+
+/// CVVC は CV・VC・語尾の3種を書き出す（`TR-RCL-05`）。
+///
+/// **CV しか作っていなかった。** 渡りも語尾も `oto.ini` に入らないので、
+/// CVVC を選んだ意味が無くなる。
+#[test]
+fn cvvc_の書き出しは渡りと語尾を持つ() {
+    let (mut s, _root) = studio("cvvc-oto");
+    let id = s
+        .create_project_with("CVVC", "cvvc", &[57])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+
+    let row = first_row(&mut s);
+    s.seed_material_for_test(&row).expect("置ける");
+
+    let aliases = exported_aliases(&mut s);
+    assert!(
+        aliases.iter().any(|a| a.ends_with(" -")),
+        "語尾がある: {aliases:?}"
+    );
+    // 渡りは「母音 子音」。 語頭形とも語尾とも違う形。
+    assert!(
+        aliases
+            .iter()
+            .any(|a| a.contains(' ') && !a.starts_with("- ") && !a.ends_with(" -")),
+        "渡りがある: {aliases:?}"
+    );
+}
+
+/// 音源に置いた `presamp.ini` が綴りを決める（`TR-SYN-36`, `DEC-SYN-010`）。
+///
+/// **読んでいなかった。** 差し替え点だと書いてあるファイルを書き出すだけで、
+/// 解決も被覆も同梱の既定を通っていた。
+#[test]
+fn 置いた_presamp_が綴りを決める() {
+    let (mut s, root) = studio("presamp");
+    let id = s
+        .create_project_with("差し替え", "sequential", &[57])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+    let dir = s.project_dir().expect("開いている").clone();
+
+    // 語頭形の印を `-` から `^` へ替えるだけの表。
+    std::fs::write(
+        dir.presamp_path(),
+        "[VERSION]\n1.0\n[BEGINING_CV]\n^ %CV%\n",
+    )
+    .expect("置ける");
+    // 同じ Studio を開き直しても、同じ音源なら `Open` を作り直さない
+    // （`TR-REC-30`）。読ませるには開き直しが要るので、別の Studio で開く。
+    let mut s = Studio::open(root.clone()).expect("開ける");
+    s.open_project(id).expect("開ける");
+
+    let song = bundled_song_id(&mut s);
+    let rows = s
+        .repack_for_selection(&[(song, Vec::new())])
+        .expect("詰め直せる");
+    assert!(rows > 0, "行が入る");
+
+    let mut l = Ledger::open(dir.db_path()).expect("開ける");
+    let aliases = l.all_aliases().expect("引ける");
+    assert!(
+        aliases.iter().any(|a| a.starts_with("^ ")),
+        "置いた表の語頭形を使う: {:?}",
+        aliases.iter().take(8).collect::<Vec<_>>()
+    );
+    // 書いていない表は既定で埋まる（`TR-SYN-36`）。 所属表が空のままだと
+    // `%v%` が空文字になり、先頭が空白の綴りができる。
+    assert!(
+        aliases.iter().all(|a| !a.starts_with(' ')),
+        "先頭が空白の綴りを作らない: {:?}",
+        aliases
+            .iter()
+            .filter(|a| a.starts_with(' '))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        aliases.iter().any(|a| a.starts_with("a ")),
+        "文脈つきの綴りは既定の所属表で解ける: {:?}",
+        aliases.iter().take(8).collect::<Vec<_>>()
+    );
+
+}
+
+/// 最初の行の ID。
+fn first_row(s: &mut Studio) -> String {
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    l.rows_with_takes().expect("引ける")[0].row_id.clone()
+}
+
+/// 同梱曲の ID。 詰め直しの入力に要る。
+fn bundled_song_id(s: &mut Studio) -> String {
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    l.songs_in_bank().expect("引ける")[0].0.clone()
+}
+
+/// 書き出す `oto.ini` に並ぶ綴り。
+fn exported_aliases(s: &mut Studio) -> Vec<String> {
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    l.distribution_samples()
+        .expect("引ける")
+        .into_iter()
+        .flat_map(|x| x.otos.into_iter().map(|(a, _)| a))
+        .collect()
 }
