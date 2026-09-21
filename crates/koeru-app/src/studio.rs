@@ -3797,13 +3797,24 @@ impl Studio {
                     } else {
                         let owner_ms = current.last().map_or(duration_ms, |n| n.duration_ms);
                         // 次は必ず本体（`resolve_phrase` が渡りの直後に押す）。
+                        //
+                        // **渡りの持ち主の素材から読んでいた。** 次の音符が
+                        // 別の収録音高へ切り替わる境界では、違う区画の
+                        // 先行発声で直前の音符を削ることになる。
+                        // 次の本体が実際に使う素材を引き直す。
                         let next_oto = resolved
                             .get(k + 1)
                             .and_then(|n| match &n.unit {
-                                koeru_core::alias::PhraseUnit::Sound(r) => Some(r),
+                                koeru_core::alias::PhraseUnit::Sound(r) => Some((n, r)),
                                 _ => None,
                             })
-                            .and_then(|r| m.otos.get(&r.alias));
+                            .and_then(|(n, r)| {
+                                let next_midi =
+                                    song.notes.get(n.mora).map_or(DEFAULT_TONE_MIDI, |x| x.midi)
+                                        + fit.transpose;
+                                let (_, nm) = pick_material(&by_tone, &tones, next_midi, &r.alias)?;
+                                nm.otos.get(&r.alias)
+                            });
                         let vc_ms = koeru_core::oto::transition_ms(next_oto, owner_ms, beat_ms);
                         if let Some(prev) = current.last_mut() {
                             prev.duration_ms = (prev.duration_ms - vc_ms).max(0.0);
