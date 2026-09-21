@@ -30,7 +30,7 @@ use koeru_align::derive::derive_cv;
 use koeru_align::phoneme::Phoneme;
 use koeru_align::preset::{ConsonantClass, Preset};
 use koeru_align::review::{EntryState, ReviewError, ReviewMode, ReviewQueue, Slot};
-use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single};
+use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single, per_mora};
 use koeru_align::{ini, ledger, reach, validate};
 use koeru_audio::backend::current as mac;
 use koeru_audio::wav::MASTER_RATE_HZ;
@@ -125,10 +125,15 @@ fn last_phoneme(reading: &str) -> Option<Phoneme> {
 /// プリセットが混ざったプロジェクト（`TR-ALN-23` の編集）でずれるため。
 #[derive(Debug, Default)]
 struct Populations {
-    /// 先頭音素（子音、母音始まりなら母音）→ 先行発声位置と子音長。
-    onset: HashMap<Phoneme, (Vec<f64>, Vec<f64>)>,
-    /// 末尾音素（母音）→ 母音長。
-    vowel: HashMap<Phoneme, Vec<f64>>,
+    /// (収録音高, 先頭音素) → 先行発声位置と子音長。
+    ///
+    /// **音階を鍵に含める**（`TR-ALN-22` の「集団統計は音階内に閉じる」）。
+    /// 高音階と低音階では発声が変わるので、混ぜると全部が外れ値になる。
+    /// `consistency::Population` は初めから音階を持っていたが、
+    /// ここの集計が音素だけで畳んでいた。**踏んだ。**
+    onset: HashMap<(i32, Phoneme), (Vec<f64>, Vec<f64>)>,
+    /// (収録音高, 末尾音素) → 母音長。
+    vowel: HashMap<(i32, Phoneme), Vec<f64>>,
 }
 
 impl Populations {
@@ -140,15 +145,15 @@ impl Populations {
         (o.preutterance_ms, (usable - o.preutterance_ms).max(0.0))
     }
 
-    fn push(&mut self, reading: &str, o: &Oto, len_ms: f64) {
+    fn push(&mut self, tone: i32, reading: &str, o: &Oto, len_ms: f64) {
         let (consonant, vowel) = Self::spans(o, len_ms);
         if let Some(k) = first_phoneme(reading) {
-            let e = self.onset.entry(k).or_default();
+            let e = self.onset.entry((tone, k)).or_default();
             e.0.push(o.preutterance_ms);
             e.1.push(consonant);
         }
         if let Some(k) = last_phoneme(reading) {
-            self.vowel.entry(k).or_default().push(vowel);
+            self.vowel.entry((tone, k)).or_default().push(vowel);
         }
     }
 }
@@ -309,7 +314,7 @@ impl Preflight {
 }
 
 /// プロジェクトの現在地。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Progress {
     /// 次に録る行（`(id, 読み上げる文字列)`）。全部録れていれば `None`。
     pub next_row: Option<(String, String)>,
@@ -325,6 +330,15 @@ pub struct Progress {
     pub singable_songs: usize,
     /// バンクに入っている曲の数。0 でも成立する。
     pub songs_in_bank: usize,
+    /// 残り所要時間（秒、`TR-RCL-10`）。
+    pub remaining_seconds: f64,
+    /// 実測が効いているか（`TR-RCL-10`）。
+    pub measured: bool,
+    /// 音高ごとの消化率（`TR-RCL-26`）。`(音高, 録り終えた行, 総行数)`。
+    ///
+    /// 詳細表示に置く欄。 [`singable_songs`](Self::singable_songs) は音高を
+    /// 跨いだ実際の判定結果で、こちらを足し合わせたものではない。
+    pub by_tone: Vec<(i32, usize, usize)>,
 }
 
 /// ライブラリに並ぶ音源1つ分（`DEC-PLT-024` の声の並び）。
@@ -391,6 +405,11 @@ pub struct Studio {
     gain_before: Option<(DeviceId, f32)>,
     /// 回り込みの検査結果（`TR-REC-24`）。済むまで音高提示を鳴らさない。
     leak: Option<LeakCheck>,
+    /// 直前のテイクを保存した時刻（`TR-RCL-10`）。
+    ///
+    /// 「保存から次の行の発声開始まで」を測るための起点。 行をまたいだ
+    /// オーバーヘッドがここに出る——席を立った時間も入るが、中央値で潰れる。
+    last_take_saved: Option<std::time::Instant>,
     /// 全チャンネルに有意な信号があるか（`TR-REC-06`）。
     /// 真のときだけ、本人が「合成する」を選べる。
     may_mix: bool,
@@ -464,6 +483,25 @@ pub struct SungSong {
     pub dropped_phrases: usize,
     /// 鳴らす長さ（ミリ秒）。
     pub duration_ms: f64,
+    /// 音の高さの区画が切り替わった位置（`TR-SYN-16`）。
+    ///
+    /// > フレーズ内で切り替わった位置は記録し、原音設定側の確認対象として
+    /// > 参照できるようにする
+    ///
+    /// 単音階では常に空。 切り替えは音符境界でのみ起きる——
+    /// 1音符の途中で素材が変わると、1つの音の中で声が別人になる。
+    pub subbank_switches: Vec<SubbankSwitch>,
+}
+
+/// 区画が切り替わった1箇所（`TR-SYN-16`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubbankSwitch {
+    /// 切り替わった音符の添字。ここから新しい区画になる。
+    pub note_index: usize,
+    /// 直前まで使っていた収録音高（MIDI）。
+    pub from: Option<i32>,
+    /// ここから使う収録音高。
+    pub to: Option<i32>,
 }
 
 /// 継ぎ足し先。
@@ -546,6 +584,7 @@ impl Studio {
             playback_stream: None,
             observed_f0: Vec::new(),
             f0_floor: None,
+            last_take_saved: None,
             mipmaps: HashMap::new(),
             workers: Workers::start(),
             observed: HashMap::new(),
@@ -566,21 +605,57 @@ impl Studio {
 
     /// プロジェクトを作り、録音リストを入れる。
     ///
-    /// リスト生成まで一度に済ませる。 空のプロジェクトを作って
-    /// 別の操作でリストを入れさせると、その間の状態が意味を持たない。
+    /// 既定は単独音。 方式を選ばせる画面が無いときの入口。
+    ///
+    /// # Errors
+    ///
+    /// ライブラリの作成か台帳の書き込みが失敗したとき。
     #[tracing::instrument(skip(self, display_name), err)]
     pub fn create_project(&mut self, display_name: &str) -> Result<Uuid> {
-        let list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
+        self.create_project_with(display_name, "single")
+    }
+
+    /// 方式プリセットを選んでプロジェクトを作る（`TR-RCL-01`）。
+    ///
+    /// リスト生成まで一度に済ませる。 空のプロジェクトを作って
+    /// 別の操作でリストを入れさせると、その間の状態が意味を持たない。
+    ///
+    /// 多音階では音高ごとにサブディレクトリを作る（`TR-REC-36`）。
+    /// 収録開始の時点で構成を確定させ、あとからファイルを移さない。
+    ///
+    /// # Errors
+    ///
+    /// プリセットが無い、リストを生成できない、台帳を書けないとき。
+    #[tracing::instrument(skip(self, display_name), fields(preset = preset_id), err)]
+    pub fn create_project_with(&mut self, display_name: &str, preset_id: &str) -> Result<Uuid> {
+        let preset = koeru_core::preset::by_id(preset_id).ok_or_else(|| {
+            AppError::new(
+                "preset.unknown",
+                format_args!("方式プリセット {preset_id} を知らない"),
+            )
+        })?;
+        let list = preset.reclist()?;
         let dir = self.library.create(&Manifest {
             // 外から入る文字列は境界で NFC へ（`TR-PKG-11`）。
             // 分解形のまま持つと、配布物の全ファイルがそれを引き継ぐ。
             display_name: koeru_core::text::to_nfc(display_name),
-            method: Method::Single,
-            item_count: u32::try_from(list.len()).unwrap_or(0),
+            method: manifest_method(&preset),
+            item_count: u32::try_from(list.len() * preset.tones.len()).unwrap_or(0),
             derived_from: None,
+            preset_id: Some(preset.id.to_owned()),
+            inventory_version: Some(preset.inventory_version),
         })?;
+
+        // 音高ごとのサブディレクトリ（`TR-REC-36`）。ASCII の英語音名。
+        // 収録後に移す処理は持たないので、ここで全部作っておく。
+        if preset.is_multi_pitch() {
+            for t in &preset.tones {
+                std::fs::create_dir_all(dir.audio_dir().join(koeru_core::tone::name(*t)))?;
+            }
+        }
+
         let mut ledger = Ledger::open(dir.db_path())?;
-        ledger.install_reclist(&list, DEFAULT_TONE_MIDI)?;
+        ledger.install_reclist_for_tones(&list, preset.method, &preset.tones)?;
 
         // 初回のとっかかりに要る最小限だけ入れる（`TR-RCL-12`）。
         // 曲バンクではない。本人が外せる。
@@ -789,12 +864,45 @@ impl Studio {
         // いま歌える曲の数（`TR-RCL-19`）。曲が1本も無くても進捗は読める。
         let status = self.song_status()?;
 
+        // 音高ごとの消化率は詳細表示へ（`TR-RCL-26`）。跨いで足さない。
+        let by_tone: Vec<(i32, usize, usize)> = self
+            .opened_mut()?
+            .ledger
+            .progress_by_tone()?
+            .into_iter()
+            .map(|(tone, (done, total))| (tone, done, total))
+            .collect();
+
+        // 残り所要時間（`TR-RCL-10`）。実測が溜まるまでは固定値へ落ちる。
+        let history = self.opened_mut()?.ledger.recent_measurements(
+            i64::try_from(koeru_core::pace::MEASUREMENT_WINDOW_ROWS).unwrap_or(20),
+        )?;
+        let measured = koeru_core::pace::estimate_pace(&history).is_some();
+        let remaining_rows: Vec<koeru_core::reclist::Row> = {
+            let list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
+            let done: std::collections::BTreeSet<String> = self
+                .opened_mut()?
+                .ledger
+                .rows_with_takes()?
+                .into_iter()
+                .filter(|r| r.adopted.is_some())
+                .map(|r| r.row_id)
+                .collect();
+            list.into_iter().filter(|r| !done.contains(&r.id)).collect()
+        };
+        let tone_count = self.opened_mut()?.ledger.recording_tones()?.len();
+        let remaining_seconds =
+            koeru_core::pace::remaining_seconds(&remaining_rows, tone_count, &history);
+
         Ok(Progress {
             next_row,
+            remaining_seconds,
+            measured,
             covered: covered.len(),
             required: required.len(),
             coverage,
             handoff,
+            by_tone,
             singable_songs: song::singable_count(&status),
             songs_in_bank: status.len(),
         })
@@ -840,17 +948,164 @@ impl Studio {
         Ok(koeru_core::plan::rows_to_cover(&missing, &full_list))
     }
 
-    /// UST を取り込む（`TR-RCL-12`）。
+    /// UST / USTX を取り込む（`TR-RCL-12`）。
     ///
     /// 主経路はこれ。 曲バンクを持たないので、何を目標にするかは本人が決める。
     /// 取り込んだ曲データは配布パッケージに含めない。
-    #[tracing::instrument(skip(self, bytes, title), fields(len = bytes.len()), err)]
-    pub fn import_ust(&mut self, bytes: &[u8], title: &str) -> Result<String> {
-        let song = ust::parse_ust(bytes, title).map_err(|e| AppError::new(e.kind(), e))?;
-        let id = Uuid::new_v4().to_string();
+    ///
+    /// **USTX は1トラックが1曲になる。** 返すのは (識別子, 曲) の並び。
+    ///
+    /// 歌詞を読めない曲は取り込まない。 `TR-RCL-12` が「必要単位集合は
+    /// 読み込み時に算出する」と定めている以上、算出できない曲を台帳へ入れると、
+    /// 要求が空の曲として「いま歌えます」に並ぶ。**押すまで嘘だと分からない。**
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、ファイルを読めない、歌詞を読めない、
+    /// 台帳を書けない。
+    #[tracing::instrument(skip(self, bytes, file_name), fields(len = bytes.len()), err)]
+    pub fn import_songs(&mut self, bytes: &[u8], file_name: &str) -> Result<Vec<(String, Song)>> {
+        let songs = ust::parse_file(bytes, file_name).map_err(|e| AppError::new(e.kind(), e))?;
+        for song in &songs {
+            // 同梱プリセットはすべて Core（`preset::builtin`）。曲を読む側も
+            // Core で読む（`sing_song`、`song_plan`）ので、ここも Core で見る。
+            if song.moras(UnitSet::Core).is_none() {
+                return Err(AppError::new(
+                    "app.unreadable_lyrics",
+                    "歌詞を読めないノートがある。仮名で書かれた UST / USTX を取り込む",
+                ));
+            }
+        }
+
         let at = now_rfc3339();
-        self.opened_mut()?.ledger.put_song(&id, &song, false, &at)?;
-        Ok(id)
+        let mut out = Vec::with_capacity(songs.len());
+        for song in songs {
+            let id = Uuid::new_v4().to_string();
+            self.opened_mut()?.ledger.put_song(&id, &song, false, &at)?;
+            out.push((id, song));
+        }
+        tracing::info!(count = out.len(), "曲を取り込んだ");
+        Ok(out)
+    }
+
+    /// 曲の題を変える（`TR-RCL-12`）。
+    ///
+    /// 題はファイル名から採るので、そのままでは一覧に並べられないことがある
+    /// （`New Project`、`テスト2_final`）。取り込むときにも後からも変えられる。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、その曲がバンクに無い、台帳を書けない。
+    #[tracing::instrument(skip(self, id, title), err)]
+    pub fn rename_song(&mut self, id: &str, title: &str) -> Result<()> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(AppError::new("app.empty_title", "題が空"));
+        }
+        self.opened_mut()?.ledger.rename_song(id, title)?;
+        Ok(())
+    }
+
+    /// 曲のノート列（`TR-RCL-12` (a)(b)）。
+    ///
+    /// 範囲を選ぶ画面が要る。 どの拍がどの歌詞かが見えないと、
+    /// 「サビだけ」を指せない。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、その曲がバンクに無い。
+    #[tracing::instrument(skip(self, id), err)]
+    pub fn song_notes(&mut self, id: &str) -> Result<Vec<koeru_core::song::Note>> {
+        self.opened_mut()?
+            .ledger
+            .songs_in_bank()?
+            .into_iter()
+            .find(|(sid, _)| sid == id)
+            .map(|(_, s)| s.notes)
+            .ok_or_else(|| AppError::new("app.no_song", "その曲はバンクに無い"))
+    }
+
+    /// 選んだノート群から録音リストを詰め直す（`TR-RCL-16`, `DEC-RCL-011`）。
+    ///
+    /// `selections` は `(曲 ID, [開始, 終了) の並び)`。 範囲が空なら曲全体。
+    /// 複数の曲から選べる——自分の曲バンクを構成して、その集合に対する
+    /// 被覆を狙う（`TR-RCL-12`）。
+    ///
+    /// **フルリストの部分集合に限らない。** 選択が要求するエイリアスだけを
+    /// 覆う行を作るので、行の途中を読まされない。詰め直した行が生む綴りは
+    /// フルリストと同じなので、録った分はそのままフル方式の被覆に効く。
+    ///
+    /// 台帳へは足すだけ。 既にある行は消さない——録ったものが消える。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、曲がバンクに無い、歌詞を読めない、
+    /// リストを作れない、台帳を書けない。
+    #[tracing::instrument(skip(self, selections), fields(songs = selections.len()), err)]
+    pub fn repack_for_selection(
+        &mut self,
+        selections: &[(String, Vec<(usize, usize)>)],
+    ) -> Result<usize> {
+        let preset = self.current_preset()?;
+        let songs = self.opened_mut()?.ledger.songs_in_bank()?;
+        let mut required = std::collections::BTreeSet::new();
+        for (id, ranges) in selections {
+            let song = songs
+                .iter()
+                .find(|(sid, _)| sid == id)
+                .map(|(_, s)| s)
+                .ok_or_else(|| AppError::new("app.no_song", "その曲はバンクに無い"))?;
+            let part = if ranges.is_empty() {
+                song.clone()
+            } else {
+                song.select(ranges)
+            };
+            required.extend(part.required_aliases(preset.method, preset.set));
+        }
+
+        let rows = preset
+            .reclist_for(&required)
+            .map_err(|e| AppError::new(e.kind(), e))?;
+        let added = rows.len();
+        self.opened_mut()?
+            .ledger
+            .install_reclist_for_tones(&rows, preset.method, &preset.tones)?;
+        tracing::info!(count = added, "選択から録音リストを詰め直した");
+        Ok(added)
+    }
+
+    /// いま開いているプロジェクトの方式プリセット（`TR-RCL-01`）。
+    ///
+    /// manifest が持つのは識別子だけ。 古いプロジェクトは識別子を持たないので、
+    /// 方式から既定を引く（`Manifest::preset_id` は後から足した）。
+    fn current_preset(&mut self) -> Result<koeru_core::preset::MethodPreset> {
+        let manifest = self.opened()?.dir.read_manifest()?;
+        Ok(manifest
+            .preset_id
+            .as_deref()
+            .and_then(koeru_core::preset::by_id)
+            .unwrap_or_else(|| {
+                koeru_core::preset::builtin()
+                    .into_iter()
+                    .find(|p| manifest_method(p) == manifest.method)
+                    .unwrap_or_else(|| {
+                        koeru_core::preset::by_id("single")
+                            .unwrap_or_else(|| unreachable!("同梱プリセットに single がある"))
+                    })
+            }))
+    }
+
+    /// 取り込んだ曲すべて（`TR-RCL-12`）。バンクに入っているかを添える。
+    ///
+    /// 歌える曲の一覧（[`Self::song_status`]）とは別。 あちらはバンクの中だけを
+    /// 見せる。ここはバンクを組み替えるための一覧なので、外した曲も並ぶ。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn all_songs(&mut self) -> Result<Vec<(String, Song, bool)>> {
+        Ok(self.opened_mut()?.ledger.all_songs()?)
     }
 
     /// 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。
@@ -1395,6 +1650,103 @@ impl Studio {
         Ok(self.opened_mut()?.ledger.rows_with_takes()?)
     }
 
+    /// 対象音高の基準音を鳴らす（`TR-REC-25`）。
+    ///
+    /// > フレーズの収録開始前に対象音高の基準音を必ず鳴らす
+    /// > （既定 1000 ms、正弦波またはガイド音源の該当音階ファイル）
+    ///
+    /// 回り込みが分かっているときは鳴らさない（`TR-REC-24`）。 スピーカから
+    /// 出すと、そのままマイクへ入って収録に混ざる。
+    ///
+    /// # Errors
+    ///
+    /// 出力を開けないとき。**鳴らせないことは収録を止める理由にしない**——
+    /// 記録して進む。
+    #[tracing::instrument(skip(self), err)]
+    pub fn play_tone_reference(&mut self, midi: i32) -> Result<()> {
+        if Self::output_kind().definitely_speakers() || self.leak.is_some_and(|l| l.leaking) {
+            tracing::info!(midi, "回り込むので基準音を鳴らさない");
+            return Ok(());
+        }
+        let spec = koeru_core::guide::GuideSpec::tone_reference();
+        let pcm = koeru_core::guide::render(&spec, midi, MASTER_RATE_HZ);
+        self.playback = None;
+        self.playback = Some(mac::play(pcm, MASTER_RATE_HZ)?);
+        Ok(())
+    }
+
+    /// いまの録る順と、その並び（`TR-SYN-19`）。
+    ///
+    /// 台帳は書き換えない。 返すのは「次に何を録るか」の並びだけで、
+    /// 録音リストの正準順も行集合も動かない。
+    ///
+    /// 曲バンクが空か、全曲が完全になったら被覆効率へ移る。 ただし本人が
+    /// 明示的に選んでいれば動かさない（`TR-SYN-19` の (b)）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self), err)]
+    pub fn recording_order(&mut self) -> Result<(koeru_core::order::Mode, Vec<String>)> {
+        let (stored, pinned) = self.opened_mut()?.ledger.recording_order()?;
+        let status = song_status_of(&mut self.opened_mut()?.ledger)?;
+        let empty = status.is_empty();
+        let complete = !empty
+            && status
+                .iter()
+                .all(|s| s.singability == koeru_core::song::Singability::Complete);
+
+        let mode = if pinned || !koeru_core::order::auto_switches(empty, complete) {
+            stored
+        } else {
+            koeru_core::order::Mode::CoverageEfficiency
+        };
+        if mode != stored {
+            // 自動の移行では `pinned` を立てない。 立てると本人が選んだことになる。
+            self.opened_mut()?.ledger.set_recording_order(mode, false)?;
+        }
+
+        let rows = self.opened_mut()?.ledger.rows_with_takes()?;
+        let recorded: std::collections::BTreeSet<String> = rows
+            .iter()
+            .filter(|r| r.adopted.is_some())
+            .map(|r| r.row_id.clone())
+            .collect();
+        let covered = self.opened_mut()?.ledger.covered_aliases()?;
+        let song_required: std::collections::BTreeSet<String> = self
+            .opened_mut()?
+            .ledger
+            .songs_in_bank()?
+            .iter()
+            .flat_map(|(_, s)| s.required_aliases(koeru_core::alias::Method::Single, UnitSet::Core))
+            .collect();
+        let list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
+
+        Ok((
+            mode,
+            koeru_core::order::present(
+                mode,
+                koeru_core::alias::Method::Single,
+                &list,
+                &recorded,
+                &covered,
+                &song_required,
+            ),
+        ))
+    }
+
+    /// 録る順を本人の操作で切り替える（`TR-SYN-19` の (b)）。
+    ///
+    /// 可逆。 被覆効率から曲バンク優先へも戻せる。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を書けない。
+    #[tracing::instrument(skip(self), fields(mode = mode.as_str()), err)]
+    pub fn set_recording_order(&mut self, mode: koeru_core::order::Mode) -> Result<()> {
+        Ok(self.opened_mut()?.ledger.set_recording_order(mode, true)?)
+    }
+
     /// 採用テイクを切り替える（`TR-RCL-25`）。
     ///
     /// カバレッジは変わらない。 行が生む単位は行が持っていて、テイクに依らない。
@@ -1445,9 +1797,28 @@ impl Studio {
         // 台帳に載らないファイルができる。
         self.opened_mut()?.ledger.row_state(&row_id)?;
 
+        // 多音階では、収録開始前に対象音高の基準音を必ず鳴らす（`TR-REC-25`）。
+        //
+        // **省略できない。** 3本を行き来すると、いま何を録っているのかを
+        // 音で確かめる手が要る。回り込みが分かっているときは鳴らさない
+        // （`TR-REC-24`。ガイドが録音に入る）。
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        if tones.len() > 1 {
+            let tone = self.opened_mut()?.ledger.row_tone(&row_id)?;
+            self.play_tone_reference(tone)?;
+        }
+
         // 世代を名前に入れる。 録り直しても既存の WAV を上書きしない（`TR-PKG-39`）。
         let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;
-        let path = audio_dir.join(format!("{row_id}_{generation}.wav"));
+        // 音高ごとのサブディレクトリへ置く（`TR-REC-36`）。
+        // 収録後に別ディレクトリへ移す処理は持たない。
+        let dir = if tones.len() > 1 {
+            let tone = self.opened_mut()?.ledger.row_tone(&row_id)?;
+            audio_dir.join(koeru_core::tone::name(tone))
+        } else {
+            audio_dir.clone()
+        };
+        let path = dir.join(format!("{row_id}_{generation}.wav"));
 
         // 残りが1テイクぶんを割ったら、次を始めさせない（`TR-REC-41`）。
         // 進行中のテイクは最後まで録りきるので、止めるのはここだけ。
@@ -1588,9 +1959,7 @@ impl Studio {
         // モーラごとに境界を取り出し、oto もモーラごとに作る。
         let kana = self.opened_mut()?.ledger.units_of(&row_id)?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
-        let per_mora = alignment
-            .as_ref()
-            .and_then(|a| Boundaries::per_mora(a, &readings));
+        let per_mora = alignment.as_ref().and_then(|a| per_mora(a, &readings));
         // 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）はファイル全体で見る。
         let boundaries = per_mora.as_ref().and_then(|v| {
             Some(Boundaries {
@@ -1664,6 +2033,14 @@ impl Studio {
                     .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
                 // 集団は行の中で変わらない。1度だけ作る（`TR-ALN-12`）。
                 let pops = self.populations()?;
+                // 集団は音階内に閉じる（`TR-ALN-22`）。
+                let row_tone = self
+                    .opened_mut()?
+                    .ledger
+                    .row_tones()?
+                    .get(&row_id)
+                    .copied()
+                    .unwrap_or_default();
 
                 // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
                 //
@@ -1671,6 +2048,18 @@ impl Studio {
                 // モーラごとに違うので、テイクに1つしかない値としては代表を採る。
                 let mut first = None;
                 let mut first_score = None;
+                // 境界を残す（`TR-ALN-34`）。 5値は境界と規約プリセットから導く
+                // 派生物なので、境界さえあれば規約を変えても作り直せる。
+                // **捨てていた。** プリセットを編集するだけで再アライメントが
+                // 走っていた——`TR-ALN-23` の「再アライメントを要求しない」と
+                // 食い違ったまま出荷されていた（`DEC-ALN-014`）。
+                let saved: Vec<(String, koeru_core::oto::Boundary)> = v
+                    .iter()
+                    .zip(&kana)
+                    .map(|(b, reading)| (reading.clone(), *b))
+                    .collect();
+                self.opened_mut()?.ledger.put_boundaries(take_id, &saved)?;
+
                 for (b, reading) in v.iter().zip(&kana) {
                     let o = derive_cv(
                         b.voice_start_ms,
@@ -1686,7 +2075,7 @@ impl Studio {
                     // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
                     // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
                     // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
-                    let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+                    let prior = Self::prior_of(&pops, row_tone, reading, &o, duration_ms);
                     let c = span_conf(b, b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
                         c.prior = prior;
                         c
@@ -1738,6 +2127,31 @@ impl Studio {
                 (first, first_score)
             }
         };
+
+        // ## 収録ペースの実測（`TR-RCL-10`）
+        //
+        // 残り時間の表示にだけ効かせる。 方式選択画面の値は固定値のまま
+        // ——未着手のユーザーには実測が無く、片方だけ実測にすると
+        // 方式間の比較にならない（`DEC-RCL-008`）。
+        let gap_s = self
+            .last_take_saved
+            .map_or(0.0, |t| t.elapsed().as_secs_f64());
+        self.last_take_saved = Some(std::time::Instant::now());
+        let utterance_s = boundaries.as_ref().map_or(0.0, |b| {
+            (b.vowel_end_ms - b.voice_start_ms).max(0.0) / 1000.0
+        });
+        let generation = self.opened_mut()?.ledger.take_count(&row_id)?;
+        let at = now_rfc3339();
+        self.opened_mut()?.ledger.record_row_measurement(
+            &row_id,
+            &at,
+            &koeru_core::pace::RowMeasurement {
+                utterance_s,
+                gap_s,
+                takes: generation,
+                moras: kana.len(),
+            },
+        )?;
 
         // ## 採否
         //
@@ -2169,13 +2583,15 @@ impl Studio {
     /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
     fn populations(&mut self) -> Result<Populations> {
         let mut out = Populations::default();
+        let tones = self.opened_mut()?.ledger.row_tones()?;
         for e in self.opened_mut()?.ledger.adopted_otos()? {
+            let tone = tones.get(&e.row_id).copied().unwrap_or_default();
             #[allow(
                 clippy::cast_precision_loss,
                 reason = "収録の長さは 2^53 フレームに届かない"
             )]
             let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
-            out.push(&e.alias, &e.oto, len_ms);
+            out.push(tone, &e.alias, &e.oto, len_ms);
         }
         Ok(out)
     }
@@ -2188,14 +2604,15 @@ impl Studio {
     ///
     /// **3つの測度のうち、いちばん外れているものが決める。** どれか1つでも
     /// 集団から外れていれば見てほしいので、平均では薄まる。
-    fn prior_of(pops: &Populations, reading: &str, o: &Oto, len_ms: f64) -> f64 {
+    /// `tone` はそのテイクの収録音高（`TR-ALN-22`）。 集団は音階内に閉じる。
+    fn prior_of(pops: &Populations, tone: i32, reading: &str, o: &Oto, len_ms: f64) -> f64 {
         let score = |measure, value: f64, population: &[f64]| {
             consistency::deviation(measure, value, population).map_or(1.0, |d| d.prior_score())
         };
         let (consonant, vowel) = Populations::spans(o, len_ms);
         // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
         let onset = first_phoneme(reading)
-            .and_then(|k| pops.onset.get(&k))
+            .and_then(|k| pops.onset.get(&(tone, k)))
             .map_or(1.0, |(pre, cons)| {
                 score(Measure::Preutterance, o.preutterance_ms, pre).min(score(
                     Measure::ConsonantLength,
@@ -2204,7 +2621,7 @@ impl Studio {
                 ))
             });
         let tail = last_phoneme(reading)
-            .and_then(|k| pops.vowel.get(&k))
+            .and_then(|k| pops.vowel.get(&(tone, k)))
             .map_or(1.0, |v| score(Measure::VowelLength, vowel, v));
         onset.min(tail)
     }
@@ -2480,12 +2897,20 @@ impl Studio {
         let alignment = self.align_take(&f64s, w.rate_hz, &take.row_id);
         let per_mora = alignment
             .as_ref()
-            .and_then(|a| Boundaries::per_mora(a, &readings))
+            .and_then(|a| per_mora(a, &readings))
             .ok_or_else(|| AppError::new("align.no_voice", "発声を見つけられなかった"))?;
 
         let preset = Preset::default_for(koeru_core::alias::Method::Single)
             .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
         let pops = self.populations()?;
+        // 集団は音階内に閉じる（`TR-ALN-22`）。
+        let tone = self
+            .opened_mut()?
+            .ledger
+            .row_tones()?
+            .get(&take.row_id)
+            .copied()
+            .unwrap_or_default();
         let cfg = SegmentConfig::default();
 
         let mut next = self.opened()?.review.clone();
@@ -2499,7 +2924,7 @@ impl Studio {
                 &preset,
                 Self::consonant_class_of(reading),
             );
-            let prior = Self::prior_of(&pops, reading, &o, duration_ms);
+            let prior = Self::prior_of(&pops, tone, reading, &o, duration_ms);
             let c = alignment
                 .as_ref()
                 .and_then(|a| {
@@ -2932,15 +3357,38 @@ impl Studio {
             .map(|(_, s)| s)
             .ok_or_else(|| AppError::new("app.unknown_song", "その曲がバンクに無い"))?;
 
+        // ## 自動移調（`TR-SYN-15`）
+        //
+        // 収録音高との差が ±7 半音以内、二乗平均 4 半音以内に収まるよう、
+        // 曲全体を半音単位で動かす。**ユーザーにキーを選ばせない。**
+        // オクターブを他の移調より先に採るので、収まるなら調は変わらない。
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let fit = koeru_core::song::range_fit(&song, &tones);
+        if !fit.is_previewable() {
+            // 移調しても条件を満たせない曲は、試唱の選択肢に出さない（`TR-SYN-15`）。
+            return Err(AppError::new(
+                "synth.out_of_range",
+                "この曲は収録した音高から遠すぎて、移調しても歌えない",
+            ));
+        }
+        if fit.transpose != 0 {
+            tracing::info!(semitones = fit.transpose, "課題曲を移調した");
+        }
+
         // ## 素材を集める
         //
         // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
-        let Materials {
-            paths,
-            tables,
-            otos,
-        } = self.adopted_materials(&root)?;
-        let available: std::collections::BTreeSet<String> = paths.keys().cloned().collect();
+        // 収録音高ごとの素材（`TR-SYN-16`）。 単音階なら鍵は `None` の1つ。
+        let by_tone = self.materials_by_tone(&root)?;
+        // 解決の可否は全体で見る。 どの音高にも無い単位だけを欠損とする。
+        let available: std::collections::BTreeSet<String> = by_tone
+            .values()
+            .flat_map(|m| m.paths.keys().cloned())
+            .collect();
+        // 周波数表は音高をまたいで同じ鍵で引く。 合成器へ渡すのは素材ごとの表で、
+        // 引き当ては下の `pick` が音高まで含めて決める。
+        let tables: HashMap<String, Vec<f64>> =
+            by_tone.values().flat_map(|m| m.tables.clone()).collect();
 
         // ## フレーズに割る
         let moras = song
@@ -2956,23 +3404,46 @@ impl Studio {
         let mut phrases: Vec<(koeru_synth::phrase::Phrase, bool)> = Vec::new();
         let mut current: Vec<koeru_synth::phrase::NoteSpec> = Vec::new();
         let mut playable = true;
+        // 区画が切り替わった位置（`TR-SYN-16`）。原音設定側の確認対象になる。
+        let mut switches: Vec<(usize, Option<i32>, Option<i32>)> = Vec::new();
+        let mut last_tone: Option<Option<i32>> = None;
 
         for (i, r) in resolved.iter().enumerate() {
-            let midi = song.notes.get(i).map_or(DEFAULT_TONE_MIDI, |n| n.midi);
+            // 移調を当てた音高で鳴らす（`TR-SYN-15`）。
+            let midi = song.notes.get(i).map_or(DEFAULT_TONE_MIDI, |n| n.midi) + fit.transpose;
             let ticks = song.notes.get(i).map_or(480, |n| n.ticks);
-            // UST の 480 ティック = 4分音符。120 BPM で 500ms。
-            let duration_ms = f64::from(ticks) / 480.0 * 500.0;
+            // UST の 480 ティック = 4分音符。曲のテンポで長さを出す（`TR-SYN-30`）。
+            // **120 BPM を決め打っていた。** 読み込んだ UST のテンポが落ちていて、
+            // どの曲も同じ速さで鳴っていた。
+            let beat_ms = 60_000.0 / song.tempo_bpm.max(1.0);
+            let duration_ms = f64::from(ticks) / 480.0 * beat_ms;
 
             match r {
                 koeru_core::alias::PhraseUnit::Sound(res) => {
-                    let Some(oto) = otos.get(&res.alias) else {
+                    // その音を担う収録音高から素材を引く（`TR-SYN-13`, `TR-SYN-16`）。
+                    // 無ければ1段下、さらに下、最低音高へ落ちる（`TR-RCL-20`）。
+                    let Some((used_tone, m)) = pick_material(&by_tone, &tones, midi, &res.alias)
+                    else {
+                        playable = false;
+                        continue;
+                    };
+                    // 切り替わった位置を記録する（`TR-SYN-16`）。
+                    // 切り替えは音符境界でのみ——1音符の途中では変わらない。
+                    if let Some(prev) = last_tone
+                        && prev != used_tone
+                    {
+                        switches.push((i, prev, used_tone));
+                    }
+                    last_tone = Some(used_tone);
+
+                    let Some(oto) = m.otos.get(&res.alias) else {
                         playable = false;
                         continue;
                     };
                     current.push(koeru_synth::phrase::NoteSpec {
                         alias: res.alias.clone(),
-                        sample_path: paths.get(&res.alias).cloned().unwrap_or_default(),
-                        sample_hash: hash_of(paths.get(&res.alias)),
+                        sample_path: m.paths.get(&res.alias).cloned().unwrap_or_default(),
+                        sample_hash: hash_of(m.paths.get(&res.alias)),
                         oto: *oto,
                         midi,
                         duration_ms,
@@ -3019,6 +3490,11 @@ impl Studio {
         let phrase_count = owned.len();
 
         // ## 鳴らす
+        //
+        // 素材の場所は音高をまたいで1つの表に畳む。 `NoteSpec` が
+        // 実際のパスを持っているので、ここは読み出しの口でしかない。
+        let paths: HashMap<String, std::path::PathBuf> =
+            by_tone.values().flat_map(|m| m.paths.clone()).collect();
         let samples: Arc<dyn koeru_synth::phrase::Samples + Send + Sync> =
             Arc::new(WavSamples { paths, tables });
 
@@ -3063,6 +3539,14 @@ impl Studio {
             phrases: phrase_count,
             dropped_phrases: dropped,
             duration_ms,
+            subbank_switches: switches
+                .into_iter()
+                .map(|(note_index, from, to)| SubbankSwitch {
+                    note_index,
+                    from,
+                    to,
+                })
+                .collect(),
         })
     }
 
@@ -3087,7 +3571,15 @@ impl Studio {
     }
 
     /// 採用テイクの素材・周波数表・oto を集める。
-    fn adopted_materials(&mut self, root: &std::path::Path) -> Result<Materials> {
+    ///
+    /// `tone` を渡すとその収録音高の素材だけを拾う（`TR-SYN-16`）。 多音階では
+    /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
+    /// 1音だけ別人の声になる。単音階では `None`。
+    fn adopted_materials_at(
+        &mut self,
+        root: &std::path::Path,
+        tone: Option<i32>,
+    ) -> Result<Materials> {
         let mut paths = HashMap::new();
         let mut tables = HashMap::new();
         let mut otos = HashMap::new();
@@ -3099,7 +3591,7 @@ impl Studio {
             .into_iter()
             .collect();
         for unit in rows {
-            let Some(take) = self.opened_mut()?.ledger.take_for_unit(&unit)? else {
+            let Some(take) = self.opened_mut()?.ledger.take_for_unit_at(&unit, tone)? else {
                 continue;
             };
             // 単位がそのままエイリアス。 1テイクに複数のエントリがあるので、
@@ -3127,6 +3619,25 @@ impl Studio {
             tables,
             otos,
         })
+    }
+
+    /// 収録音高ごとの素材（`TR-SYN-16`）。
+    ///
+    /// 単音階なら1つで、鍵は `None`。 多音階では音高ごとに引く。
+    fn materials_by_tone(
+        &mut self,
+        root: &std::path::Path,
+    ) -> Result<std::collections::BTreeMap<Option<i32>, Materials>> {
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let mut out = std::collections::BTreeMap::new();
+        if tones.len() <= 1 {
+            out.insert(None, self.adopted_materials_at(root, None)?);
+        } else {
+            for t in tones {
+                out.insert(Some(t), self.adopted_materials_at(root, Some(t))?);
+            }
+        }
+        Ok(out)
     }
 
     /// テスト用。 音声デバイス無しで、行を収録済みとして印を付ける。
@@ -3323,6 +3834,44 @@ impl Studio {
     }
 }
 
+/// manifest に書く方式（`TR-RCL-01`）。
+///
+/// 多音階かどうかで別の名前になる。 `project::Method` は方式と音階数を
+/// 1つの列挙で持っているので、ここで畳む。
+fn manifest_method(p: &koeru_core::preset::MethodPreset) -> Method {
+    match (p.method, p.is_multi_pitch()) {
+        (koeru_core::alias::Method::Single, _) => Method::Single,
+        (koeru_core::alias::Method::Cvvc, _) => Method::Cvvc,
+        (koeru_core::alias::Method::Sequential, false) => Method::Sequential,
+        (koeru_core::alias::Method::Sequential, true) => Method::MultiPitchSequential,
+    }
+}
+
+/// その音を鳴らす素材を、収録音高から引き当てる（`TR-SYN-13`, `TR-SYN-16`, `TR-RCL-20`）。
+///
+/// floor 割り当てでまず1つ選び、そこに無ければ1段下、さらに下、最低音高へ落ちる。
+/// **上へは登らない。** 低い素材を上へ伸ばすほうが、高い素材を下げるより声が保つ。
+///
+/// 単音階（鍵が `None`）はそのまま返す。
+fn pick_material<'a>(
+    by_tone: &'a std::collections::BTreeMap<Option<i32>, Materials>,
+    tones: &[i32],
+    midi: i32,
+    alias: &str,
+) -> Option<(Option<i32>, &'a Materials)> {
+    if let Some(m) = by_tone.get(&None) {
+        return m.paths.contains_key(alias).then_some((None, m));
+    }
+    let floor = koeru_core::tone::floor_tone(tones, midi)?;
+    let mut sorted = tones.to_vec();
+    sorted.sort_unstable();
+    // floor 以下を高い順に。 見つからなければ最低音高まで降りる。
+    sorted.iter().rev().filter(|t| **t <= floor).find_map(|t| {
+        let m = by_tone.get(&Some(*t))?;
+        m.paths.contains_key(alias).then_some((Some(*t), m))
+    })
+}
+
 /// 曲ごとの状態を、開いた台帳から求める（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
 ///
 /// [`Studio`] の外に置く。 ライブラリの一覧は、開いていない音源の台帳を
@@ -3333,12 +3882,16 @@ fn song_status_of(ledger: &mut Ledger) -> Result<Vec<SongStatus>> {
     // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
     // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
     let full_list = generate_single(UnitSet::Core, DEFAULT_UNITS_PER_ROW)?;
+    // 音域の判定に要る（`TR-RCL-22`）。 エイリアスが揃っていても、
+    // 収録音高から遠い音は鳴らない。
+    let tones = ledger.recording_tones()?;
     Ok(song::status_of(
         &songs,
         koeru_core::alias::Method::Single,
         &covered,
         UnitSet::Core,
         &full_list,
+        &tones,
     ))
 }
 
@@ -3488,5 +4041,112 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod subbank_tests {
+    use super::*;
+
+    fn materials(aliases: &[&str]) -> Materials {
+        Materials {
+            paths: aliases
+                .iter()
+                .map(|a| {
+                    (
+                        (*a).to_owned(),
+                        std::path::PathBuf::from(format!("{a}.wav")),
+                    )
+                })
+                .collect(),
+            tables: HashMap::new(),
+            otos: HashMap::new(),
+        }
+    }
+
+    /// 単音階は鍵が `None` のまま引ける。
+    #[test]
+    fn 単音階はそのまま引く() {
+        let by_tone = [(None, materials(&["か"]))].into_iter().collect();
+        assert!(pick_material(&by_tone, &[57], 60, "か").is_some());
+        assert!(pick_material(&by_tone, &[57], 60, "き").is_none());
+    }
+
+    /// floor 割り当てでその音を担う音高から引く（`TR-SYN-16`）。
+    #[test]
+    fn 担当する音高から引く() {
+        let by_tone = [
+            (Some(55), materials(&["か"])),
+            (Some(62), materials(&["か"])),
+            (Some(69), materials(&["か"])),
+        ]
+        .into_iter()
+        .collect();
+        let tones = [55, 62, 69];
+        assert_eq!(
+            pick_material(&by_tone, &tones, 55, "か").map(|(t, _)| t),
+            Some(Some(55))
+        );
+        assert_eq!(
+            pick_material(&by_tone, &tones, 61, "か").map(|(t, _)| t),
+            Some(Some(55))
+        );
+        assert_eq!(
+            pick_material(&by_tone, &tones, 62, "か").map(|(t, _)| t),
+            Some(Some(62))
+        );
+        assert_eq!(
+            pick_material(&by_tone, &tones, 90, "か").map(|(t, _)| t),
+            Some(Some(69))
+        );
+    }
+
+    /// 無ければ1段下、さらに下へ落ちる（`TR-RCL-20`）。上へは登らない。
+    #[test]
+    fn 無ければ下へ落ちる() {
+        // A4 でだけ録っていない。
+        let by_tone = [
+            (Some(55), materials(&["か"])),
+            (Some(62), materials(&["か"])),
+            (Some(69), materials(&[])),
+        ]
+        .into_iter()
+        .collect();
+        let tones = [55, 62, 69];
+        assert_eq!(
+            pick_material(&by_tone, &tones, 69, "か").map(|(t, _)| t),
+            Some(Some(62)),
+            "1段下へ落ちる"
+        );
+
+        // D4 も A4 も無い。最低音高まで降りる。
+        let by_tone = [
+            (Some(55), materials(&["か"])),
+            (Some(62), materials(&[])),
+            (Some(69), materials(&[])),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            pick_material(&by_tone, &tones, 69, "か").map(|(t, _)| t),
+            Some(Some(55))
+        );
+    }
+
+    /// 上へは登らない。 低い音に高い素材を当てない。
+    #[test]
+    fn 上へは登らない() {
+        // G3 でだけ録っていない。
+        let by_tone = [
+            (Some(55), materials(&[])),
+            (Some(62), materials(&["か"])),
+            (Some(69), materials(&["か"])),
+        ]
+        .into_iter()
+        .collect();
+        assert!(
+            pick_material(&by_tone, &[55, 62, 69], 55, "か").is_none(),
+            "G3 の音に D4 の素材を当てない"
+        );
     }
 }

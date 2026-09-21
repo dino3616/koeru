@@ -58,6 +58,11 @@ pub struct PackageState {
     pub available_profiles: Vec<Profile>,
     /// 配布物に入るファイルの数。
     pub file_count: usize,
+    /// 下位方式への書き出し（`TR-PKG-24`, `TR-PKG-25`）。
+    ///
+    /// **出せる方式ごとに1件。** 独立した音源ルート・独立した ZIP になるので、
+    /// 元パッケージとほぼ同等の容量がもう1本できる。
+    pub downgrades: Vec<Downgrade>,
     /// 書き出すエイリアスの数。
     pub alias_count: usize,
     /// 配布 WAV の名前から行 ID を引く表（`TR-PKG-51`）。
@@ -173,6 +178,29 @@ pub fn state(
             .map(project_method)
             .collect();
 
+    // 下位方式への書き出し（`TR-PKG-24`）。
+    //
+    // 判定はエイリアスの被覆から（`TR-PKG-22`）。 容量は「oto.ini 1ファイル分」
+    // ではなく、元パッケージとほぼ同等の容量がもう1本——WAV を複製するため。
+    let aliases = ledger.covered_aliases()?;
+    let (sessions, first, last) = ledger.adopted_session_span()?;
+    let wav_bytes: u64 = bank
+        .subbanks
+        .iter()
+        .flat_map(|s| &s.samples)
+        .filter_map(|m| std::fs::metadata(&m.master).ok().map(|f| f.len()))
+        .sum();
+    let downgrades =
+        koeru_package::coverage::downgradable(koeru_core::inventory::UnitSet::Core, &aliases)
+            .into_iter()
+            .map(|m| Downgrade {
+                method: project_method(m),
+                bytes: wav_bytes,
+                sessions,
+                span_days: span_days(first.as_deref(), last.as_deref()),
+            })
+            .collect();
+
     // 組み立てて初めて分かる数（同梱物の件数）を出す。 検証が通らない間は
     // 組み立てられないので、そのときは 0。
     let file_count = tree::build(&bank, profile).map(|f| f.len()).unwrap_or(0);
@@ -196,7 +224,40 @@ pub fn state(
         file_count,
         alias_count: bank.aliases().len(),
         rows_by_file,
+        downgrades,
     })
+}
+
+/// 下位方式の書き出し1件（`TR-PKG-24`, `TR-PKG-25`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Downgrade {
+    pub method: Method,
+    /// 複製される WAV の概算バイト数。
+    pub bytes: u64,
+    /// 素材が跨ぐ収録セッションの数（`DEC-RCL-007`）。
+    pub sessions: usize,
+    /// 最初と最後の間隔（日）。
+    pub span_days: u32,
+}
+
+/// 2つの時刻の間隔（日）。読めなければ 0。
+///
+/// 判定ではない。 「声質が揃っている」とは言わないための事実（`DEC-RCL-007`）。
+fn span_days(first: Option<&str>, last: Option<&str>) -> u32 {
+    let parse = |s: &str| {
+        // RFC 3339 の日付部分だけを見る。時刻の差は表示に使わない。
+        let d = s.get(..10)?;
+        let mut it = d.split('-');
+        let y: i64 = it.next()?.parse().ok()?;
+        let m: i64 = it.next()?.parse().ok()?;
+        let day: i64 = it.next()?.parse().ok()?;
+        // 月ごとの長さを持たない概算。 表示用の刻みでしかない。
+        Some(y * 372 + m * 31 + day)
+    };
+    let (Some(a), Some(b)) = (first.and_then(parse), last.and_then(parse)) else {
+        return 0;
+    };
+    u32::try_from((b - a).max(0)).unwrap_or(u32::MAX)
 }
 
 /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`, `TR-PKG-44`）。
@@ -339,8 +400,11 @@ fn bank_of(
     d: &Distribution,
 ) -> Result<VoiceBank> {
     let root = dir.root();
-    let samples = ledger
-        .distribution_samples()?
+    let tones = ledger.recording_tones()?;
+    let multi = tones.len() > 1;
+    let raw = ledger.distribution_samples()?;
+    let sample_tones: Vec<i32> = raw.iter().map(|s| s.tone).collect();
+    let samples = raw
         .into_iter()
         .map(|s| {
             // 表を書けなかったことを `None` に畳まない（`TR-PKG-05`）。
@@ -404,14 +468,45 @@ fn bank_of(
             character_note: d.character_note.clone(),
         },
         method: manifest.method,
-        subbanks: vec![Subbank {
-            folder: None,
-            color: String::new(),
-            prefix: String::new(),
-            suffix: String::new(),
-            tones: Vec::new(),
-            samples,
-        }],
+        // 多音階は収録音高ごとに区画を分ける（`TR-ALN-22`, `TR-PKG-04`）。
+        //
+        // **1区画にまとめると、フォルダ間でエイリアスが衝突する。** 3音高の
+        // 「か」が同じ名前で3つ並び、`TR-PKG-19` の一意性を割る。
+        // 区画に分けると `oto.ini` は音高ごとになり、サフィックスが
+        // 一括で付く（`tree::oto_ini` の `decorate`）。
+        subbanks: if multi {
+            tones
+                .iter()
+                .map(|t| {
+                    let name = koeru_core::tone::name(*t);
+                    Subbank {
+                        folder: Some(name.clone()),
+                        color: name.clone(),
+                        prefix: String::new(),
+                        // 音階サフィックスはここが付ける（`TR-ALN-22`）。
+                        suffix: name,
+                        tone: Some(*t),
+                        samples: samples
+                            .iter()
+                            .zip(&sample_tones)
+                            .filter(|(_, st)| *st == t)
+                            .map(|(m, _)| m.clone())
+                            .collect(),
+                    }
+                })
+                .collect()
+        } else {
+            vec![Subbank {
+                folder: None,
+                color: String::new(),
+                prefix: String::new(),
+                suffix: String::new(),
+                tone: None,
+                samples,
+            }]
+        },
+        // 音素体系とエイリアス規則（`TR-RCL-24`）。受け取った側が同じ表で解決する。
+        rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
     })
 }
 

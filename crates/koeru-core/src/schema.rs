@@ -42,6 +42,51 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// 録る順のモード（`TR-SYN-19`）。プロジェクトに1行。
+    recording_order (id) {
+        id -> Integer,
+        mode -> Text,
+        pinned -> Integer,
+    }
+}
+
+diesel::table! {
+    /// 行が生むエイリアス（`TR-RCL-18`, `TR-PKG-22`）。
+    ///
+    /// 単独音では仮名と同じだが、連続音と CVVC では違う。 書き出せる方式は
+    /// エイリアスの被覆で決まる（`TR-PKG-23`）ので、仮名の集合では足りない。
+    row_aliases (row_id, alias) {
+        row_id -> Text,
+        alias -> Text,
+        ordinal -> Integer,
+    }
+}
+
+diesel::table! {
+    /// アライメントが出した境界（`TR-ALN-34`）。
+    take_boundaries (take_id, alias) {
+        take_id -> Integer,
+        alias -> Text,
+        voice_start_ms -> Double,
+        vowel_start_ms -> Double,
+        vowel_end_ms -> Double,
+    }
+}
+
+diesel::table! {
+    /// 行ごとの収録の実測（`TR-RCL-10`）。
+    row_measurements (id) {
+        id -> Integer,
+        row_id -> Text,
+        recorded_at -> Text,
+        utterance_ms -> Double,
+        gap_ms -> Double,
+        takes -> Integer,
+        moras -> Integer,
+    }
+}
+
+diesel::table! {
     /// 行が生む収録単位。カバレッジはここから導出する。
     row_units (row_id, kana) {
         row_id -> Text,
@@ -213,6 +258,8 @@ diesel::table! {
         bundled -> Integer,
         in_bank -> Integer,
         added_at -> Text,
+        tempo_bpm -> Double,
+        default_portamento_ms -> Double,
     }
 }
 
@@ -230,6 +277,9 @@ diesel::table! {
 diesel::joinable!(song_notes -> songs (song_id));
 
 diesel::joinable!(row_units -> rows (row_id));
+diesel::joinable!(row_aliases -> rows (row_id));
+diesel::joinable!(row_measurements -> rows (row_id));
+diesel::joinable!(take_boundaries -> takes (take_id));
 diesel::joinable!(takes -> rows (row_id));
 diesel::joinable!(takes -> sessions (session_id));
 diesel::joinable!(adopted_takes -> rows (row_id));
@@ -243,6 +293,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     sessions,
     rows,
     row_units,
+    recording_order,
+    row_aliases,
+    row_measurements,
+    take_boundaries,
     takes,
     adopted_takes,
     oto_values,

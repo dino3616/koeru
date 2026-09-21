@@ -226,6 +226,32 @@ pub struct ProgressView {
     pub singable_songs: u32,
     /// バンクに入っている曲の数。0 でも成立する。
     pub songs_in_bank: u32,
+    /// 残り所要時間（秒、`TR-RCL-10`）。
+    ///
+    /// 実測が 10 行に達するまでは固定値（`TR-RCL-09`）。 方式選択画面の値は
+    /// これで書き換えない——未着手のユーザーには実測が無い。
+    pub remaining_seconds: u32,
+    /// 実測が効いているか（`TR-RCL-10`）。
+    ///
+    /// 効いていない間は固定値なので、画面はそのことを1行で言う。
+    pub measured: bool,
+    /// 音高ごとの消化率（`TR-RCL-26`）。単音階では1件。
+    ///
+    /// 詳細表示に置く欄。 `singable_songs` は音高を跨いだ実際の判定結果で、
+    /// これを足し合わせたものではない——1音高だけ録り終えても、
+    /// 音域の広い曲は歌えない。
+    pub by_tone: Vec<ToneProgressView>,
+}
+
+/// 音高ひとつぶんの消化率（`TR-RCL-26`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ToneProgressView {
+    /// 英語音名（`TR-REC-25`）。内部は MIDI で、画面に出すのはこちら。
+    pub tone: String,
+    /// 録り終えた行。
+    pub done: u32,
+    /// その音高の行の総数。
+    pub total: u32,
 }
 
 impl From<Progress> for ProgressView {
@@ -240,6 +266,22 @@ impl From<Progress> for ProgressView {
             handoff: p.handoff.as_str().to_owned(),
             singable_songs: count(p.singable_songs),
             songs_in_bank: count(p.songs_in_bank),
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "見積もりは秒。u32 に収まらない長さの録音リストは作れない"
+            )]
+            remaining_seconds: p.remaining_seconds.max(0.0) as u32,
+            measured: p.measured,
+            by_tone: p
+                .by_tone
+                .into_iter()
+                .map(|(tone, done, total)| ToneProgressView {
+                    tone: koeru_core::tone::name(tone),
+                    done: count(done),
+                    total: count(total),
+                })
+                .collect(),
         }
     }
 }
@@ -304,6 +346,13 @@ pub struct RowTakesView {
     pub takes: Vec<TakeSummaryView>,
     /// いま採用しているテイクの ID。
     pub adopted: Option<i32>,
+    /// その行のモーラ数（`TR-RCL-07`）。境界の区切りの数と一致する。
+    pub moras: u32,
+    /// 難読音の数（`TR-RCL-07`）。拗音かつ外来音の拍。
+    ///
+    /// スコアの合成値は返さない。 重みに根拠が無いので、
+    /// 絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
+    pub risk_hard: u32,
 }
 
 /// 一覧に出すテイク1件。
@@ -322,8 +371,24 @@ pub struct TakeSummaryView {
 
 impl From<koeru_core::db::RowTakes> for RowTakesView {
     fn from(r: koeru_core::db::RowTakes) -> Self {
+        // 読み間違いリスク（`TR-RCL-07`）。行のテキストから数える——
+        // 台帳は単位を集合で持っていて、語順もモーラ数も持たない。
+        let moras: Vec<&str> = r.text.split_whitespace().collect();
+        let core = koeru_core::inventory::units(koeru_core::inventory::UnitSet::Core);
+        let all = koeru_core::inventory::units(koeru_core::inventory::UnitSet::Extended);
+        let risk_hard = moras
+            .iter()
+            .filter(|k| {
+                all.iter()
+                    .any(|u| u.kana == **k && koeru_core::pace::is_palatalized(u))
+                    && !core.iter().any(|u| u.kana == **k)
+            })
+            .count();
+
         Self {
             row_id: r.row_id,
+            moras: count(moras.len()),
+            risk_hard: count(risk_hard),
             text: r.text,
             state: r.state.as_str().to_owned(),
             units: r.units,
@@ -489,45 +554,105 @@ pub struct MethodPresetView {
 
 /// 選べる作り方（`TR-RCL-11`）。
 ///
-/// **いまは単独音だけ。** 連続音と CVVC は `PROFILE-M5` で足す。
-/// 作れないものを灰色で並べない——欠けを失敗として描かない
-/// （`docs/design/direction.md`）ので、席は空けるが的は出さない。
+/// プリセットは `koeru_core::preset` が正本。 数はそこから導く——
+/// 所要時間も到達点も値として持たない（`TR-RCL-01`）。
 ///
-/// 数は録音リストから作る。 見積もりの係数は `koeru_core::plan` が持つ。
+/// **差が5分未満のものを2つ並べない**（`TR-RCL-11`）。並べると、選ぶ側は
+/// 「どちらでもいい」と読む。畳むのは `pace::distinct_offers`。
 #[tauri::command(async)]
 #[specta::specta]
 pub fn method_presets() -> Result<Vec<MethodPresetView>> {
-    let rows = koeru_core::reclist::generate_single(
-        koeru_core::inventory::UnitSet::Core,
-        koeru_core::reclist::DEFAULT_UNITS_PER_ROW,
-    )
-    .map_err(|e| AppError::new(e.kind(), e))?;
-    let units: usize = rows.iter().map(|r| r.units.len()).sum();
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "見積もりは秒。u32 に収まらない長さの録音リストは作れない"
-    )]
-    let seconds = koeru_core::plan::estimate_seconds(&rows).max(0.0) as u32;
+    let mut offers = Vec::new();
+    for p in koeru_core::preset::builtin() {
+        let rows = p.reclist().map_err(|e| AppError::new(e.kind(), e))?;
+        offers.push((p, koeru_core::pace::offer_of(&rows), rows));
+    }
+    let kept = koeru_core::pace::distinct_offers(
+        offers
+            .iter()
+            .map(|(p, _, rows)| p.offer_for(rows))
+            .collect(),
+    );
 
-    Ok(vec![MethodPresetView {
-        id: "single".to_owned(),
-        label: "単独音".to_owned(),
-        summary: "1音ずつ、間をあけて読む".to_owned(),
-        rows: count(rows.len()),
-        units: count(units),
-        seconds,
-        passes: 1,
-        reach: "ゆっくりした曲が歌えます。".to_owned(),
-        reading: "1音ずつ読むので、読み間違えにくい。".to_owned(),
-    }])
+    Ok(offers
+        .into_iter()
+        .filter(|(p, _, rows)| {
+            kept.iter()
+                .any(|k| (k.seconds - p.offer_for(rows).seconds).abs() < 1e-6)
+        })
+        .map(|(p, units, rows)| MethodPresetView {
+            id: p.id.to_owned(),
+            label: p.title.to_owned(),
+            summary: summary_of(&p).to_owned(),
+            rows: count(rows.len() * p.tones.len()),
+            units: count(units),
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "見積もりは秒。u32 に収まらない長さの録音リストは作れない"
+            )]
+            seconds: koeru_core::pace::fixed_seconds(&rows, p.tones.len()).max(0.0) as u32,
+            passes: count(p.tones.len()),
+            reach: reach_of(&p).to_owned(),
+            reading: reading_of(&p, &rows).to_owned(),
+        })
+        .collect())
+}
+
+/// ひとことで何をする方式か。
+fn summary_of(p: &koeru_core::preset::MethodPreset) -> &'static str {
+    match (p.method, p.is_multi_pitch()) {
+        (koeru_core::alias::Method::Single, _) => "1音ずつ、間をあけて読む",
+        (koeru_core::alias::Method::Cvvc, _) => "短い並びを読む。音のつなぎ目も録る",
+        (koeru_core::alias::Method::Sequential, false) => "続けて読む。音のつながりが滑らかになる",
+        (koeru_core::alias::Method::Sequential, true) => "続けて読むのを、高さを変えて何周かする",
+    }
+}
+
+/// 読み終えると何ができるか（`TR-RCL-11` の到達点）。
+///
+/// 具体語で1行。 「高品質」のような評価語を使わない（`TR-SYN-20`）。
+fn reach_of(p: &koeru_core::preset::MethodPreset) -> &'static str {
+    match (p.method, p.is_multi_pitch()) {
+        (koeru_core::alias::Method::Single, _) => "ゆっくりした曲が歌えます。",
+        (koeru_core::alias::Method::Cvvc, _) => "速い曲でも言葉が聞き取れます。",
+        (koeru_core::alias::Method::Sequential, false) => "言葉のつながりが自然になります。",
+        (koeru_core::alias::Method::Sequential, true) => "高い曲も低い曲も、無理なく歌えます。",
+    }
+}
+
+/// 読み上げの難しさ（`TR-RCL-11` (d)）。
+///
+/// リストから機械算出する。 1行あたりモーラ数と難読音の含有率。
+/// 良し悪しではなく、何が起きるかを書く。
+fn reading_of(
+    p: &koeru_core::preset::MethodPreset,
+    rows: &[koeru_core::reclist::Row],
+) -> &'static str {
+    let o = p.offer_for(rows);
+    if o.moras_per_row <= 1.5 {
+        "1音ずつ読むので、読み間違えにくい。"
+    } else if o.hard_ratio > 0.05 {
+        "続けて読みます。読みにくい並びが混ざります。"
+    } else {
+        "続けて読みます。行は短めです。"
+    }
 }
 
 /// プロジェクトを作る。
+///
+/// 方式プリセットを選ばせる（`TR-RCL-01`, `TR-RCL-11`）。 画面が出した
+/// [`method_presets`] の `id` をそのまま渡す。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn create_project(state: State<'_, AppState>, display_name: String) -> Result<String> {
-    Ok(lock(&state)?.create_project(&display_name)?.to_string())
+pub fn create_project(
+    state: State<'_, AppState>,
+    display_name: String,
+    preset_id: String,
+) -> Result<String> {
+    Ok(lock(&state)?
+        .create_project_with(&display_name, &preset_id)?
+        .to_string())
 }
 
 /// プロジェクトを開く。
@@ -775,6 +900,13 @@ pub struct SongView {
     /// その行を録るのに掛かる推定時間（秒、`TR-RCL-09`）。
     #[specta(type = specta_typescript::Number)]
     pub seconds: f64,
+    /// 試唱の選択肢に出してよいか（`TR-SYN-15`）。
+    ///
+    /// 移調しても収録音高から遠すぎる曲は出さない。 押せる的として置くと、
+    /// 押して初めて「歌えない」と分かる。
+    pub previewable: bool,
+    /// 自動移調の量（半音、`TR-SYN-15`）。0 なら書かれた調のまま。
+    pub transpose: i32,
     /// 総モーラ数。
     pub total_moras: u32,
 }
@@ -924,6 +1056,21 @@ pub struct SungSongView {
     /// 鳴らす長さ（ミリ秒）。
     #[specta(type = specta_typescript::Number)]
     pub duration_ms: f64,
+    /// 音の高さの区画が切り替わった位置（`TR-SYN-16`）。
+    ///
+    /// 原音設定側の確認対象になる箇所。 単音階では常に空。
+    pub subbank_switches: Vec<SubbankSwitchView>,
+}
+
+/// 区画が切り替わった1箇所（`TR-SYN-16`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct SubbankSwitchView {
+    /// 切り替わった音符の位置（0 始まり）。
+    pub note_index: u32,
+    /// 直前まで使っていた音の高さ。英語音名（`TR-REC-25`）。
+    pub from: Option<String>,
+    /// ここから使う音の高さ。
+    pub to: Option<String>,
 }
 
 /// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
@@ -938,6 +1085,15 @@ pub fn sing_song(state: State<'_, AppState>, id: String) -> Result<SungSongView>
         phrases: count(s.phrases),
         dropped_phrases: count(s.dropped_phrases),
         duration_ms: s.duration_ms,
+        subbank_switches: s
+            .subbank_switches
+            .into_iter()
+            .map(|w| SubbankSwitchView {
+                note_index: count(w.note_index),
+                from: w.from.map(koeru_core::tone::name),
+                to: w.to.map(koeru_core::tone::name),
+            })
+            .collect(),
     })
 }
 
@@ -1167,6 +1323,8 @@ pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
             title: s.title,
             singability: s.singability.as_str().to_owned(),
             singable: s.singability.is_singable(),
+            previewable: s.range_fit.is_previewable(),
+            transpose: s.range_fit.transpose,
             covered: count(s.covered),
             required: count(s.required),
             missing_units: count(s.missing_units),
@@ -1223,11 +1381,144 @@ pub fn song_plan(state: State<'_, AppState>, id: String) -> Result<SongPlanView>
     })
 }
 
-/// UST を取り込む（`TR-RCL-12`）。主経路はこれ。
+/// UST / USTX を取り込む（`TR-RCL-12`）。主経路はこれ。
+///
+/// 題はファイル名から採る。 USTX は1トラックが1曲になるので、返るのは並び。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn import_ust(state: State<'_, AppState>, bytes: Vec<u8>, title: String) -> Result<String> {
-    lock(&state)?.import_ust(&bytes, &title)
+pub fn import_songs(
+    state: State<'_, AppState>,
+    bytes: Vec<u8>,
+    file_name: String,
+) -> Result<Vec<ImportedSongView>> {
+    Ok(lock(&state)?
+        .import_songs(&bytes, &file_name)?
+        .into_iter()
+        .map(|(id, song)| ImportedSongView {
+            id,
+            title: song.title,
+            notes: count(song.notes.len()),
+        })
+        .collect())
+}
+
+/// 取り込んだ曲（`TR-RCL-12`）。
+///
+/// 題をそのまま返す。 取り込んだ直後に本人が直せるようにするため、
+/// 一覧を引き直さずに出せる形で返す。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ImportedSongView {
+    pub id: String,
+    pub title: String,
+    /// ノートの数。休符は入らない。
+    pub notes: u32,
+}
+
+/// 曲の題を変える（`TR-RCL-12`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn rename_song(state: State<'_, AppState>, id: String, title: String) -> Result<()> {
+    lock(&state)?.rename_song(&id, &title)
+}
+
+/// 曲のノート列（`TR-RCL-12`）。範囲を選ぶ画面が読む。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn song_notes(state: State<'_, AppState>, id: String) -> Result<Vec<NoteView>> {
+    Ok(lock(&state)?
+        .song_notes(&id)?
+        .into_iter()
+        .map(|n| NoteView {
+            lyric: n.lyric,
+            tone: koeru_core::tone::name(n.midi),
+            ticks: n.ticks,
+        })
+        .collect())
+}
+
+/// 曲の1ノート（`TR-RCL-12` (a)(b)）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct NoteView {
+    /// 歌詞（1モーラぶん）。
+    pub lyric: String,
+    /// 音の高さ。英語音名（`TR-REC-25`）。
+    pub tone: String,
+    /// 長さ（ティック）。480 が4分音符。
+    pub ticks: u32,
+}
+
+/// 選んだノート群から録音リストを詰め直す（`TR-RCL-16`, `DEC-RCL-011`）。
+///
+/// 複数の曲から範囲を選べる。 返すのは足した行の数。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn repack_for_selection(
+    state: State<'_, AppState>,
+    selections: Vec<SongSelection>,
+) -> Result<u32> {
+    let picked: Vec<(String, Vec<(usize, usize)>)> = selections
+        .into_iter()
+        .map(|s| {
+            (
+                s.song_id,
+                s.ranges
+                    .into_iter()
+                    .map(|r| (r.from as usize, r.to as usize))
+                    .collect(),
+            )
+        })
+        .collect();
+    Ok(count(lock(&state)?.repack_for_selection(&picked)?))
+}
+
+/// 1曲ぶんの選択（`TR-RCL-12`）。
+#[derive(Debug, Clone, serde::Deserialize, specta::Type)]
+pub struct SongSelection {
+    pub song_id: String,
+    /// 選んだノートの範囲。空なら曲全体。
+    pub ranges: Vec<NoteRange>,
+}
+
+/// ノートの範囲（`[from, to)`）。
+#[derive(Debug, Clone, Copy, serde::Deserialize, specta::Type)]
+pub struct NoteRange {
+    pub from: u32,
+    pub to: u32,
+}
+
+/// 取り込んだ曲すべて（`TR-RCL-12`）。曲バンクを組み替える画面が読む。
+///
+/// 歌える曲の一覧（[`song_status`]）とは別。 あちらはバンクの中だけを見せる。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn all_songs(state: State<'_, AppState>) -> Result<Vec<BankSongView>> {
+    Ok(lock(&state)?
+        .all_songs()?
+        .into_iter()
+        .map(|(id, song, in_bank)| BankSongView {
+            id,
+            title: song.title,
+            notes: count(song.notes.len()),
+            in_bank,
+            // 同梱分と持ち込み分を見分ける（`TR-RCL-12` (f)）。
+            // 許諾を出す先はここしかない——一覧に出さないと、
+            // 持ち込んだ曲が配布物に入らないことが画面から読めない。
+            license: song.provenance.license,
+        })
+        .collect())
+}
+
+/// 曲バンクの1曲（`TR-RCL-12`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct BankSongView {
+    pub id: String,
+    pub title: String,
+    /// ノートの数。休符は入らない。
+    pub notes: u32,
+    /// 曲バンクに入っているか（`TR-RCL-12`）。
+    pub in_bank: bool,
+    /// 利用許諾（`TR-RCL-12` (f)）。
+    pub license: String,
 }
 
 /// 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。
@@ -1358,6 +1649,46 @@ pub fn start_retake(state: State<'_, AppState>, row_id: String) -> Result<String
 }
 
 /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
+/// 録る順（`TR-SYN-19`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct RecordingOrderView {
+    /// いまのモード。`SongBankFirst` か `CoverageEfficiency`。
+    ///
+    /// **どちらでいるかを常に表示する**（`TR-SYN-19`）。
+    pub mode: String,
+    /// 次に録る順の行 ID。収録済みの行は入らない。
+    pub row_ids: Vec<String>,
+}
+
+/// いまの録る順と、その並び（`TR-SYN-19`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn recording_order(state: State<'_, AppState>) -> Result<RecordingOrderView> {
+    let (mode, row_ids) = lock(&state)?.recording_order()?;
+    Ok(RecordingOrderView {
+        mode: mode.as_str().to_owned(),
+        row_ids,
+    })
+}
+
+/// 録る順を切り替える（`TR-SYN-19` の (b)）。可逆。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn set_recording_order(state: State<'_, AppState>, mode: String) -> Result<()> {
+    let m = match mode.as_str() {
+        "CoverageEfficiency" => koeru_core::order::Mode::CoverageEfficiency,
+        "SongBankFirst" => koeru_core::order::Mode::SongBankFirst,
+        other => {
+            return Err(AppError::new(
+                "order.unknown_mode",
+                format_args!("録る順 {other} を知らない"),
+            ));
+        }
+    };
+    lock(&state)?.set_recording_order(m)?;
+    Ok(())
+}
+
 #[tauri::command(async)]
 #[specta::specta]
 pub fn rows_with_takes(state: State<'_, AppState>) -> Result<Vec<RowTakesView>> {
@@ -1677,6 +2008,25 @@ pub struct PackageStateView {
     pub otos_ready: bool,
     pub findings: Vec<FindingView>,
     pub unencodable: Vec<UnencodableView>,
+    /// 下位方式への書き出し（`TR-PKG-24`, `TR-PKG-25`）。
+    pub downgrades: Vec<DowngradeView>,
+}
+
+/// 下位方式の書き出し1件（`TR-PKG-24`, `TR-PKG-25`）。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct DowngradeView {
+    /// 書き出す作り方。
+    pub method: String,
+    /// 複製される WAV の概算バイト数。
+    ///
+    /// **「oto.ini 1ファイル分」ではない。** 元とほぼ同等の容量がもう1本できる。
+    pub bytes: u32,
+    /// 素材が跨ぐ収録セッションの数（`DEC-RCL-007`）。
+    ///
+    /// 判定ではない。 声質が揃っているかは検知しない。
+    pub sessions: u32,
+    /// 最初と最後の間隔（日）。
+    pub span_days: u32,
 }
 
 /// 配布物に入るファイル1つ。
@@ -1831,6 +2181,16 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
             .map(|m| m.as_str().to_owned())
             .collect(),
         missing_aliases: st.missing_aliases.clone(),
+        downgrades: st
+            .downgrades
+            .iter()
+            .map(|d| DowngradeView {
+                method: d.method.as_str().to_owned(),
+                bytes: count64(d.bytes),
+                sessions: count(d.sessions),
+                span_days: d.span_days,
+            })
+            .collect(),
         required_table_known: st.required_table_known,
         otos_ready: st.otos_ready,
         findings: st

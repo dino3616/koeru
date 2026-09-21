@@ -27,18 +27,20 @@ use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
 use crate::calibration::Calibration;
 use crate::frq::Frq;
 use crate::inventory::Unit;
+use crate::oto::Boundary;
 use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, calibrations, distribution, oto_values, releases, review_state, row_units, rows,
-    sessions, song_notes, songs, take_analysis, take_fingerprints, take_metrics, takes,
+    adopted_takes, calibrations, distribution, oto_values, recording_order, releases, review_state,
+    row_aliases, row_measurements, row_units, rows, sessions, song_notes, songs, take_analysis,
+    take_boundaries, take_fingerprints, take_metrics, takes,
 };
 use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// 無音のピークを表す値（dBFS）。
@@ -276,35 +278,79 @@ impl Ledger {
     /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。
     ///
     /// 生成が決定的なので、並び順もそのまま持つ（`TR-RCL-27`）。
-    #[tracing::instrument(skip(self, list), fields(rows = list.len(), tone), err)]
-    pub fn install_reclist(&mut self, list: &[ReclistRow], tone: i32) -> Result<()> {
+    /// 単音階なら `tones` は1つ。多音階は同じリストを音高の数だけ入れる
+    /// （`TR-RCL-26`。音高ごとに独立した行集合を持つ）。
+    ///
+    /// 行 ID は音高ごとに分ける。 同じ ID を共有すると、どの音高の行を
+    /// 録ったのかが台帳から分からなくなる。
+    #[tracing::instrument(skip(self, list), fields(rows = list.len(), tones = tones.len()), err)]
+    pub fn install_reclist_for_tones(
+        &mut self,
+        list: &[ReclistRow],
+        method: crate::alias::Method,
+        tones: &[i32],
+    ) -> Result<()> {
         self.conn
             .transaction(|c| {
-                for (i, r) in list.iter().enumerate() {
-                    diesel::insert_into(rows::table)
-                        .values((
-                            rows::id.eq(&r.id),
-                            rows::text.eq(&r.text),
-                            rows::file_stem.eq(&r.file_stem),
-                            rows::tone.eq(tone),
-                            rows::state.eq(RowState::Unrecorded.as_str()),
-                            rows::ordinal.eq(i32::try_from(i).unwrap_or(i32::MAX)),
-                        ))
-                        .execute(c)?;
-                    for u in &r.units {
-                        diesel::insert_into(row_units::table)
+                let mut ordinal = 0_i32;
+                for tone in tones {
+                    for r in list {
+                        let id = if tones.len() > 1 {
+                            format!("{}@{}", r.id, crate::tone::name(*tone))
+                        } else {
+                            r.id.clone()
+                        };
+                        diesel::insert_into(rows::table)
                             .values((
-                                row_units::row_id.eq(&r.id),
-                                row_units::kana.eq(u.kana),
-                                row_units::consonant.eq(u.consonant),
-                                row_units::vowel.eq(u.vowel),
+                                rows::id.eq(&id),
+                                rows::text.eq(&r.text),
+                                rows::file_stem.eq(&r.file_stem),
+                                rows::tone.eq(tone),
+                                rows::state.eq(RowState::Unrecorded.as_str()),
+                                rows::ordinal.eq(ordinal),
                             ))
                             .execute(c)?;
+                        ordinal += 1;
+                        // 単位は集合として入れる。 連続音の行は同じ仮名を2度持つが、
+                        // 集合としては変わらない。語順は `rows.text` が持っている。
+                        let mut seen = std::collections::BTreeSet::new();
+                        for u in &r.units {
+                            if !seen.insert(u.kana) {
+                                continue;
+                            }
+                            diesel::insert_into(row_units::table)
+                                .values((
+                                    row_units::row_id.eq(&id),
+                                    row_units::kana.eq(u.kana),
+                                    row_units::consonant.eq(u.consonant),
+                                    row_units::vowel.eq(u.vowel),
+                                ))
+                                .execute(c)?;
+                        }
+                        // 行が生むエイリアス（`TR-PKG-22` の判定の正本）。
+                        for (n, alias) in crate::reclist::row_aliases(method, &r.units)
+                            .into_iter()
+                            .enumerate()
+                        {
+                            diesel::insert_into(row_aliases::table)
+                                .values((
+                                    row_aliases::row_id.eq(&id),
+                                    row_aliases::alias.eq(&alias),
+                                    row_aliases::ordinal.eq(i32::try_from(n).unwrap_or(i32::MAX)),
+                                ))
+                                .execute(c)?;
+                        }
                     }
                 }
                 Ok(())
             })
-            .map_err(db("install_reclist"))
+            .map_err(db("install_reclist_for_tones"))
+    }
+
+    /// 単独音・単音階の入口。 既存の呼び出しを壊さないために残す。
+    #[tracing::instrument(skip(self, list), fields(rows = list.len(), tone), err)]
+    pub fn install_reclist(&mut self, list: &[ReclistRow], tone: i32) -> Result<()> {
+        self.install_reclist_for_tones(list, crate::alias::Method::Single, &[tone])
     }
 
     /// 収録セッションを始める。
@@ -487,6 +533,314 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map(|v| v.into_iter().collect())
             .map_err(db("covered_units"))
+    }
+
+    /// 収録済みのエイリアス集合（`TR-RCL-18`, `TR-PKG-22`）。
+    ///
+    /// 採用テイクを持つ行が生むエイリアスの和集合。 書き出せる方式の判定は
+    /// これで決まる（`TR-PKG-23`）。[`covered_units`](Self::covered_units) の
+    /// 仮名では、連続音と CVVC の被覆を表せない。
+    pub fn covered_aliases(&mut self) -> Result<BTreeSet<String>> {
+        row_aliases::table
+            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(row_aliases::row_id)))
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select(row_aliases::alias)
+            .load::<String>(&mut self.conn)
+            .map(|v| v.into_iter().collect())
+            .map_err(db("covered_aliases"))
+    }
+
+    /// 録音リストが要求するエイリアスの全体（`TR-RCL-18`）。
+    ///
+    /// 録ったかどうかは見ない。 分母になるほう。
+    pub fn all_aliases(&mut self) -> Result<BTreeSet<String>> {
+        row_aliases::table
+            .select(row_aliases::alias)
+            .load::<String>(&mut self.conn)
+            .map(|v| v.into_iter().collect())
+            .map_err(db("all_aliases"))
+    }
+
+    /// 音高ごとの収録済みエイリアス（`TR-RCL-26`）。
+    ///
+    /// > 収録済み単位は (エイリアス, 収録音高) の組で管理する
+    ///
+    /// 音高を跨いで混ぜない。 1音高だけ録り終えても、音域の広い曲は歌えない。
+    pub fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+        let rows: Vec<(i32, String)> = row_aliases::table
+            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select((rows::tone, row_aliases::alias))
+            .load(&mut self.conn)
+            .map_err(db("covered_aliases_by_tone"))?;
+        let mut out: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+        for (tone, alias) in rows {
+            out.entry(tone).or_default().insert(alias);
+        }
+        Ok(out)
+    }
+
+    /// いまの録る順（`TR-SYN-19`）。
+    ///
+    /// 返すのは `(モード, 本人が明示的に選んだか)`。 立っていれば自動では戻さない。
+    pub fn recording_order(&mut self) -> Result<(crate::order::Mode, bool)> {
+        recording_order::table
+            .find(1)
+            .select((recording_order::mode, recording_order::pinned))
+            .first::<(String, i32)>(&mut self.conn)
+            .map(|(m, p)| {
+                let mode = if m == "coverage_efficiency" {
+                    crate::order::Mode::CoverageEfficiency
+                } else {
+                    crate::order::Mode::SongBankFirst
+                };
+                (mode, p != 0)
+            })
+            .map_err(db("recording_order"))
+    }
+
+    /// 録る順を切り替える（`TR-SYN-19`）。
+    ///
+    /// `pinned` は本人の明示的な操作かどうか。 自動の移行（曲バンクが完全に
+    /// なったとき）では立てない——立てると、そのあと本人が選んだことになる。
+    pub fn set_recording_order(&mut self, mode: crate::order::Mode, pinned: bool) -> Result<()> {
+        let name = match mode {
+            crate::order::Mode::SongBankFirst => "song_bank_first",
+            crate::order::Mode::CoverageEfficiency => "coverage_efficiency",
+        };
+        diesel::update(recording_order::table.find(1))
+            .set((
+                recording_order::mode.eq(name),
+                recording_order::pinned.eq(i32::from(pinned)),
+            ))
+            .execute(&mut self.conn)
+            .map(|_| ())
+            .map_err(db("set_recording_order"))
+    }
+
+    /// その行の収録音高（`TR-REC-25`）。
+    pub fn row_tone(&mut self, row_id: &str) -> Result<i32> {
+        rows::table
+            .find(row_id)
+            .select(rows::tone)
+            .first::<i32>(&mut self.conn)
+            .map_err(db("row_tone"))
+    }
+
+    /// 行 ID から収録音高を引く表（`TR-ALN-22`）。
+    ///
+    /// 一貫性補正の集団を音階内に閉じるために要る。 1件ずつ問い合わせると、
+    /// テイクの数だけ往復する。
+    pub fn row_tones(&mut self) -> Result<BTreeMap<String, i32>> {
+        rows::table
+            .select((rows::id, rows::tone))
+            .load::<(String, i32)>(&mut self.conn)
+            .map(|v| v.into_iter().collect())
+            .map_err(db("row_tones"))
+    }
+
+    /// その行のテイク数（`TR-RCL-10` の (c)）。
+    ///
+    /// 無効にしたものも数える。 録り直した回数を測るので、
+    /// 失敗したテイクこそ数に入る。
+    pub fn take_count(&mut self, row_id: &str) -> Result<u32> {
+        takes::table
+            .filter(takes::row_id.eq(row_id))
+            .count()
+            .get_result::<i64>(&mut self.conn)
+            .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+            .map_err(db("take_count"))
+    }
+
+    /// 音高ごとの消化率（`TR-RCL-26`）。
+    ///
+    /// > 進捗表示では「いま歌える曲の数」を音高を跨いだ実際の判定結果で出し、
+    /// > 音高ごとの消化率は詳細表示に置く
+    ///
+    /// 返すのは音高ごとの `(録り終えた行, その音高の行の総数)`。
+    /// **跨いで足さない。** 3音高のうち1本だけ録り終えても「33%」にはならない
+    /// ——音域の広い曲は依然として歌えない。
+    pub fn progress_by_tone(&mut self) -> Result<BTreeMap<i32, (usize, usize)>> {
+        let all: Vec<(i32, String)> = rows::table
+            .select((rows::tone, rows::id))
+            .load(&mut self.conn)
+            .map_err(db("progress_by_tone"))?;
+        let done: BTreeSet<String> = adopted_takes::table
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select(adopted_takes::row_id)
+            .load::<String>(&mut self.conn)
+            .map_err(db("progress_by_tone"))?
+            .into_iter()
+            .collect();
+        let mut out: BTreeMap<i32, (usize, usize)> = BTreeMap::new();
+        for (tone, id) in all {
+            let e = out.entry(tone).or_insert((0, 0));
+            e.1 += 1;
+            if done.contains(&id) {
+                e.0 += 1;
+            }
+        }
+        Ok(out)
+    }
+
+    /// 採用テイクが跨ぐ収録セッションの数と期間（`DEC-RCL-007`）。
+    ///
+    /// 判定ではない。 「声質が揃っている」とは言わないための、事実だけの欄。
+    /// 返すのは `(セッション数, 最初の時刻, 最後の時刻)`。
+    pub fn adopted_session_span(&mut self) -> Result<(usize, Option<String>, Option<String>)> {
+        let rows: Vec<(i32, String)> = adopted_takes::table
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select((takes::session_id, takes::recorded_at))
+            .load(&mut self.conn)
+            .map_err(db("adopted_session_span"))?;
+        let sessions: BTreeSet<i32> = rows.iter().map(|(s, _)| *s).collect();
+        let mut times: Vec<&String> = rows.iter().map(|(_, t)| t).collect();
+        times.sort();
+        Ok((
+            sessions.len(),
+            times.first().map(|s| (*s).clone()),
+            times.last().map(|s| (*s).clone()),
+        ))
+    }
+
+    /// 方式が要求するエイリアスのうち、まだ無いもの（`TR-PKG-23`）。
+    ///
+    /// 不足を全件返す。 「何件足りない」だけだと、部分的なパッケージを
+    /// 出したくなる誘惑が残る。
+    pub fn missing_aliases(&mut self, required: &BTreeSet<String>) -> Result<Vec<String>> {
+        let have = self.covered_aliases()?;
+        Ok(required.difference(&have).cloned().collect())
+    }
+
+    /// アライメントが出した境界を保存する（`TR-ALN-34`）。
+    ///
+    /// 同じテイクの同じエイリアスは差し替える。 再アライメントしたときに
+    /// 古い境界が残ると、5値を作り直したときだけ値が飛ぶ。
+    pub fn put_boundaries(&mut self, take_id: i32, entries: &[(String, Boundary)]) -> Result<()> {
+        self.conn
+            .transaction(|c| {
+                for (alias, b) in entries {
+                    diesel::insert_into(take_boundaries::table)
+                        .values((
+                            take_boundaries::take_id.eq(take_id),
+                            take_boundaries::alias.eq(alias),
+                            take_boundaries::voice_start_ms.eq(b.voice_start_ms),
+                            take_boundaries::vowel_start_ms.eq(b.vowel_start_ms),
+                            take_boundaries::vowel_end_ms.eq(b.vowel_end_ms),
+                        ))
+                        .on_conflict((take_boundaries::take_id, take_boundaries::alias))
+                        .do_update()
+                        .set((
+                            take_boundaries::voice_start_ms.eq(b.voice_start_ms),
+                            take_boundaries::vowel_start_ms.eq(b.vowel_start_ms),
+                            take_boundaries::vowel_end_ms.eq(b.vowel_end_ms),
+                        ))
+                        .execute(c)?;
+                }
+                Ok(())
+            })
+            .map_err(db("put_boundaries"))
+    }
+
+    /// そのテイクの境界（`TR-ALN-34`）。
+    ///
+    /// 空なら、この要件より前に推定したテイク。 再導出の対象外で、
+    /// 求められたらアライメントからやり直す。
+    pub fn boundaries_for_take(&mut self, take_id: i32) -> Result<Vec<(String, Boundary)>> {
+        take_boundaries::table
+            .filter(take_boundaries::take_id.eq(take_id))
+            .order(take_boundaries::alias.asc())
+            .select((
+                take_boundaries::alias,
+                take_boundaries::voice_start_ms,
+                take_boundaries::vowel_start_ms,
+                take_boundaries::vowel_end_ms,
+            ))
+            .load::<(String, f64, f64, f64)>(&mut self.conn)
+            .map(|v| {
+                v.into_iter()
+                    .map(|(alias, voice_start_ms, vowel_start_ms, vowel_end_ms)| {
+                        (
+                            alias,
+                            Boundary {
+                                voice_start_ms,
+                                vowel_start_ms,
+                                vowel_end_ms,
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .map_err(db("boundaries_for_take"))
+    }
+
+    /// 行ごとの実測を1件書く（`TR-RCL-10`）。
+    pub fn record_row_measurement(
+        &mut self,
+        row_id: &str,
+        at: &str,
+        m: &crate::pace::RowMeasurement,
+    ) -> Result<()> {
+        diesel::insert_into(row_measurements::table)
+            .values((
+                row_measurements::row_id.eq(row_id),
+                row_measurements::recorded_at.eq(at),
+                row_measurements::utterance_ms.eq(m.utterance_s * 1000.0),
+                row_measurements::gap_ms.eq(m.gap_s * 1000.0),
+                row_measurements::takes.eq(i32::try_from(m.takes).unwrap_or(i32::MAX)),
+                row_measurements::moras.eq(i32::try_from(m.moras).unwrap_or(i32::MAX)),
+            ))
+            .execute(&mut self.conn)
+            .map(|_| ())
+            .map_err(db("record_row_measurement"))
+    }
+
+    /// 直近の実測（`TR-RCL-10` の「直近 20 行」）。
+    ///
+    /// 古い順に返す。 [`crate::pace::estimate_pace`] が末尾から窓を取る。
+    pub fn recent_measurements(&mut self, limit: i64) -> Result<Vec<crate::pace::RowMeasurement>> {
+        let mut v: Vec<(f64, f64, i32, i32)> = row_measurements::table
+            .order(row_measurements::id.desc())
+            .limit(limit)
+            .select((
+                row_measurements::utterance_ms,
+                row_measurements::gap_ms,
+                row_measurements::takes,
+                row_measurements::moras,
+            ))
+            .load(&mut self.conn)
+            .map_err(db("recent_measurements"))?;
+        v.reverse();
+        Ok(v.into_iter()
+            .map(
+                |(utterance_ms, gap_ms, takes, moras)| crate::pace::RowMeasurement {
+                    utterance_s: utterance_ms / 1000.0,
+                    gap_s: gap_ms / 1000.0,
+                    takes: u32::try_from(takes).unwrap_or(1),
+                    moras: usize::try_from(moras).unwrap_or(0),
+                },
+            )
+            .collect())
+    }
+
+    /// このプロジェクトの収録音高（MIDI、`TR-REC-25`）。
+    ///
+    /// 行が名乗っている音高の集合。 プロジェクト作成時に確定し、途中で増減しない
+    /// （`TR-REC-25` の「1プロジェクトで収録する音高の集合はプロジェクト作成時に
+    /// 確定させ、収録途中に増減させない」）。単音階なら1つ。
+    pub fn recording_tones(&mut self) -> Result<Vec<i32>> {
+        let mut v = rows::table
+            .select(rows::tone)
+            .distinct()
+            .load::<i32>(&mut self.conn)
+            .map_err(db("recording_tones"))?;
+        v.sort_unstable();
+        Ok(v)
     }
 
     /// 五十音の行ごとの被覆（`DEC-PLT-025` の環）。
@@ -1133,6 +1487,10 @@ impl Ledger {
                     songs::bundled.eq(i32::from(bundled)),
                     songs::in_bank.eq(1),
                     songs::added_at.eq(added_at),
+                    // 内部形式の一部（`TR-SYN-30`）。読み込んだ UST の
+                    // テンポを落とすと、試唱の速さが復元できない。
+                    songs::tempo_bpm.eq(song.tempo_bpm),
+                    songs::default_portamento_ms.eq(song.default_portamento_ms),
                 );
                 diesel::insert_into(songs::table)
                     .values((songs::id.eq(id), values))
@@ -1165,21 +1523,50 @@ impl Ledger {
     /// バンクが空でも成立する。 そのとき進捗はカバレッジだけで読む。
     #[tracing::instrument(skip(self), err)]
     pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
-        let heads = songs::table
-            .filter(songs::in_bank.eq(1))
+        Ok(self
+            .songs(true)?
+            .into_iter()
+            .map(|(id, song, _)| (id, song))
+            .collect())
+    }
+
+    /// 取り込んだ曲すべて（`TR-RCL-12`）。バンクに入っているかを添える。
+    ///
+    /// **外した曲も返す。** バンクの中だけを返すと、一度外した曲が
+    /// どこからも見えなくなり、戻す道が無くなる。
+    #[tracing::instrument(skip(self), err)]
+    pub fn all_songs(&mut self) -> Result<Vec<(String, Song, bool)>> {
+        self.songs(false)
+    }
+
+    /// 曲を読む。 `in_bank_only` ならバンクの中だけ。
+    fn songs(&mut self, in_bank_only: bool) -> Result<Vec<(String, Song, bool)>> {
+        let mut query = songs::table.into_boxed();
+        if in_bank_only {
+            query = query.filter(songs::in_bank.eq(1));
+        }
+        let heads = query
             .order(songs::added_at.asc())
-            .select((songs::id, songs::title, songs::source, songs::license))
-            .load::<(String, String, String, String)>(&mut self.conn)
-            .map_err(db("songs_in_bank"))?;
+            .select((
+                songs::id,
+                songs::title,
+                songs::source,
+                songs::license,
+                songs::tempo_bpm,
+                songs::default_portamento_ms,
+                songs::in_bank,
+            ))
+            .load::<(String, String, String, String, f64, f64, i32)>(&mut self.conn)
+            .map_err(db("songs"))?;
 
         let mut out = Vec::with_capacity(heads.len());
-        for (id, title, source, license) in heads {
+        for (id, title, source, license, tempo_bpm, default_portamento_ms, in_bank) in heads {
             let notes = song_notes::table
                 .filter(song_notes::song_id.eq(&id))
                 .order(song_notes::ordinal.asc())
                 .select((song_notes::lyric, song_notes::midi, song_notes::ticks))
                 .load::<(String, i32, i32)>(&mut self.conn)
-                .map_err(db("songs_in_bank"))?;
+                .map_err(db("songs"))?;
             out.push((
                 id,
                 Song {
@@ -1193,7 +1580,10 @@ impl Ledger {
                         })
                         .collect(),
                     provenance: Provenance { source, license },
+                    tempo_bpm,
+                    default_portamento_ms,
                 },
+                in_bank == 1,
             ));
         }
         Ok(out)
@@ -1211,19 +1601,55 @@ impl Ledger {
         Ok(())
     }
 
+    /// 曲の題を変える（`TR-RCL-12`）。
+    ///
+    /// 題はファイル名から採るので、そのままでは一覧に並べられないことがある。
+    /// 曲そのものは触らない。
+    ///
+    /// **題をトレースに載せない。** 持ち込んだファイルの名前がそのまま題になる
+    /// ので、ここを流すとファイル名が外へ出る（`TR-PKG-56` の「音源名・ファイルパス・
+    /// 歌詞・プロジェクト名・波形を送らない」）。
+    #[tracing::instrument(skip(self, id, title), err)]
+    pub fn rename_song(&mut self, id: &str, title: &str) -> Result<()> {
+        diesel::update(songs::table.filter(songs::id.eq(id)))
+            .set(songs::title.eq(title))
+            .execute(&mut self.conn)
+            .map_err(db("rename_song"))?;
+        Ok(())
+    }
+
     /// その収録単位を鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
     ///
     /// 採用テイクだけ。 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
     /// 同じ単位を複数の行が持つときは、先に来る行のものを使う（決定的にする）。
     #[tracing::instrument(skip(self, kana), err)]
     pub fn take_for_unit(&mut self, kana: &str) -> Result<Option<Take>> {
-        let row = row_units::table
+        self.take_for_unit_at(kana, None)
+    }
+
+    /// その収録音高で、その単位を鳴らすためのテイク（`TR-SYN-16`）。
+    ///
+    /// `tone` が `None` なら音高を問わない（単音階）。 多音階では
+    /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
+    /// 1音だけ別人の声になる。
+    ///
+    /// # Errors
+    ///
+    /// SQLite の操作が失敗した。
+    #[tracing::instrument(skip(self, kana), err)]
+    pub fn take_for_unit_at(&mut self, kana: &str, tone: Option<i32>) -> Result<Option<Take>> {
+        let mut q = row_units::table
             .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
             .filter(row_units::kana.eq(kana))
             .filter(takes::invalid.eq(0))
+            .into_boxed();
+        if let Some(t) = tone {
+            q = q.filter(rows::tone.eq(t));
+        }
+        let row = q
             .order(rows::ordinal.asc())
             .select((
                 takes::id,
@@ -1419,7 +1845,7 @@ impl Ledger {
     /// エイリアスの並びは決めておく。 同じ音源からは同じ `oto.ini` が出る。
     #[tracing::instrument(skip(self), err)]
     pub fn distribution_samples(&mut self) -> Result<Vec<DistributionSample>> {
-        let takes: Vec<(String, String, String, i32)> = rows::table
+        let takes: Vec<(String, String, String, i32, i32)> = rows::table
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .order(rows::ordinal.asc())
@@ -1428,12 +1854,13 @@ impl Ledger {
                 rows::file_stem,
                 takes::rel_path,
                 adopted_takes::take_id,
+                rows::tone,
             ))
             .load(&mut self.conn)
             .map_err(db("distribution_samples"))?;
 
         let mut out = Vec::with_capacity(takes.len());
-        for (row_id, file_stem, rel_path, take_id) in takes {
+        for (row_id, file_stem, rel_path, take_id, tone) in takes {
             let mut otos = self.otos_of(take_id)?;
             otos.sort_by(|a, b| a.0.cmp(&b.0));
             let frq = self.analysis_of(take_id)?.map(|a| a.frq);
@@ -1444,6 +1871,7 @@ impl Ledger {
                 take_id,
                 otos,
                 frq,
+                tone,
             });
         }
         Ok(out)
@@ -1895,6 +2323,8 @@ pub struct DistributionSample {
     pub otos: Vec<(String, koeru_oto::Oto)>,
     /// 周波数表（`TR-PKG-05`）。録音時に作ったもの。
     pub frq: Option<Frq>,
+    /// 収録音高（MIDI、`TR-REC-25`）。多音階では区画を分ける軸になる。
+    pub tone: i32,
 }
 
 /// `adopted_otos` が読む行。列の並びは `select` と揃える。
@@ -2676,5 +3106,189 @@ mod tests {
             .execute(&mut l.conn)
             .expect("入る");
         assert_eq!(l.releases().expect("引ける").len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod m5_tests {
+    use super::*;
+    use crate::alias::Method as AliasMethod;
+    use crate::inventory::UnitSet;
+    use crate::reclist::{generate_cvvc, generate_sequential, generate_single};
+
+    fn session() -> SessionSnapshot {
+        SessionSnapshot {
+            started_at: "2026-09-20T12:00:00Z".into(),
+            device_id: "test-device".into(),
+            sample_rate_hz: 48_000,
+            channels: 1,
+            effects_state: "clean".into(),
+            route: "coreaudio".into(),
+            source_channel: 0,
+            master_rate_hz: 44_100,
+            resampler: "test".into(),
+            upstream_conversion: "unknown".into(),
+        }
+    }
+
+    fn adopt(l: &mut Ledger, sid: i32, row_id: &str) {
+        let t = l
+            .commit_take(&FinalizedTake {
+                row_id: row_id.into(),
+                session_id: sid,
+                rel_path: format!("masters/{row_id}.wav"),
+                frames: 44_100,
+                recorded_at: "2026-09-20T12:00:01Z".into(),
+            })
+            .expect("確定できる");
+        l.adopt_take(row_id, t).expect("採用できる");
+    }
+
+    /// 連続音の行が生むのは仮名ではなくエイリアス（`TR-PKG-22`）。
+    #[test]
+    fn 連続音の台帳はエイリアスで被覆を持つ() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
+        l.install_reclist_for_tones(&list, AliasMethod::Sequential, &[60])
+            .expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+
+        assert!(l.covered_aliases().expect("引ける").is_empty());
+        adopt(&mut l, sid, &list[0].id);
+
+        let covered = l.covered_aliases().expect("引ける");
+        let want = crate::reclist::row_aliases(AliasMethod::Sequential, &list[0].units);
+        assert_eq!(covered, want.into_iter().collect::<BTreeSet<_>>());
+        // 仮名の集合では足りない。`- あ` のような綴りは仮名には無い。
+        assert!(covered.iter().any(|a| a.starts_with("- ")), "{covered:?}");
+    }
+
+    /// 同じ仮名が2度出る行でも入る（`row_units` は集合として持つ）。
+    #[test]
+    fn 同じ仮名が二度出る行も書き込める() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_sequential(UnitSet::Extended, 8).expect("生成できる");
+        let repeated = list
+            .iter()
+            .find(|r| {
+                let mut seen = BTreeSet::new();
+                r.units.iter().any(|u| !seen.insert(u.kana))
+            })
+            .expect("同じ仮名を2度持つ行がある");
+        l.install_reclist_for_tones(
+            std::slice::from_ref(repeated),
+            AliasMethod::Sequential,
+            &[60],
+        )
+        .expect("書き込める");
+    }
+
+    /// 音高ごとに独立した行集合を持つ（`TR-RCL-26`）。
+    #[test]
+    fn 多音階は音高ごとに行を持つ() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        let tones = [55, 62, 69];
+        l.install_reclist_for_tones(&list, AliasMethod::Single, &tones)
+            .expect("書き込める");
+        assert_eq!(l.recording_tones().expect("引ける"), tones);
+
+        let sid = l.start_session(&session()).expect("始められる");
+        // G3 の1行だけ録る。
+        let g3 = format!("{}@G3", list[0].id);
+        adopt(&mut l, sid, &g3);
+
+        let by_tone = l.covered_aliases_by_tone().expect("引ける");
+        assert_eq!(by_tone.len(), 1, "録った音高だけが出る");
+        assert!(by_tone.contains_key(&55));
+        // 音高を跨いで混ぜない。1音高だけ録り終えても他は空のまま。
+        assert!(!by_tone.contains_key(&62));
+    }
+
+    /// 不足は全件返す（`TR-PKG-23`）。件数だけにしない。
+    #[test]
+    fn 不足エイリアスは全件返る() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_cvvc(UnitSet::Core, 8).expect("生成できる");
+        l.install_reclist_for_tones(&list, AliasMethod::Cvvc, &[60])
+            .expect("書き込める");
+        let required: BTreeSet<String> = ["- か".to_owned(), "a k".to_owned()].into();
+        let missing = l.missing_aliases(&required).expect("引ける");
+        assert_eq!(missing.len(), 2, "何も録っていないので全部足りない");
+    }
+
+    /// 境界を保存して読み戻せる（`TR-ALN-34`）。
+    #[test]
+    fn 境界を保存して読み戻せる() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist(&list, 60).expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+        let t = l
+            .commit_take(&FinalizedTake {
+                row_id: list[0].id.clone(),
+                session_id: sid,
+                rel_path: "masters/a.wav".into(),
+                frames: 44_100,
+                recorded_at: "2026-09-20T12:00:01Z".into(),
+            })
+            .expect("確定できる");
+
+        assert!(l.boundaries_for_take(t).expect("引ける").is_empty());
+        let b = Boundary {
+            voice_start_ms: 100.0,
+            vowel_start_ms: 150.0,
+            vowel_end_ms: 600.0,
+        };
+        l.put_boundaries(t, &[("あ".to_owned(), b)])
+            .expect("書き込める");
+        assert_eq!(
+            l.boundaries_for_take(t).expect("引ける"),
+            [("あ".to_owned(), b)]
+        );
+
+        // 同じ鍵は差し替える。古い境界が残ると、5値を作り直したときだけ値が飛ぶ。
+        let b2 = Boundary {
+            vowel_end_ms: 700.0,
+            ..b
+        };
+        l.put_boundaries(t, &[("あ".to_owned(), b2)])
+            .expect("書き込める");
+        assert_eq!(
+            l.boundaries_for_take(t).expect("引ける"),
+            [("あ".to_owned(), b2)]
+        );
+    }
+
+    /// 実測は古い順に返り、窓は呼び出し側が切る（`TR-RCL-10`）。
+    #[test]
+    fn 実測を記録して直近を引ける() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist(&list, 60).expect("書き込める");
+
+        for i in 0..25 {
+            l.record_row_measurement(
+                &list[0].id,
+                "2026-09-20T12:00:00Z",
+                &crate::pace::RowMeasurement {
+                    utterance_s: f64::from(i),
+                    gap_s: 2.0,
+                    takes: 1,
+                    moras: 5,
+                },
+            )
+            .expect("書き込める");
+        }
+        let recent = l.recent_measurements(20).expect("引ける");
+        assert_eq!(recent.len(), 20);
+        assert!(
+            (recent[0].utterance_s - 5.0).abs() < 1e-9,
+            "古い順に返る: {}",
+            recent[0].utterance_s
+        );
+        assert!((recent[19].utterance_s - 24.0).abs() < 1e-9);
+        // そのまま推定へ渡せる。
+        assert!(crate::pace::estimate_pace(&recent).is_some());
     }
 }

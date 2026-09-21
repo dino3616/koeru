@@ -233,7 +233,7 @@ fn walk(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
 /// 数・寸法・列挙・ID だけ。自由文を入れない。
 /// 音源名・ファイルパス・歌詞・プロジェクト名が入ると、
 /// 「非公開のまま完成できる」という製品の前提が崩れる。
-const TRACE_FIELDS_ALLOWED: [&str; 56] = [
+const TRACE_FIELDS_ALLOWED: [&str; 60] = [
     "added_at",
     // ここから下は、値そのものが本人のものではないもの。
     // 数・レート・固定の語彙で、識別にも復元にも使えない。
@@ -246,11 +246,19 @@ const TRACE_FIELDS_ALLOWED: [&str; 56] = [
     "gates",
     "guide_offset_frames",
     "method",
+    // 録る順のモード（`TR-SYN-19`）。SongBankFirst か CoverageEfficiency の2語。
+    "mode",
     "preroll_frames",
+    // 方式プリセットの ID（`TR-RCL-01`）。同梱の固定語彙で、本人のものではない。
+    "preset_id",
     // 書き出し方（`TR-PKG-12`）。classic / openutau / both の3語しかない。
     "profile",
     "sample_rate_hz",
     "to_ms",
+    // 自動移調の量（`TR-SYN-15`）。-12 のような半音の数。
+    "semitones",
+    // 収録音高の本数（`TR-REC-25`）。1 か 3 のような数で、音高そのものではない。
+    "tones",
     "bundled",
     "columns",
     "count",
