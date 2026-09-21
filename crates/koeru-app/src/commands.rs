@@ -603,7 +603,7 @@ pub fn method_presets(tones: u32) -> Result<Vec<MethodPresetView>> {
                 clippy::cast_sign_loss,
                 reason = "見積もりは秒。u32 に収まらない長さの録音リストは作れない"
             )]
-            seconds: koeru_core::pace::fixed_seconds(&rows, passes).max(0.0) as u32,
+            seconds: koeru_core::pace::fixed_seconds(p.method, &rows, passes).max(0.0) as u32,
             passes: count(passes),
             reach: reach_of(&p).to_owned(),
             reading: reading_of(&p, &rows, passes).to_owned(),

@@ -176,10 +176,17 @@ fn coverage_of(
         ));
     }
 
+    // **設定した音高を全部回る。** 台帳に現れるのは1テイクでも録った音高
+    // だけなので、`by_tone` の値だけを見ると、まだ手を付けていない音高が
+    // 判定に入らない。`bank_of` はその音高の区画も作るので、空の区画を
+    // 抱えたまま「完成」と言うことになる。
+    let configured = ledger.recording_tones()?;
+    let empty = BTreeSet::new();
     let mut required = 0;
     let mut provided = 0;
     let mut missing: BTreeSet<String> = BTreeSet::new();
-    for covered in by_tone.values() {
+    for tone in &configured {
+        let covered = by_tone.get(tone).unwrap_or(&empty);
         let Some(c) = koeru_package::coverage::coverage(rules, method, set, covered) else {
             return Ok(None);
         };
@@ -205,16 +212,31 @@ pub fn state(
 ) -> Result<PackageState> {
     let distribution = settings(ledger, manifest)?;
     let profile = resolved_profile(&distribution)?;
+    // 検証の指摘と同じ鍵で持つ（`TR-PKG-51`）。
+    //
+    // **素の WAV 名で持っていた。** 多音階の指摘は `G3/s001.wav` の形で
+    // 来るので一度も引けず、しかも音高をまたいで同じ stem が潰れていた
+    // ——指摘からその行の録った回へ入る経路が消える。
+    let multi = ledger.recording_tones()?.len() > 1;
     let rows_by_file = ledger
         .distribution_samples()?
         .into_iter()
-        .map(|s| (format!("{}.wav", s.file_stem), s.row_id))
+        .map(|s| {
+            let path = if multi {
+                format!("{}/{}.wav", koeru_core::tone::name(s.tone), s.file_stem)
+            } else {
+                format!("{}.wav", s.file_stem)
+            };
+            (path, s.row_id)
+        })
         .collect();
     let bank = bank_of(dir, ledger, rules, manifest, &distribution, None)?;
 
     let coverage = coverage_of(ledger, rules, manifest)?;
     let report = validate::validate(&bank, profile);
-    let covered = ledger.covered_units()?;
+    // 要求表は方式ごとの綴り（`coverage::required`）。 仮名で突き合わせると、
+    // 単独音以外はどの方式も「出せる」に入らない。
+    let covered = ledger.covered_aliases()?;
     let exportable =
         koeru_package::coverage::exportable(rules, koeru_core::inventory::UnitSet::Core, &covered)
             .into_iter()
@@ -337,19 +359,18 @@ pub fn export_downgrade(
 ) -> Result<Exported> {
     let set = koeru_core::inventory::UnitSet::Core;
     let target = alias_method(method);
-    // 100% 被覆のときだけ（`TR-PKG-23`）。画面の関門と別に見る。
+    // 画面が出している一覧と同じ判定を通す（`TR-PKG-22`, `TR-PKG-23`）。
+    //
+    // **変換後の綴りで見ていた。** 連続音の素材が持つのは `- か` で、
+    // 単独音が要求するのは素の `か`。それを作り出すのがこの下の再導出
+    // なのに、その手前で「`か` を持っていない」と断っていた——
+    // **画面が「出せます」と言う音源が、押すと必ず落ちる。**
     let provided = ledger.covered_aliases()?;
-    if let Err(blocked) = koeru_package::downgrade::check(rules, target, set, &provided) {
-        return Err(match blocked {
-            koeru_package::downgrade::Blocked::Missing(m) => AppError::new(
-                "package.incomplete_coverage",
-                format!("その作り方に足りない音が {} 件ある", m.len()),
-            ),
-            koeru_package::downgrade::Blocked::NoRequirementTable => AppError::new(
-                "package.no_required_table",
-                "その作り方に必要な音の表をまだ持っていない",
-            ),
-        });
+    if !koeru_package::coverage::downgradable(rules, set, &provided).contains(&target) {
+        return Err(AppError::new(
+            "package.incomplete_coverage",
+            "その作り方では、いまの素材から出せない",
+        ));
     }
     let Some(required) = koeru_package::coverage::required(rules, target, set) else {
         return Err(AppError::new(

@@ -916,6 +916,7 @@ impl Studio {
             .collect();
 
         // 残り（`TR-RCL-09`）。固定の見積もりで出す——実測は採らない（`DEC-RCL-013`）。
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
         let remaining_rows: Vec<koeru_core::reclist::Row> = {
             // この音源の作り方で数える（`TR-RCL-01`）。 単独音で数えると、
             // 連続音のプロジェクトの残りが常に別のリストの残りになる。
@@ -931,15 +932,34 @@ impl Studio {
                 .filter(|r| r.adopted.is_some())
                 .map(|r| r.row_id)
                 .collect();
-            list.into_iter().filter(|r| !done.contains(&r.id)).collect()
+            // 音高ごとに数える（`TR-RCL-26`）。
+            //
+            // **素の行 ID で突き合わせていた。** 多音階の台帳は `s001@G3` の形で
+            // 持つので、生成したリストの `s001` とは一度も一致せず、
+            // **残りが最初から最後まで減らなかった。**
+            let multi = tones.len() > 1;
+            let mut left = Vec::new();
+            for t in &tones {
+                for r in &list {
+                    let id = if multi {
+                        format!("{}@{}", r.id, koeru_core::tone::name(*t))
+                    } else {
+                        r.id.clone()
+                    };
+                    if !done.contains(&id) {
+                        left.push(r.clone());
+                    }
+                }
+            }
+            left
         };
-        let tone_count = self.opened_mut()?.ledger.recording_tones()?.len();
-        let remaining_seconds = koeru_core::pace::fixed_seconds(&remaining_rows, tone_count);
+        // 音高ぶんは上で展開済み。 ここで掛け直さない。
+        let remaining_seconds = koeru_core::pace::fixed_seconds(preset.method, &remaining_rows, 1);
 
         Ok(Progress {
             next_row,
             remaining_seconds,
-            remaining_rows: remaining_rows.len() * tone_count.max(1),
+            remaining_rows: remaining_rows.len(),
             covered: covered.len(),
             required: required.len(),
             coverage,
@@ -977,7 +997,8 @@ impl Studio {
     pub fn song_plan(&mut self, id: &str) -> Result<koeru_core::plan::Plan> {
         let preset = self.current_preset()?;
         let open = self.opened_mut()?;
-        let covered = open.ledger.covered_units()?;
+        // 必要集合は方式ごとの綴り。 仮名で引くと交わらない。
+        let covered = open.ledger.covered_aliases()?;
         let song = open
             .ledger
             .songs_in_bank()?
@@ -993,7 +1014,12 @@ impl Studio {
         let full_list = preset
             .reclist(&rules)
             .map_err(|e| AppError::new(e.kind(), e))?;
-        Ok(koeru_core::plan::rows_to_cover(&missing, &full_list))
+        Ok(koeru_core::plan::rows_to_cover(
+            &rules,
+            preset.method,
+            &missing,
+            &full_list,
+        ))
     }
 
     /// UST / USTX を取り込む（`TR-RCL-12`）。
@@ -3146,12 +3172,34 @@ impl Studio {
             };
             let reading = alias.as_str();
             let prior = Self::prior_of(&pops, tone, reading, &o, duration_ms);
+            // 音の質はその枠の区間で測る（`TR-ALN-26`）。
+            //
+            // **ファイル全体を渡していた。** 隣のモーラが割れていたり
+            // 小さかったりするだけで、きれいな枠まで確認待ちへ戻る
+            // ——テイク確定側は区間で切っているので、固定を解いただけで
+            // 別の答えが出ていた。
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "位置はミリ秒。標本数へ落として範囲に丸める"
+            )]
+            let cut =
+                |ms: f64| ((ms / 1000.0 * f64::from(w.rate_hz)).max(0.0) as usize).min(f64s.len());
+            let (a0, a1) = (cut(b.voice_start_ms), cut(b.vowel_end_ms));
+            let part = &f64s[a0.min(a1)..a1.max(a0)];
+            // 退避経路は切った先頭からの相対で測る。 `segment::confidence` は
+            // サンプルと同じ原点で位置を数える。
+            let shifted = Boundaries {
+                voice_start_ms: 0.0,
+                vowel_start_ms: b.vowel_start_ms - b.voice_start_ms,
+                vowel_end_ms: b.vowel_end_ms - b.voice_start_ms,
+            };
             let c = alignment
                 .as_ref()
                 .and_then(|a| {
-                    Confidence::from_alignment_span(a, &f64s, b.voice_start_ms, b.vowel_end_ms)
+                    Confidence::from_alignment_span(a, part, b.voice_start_ms, b.vowel_end_ms)
                 })
-                .or_else(|| Some(confidence(&f64s, w.rate_hz, b, &cfg)))
+                .or_else(|| Some(confidence(part, w.rate_hz, &shifted, &cfg)))
                 .map(|mut c| {
                     c.prior = prior;
                     c
@@ -3897,18 +3945,23 @@ impl Studio {
         let mut tables = HashMap::new();
         let mut otos = HashMap::new();
 
+        // 行が生む綴りで集める（`TR-RCL-18`）。
+        //
+        // **仮名で集めていた。** 原音設定は綴りで置かれているので、
+        // 連続音では `oto_of(take, "か")` が何も返さず、**素材が1つも
+        // 載らなかった。** CVVC では渡りと語尾だけが落ちていた。
         let rows: Vec<String> = self
             .opened_mut()?
             .ledger
-            .covered_units()?
+            .covered_aliases()?
             .into_iter()
             .collect();
         for unit in rows {
-            let Some(take) = self.opened_mut()?.ledger.take_for_unit_at(&unit, tone)? else {
+            let Some(take) = self.opened_mut()?.ledger.take_for_alias_at(&unit, tone)? else {
                 continue;
             };
-            // 単位がそのままエイリアス。 1テイクに複数のエントリがあるので、
-            // 欲しい単位のものを名前で引く（`DEC-ALN-013`）。
+            // 1テイクに複数のエントリがあるので、欲しい綴りを名前で引く
+            // （`DEC-ALN-013`）。
             let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id, &unit)? else {
                 continue;
             };
@@ -4265,7 +4318,9 @@ fn song_status_of(
     rules: &koeru_core::presamp::Rules,
     preset: koeru_core::preset::MethodPreset,
 ) -> Result<Vec<SongStatus>> {
-    let covered = ledger.covered_units()?;
+    // 綴りで突き合わせる（`TR-RCL-18`）。 **仮名で引いていた**ので、
+    // 連続音や CVVC では必要集合と交わらず、曲が永久に「歌えない」ままだった。
+    let covered = ledger.covered_aliases()?;
     let songs: Vec<(String, Song)> = ledger.songs_in_bank()?;
     // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
     // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
