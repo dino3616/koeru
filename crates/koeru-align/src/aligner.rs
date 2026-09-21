@@ -133,6 +133,17 @@ pub enum AlignError {
     /// モデルを読めなかった。
     #[error("音響モデルを読めない")]
     ModelUnavailable,
+
+    /// 退避経路が多モーラの行を渡された（`DEC-ALN-015`）。
+    ///
+    /// `segment` の退避は音響モデルを使わないので、1モーラ（子音＋母音）までしか
+    /// 境界を出せない。連続音・CVVC では MFA が必須になる。
+    ///
+    /// **`EmptyPhonemes` に混ぜない。** 前に境界への変換が落ちているのを
+    /// 「発声を見つけられませんでした」と表示して原因を隠した
+    /// （`crates/koeru-align/tests/multi_mora_row.rs` の冒頭）。同じ形を作らない。
+    #[error("退避経路は多モーラの行を扱えない")]
+    MultiMoraUnsupported,
 }
 
 impl AlignError {
@@ -148,6 +159,7 @@ impl AlignError {
             Self::RateMismatch => "align.rate_mismatch",
             Self::TextDeviation => "align.text_deviation",
             Self::ModelUnavailable => "align.model_unavailable",
+            Self::MultiMoraUnsupported => "align.multi_mora_unsupported",
         }
     }
 }

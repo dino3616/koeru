@@ -25,6 +25,23 @@
 //! - 子音部（固定範囲） — 伸縮させない範囲（`TR-ALN-17`）
 //! - 右ブランク — 使い終わる位置。負値表現を既定にする（`TR-ALN-18`）
 
+/// アライメントが出した境界（ミリ秒、`TR-ALN-34`）。
+///
+/// **プロジェクトのデータなので `koeru-core` に置く**（`DEC-ALN-009` が [`Oto`] で
+/// 同じことをしている）。5値は境界と規約プリセットから導く派生物で、
+/// 境界のほうが上流にある（`TR-ALN-13` の三分法）。
+///
+/// 取り出す側は `koeru-align` の `segment`。 ここが持つのは形だけ。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Boundary {
+    /// 発声開始。無音の終わり。
+    pub voice_start_ms: f64,
+    /// 子音から母音への境界。母音始まりなら `voice_start_ms` と同じ。
+    pub vowel_start_ms: f64,
+    /// 母音の定常区間終端。
+    pub vowel_end_ms: f64,
+}
+
 /// oto.ini の1エントリ。単位はすべてミリ秒。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Oto {

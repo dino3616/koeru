@@ -91,8 +91,12 @@ vowel_steady_margin_ms = 30.0
 # VC は別の規約セットで生成する（TR-ALN-19）。ここは CV 側の係数。
 [cvvc]
 id = "cvvc-default"
-version = 1
+version = 2
 leading_margin_ms = 20.0
+# VC が手前に残す母音の長さ（TR-ALN-19）。先行発声はそのままこの長さになる。
+# [Unknown] 実測していない。 CVVC の VC は 50〜80ms が実務の幅と言われるが、
+# 出どころを追えていない。TR-ALN-32 の評価ハーネスで見直す。
+vc_vowel_context_ms = 60.0
 
 [cvvc.class.none]
 overlap_ratio = 0.3333333333333333

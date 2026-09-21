@@ -31,6 +31,11 @@ use koeru_core::alias::Method;
 /// 既定プリセット（方式ごとに1つ）。
 const PRESETS_TOML: &str = include_str!("../resources/presets.toml");
 
+/// VC が手前に残す母音の長さの既定（ミリ秒、`TR-ALN-19`）。
+///
+/// リソース側が欄を持たないときだけ使う。 CVVC の既定プリセットは持っている。
+const DEFAULT_VC_VOWEL_CONTEXT_MS: f64 = 60.0;
+
 /// 子音のクラス（`TR-ALN-17` の子音クラス別係数）。
 ///
 /// オーバーラップと子音部の扱いがクラスで分かれる。
@@ -106,6 +111,14 @@ pub struct Preset {
     pub method: Method,
     /// オフセットの前に残す余白（`TR-ALN-14`）。
     pub leading_margin_ms: f64,
+    /// VC エントリが手前に残す母音の長さ（ミリ秒、`TR-ALN-19`）。
+    ///
+    /// VC は「前モーラの母音区間から次モーラの子音区間にまたがる範囲」。
+    /// 左ブランクをどこに置くかがこれで決まり、先行発声はそのままこの長さになる
+    /// （先行発声 = 前モーラの母音の終わり）。
+    ///
+    /// CVVC でしか使わない。 他の方式のプリセットにも欄はあるが、参照されない。
+    pub vc_vowel_context_ms: f64,
     /// 子音クラスごとの係数。
     pub classes: BTreeMap<String, ClassCoefficients>,
 }
@@ -181,6 +194,12 @@ impl Preset {
                 .ok_or(PresetError::MissingField)
         };
 
+        // VC の規約は CVVC でしか使わないので、欠けていても落とさない。
+        let vc_vowel_context_ms = t
+            .get("vc_vowel_context_ms")
+            .and_then(toml_edit::Item::as_float)
+            .unwrap_or(DEFAULT_VC_VOWEL_CONTEXT_MS);
+
         let mut classes = BTreeMap::new();
         let ct = t
             .get("class")
@@ -207,6 +226,7 @@ impl Preset {
             version: u32::try_from(i("version")?).map_err(|_| PresetError::MissingField)?,
             method,
             leading_margin_ms: f("leading_margin_ms")?,
+            vc_vowel_context_ms,
             classes,
         })
     }
@@ -234,8 +254,8 @@ impl Preset {
     #[must_use]
     pub fn to_toml(&self) -> String {
         let mut s = format!(
-            "id = {:?}\nversion = {}\nleading_margin_ms = {:?}\n",
-            self.id, self.version, self.leading_margin_ms
+            "id = {:?}\nversion = {}\nleading_margin_ms = {:?}\nvc_vowel_context_ms = {:?}\n",
+            self.id, self.version, self.leading_margin_ms, self.vc_vowel_context_ms
         );
         for (name, c) in &self.classes {
             s.push_str(&format!(
