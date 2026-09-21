@@ -516,7 +516,9 @@ fn check_shape(e: &Entry, rep: &mut Report) {
 fn next_id(entries: &[Entry], prefix: &str, mut rep: Report) -> ExitCode {
     let head = format!("{prefix}-");
     let mut used: Vec<u32> = Vec::new();
-    let mut width = 3;
+    // 桁は既にあるものから決める。 既定を 3 に固定すると、2桁で揃っている接頭辞へ
+    // 3桁の番号を出す。索引の並びが崩れ、同じ番号の2つ目に見える。**踏んだ。**
+    let mut width = 0;
     // 閉包に借りさせない。 借りたままだと、下で `used` と `width` を読めない。
     let take = |used: &mut Vec<u32>, width: &mut usize, id: &str| {
         let Some(tail) = id.strip_prefix(&head) else {
@@ -553,7 +555,8 @@ fn next_id(entries: &[Entry], prefix: &str, mut rep: Report) -> ExitCode {
 
     if used.is_empty() {
         rep.note(format!("`{prefix}` はまだ1件も無い"));
-        println!("{head}{:0width$}", 1);
+        // 1件も無いなら合わせる先が無い。3桁から始める。
+        println!("{head}{:03}", 1);
         return rep.finish("next-id");
     }
 
