@@ -193,6 +193,9 @@
               # submodule の取得が途中で死ぬ。
               pkgs.git-lfs
               pkgs.pkg-config
+              # `nix/update-hashes.sh` が上流の digest を引く。 ホストの curl に
+              # 頼ると、最小構成の NixOS で hash を更新できない。
+              pkgs.curl
               pkgs.playwright-driver.browsers
               # `flake.nix` を書くための道具。 編集機は PATH から拾うので、
               # 3台とも cloud とも同じ版になる。
