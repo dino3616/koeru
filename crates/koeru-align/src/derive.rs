@@ -13,7 +13,9 @@
 //! アライメントを変えずに規約だけ変えられる形にしてある。 混ぜると、
 //! マージンを 20ms から 25ms にするだけで推論をやり直すことになる。
 
+use koeru_core::inventory::Unit;
 use koeru_core::oto::{Boundary, Oto};
+use koeru_core::reclist::Slot;
 
 use crate::preset::{ConsonantClass, Preset};
 
@@ -168,6 +170,59 @@ pub fn derive_ending(vowel_start_ms: f64, file_len_ms: f64, preset: &Preset) -> 
         preutterance_ms: 0.0,
         overlap_ms: 0.0,
     }
+}
+
+/// 行のエイリアスごとの5値（`TR-ALN-19`, `TR-RCL-05`, `TR-ALN-34`）。
+///
+/// 入力はモーラごとの境界と、行が生むエイリアスの表
+/// （`koeru_core::reclist::row_entries`）。 綴りは呼び出し側が決めた表を
+/// そのまま使い、ここは「どの区間から導くか」だけを見る。
+///
+/// **CV しか作っていなかった。** CVVC を選んでも `oto.ini` に渡りも語尾も
+/// 入らず、受け取った側は CV だけで繋ぐことになる。連続音では綴りが仮名の
+/// ままになり、`a か` を1つも引けない音源が出ていた。**踏んだ。**
+///
+/// 境界の足りないモーラを指す枠は落とす。 部分的な5値を作るより、
+/// そのエイリアスを出さないほうが分かりやすい——被覆の判定が拾う。
+#[must_use]
+pub fn derive_row(
+    entries: &[(String, Slot)],
+    boundaries: &[Boundary],
+    units: &[Unit],
+    file_len_ms: f64,
+    preset: &Preset,
+) -> Vec<(String, Oto)> {
+    let class = |i: usize| {
+        units
+            .get(i)
+            .map_or(ConsonantClass::None, |u| ConsonantClass::of(u.consonant))
+    };
+    entries
+        .iter()
+        .filter_map(|(alias, slot)| {
+            let oto = match *slot {
+                Slot::Cv { mora } => {
+                    rederive(boundaries.get(mora)?, file_len_ms, preset, class(mora))
+                }
+                // 渡りは前後2モーラのあいだ。 子音は入っていく側のもの。
+                Slot::Vc { prev, next } => {
+                    let (a, b) = (boundaries.get(prev)?, boundaries.get(next)?);
+                    derive_vc(
+                        a.vowel_start_ms,
+                        a.vowel_end_ms,
+                        b.vowel_start_ms,
+                        file_len_ms,
+                        preset,
+                        class(next),
+                    )
+                }
+                Slot::Ending { mora } => {
+                    derive_ending(boundaries.get(mora)?.vowel_start_ms, file_len_ms, preset)
+                }
+            };
+            Some((alias.clone(), oto))
+        })
+        .collect()
 }
 
 #[cfg(test)]
