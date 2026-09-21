@@ -146,17 +146,32 @@ impl Samples for WavSamples {
     }
 }
 
+/// 1つの休みに置く無音の上限（ミリ秒）。
+///
+/// 取り込んだ曲の時間は外から来る（`TR-RCL-12`）。 極端に小さい BPM や
+/// 巨大な休符を書いた UST は作れてしまうので、**長さをそのまま信じない。**
+///
+/// **`as usize` は桁あふれで 0 に落ちない。** 飽和して巨大な値になるので、
+/// `vec![0.0; n]` が確保に失敗してアプリごと落ちる。読めるファイルを
+/// 試唱しただけで落ちるのは、取り込みの経路として成立しない。
+///
+/// 30 秒。 曲の休みとしては十分に長く、確保としては 5MB 程度に収まる。
+const MAX_SILENCE_MS: f64 = 30_000.0;
+
 /// 無音を作る（`TR-RCL-12` の休符）。
 ///
 /// フレーズの手前に置く。 キャッシュの鍵に混ぜない——同じフレーズは、
 /// 前の休みが何であっても同じ音。
 fn silence(ms: f64, rate_hz: u32) -> Vec<f32> {
+    // 有限でないものは 0 に倒す。 `NaN` は比較で常に偽になるので、
+    // `clamp` に任せず先に畳む。
+    let ms = if ms.is_finite() { ms } else { 0.0 };
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "無音の長さ。負や桁あふれは 0 に落とす"
+        reason = "上限を掛けたあとなので usize に収まる"
     )]
-    let n = (ms.max(0.0) / 1000.0 * f64::from(rate_hz)) as usize;
+    let n = (ms.clamp(0.0, MAX_SILENCE_MS) / 1000.0 * f64::from(rate_hz)) as usize;
     vec![0.0; n]
 }
 

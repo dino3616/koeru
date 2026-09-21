@@ -1800,9 +1800,23 @@ impl Studio {
     /// 除外や再生成で空になっても、録れる行が残っていれば録れる。
     fn next_presented_row(&mut self) -> Result<Option<(String, String)>> {
         let (_, order) = self.recording_order()?;
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
         let open = self.opened_mut()?;
         for id in order {
-            if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
+            // 提示順は録音リストの素の行 ID で来る。 多音階の台帳は
+            // `s001@G3` の形で持つので、**素のまま引くと1つも当たらず、
+            // 常に正準順へ落ちていた**——モードが効かないままだった。
+            //
+            // 音高の順に見る。 同じ行の未収録が複数の音高に残っていても、
+            // 低いほうから埋める（`recording_tones` は昇順）。
+            if tones.len() > 1 {
+                for t in &tones {
+                    let at = format!("{id}@{}", koeru_core::tone::name(*t));
+                    if let Some(text) = open.ledger.unrecorded_row_text(&at)? {
+                        return Ok(Some((at, text)));
+                    }
+                }
+            } else if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
                 return Ok(Some((id, text)));
             }
         }
@@ -3726,6 +3740,10 @@ impl Studio {
                             playable,
                         ));
                         leads.push(std::mem::take(&mut lead_ms));
+                        // 札はフレーズごと。 **戻していなかった**ので、
+                        // 1つ素材が欠けると、それ以降のフレーズが全部
+                        // 鳴らせない扱いになり、短縮版が丸ごと落ちていた。
+                        playable = true;
                     }
                     lead_ms += f64::from(rest_ticks) / 480.0 * beat_ms;
                 }
@@ -3807,6 +3825,7 @@ impl Studio {
                             playable,
                         ));
                         leads.push(std::mem::take(&mut lead_ms));
+                        playable = true;
                     }
                 }
                 koeru_core::alias::PhraseUnit::Missing(_) => {
