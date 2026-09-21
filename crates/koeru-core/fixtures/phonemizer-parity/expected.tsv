@@ -1,0 +1,43 @@
+# 方式	直前	歌詞	綴り
+single	-	あ	あ
+single	あ	か	か
+single	か	が	が
+single	が	さ	さ
+single	さ	し	し
+single	し	た	た
+single	た	ち	ち
+single	ち	な	な
+single	な	は	は
+single	は	ま	ま
+single	ま	や	や
+single	や	ら	ら
+single	ら	わ	わ
+single	わ	ん	ん
+sequential	-	あ	- あ
+sequential	あ	か	a か
+sequential	か	が	a が
+sequential	が	さ	a さ
+sequential	さ	し	a し
+sequential	し	た	i た
+sequential	た	ち	a ち
+sequential	ち	な	i な
+sequential	な	は	a は
+sequential	は	ま	a ま
+sequential	ま	や	a や
+sequential	や	ら	a ら
+sequential	ら	わ	a わ
+sequential	わ	ん	a ん
+cvvc	-	あ	- あ
+cvvc	あ	か	か
+cvvc	か	が	が
+cvvc	が	さ	さ
+cvvc	さ	し	し
+cvvc	し	た	た
+cvvc	た	ち	ち
+cvvc	ち	な	な
+cvvc	な	は	は
+cvvc	は	ま	ま
+cvvc	ま	や	や
+cvvc	や	ら	ら
+cvvc	ら	わ	わ
+cvvc	わ	ん	ん

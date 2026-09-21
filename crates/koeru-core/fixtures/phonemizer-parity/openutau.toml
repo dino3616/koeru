@@ -1,0 +1,40 @@
+# 綴りを突き合わせた OpenUtau（`DEC-SYN-010` の層B）。
+#
+# # チャンネルは OpenUtau の区分に合わせる
+#
+# OpenUtau は3つのチャンネルを持つ（`OpenUtau/ViewModels/UpdaterViewModel.cs` の
+# `IsReleaseForChannel`）。**既定は stable**（`Preferences.Default.Channel`）。
+#
+#   stable  prerelease でないもの
+#   beta    prerelease のうち `-alpha` で終わらないもの
+#   alpha   prerelease すべて（beta を含む上位集合）
+#
+# stable を見るのは、既定のチャンネルだから——多くの人が動かしているのはこれ。
+# alpha を見るのは、綴りが変わるならそちらに先に出るから。beta は alpha に
+# 含まれるので別に見ない。
+#
+# # 版と指紋の両方を固定する
+#
+# 片方だけだと、同じ札のまま中身を差し替えられる。 `fslc` と同じ運用
+# （`DEC-PLT-033`）——版は Renovate が上げ、指紋は `nix-hash-fix` ワークフローが
+# 上流の digest から当てる（`.github/scripts/update-hashes.sh`）。
+#
+# 配布物の名前はチャンネルで違う。 stable は zip、alpha は tar.gz。
+# 共通の名前が無いので、資産名も固定する。
+#
+# # これは互換性の記録でもある
+#
+# 「どの KOERU がどの OpenUtau と突き合わされたか」は、この commit の
+# この内容が答える。 配布物の readme にも出る（`koeru_package::readme`）。
+
+[[channel]]
+name = "stable"
+version = "0.1.565"
+asset = "OpenUtau-linux-arm64.zip"
+sha256 = "4d5f16e56f045c82ee472956c4bbc96594baa15ba118bf16fcfcf0bee5835c1d"
+
+[[channel]]
+name = "alpha"
+version = "0.1.570.6-alpha"
+asset = "OpenUtau-linux-arm64.tar.gz"
+sha256 = "be7408758e3e0343919ee66fc1910a8cbea94ad8c4b4086ca282052865a8998b"

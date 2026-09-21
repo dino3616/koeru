@@ -1,6 +1,6 @@
 name: nix hash fix
 
-# 版が上がると `flake.nix` の SHA-256 が古くなる。 これは判断を含まない機械的な
+# 版が上がると固定してある SHA-256 が古くなる。 これは判断を含まない機械的な
 # 更新で、版上げのたびに必ず必要になると事前に分かっている（`DEC-PLT-033`）。
 # だから人にやらせない。
 #
@@ -19,10 +19,12 @@ name: nix hash fix
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    # hash に効くのは、版を持っているこの2つだけ。
+    # hash に効くのは、版を持っているこの3つだけ。
     paths:
       - flake.nix
       - crates/koeru-app/ui/package.json
+      # OpenUtau は綴りの突合相手（`DEC-SYN-010` の層B）。版と指紋の両方を固定する。
+      - crates/koeru-core/fixtures/phonemizer-parity/openutau.toml
 
 permissions:
   contents: read
@@ -54,15 +56,22 @@ jobs:
       - name: 上流の digest から作り直す
         run: bash .github/scripts/update-hashes.sh
       - name: 変わっていたら push
+        env:
+          # 指紋を持つファイル。 足したらここへ並べる——`git diff --quiet` の
+          # 対象から漏れると、直したのに push されない。
+          TARGETS: >-
+            flake.nix
+            crates/koeru-core/fixtures/phonemizer-parity/openutau.toml
         run: |
-          if git diff --quiet -- flake.nix; then
+          # shellcheck disable=SC2086
+          if git diff --quiet -- $TARGETS; then
             echo "hash は上流と一致している"
             exit 0
           fi
-          git diff -- flake.nix
+          git diff -- $TARGETS
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add flake.nix
+          git add $TARGETS
           # DCO は全コミットを検査する（`AGENTS.md` の禁止事項5）。
-          git commit -s -m "chore(deps): flake.nix の SHA-256 を作り直す"
+          git commit -s -m "chore(deps): 固定した SHA-256 を作り直す"
           git push
