@@ -45,7 +45,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^flake\\.nix$/"],
       "matchStrings": ["fslcVersion\\s*=\\s*\"(?<currentValue>v[0-9][0-9.]*)\""],
-      "datasource": "github-releases",
+      "datasourceTemplate": "github-releases",
       "depNameTemplate": "ymm-oss/fsl"
     }
   ],
