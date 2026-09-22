@@ -430,11 +430,19 @@ fn write_package(
     let bank = bank_of(dir, ledger, rules, manifest, &distribution, down)?;
     let report = validate::validate(&bank, profile);
     if !report.may_export() {
+        // 件数を添える。 種別文字列だけだと、画面を開き直して
+        // `package_state` を引くまで何が引っかかったのか分からない。
+        // 中身は載せない——エイリアスもパスも、送信してよい語ではない。
         return Err(AppError::new(
             "package.validation_failed",
-            "書き出し前の検査に通っていない",
+            format!(
+                "書き出し前の検査に通っていない（指摘 {} 件、書けない文字 {} 件）",
+                report.findings.len(),
+                report.unencodable.len()
+            ),
         ));
     }
+    tracing::debug!(findings = report.findings.len(), "検査を通った");
 
     let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
     let exports = dir.exports_dir();

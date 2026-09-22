@@ -1217,6 +1217,11 @@ pub struct ReviewSummaryView {
 /// 確認キューの1件（`TR-ALN-26`）。
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ReviewItemView {
+    /// このエントリを指す鍵。確認・編集・録り直しに渡す。
+    ///
+    /// **`oto.alias` では指せない。** 多音階は同じ綴りを音高の数だけ持つ
+    /// （`TR-ALN-22`）。中身を読まずにそのまま返す文字列として扱う。
+    pub key: String,
     /// そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。
     pub row_id: String,
     /// 自動推定した5値（`TR-ALN-26` (2)）。エイリアスはこの中にある。
@@ -1267,6 +1272,7 @@ pub fn review_queue(state: State<'_, AppState>) -> Result<Vec<ReviewItemView>> {
         .review_queue()?
         .into_iter()
         .map(|i| ReviewItemView {
+            key: i.key,
             row_id: i.row_id,
             oto: OtoView {
                 alias: i.alias,
@@ -1292,8 +1298,8 @@ pub fn review_queue(state: State<'_, AppState>) -> Result<Vec<ReviewItemView>> {
 /// 1件ずつ確認して確定させる（`REQ-ALN-008`）。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn confirm_entry(state: State<'_, AppState>, alias: String) -> Result<()> {
-    lock(&state)?.confirm_entry(&alias)
+pub fn confirm_entry(state: State<'_, AppState>, key: String) -> Result<()> {
+    lock(&state)?.confirm_entry(&key)
 }
 
 /// まとめて確認する（`REQ-ALN-010`）。返るのは確定させた件数。
@@ -1319,27 +1325,27 @@ pub fn switch_review_mode(state: State<'_, AppState>, mode: String) -> Result<()
 #[specta::specta]
 pub fn edit_oto_value(
     state: State<'_, AppState>,
-    alias: String,
+    key: String,
     slot: String,
     // `Finite` を通す。 素の `f64` は `number | null` に写るので
     // （`react-conventions`）、`~/lib/ipc` の手書きの型と食い違う。
     value: Finite,
 ) -> Result<()> {
-    lock(&state)?.edit_oto_value(&alias, &slot, value.0)
+    lock(&state)?.edit_oto_value(&key, &slot, value.0)
 }
 
 /// 固定を解いて自動へ戻す（`REQ-ALN-006`）。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn revert_oto_value(state: State<'_, AppState>, alias: String, slot: String) -> Result<()> {
-    lock(&state)?.revert_oto_value(&alias, &slot)
+pub fn revert_oto_value(state: State<'_, AppState>, key: String, slot: String) -> Result<()> {
+    lock(&state)?.revert_oto_value(&key, &slot)
 }
 
 /// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn rerecord_entry(state: State<'_, AppState>, alias: String) -> Result<()> {
-    lock(&state)?.rerecord_entry(&alias)
+pub fn rerecord_entry(state: State<'_, AppState>, key: String) -> Result<()> {
+    lock(&state)?.rerecord_entry(&key)
 }
 
 /// 書き出し前の検証（`TR-ALN-20`）。

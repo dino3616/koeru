@@ -211,7 +211,12 @@ pub struct ReviewSummary {
 /// 確認キューの1件（`TR-ALN-26`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReviewItem {
-    /// 対象のエイリアス（`TR-ALN-26` (1)）。
+    /// このエントリを指す鍵（`crate::review::EntryKey`）。
+    ///
+    /// 画面はこれをそのまま返す。 **エイリアスでは指せない**——多音階は
+    /// 同じ綴りを音高の数だけ持つ（`TR-ALN-22`）。
+    pub key: String,
+    /// 対象のエイリアス（`TR-ALN-26` (1)）。画面に出す名前。
     pub alias: String,
     /// そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。
     pub row_id: String,
@@ -2275,11 +2280,21 @@ impl Studio {
                     .collect();
                 self.opened_mut()?.ledger.put_boundaries(take_id, &saved)?;
 
+                // 5値を置くのは、この行が名乗った綴りだけ（`TR-ALN-22`）。
+                //
+                // **境界のほうは全モーラぶん残す。** 下位方式への書き出しは
+                // モーラ順に境界を並べ直し、1つでも欠けたらその素材を丸ごと
+                // 落とす（`packaging::rederived_entries`）。名乗らなかった
+                // 行頭の境界まで捨てると、その行の綴りが全部消える。
+                let owned = self.opened_mut()?.ledger.aliases_of_row(&row_id)?;
                 let derived: std::collections::BTreeMap<String, Oto> =
                     koeru_align::derive::derive_row(&entries, v, &line, duration_ms, &preset)
                         .into_iter()
                         .collect();
                 for (alias, slot) in &entries {
+                    if !owned.contains(alias) {
+                        continue;
+                    }
                     let Some(o) = derived.get(alias).copied() else {
                         continue;
                     };
@@ -2988,19 +3003,32 @@ impl Studio {
     ///
     /// プロジェクトを開いていない、台帳を読めない。
     pub fn review_queue(&mut self) -> Result<Vec<ReviewItem>> {
-        // 行 ID はキューが持っていない。 鍵はエイリアスだけなので、台帳から引く
+        // 行 ID はキューが持っていない。 鍵は（音高, 綴り）なので、台帳から引く
         // ——画面は「確認待ちの行」で一覧を絞る（`DEC-PLT-024`）。
+        //
+        // **綴りで引いていた。** 多音階では同じ綴りが音高の数だけあるので、
+        // 表が1つに潰れ、全部の音高の項目が同じ行を指していた。
+        let tones = self.opened_mut()?.ledger.row_tones()?;
         let rows: HashMap<String, String> = self
             .opened_mut()?
             .ledger
             .adopted_otos()?
             .into_iter()
-            .map(|e| (e.alias, e.row_id))
+            .map(|e| {
+                let tone = tones.get(&e.row_id).copied().unwrap_or_default();
+                (
+                    crate::review::EntryKey::new(tone, e.alias).handle(),
+                    e.row_id,
+                )
+            })
             .collect();
         let q = &self.opened()?.review;
-        let item = |alias: &str, e: &koeru_align::review::Entry| ReviewItem {
-            row_id: rows.get(alias).cloned().unwrap_or_default(),
-            alias: alias.to_owned(),
+        let item = |key: &str, e: &koeru_align::review::Entry| ReviewItem {
+            row_id: rows.get(key).cloned().unwrap_or_default(),
+            // 画面に出すのは綴りだけ。 鍵の形は画面の関心事ではない。
+            alias: crate::review::EntryKey::parse(key)
+                .map_or_else(|| key.to_owned(), |k| k.alias().to_owned()),
+            key: key.to_owned(),
             oto: e.oto,
             // 主因は成分の内訳から出る（`TR-ALN-26` (3)）。
             // 成分を持たない（この版より前に録った）ものは出せない。
@@ -3026,10 +3054,10 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、個別確認モードでない、キューに入っていない。
-    // 読みはトレースに載せない（AGENTS.md #3）。エイリアスはかなそのもの。
-    #[tracing::instrument(skip(self, alias), err)]
-    pub fn confirm_entry(&mut self, alias: &str) -> Result<()> {
-        self.with_entry(alias, |q, id| q.confirm(id))
+    // 読みはトレースに載せない（AGENTS.md #3）。鍵は綴りを含む。
+    #[tracing::instrument(skip(self, key), err)]
+    pub fn confirm_entry(&mut self, key: &str) -> Result<()> {
+        self.with_entry(key, |q, id| q.confirm(id))
     }
 
     /// まとめて確認する（`REQ-ALN-010`）。
@@ -3075,11 +3103,11 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、知らない値の名前、まだ推定していない。
-    #[tracing::instrument(skip(self, alias, slot), err)]
-    pub fn edit_oto_value(&mut self, alias: &str, slot: &str, value: f64) -> Result<()> {
+    #[tracing::instrument(skip(self, key, slot), err)]
+    pub fn edit_oto_value(&mut self, key: &str, slot: &str, value: f64) -> Result<()> {
         let s = slot_of(slot)
             .ok_or_else(|| AppError::new("review.unknown_slot", "知らない値の名前"))?;
-        self.with_entry(alias, |q, id| q.human_edit(id, s, value))
+        self.with_entry(key, |q, id| q.human_edit(id, s, value))
     }
 
     /// 固定を解いて自動へ戻す（`REQ-ALN-006`）。
@@ -3087,11 +3115,11 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、知らない値の名前、固定されていない。
-    #[tracing::instrument(skip(self, alias, slot), err)]
-    pub fn revert_oto_value(&mut self, alias: &str, slot: &str) -> Result<()> {
+    #[tracing::instrument(skip(self, key, slot), err)]
+    pub fn revert_oto_value(&mut self, key: &str, slot: &str) -> Result<()> {
         let s = slot_of(slot)
             .ok_or_else(|| AppError::new("review.unknown_slot", "知らない値の名前"))?;
-        self.with_entry(alias, |q, id| q.revert_to_auto(id, s))?;
+        self.with_entry(key, |q, id| q.revert_to_auto(id, s))?;
         // 固定を解いたら自動の値へ戻す（`AC-ALN-002`）。
         //
         // **解くだけでは戻らない。** `revert_to_auto` は印を外すだけなので、
@@ -3101,7 +3129,7 @@ impl Studio {
         // 失敗しても解いた事実は残す。 再推定できない理由（WAV が読めない、
         // アライメントが通らない）は解くことと関係がなく、
         // 巻き戻すと押した操作が黙って消える。
-        if let Some(take_id) = self.opened()?.review_takes.get(alias).copied()
+        if let Some(take_id) = self.opened()?.review_takes.get(key).copied()
             && let Err(e) = self.re_estimate_take(take_id)
         {
             tracing::warn!(reason = %e.kind, "固定を解いたが、再推定は通らなかった");
@@ -3165,6 +3193,8 @@ impl Studio {
         // 行が生むエイリアスごとに1つ（`TR-RCL-18`）。 確定のときと同じ表を通す
         // ——別の表で作り直すと、確認キューに無いエイリアスが生える。
         let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
+        // 名乗った綴りだけ。 確定のときと同じ絞り方を通す（`TR-ALN-22`）。
+        let owned = self.opened_mut()?.ledger.aliases_of_row(&take.row_id)?;
         let derived: std::collections::BTreeMap<String, Oto> =
             koeru_align::derive::derive_row(&entries, &per_mora, &line, duration_ms, &preset)
                 .into_iter()
@@ -3173,6 +3203,9 @@ impl Studio {
         let mut next = self.opened()?.review.clone();
         let mut rows = Vec::new();
         for (alias, slot) in &entries {
+            if !owned.contains(alias) {
+                continue;
+            }
             let Some(o) = derived.get(alias).copied() else {
                 continue;
             };
@@ -3185,6 +3218,9 @@ impl Studio {
                 continue;
             };
             let reading = alias.as_str();
+            // キューの鍵は（音高, 綴り）（`TR-ALN-22`）。 集団の鍵は綴りのまま
+            // ——あちらは音高で先に絞ってあるので、綴りだけで引く。
+            let key = crate::review::EntryKey::new(tone, reading).handle();
             let prior = Self::prior_of(&pops, tone, reading, &o, duration_ms);
             // 音の質はその枠の区間で測る（`TR-ALN-26`）。
             //
@@ -3220,8 +3256,8 @@ impl Studio {
                 })
                 .unwrap_or_else(Confidence::full);
             // 固定されていない値だけが動く（`INV-ALN-001`）。
-            next.re_estimate(reading, o, c).map_err(review_error)?;
-            let Some(e) = next.get(reading) else { continue };
+            next.re_estimate(&key, o, c).map_err(review_error)?;
+            let Some(e) = next.get(&key) else { continue };
             rows.push(koeru_core::db::ReviewEntryRow {
                 take_id,
                 alias: alias.clone(),
@@ -3244,9 +3280,9 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、確認待ちでない。
-    #[tracing::instrument(skip(self, alias), err)]
-    pub fn rerecord_entry(&mut self, alias: &str) -> Result<()> {
-        self.with_entry(alias, |q, id| q.rerecord(id))
+    #[tracing::instrument(skip(self, key), err)]
+    pub fn rerecord_entry(&mut self, key: &str) -> Result<()> {
+        self.with_entry(key, |q, id| q.rerecord(id))
     }
 
     /// 書き出し前の検証（`TR-ALN-20`）。
@@ -3386,9 +3422,11 @@ impl Studio {
     /// 選べる。**固定にすると、CP932 で表せない名前が1つあるだけで
     /// 書き出す手段が無くなる。**
     ///
+    /// **単音階だけ。** 多音階は配布パッケージの側から出す（`TR-ALN-22`）。
+    ///
     /// # Errors
     ///
-    /// プロジェクトを開いていない、確認が残っている、
+    /// プロジェクトを開いていない、多音階である、確認が残っている、
     /// 選んだ文字コードで書けない文字がある。
     #[tracing::instrument(skip(self, encoding), err)]
     pub fn export_otos(&mut self, encoding: TextEncoding) -> Result<PathBuf> {
@@ -3397,6 +3435,17 @@ impl Studio {
         // 止まってはいけない。順序を変えると、断る理由の言い方が入れ替わる。
         if self.opened()?.review.is_exported() {
             return Err(review_error(ReviewError::AlreadyExported));
+        }
+        // 多音階はここから出さない（`TR-ALN-22`）。 書く先は WAV が平らに並ぶ
+        // `audio/` で、音高ごとに分ける先が無い。平らなまま出すと同じ綴りが
+        // 音階の数だけ並び、受け取った UTAU は1つしか見ない
+        // ——**音域を広げるために録った音階が、まるごと鳴らない。**
+        // 音高ごとに分かれた `oto.ini` は配布パッケージが出す（`TR-PKG-04`）。
+        if self.opened_mut()?.ledger.recording_tones()?.len() > 1 {
+            return Err(AppError::new(
+                "review.multi_pitch_oto_ini",
+                "多音階の oto.ini は、配布パッケージの書き出しから出す",
+            ));
         }
         self.ensure_otos_ready()?;
         // 関門はキューが持つ。 ここで件数を数え直さない（`INV-ALN-003`）。
@@ -3412,9 +3461,10 @@ impl Studio {
             let open = self.opened()?;
             open.review
                 .all()
-                .filter_map(|(alias, e)| {
-                    let id = open.review_takes.get(alias).copied()?;
-                    Some((alias.to_owned(), id, e.oto))
+                .filter_map(|(key, e)| {
+                    let id = open.review_takes.get(key).copied()?;
+                    let alias = crate::review::EntryKey::parse(key)?.alias().to_owned();
+                    Some((alias, id, e.oto))
                 })
                 .collect()
         };
@@ -3497,23 +3547,28 @@ impl Studio {
     /// 画面だけが先へ行く——開き直すまで、確認したはずのものが戻ってくる。
     fn with_entry(
         &mut self,
-        alias: &str,
+        key: &str,
         f: impl FnOnce(&mut ReviewQueue, &str) -> std::result::Result<(), ReviewError>,
     ) -> Result<()> {
         let mut next = self.opened()?.review.clone();
-        f(&mut next, alias).map_err(review_error)?;
+        f(&mut next, key).map_err(review_error)?;
 
-        let Some(take_id) = self.opened()?.review_takes.get(alias).copied() else {
+        let Some(take_id) = self.opened()?.review_takes.get(key).copied() else {
             return Err(AppError::new(
                 "review.no_such_entry",
                 "そのエントリを持つテイクが無い",
             ));
         };
-        let Some(entry) = next.get(alias).cloned() else {
+        let Some(entry) = next.get(key).cloned() else {
             return Err(AppError::new("review.no_such_entry", "そのエントリが無い"));
         };
+        // 台帳は（テイク, 綴り）で持つ。 鍵から綴りを取り出して渡す
+        // ——音高はテイクの行が持っているので、二重には書かない。
+        let Some(parsed) = crate::review::EntryKey::parse(key) else {
+            return Err(AppError::new("review.no_such_entry", "鍵の形が違う"));
+        };
         let open = self.opened_mut()?;
-        crate::review::save_entry(&mut open.ledger, take_id, alias, &entry)?;
+        crate::review::save_entry(&mut open.ledger, take_id, parsed.alias(), &entry)?;
         open.review = next;
         Ok(())
     }
@@ -3526,10 +3581,10 @@ impl Studio {
         let rows: Vec<koeru_core::db::ReviewEntryRow> = {
             let open = self.opened()?;
             next.all()
-                .filter_map(|(alias, e)| {
+                .filter_map(|(key, e)| {
                     Some(koeru_core::db::ReviewEntryRow {
-                        take_id: open.review_takes.get(alias).copied()?,
-                        alias: alias.to_owned(),
+                        take_id: open.review_takes.get(key).copied()?,
+                        alias: crate::review::EntryKey::parse(key)?.alias().to_owned(),
                         oto: e.oto,
                         state: e.state.as_str().to_owned(),
                         pinned: e.pins(),
@@ -4092,15 +4147,19 @@ impl Studio {
         })?;
         self.opened_mut()?.ledger.adopt_take(row_id, take)?;
 
-        // エイリアスは行と方式から導く。 呼ぶ側に渡させない——
+        // エイリアスは台帳が持つものをそのまま使う。 呼ぶ側に渡させない——
         // 台帳と食い違った名前で置けてしまう。
         //
         // **収録単位そのものを置いていた。** 連続音や CVVC では書き出しの
         // 綴りと違う名前になり、被覆が満ちないまま試験が通っていた。
+        //
+        // 行から導き直さない。 同じ綴りを2つの行が生むとき、名乗るのは
+        // 1つだけで（`TR-ALN-22`）、その取り決めは台帳にしか無い。
+        // 導き直すと、本番では作られない5値を試験だけが持つ。
         let here = self.current_preset()?;
         let rules = self.current_rules()?;
         let line = self.opened_mut()?.ledger.row_units_of(row_id, here.set)?;
-        let aliases = koeru_core::reclist::row_aliases(&rules, here.method, &line);
+        let aliases = self.opened_mut()?.ledger.aliases_of_row(row_id)?;
         // 境界も置く。 下位方式の書き出し（`TR-PKG-24`）が引く。
         let saved: Vec<(String, koeru_core::oto::Boundary)> =
             koeru_core::reclist::row_entries(&rules, here.method, &line)
