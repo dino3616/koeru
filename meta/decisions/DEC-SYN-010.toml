@@ -68,8 +68,18 @@ CVVC の VC 6×30 = 180。長音・促音・撥音・拗音の組み合わせを
 （`scripts/openutau-parity.ps1`）。
 
 **Windows は要らない。** 綴りを決めるのは managed なコードで、Linux 向け配布物に
-入っている `OpenUtau.Core.dll` / `OpenUtau.Plugin.Builtin.dll` と同じ IL。
-配布物から DLL 2本だけを取り出す。
+入っている `OpenUtau.Core.dll` / `OpenUtau.Plugin.Builtin.dll` が同じ振る舞いをする。
+
+**アセンブリは全部展開する。** 直に読むのは2つだが、そこから先の依存は
+こちらでは数え上げられない——`OpenUtau.Core.dll` だけを置くと `Preferences` の
+静的初期化が `Serilog` を読めずに落ちる（`EVID-SYN-002`）。数え上げる代わりに
+`AssemblyResolve` を置き、要求された名前を同じディレクトリから返す。
+
+**手元で回せる。** `nix shell nixpkgs#powershell` の pwsh に、同じ版の
+その OS 向け配布物のアセンブリを当てればよい。**Linux 向けの配布物は他の OS では
+読めない**（self-contained の R2R で `LoadFrom` が落ちる）ので、手元では
+その OS 向けのものを使う——CI が当てるのは固定したほうのまま。
+1手ごとに CI を1往復する形でしか直せないと、あちらの内部を当てずっぽうで辿ることになる。
 
 ## チャンネルは OpenUtau の区分に合わせる
 
@@ -104,6 +114,24 @@ OpenUtau は3つのチャンネルを持つ（`OpenUtau/ViewModels/UpdaterViewMo
 配布物の名前はチャンネルで違う。 stable は zip、alpha は tar.gz。
 共通の名前が無いので、資産名も固定する。
 
+## 層B は方式ごとに音源を分ける
+
+**phonemizer に方式を渡す口が無い。** presamp phonemizer は1つで単独音・
+連続音・CVVC を賄い、どの綴りを出すかは音源の中身が決める——「その綴りの
+oto があるか」で候補を落としていく。音符1つに返る綴りも1つ。
+
+**1つの音源に3方式ぶんの綴りを入れて、3方式ぶんの答えを待っていた。**
+同じ音符を3度食わせて3つの違う答えを期待する形で、原理的に埋まらない。
+方式ごとに音源を分け、その方式が出しうる候補だけを置く。**候補は全部置く**
+——先頭の候補しか無い音源を渡すと、あちらは選ぶ余地を持たず、
+一致しても候補落としの順を確かめたことにならない。
+
+これが最初に見つけたのは、こちらの `presamp.ini` の欄の形だった。
+`[VOWEL]` を3列で書いていて（`[CONSONANT]` と同じ形と見なしていた）、
+**OpenUtau は所属表を1件も読めていなかった**（`EVID-SYN-002`）。
+読み書きの往復は層A が見ていたので、KOERU の中だけでは現れない。
+**層B が無ければ、配った音源で初めて分かる種類の食い違い。**
+
 ## どの KOERU がどの OpenUtau と突き合わされたか
 
 `crates/koeru-core/fixtures/phonemizer-parity/openutau.toml` がその記録。
@@ -112,6 +140,7 @@ OpenUtau は3つのチャンネルを持つ（`OpenUtau/ViewModels/UpdaterViewMo
 '''
 review_triggers = [
   'OpenUtau が presamp 系 phonemizer の解釈を変えたとき',
+  'presamp.ini の欄の形が上流で変わったとき。EVID-SYN-002 を当て直す',
   '表で書けない規則を接続したいという要求が出たとき。そのときは WASM を上位経路として足す',
   'UTAU 本体が presamp.ini を読むようになったとき',
   'pwsh のリフレクションで OpenUtau.Core を叩けないと分かったとき。層B の手当てが手動固定へ落ちる',

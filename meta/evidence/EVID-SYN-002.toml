@@ -1,0 +1,91 @@
+schema = 'evidence'
+id = 'EVID-SYN-002'
+title = 'presamp.ini の [VOWEL] / [CONSONANT] の列の形と、OpenUtau が音源を読む前提'
+kind = 'runtime_probe'
+source = 'OpenUtau 0.1.565（osx-arm64 配布物）の OpenUtau.Core.dll を pwsh から直に読み、Classic.Presamp.ReadPresampIni と Classic.VoicebankLoader / ClassicSinger に当てた'
+provenance = '''
+実物のアセンブリに当てて確かめた。 公開ソースを読んだのではなく、
+配布物の型へ反射で入り、**列の並びを変えた presamp.ini を食わせて、
+解けた表を読み出した。** 手順は `.github/scripts/openutau-parity.ps1` と同じ形で、
+`nix shell nixpkgs#powershell` の pwsh から走らせている。
+
+版は突合で固定しているものと同じ
+（`crates/koeru-core/fixtures/phonemizer-parity/openutau.toml` の stable）。
+配布物は osx-arm64 を使った。 **linux-x64 の配布物は他の OS では読めない**
+——self-contained の R2R でネイティブが焼かれており、`LoadFrom` が
+`0x8007000B`（incorrect format）で落ちる。綴りを決めるのは managed な
+コードなので、同じ版なら OS 向けの違いは結果に効かない。
+'''
+confidence = 'Fact'
+supports_decisions = ['DEC-SYN-010']
+
+# ── [VOWEL] の列 ──────────────────────────────────────
+vowel_columns = '''
+**4列。** `母音=代表文字=所属かな（カンマ区切り）=音量`。
+
+解けた `Classic.PresampVowel` の欄に、そのまま落ちる。
+
+| 列 | 入る先 |
+|---|---|
+| 1 | 辞書の鍵、`VowelLower` |
+| 2 | `VowelUpper` |
+| 3 | `Phonemes`（カンマで分割） |
+| 4 | `Vol` |
+
+**4列に満たない行は落ちる。** 3列で書いた表を食わせると
+`Vowels.Count` が 0 になり、例外も警告も出ない。
+
+    a=あ,か,さ=a      → Vowels.Count = 0
+    a=a=あ,か,さ=0    → Vowels.Count = 1、Phonemes = [あ, か, さ]
+
+**KOERU はここを3列で書いていた。** `[CONSONANT]` と同じ形と見なしていたが、
+節ごとに違う。所属表が読まれないので、OpenUtau は直前の母音を引けず、
+連続音の `a か` を作れずに語頭形や素の CV へ落ちる。
+書き出しと読み込みが往復することは層A の試験が見ていたので、
+**KOERU の中だけでは一度も現れなかった。**
+'''
+
+# ── [CONSONANT] の列 ──────────────────────────────────
+consonant_columns = '''
+**3列。** `子音=所属かな（カンマ区切り）=1文字目を伸ばすか`。
+`DEC-RCL-004` が実物で確かめた形のままで、こちらは変えなくてよい。
+
+解けた `Classic.PresampConsonant` は `Consonant` / `Phonemes` / `NotClossfade`
+（綴りは上流のまま）を持つ。
+'''
+
+# ── 音源として読ませるために要るもの ──────────────────
+voicebank_prerequisites = '''
+綴りを1つ出すだけでも、音源として成立していなければならない。
+突合用の音源で踏んだものを3つ挙げる。
+
+**oto が指す WAV が実在すること。** `ClassicSinger.EnsureLoaded` は各 oto の
+WAV を確かめ、無いものを「Sound file missing」として落とす。
+**102 件書いても全部落ち、`Otos` は空になる。** 中身は見られないので、
+44100 Hz / 16 bit / 1ch の最小の1本で足りる。
+
+**文字コードを名乗ること。** classic の音源は Shift-JIS が既定。
+UTF-8 で置いた綴りは、`character.yaml` に `text_file_encoding: utf-8` を
+書かないと全部化ける。
+
+**`VoicebankLoader.SearchAll` の `BasePath` は掘りはじめた親。** どの音源でも
+同じ値が入っているので、これで絞っても先頭を採るのと変わらない。
+音源を指しているのは `File`（`character.txt` の在り処）。
+'''
+
+# ── 呼び出し側の落とし穴 ──────────────────────────────
+invocation = '''
+**アセンブリは2つでは足りない。** `OpenUtau.Core.dll` と
+`OpenUtau.Plugin.Builtin.dll` だけを置くと、`SearchAll` が
+`OpenUtau.Core.Util.Preferences` の静的初期化で落ちる——中の
+`Preferences.Load()` が `Serilog` を読めない。どこまで依存が伸びるかは
+上流の都合で動くので、数え上げずに `AssemblyResolve` を置き、
+配布物のアセンブリを全部同じディレクトリへ展開して名前で返す。
+
+**`Phonemizer.Process` は PowerShell の動的束縛器では呼べない。**
+戻り値の `Phonemizer+Result` は値型で、「`System.Object` と両立しない」と
+言われる。`MethodInfo.Invoke` なら箱に入れて返る。
+
+**`Where-Object` の結果をそのまま渡さない。** 要素が `PSObject` に包まれるので、
+`LoadVoicebank` が「`PSObject` を `Voicebank` へ変換できない」で落ちる。
+'''
