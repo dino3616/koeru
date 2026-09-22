@@ -301,18 +301,23 @@ jobs:
             echo "  実物: $got" >&2
             exit 1
           fi
+          # **アセンブリを全部展開する。** 直に読むのは2つだが、そこから先の
+          # 依存はこちらでは数え上げられない——`OpenUtau.Core.dll` だけを置くと
+          # `Preferences` の静的初期化が `Serilog` を読めずに落ちる。**踏んだ。**
           case "$ASSET" in
-            *.zip)    unzip -j -o "/tmp/$ASSET" \
-                        '*OpenUtau.Core.dll' '*OpenUtau.Plugin.Builtin.dll' -d .openutau/dll ;;
-            *.tar.gz) tar -xzf "/tmp/$ASSET" -C .openutau/dll \
-                        OpenUtau.Core.dll OpenUtau.Plugin.Builtin.dll ;;
+            *.zip)    unzip -j -o "/tmp/$ASSET" '*.dll' -d .openutau/dll ;;
+            *.tar.gz) tar -xzf "/tmp/$ASSET" -C .openutau/dll --wildcards '*.dll' ;;
             *)        echo "知らない形式: $ASSET" >&2; exit 1 ;;
           esac
           printf '%s\n%s\n%s\n' "${{ matrix.channel }}" "$VERSION" "$WANT" > .openutau/source.txt
-          pwsh -NoProfile -File .github/scripts/openutau-parity.ps1 \
-            -Assemblies .openutau/dll \
-            -Voicebank crates/koeru-core/fixtures/phonemizer-parity \
-            -Out .openutau/openutau.tsv
+          # **方式ごとに1つの音源**（`DEC-SYN-010`）。 presamp phonemizer は
+          # 音符1つに綴り1つしか返さないので、1つの音源から3方式ぶんは出ない。
+          for m in single sequential cvvc; do
+            pwsh -NoProfile -File .github/scripts/openutau-parity.ps1 \
+              -Assemblies .openutau/dll \
+              -Voicebank "crates/koeru-core/fixtures/phonemizer-parity/$m" \
+              -Out ".openutau/openutau-$m.tsv"
+          done
 
       # 毎回突き合わせる。 キャッシュに当たった回も、KOERU 側の `expected.tsv`
       # は作業ツリーのものを読む——実装が変われば、ここで食い違いが出る。
@@ -325,6 +330,14 @@ jobs:
             cat .openutau/source.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          diff -u crates/koeru-core/fixtures/phonemizer-parity/expected.tsv \
-                  .openutau/openutau.tsv \
-            || { echo '綴りが OpenUtau と食い違っている（DEC-SYN-010 の層B）'; exit 1; }
+          # 方式ごとに見て、食い違った方式を全部出してから落とす。
+          # 先頭で止めると、1回の CI で1方式しか直せない。
+          bad=
+          for m in single sequential cvvc; do
+            diff -u "crates/koeru-core/fixtures/phonemizer-parity/$m/expected.tsv" \
+                    ".openutau/openutau-$m.tsv" || bad="$bad $m"
+          done
+          if [ -n "$bad" ]; then
+            echo "綴りが OpenUtau と食い違っている（DEC-SYN-010 の層B）:$bad"
+            exit 1
+          fi
