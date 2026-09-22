@@ -25,15 +25,15 @@
     "@tanstack/react-router": "1.170.38",
     "@tanstack/react-start": "1.168.57",
     "@tauri-apps/api": "2.11.1",
-    "cn": "0.3.2",
-    "motion": "13.4.0",
+    "cn": "0.4.0",
+    "motion": "13.4.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tailwind-variants": "3.3.1",
     "valibot": "1.5.0"
   },
   "devDependencies": {
-    "@shadcn/lint": "0.1.5",
+    "@shadcn/lint": "0.2.0",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/addon-vitest": "10.6.0",
     "@storybook/react-vite": "10.6.0",
