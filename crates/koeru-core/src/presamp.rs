@@ -14,12 +14,19 @@
 //!
 //! # 行の書式
 //!
-//! `[CONSONANT]` は実物で確かめてある——`r=r,ら,る,れ,ろ=1` の形で、
-//! 3列目は「1文字目を伸ばすか」（`DEC-RCL-004` で読み違えた欄）。
+//! 節ごとに列が違う。 実物の `Presamp.ReadPresampIni` に当てて確かめた
+//! （`EVID-SYN-002`）。
 //!
-//! **[Unknown] `[VOWEL]` の列の形は一次資料で確かめていない。** `[CONSONANT]` と
-//! 同じ形として書いている。読み書きが往復することは試験が見ているが、
-//! OpenUtau が同じ解釈をするかは別で、`DEC-SYN-010` の層B で確かめる。
+//! | 節 | 形 |
+//! |---|---|
+//! | `[VOWEL]` | `母音=代表文字=所属かな=音量` |
+//! | `[CONSONANT]` | `子音=所属かな=1文字目を伸ばすか` |
+//!
+//! **`[VOWEL]` を `[CONSONANT]` と同じ3列で書いていた。** 4列に満たない行は
+//! あちらが落とすので、**所属表が1件も読まれない。** 直前の母音を引けず、
+//! 連続音の `a か` が作れずに語頭形や素の CV へ落ちていた。
+//! 読み書きの往復は通っていたので、層A では捕まらない
+//! ——`DEC-SYN-010` の層B が見つけた。
 
 use std::collections::BTreeMap;
 
@@ -244,9 +251,16 @@ pub fn write(rules: &Rules, newline: &str) -> String {
     let mut out = String::new();
     out.push_str(&format!("[VERSION]{newline}1.0{newline}{newline}"));
 
+    // `母音=代表文字=所属かな=音量` の4列（`EVID-SYN-002`）。
+    //
+    // **3列で書いていた**（`母音=所属かな=代表文字`）。OpenUtau の
+    // `Presamp.ReadPresampIni` は4列に満たない行を落とすので、
+    // **所属表が1件も読まれない。** 読まれないと直前の母音を引けず、
+    // 連続音の `a か` が作れずに語頭形や素の CV へ落ちる。**踏んだ。**
     out.push_str(&format!("[VOWEL]{newline}"));
     for (v, kana) in &rules.vowels {
-        out.push_str(&format!("{v}={}={v}{newline}", kana.join(",")));
+        // 4列目は音量。 触らないので 0。
+        out.push_str(&format!("{v}={v}={}=0{newline}", kana.join(",")));
     }
     out.push_str(newline);
 
@@ -287,9 +301,19 @@ pub fn parse(text: &str) -> Rules {
             continue;
         }
         match section.as_str() {
+            // 所属かなの列は節で違う（`EVID-SYN-002`）。
+            //
+            // | 節 | 形 | かなの列 |
+            // |---|---|---|
+            // | `[VOWEL]` | `母音=代表文字=所属かな=音量` | 3列目 |
+            // | `[CONSONANT]` | `子音=所属かな=伸ばすか` | 2列目 |
+            //
+            // 揃っていないのは presamp の側の都合。 揃えると、片方が
+            // OpenUtau に読まれなくなる。
             "VOWEL" | "CONSONANT" => {
-                let mut cols = line.split('=');
-                let (Some(symbol), Some(kana)) = (cols.next(), cols.next()) else {
+                let cols: Vec<&str> = line.split('=').collect();
+                let want = if section == "VOWEL" { 2 } else { 1 };
+                let (Some(symbol), Some(kana)) = (cols.first(), cols.get(want)) else {
                     continue;
                 };
                 if symbol.is_empty() {
@@ -302,9 +326,9 @@ pub fn parse(text: &str) -> Rules {
                     .map(str::to_owned)
                     .collect();
                 if section == "VOWEL" {
-                    vowels.insert(symbol.to_owned(), list);
+                    vowels.insert((*symbol).to_owned(), list);
                 } else {
-                    cons.insert(symbol.to_owned(), list);
+                    cons.insert((*symbol).to_owned(), list);
                 }
             }
             "VERSION" => {}
@@ -454,7 +478,7 @@ mod tests {
     /// 節が欠けても音源全体を読めなくしない。
     #[test]
     fn 欠けた節は既定へ戻る() {
-        let r = parse("[VOWEL]\na=あ,か=a\n");
+        let r = parse("[VOWEL]\na=a=あ,か=0\n");
         assert_eq!(r.template("VC"), "%v% %c%");
         assert_eq!(r.vc("a", "k"), "a k");
         assert_eq!(r.vowel_of("か"), "a");
