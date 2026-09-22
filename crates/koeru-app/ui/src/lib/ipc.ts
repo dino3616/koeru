@@ -190,11 +190,11 @@ export const api = {
   /** 採用テイクのエントリ全部を、確認待ちが先の順に（`TR-ALN-26`）。 */
   reviewQueue: () => unwrap(commands.reviewQueue()),
   /** 1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
-  confirmEntry: (alias: string) => unwrap(commands.confirmEntry(alias)),
+  confirmEntry: (key: string) => unwrap(commands.confirmEntry(key)),
   /** まとめて確認する（`REQ-ALN-010`）。個別確認をやめたあとだけ通る。 */
   confirmAllEntries: () => unwrap(commands.confirmAllEntries()),
   /** 録り直しに回す（`REQ-ALN-009`）。エントリを未推定へ戻すだけ。 */
-  rerecordEntry: (alias: string) => unwrap(commands.rerecordEntry(alias)),
+  rerecordEntry: (key: string) => unwrap(commands.rerecordEntry(key)),
   /** 書き出し前の検証（`TR-ALN-20`）。直せるものを直す。 */
   validateOtos: () => unwrap(commands.validateOtos()),
   /**
@@ -271,12 +271,12 @@ export const api = {
   switchReviewMode: (mode: "batch" | "suggest_rerecord") => unwrap(commands.switchReviewMode(mode)),
 
   /** 5値のどれかを人が直す。その値だけを固定する（`TR-ALN-30`）。 */
-  editOtoValue: ({ alias, slot, value }: { alias: string; slot: OtoSlot; value: number }) =>
-    unwrap(commands.editOtoValue(alias, slot, value)),
+  editOtoValue: ({ key, slot, value }: { key: string; slot: OtoSlot; value: number }) =>
+    unwrap(commands.editOtoValue(key, slot, value)),
 
   /** 固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
-  revertOtoValue: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
-    unwrap(commands.revertOtoValue(alias, slot)),
+  revertOtoValue: ({ key, slot }: { key: string; slot: OtoSlot }) =>
+    unwrap(commands.revertOtoValue(key, slot)),
 
   waveformWindow: ({
     takeId,

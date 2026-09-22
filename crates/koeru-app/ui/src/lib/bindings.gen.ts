@@ -263,7 +263,7 @@ export const commands = {
 	 */
 	reviewQueue: () => typedError<ReviewItemView[], AppError>(__TAURI_INVOKE("review_queue")),
 	/**  1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
-	confirmEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { alias })),
+	confirmEntry: (key: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { key })),
 	/**  まとめて確認する（`REQ-ALN-010`）。返るのは確定させた件数。 */
 	confirmAllEntries: () => typedError<number, AppError>(__TAURI_INVOKE("confirm_all_entries")),
 	/**
@@ -277,11 +277,11 @@ export const commands = {
 	 * 
 	 *  `slot` は `offset` / `consonant` / `cutoff` / `preutterance` / `overlap`。
 	 */
-	editOtoValue: (alias: string, slot: string, value: Finite) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { alias, slot, value })),
+	editOtoValue: (key: string, slot: string, value: Finite) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { key, slot, value })),
 	/**  固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
-	revertOtoValue: (alias: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { alias, slot })),
+	revertOtoValue: (key: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { key, slot })),
 	/**  oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。 */
-	rerecordEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("rerecord_entry", { alias })),
+	rerecordEntry: (key: string) => typedError<null, AppError>(__TAURI_INVOKE("rerecord_entry", { key })),
 	/**
 	 *  書き出し前の検証（`TR-ALN-20`）。
 	 * 
@@ -810,6 +810,13 @@ export type ReleaseView = {
 
 /**  確認キューの1件（`TR-ALN-26`）。 */
 export type ReviewItemView = {
+	/**
+	 *  このエントリを指す鍵。確認・編集・録り直しに渡す。
+	 * 
+	 *  **`oto.alias` では指せない。** 多音階は同じ綴りを音高の数だけ持つ
+	 *  （`TR-ALN-22`）。中身を読まずにそのまま返す文字列として扱う。
+	 */
+	key: string,
 	/**  そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。 */
 	row_id: string,
 	/**  自動推定した5値（`TR-ALN-26` (2)）。エイリアスはこの中にある。 */

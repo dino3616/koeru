@@ -5,6 +5,7 @@ import { ReviewEntry } from ".";
 import type { ReviewItemView } from "~/lib/ipc";
 
 const item: ReviewItemView = {
+  key: "か060",
   row_id: "s002",
   oto: {
     alias: "か",
