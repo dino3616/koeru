@@ -3,7 +3,7 @@
 //! # 何を固定するのか
 //!
 //! KOERU が書き出す `presamp.ini` と、その表から KOERU 自身が組み立てる綴り。
-//! **両方を1つのディレクトリへ書き出す**——`fixtures/phonemizer-parity/`。
+//! **方式ごとに1つの音源へ書き出す**——`fixtures/phonemizer-parity/<方式>/`。
 //!
 //! OpenUtau 側の半分は `.github/scripts/openutau-parity.ps1`。 あちらが同じ音源を
 //! OpenUtau へ食わせて綴りを出し、CI が突き合わせる
@@ -11,6 +11,18 @@
 //!
 //! 向こうは `.github/` に置く。 走らせるのが CI だけだから——
 //! `cargo test` は触らないので、`tests/` に置くとテスト対象に見える。
+//!
+//! # なぜ方式ごとに音源を分けるのか
+//!
+//! **phonemizer に方式を渡す口が無い。** presamp phonemizer は1つで
+//! 単独音・連続音・CVVC を賄い、**どの綴りを出すかは音源の中身が決める**
+//! ——「その綴りの oto があるか」で候補を落としていく。だから、
+//! 音符1つに返る綴りも1つしかない。
+//!
+//! **1つの音源に3方式ぶんの綴りを入れて、3方式ぶんの答えを期待していた。**
+//! 同じ音符を3度食わせて3つの違う答えを待つ形で、**原理的に埋まらない。**
+//! 方式ごとに音源を分けて、その方式の oto だけを置けば、あちらの候補落としが
+//! その方式の綴りへ収束する（`DEC-SYN-010`）。
 //!
 //! # なぜ固定するのか
 //!
@@ -48,85 +60,124 @@ const CASES: [(Option<&str>, &str); 14] = [
     (Some("わ"), "ん"), // 撥音
 ];
 
+/// 突き合わせる方式と、その音源のディレクトリ名。
+const METHODS: [(Method, &str); 3] = [
+    (Method::Single, "single"),
+    (Method::Sequential, "sequential"),
+    (Method::Cvvc, "cvvc"),
+];
+
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/phonemizer-parity")
 }
 
-/// 期待値の本文を組み立てる。
+/// その方式の期待値（`TR-SYN-12`）。
 ///
-/// タブ区切り。 方式・直前の歌詞・歌詞・綴り。 空欄は `-`——
+/// タブ区切り。 直前の歌詞・歌詞・綴り。 空欄は `-`——
 /// 空文字のままだと、列がずれているのか空なのかが目で読めない。
-fn expected() -> String {
-    let rules = presamp::Rules::builtin(UnitSet::Core);
-    let mut out = String::from("# 方式\t直前\t歌詞\t綴り\n");
-    for method in [Method::Single, Method::Sequential, Method::Cvvc] {
-        let name = match method {
-            Method::Single => "single",
-            Method::Sequential => "sequential",
-            Method::Cvvc => "cvvc",
-        };
-        for (prev, kana) in CASES {
-            // 直前の母音は、直前の歌詞から引く。 語頭は `None`。
-            let previous_vowel = prev.map(|p| rules.vowel_of(p).to_owned());
-            let alias = rules
-                .candidates(method, kana, previous_vowel.as_deref())
-                .first()
-                .cloned()
-                .unwrap_or_default();
-            out.push_str(&format!(
-                "{name}\t{}\t{kana}\t{alias}\n",
-                prev.unwrap_or("-")
-            ));
-        }
+///
+/// 方式の欄を持たない。 音源1つが1方式なので、ディレクトリ名が方式。
+fn expected(rules: &presamp::Rules, method: Method) -> String {
+    let mut out = String::from("# 直前\t歌詞\t綴り\n");
+    for (prev, kana) in CASES {
+        // 直前の母音は、直前の歌詞から引く。 語頭は `None`。
+        let previous_vowel = prev.map(|p| rules.vowel_of(p).to_owned());
+        let alias = rules
+            .candidates(method, kana, previous_vowel.as_deref())
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        out.push_str(&format!("{}\t{kana}\t{alias}\n", prev.unwrap_or("-")));
     }
     out
 }
 
 /// 書き出したものと突き合わせる。 `KOERU_WRITE_PARITY=1` で作り直す。
-fn fixed(name: &str, body: &str) {
-    let path = fixture_dir().join(name);
+fn fixed(rel: &str, body: &str) {
+    fixed_bytes(rel, body.as_bytes());
+}
+
+/// [`fixed`] のバイト列版。WAV のように文字列でないものを置く。
+fn fixed_bytes(rel: &str, body: &[u8]) {
+    let path = fixture_dir().join(rel);
     if std::env::var_os("KOERU_WRITE_PARITY").is_some() {
-        std::fs::create_dir_all(fixture_dir()).expect("作れる");
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).expect("作れる");
+        }
         std::fs::write(&path, body).expect("書ける");
         return;
     }
-    let have = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{name} を読めない: {e}。`KOERU_WRITE_PARITY=1` で作り直す"));
-    assert_eq!(
-        have, body,
-        "{name} が実装とずれている。\
+    let have = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("{rel} を読めない: {e}。`KOERU_WRITE_PARITY=1` で作り直す"));
+    assert!(
+        have == body,
+        "{rel} が実装とずれている。\
          \n配布した音源の互換性が変わる差分。意図した変更なら \
          `KOERU_WRITE_PARITY=1 cargo test -p koeru-core --test phonemizer_parity` で作り直す"
     );
 }
 
-/// 突合に使う音源一式を書き出す（`DEC-SYN-010` の層B）。
+/// oto が指す WAV（`DEC-SYN-010` の層B）。
 ///
-/// **OpenUtau は「その綴りの oto があるか」で候補を選ぶ。** 候補の一部しか
-/// 置いていない音源を渡すと、あちらは最後の候補まで落ちて、こちらと違う綴りを出す。
-/// **食い違いの原因が音源の不足なのか実装の差なのか、分からなくなる。**
-/// だから満たされた音源を渡す——全単位・全直前母音の候補と、VC と語尾。
-fn oto_ini() -> String {
-    let rules = presamp::Rules::builtin(UnitSet::Core);
+/// **無いと oto が1件も残らない。** OpenUtau は音源を読むときに各 oto の
+/// WAV の在処を確かめ、無いものを「Sound file missing」として落とす
+/// ——102 件書いても全部落ち、phonemizer は候補を1つも見つけられない。
+/// **踏んだ。**
+///
+/// 中身は見られない。 綴りを決めるのに波形は要らないので、
+/// 44100 Hz / 16 bit / 1ch（`TR-PKG-20`）の最小の1本を置く。
+fn parity_wav() -> Vec<u8> {
+    // 1標本だけ。無音。
+    const DATA: [u8; 2] = [0, 0];
+    let rate: u32 = 44_100;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + DATA.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16_u32.to_le_bytes()); // fmt チャンクの長さ
+    out.extend_from_slice(&1_u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1_u16.to_le_bytes()); // 1ch
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * 2).to_le_bytes()); // バイト毎秒
+    out.extend_from_slice(&2_u16.to_le_bytes()); // ブロック境界
+    out.extend_from_slice(&16_u16.to_le_bytes()); // 量子化ビット数
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(DATA.len() as u32).to_le_bytes());
+    out.extend_from_slice(&DATA);
+    out
+}
+
+/// その方式の音源が持つ `oto.ini`（`DEC-SYN-010` の層B）。
+///
+/// **その方式が出しうる候補を全部置く。** OpenUtau は「その綴りの oto があるか」で
+/// 候補を落としていくので、先頭の候補だけを置くと、あちらは選ぶ余地を持たない
+/// ——一致しても、候補落としの順が同じだと確かめたことにならない。
+///
+/// **他の方式の綴りは置かない。** 置くと候補落としが別の方式へ逸れる。
+/// 連続音の音源に素の `か` があっても `a か` が先に当たるので害は無いが、
+/// 単独音の音源に `a か` があると、あちらは `a か` を返す
+/// ——**方式ごとに分けた意味が消える。**
+fn oto_ini(rules: &presamp::Rules, method: Method) -> String {
     let units = koeru_core::inventory::units(UnitSet::Core);
     let vowels = koeru_core::inventory::transition_vowels(UnitSet::Core);
 
     let mut aliases: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for u in &units {
-        for method in [Method::Single, Method::Sequential, Method::Cvvc] {
-            aliases.extend(rules.candidates(method, u.kana, None));
+        aliases.extend(rules.candidates(method, u.kana, None));
+        for v in &vowels {
+            aliases.extend(rules.candidates(method, u.kana, Some(v)));
+        }
+    }
+    // 渡りと語尾は CVVC だけが持つ（`TR-RCL-05`）。
+    if method == Method::Cvvc {
+        for c in koeru_core::inventory::consonants(UnitSet::Core) {
             for v in &vowels {
-                aliases.extend(rules.candidates(method, u.kana, Some(v)));
+                aliases.insert(rules.vc(v, c));
             }
         }
-    }
-    for c in koeru_core::inventory::consonants(UnitSet::Core) {
         for v in &vowels {
-            aliases.insert(rules.vc(v, c));
+            aliases.insert(rules.ending(v));
         }
-    }
-    for v in &vowels {
-        aliases.insert(rules.ending(v));
     }
 
     // 5値は突合に効かない。 見るのは綴りだけなので、同じ WAV を全部が指す。
@@ -137,34 +188,73 @@ fn oto_ini() -> String {
     out
 }
 
-/// 突合に使う音源一式（`DEC-SYN-010` の層B）。
+/// 方式ごとに音源一式を固定する（`DEC-SYN-010` の層B）。
 ///
 /// CI がこのディレクトリをそのまま OpenUtau へ渡す。 `character.txt` は
 /// `VoicebankLoader` が音源として認めるために要る最小限。
-#[test]
-fn 突合用の音源を固定する() {
-    fixed("character.txt", "name=KOERU parity\n");
-    fixed("oto.ini", &oto_ini());
-}
-
-/// 書き出す `presamp.ini` を固定する（`TR-RCL-24`, `DEC-SYN-010`）。
 ///
-/// **層B が読むのはこのファイル。** OpenUtau に同じ表を渡さなければ、
-/// 綴りが一致しても一致の意味が無い。
+/// `presamp.ini` は3つとも同じ中身。 表は方式で変わらない（`TR-RCL-24`）が、
+/// **音源はそれぞれ自分の表を持っていなければならない**——OpenUtau が読むのは
+/// 開いた音源の中の1枚で、隣の音源を見には行かない。
+///
+/// `character.yaml` は文字コードを名乗るために要る（`TR-PKG-13`）。
+/// **無いと classic の既定（Shift-JIS）で読まれる。** ここの綴りは UTF-8 で
+/// 置いてあるので、名乗らないと全部の綴りが化けて1つも当たらない。
 #[test]
-fn presamp_ini_を固定する() {
+fn 方式ごとの突合用音源を固定する() {
     let rules = presamp::Rules::builtin(UnitSet::Core);
-    // 改行は LF で固定する。 CRLF にすると OS で指紋が変わる。
-    fixed("presamp.ini", &presamp::write(&rules, "\n"));
+    for (method, dir) in METHODS {
+        fixed(
+            &format!("{dir}/character.txt"),
+            &format!("name=KOERU parity {dir}\n"),
+        );
+        fixed(
+            &format!("{dir}/character.yaml"),
+            &format!("name: KOERU parity {dir}\ntext_file_encoding: utf-8\n"),
+        );
+        // 改行は LF で固定する。 CRLF にすると OS で指紋が変わる。
+        fixed(&format!("{dir}/presamp.ini"), &presamp::write(&rules, "\n"));
+        fixed(&format!("{dir}/oto.ini"), &oto_ini(&rules, method));
+        fixed(&format!("{dir}/expected.tsv"), &expected(&rules, method));
+        fixed_bytes(&format!("{dir}/_parity.wav"), &parity_wav());
+    }
 }
 
-/// KOERU が組み立てる綴りを固定する（`TR-SYN-12`）。
+/// 方式ごとの音源が、綴りを混ぜていない（`DEC-SYN-010`）。
+///
+/// **混ぜていた。** 1つの音源に3方式ぶんの綴りを入れて、同じ音符から
+/// 3つの違う答えを待っていた。ここが崩れると、層B は「何を確かめているのか」を
+/// 失ったまま緑になる。
 #[test]
-fn 綴りを固定する() {
-    fixed("expected.tsv", &expected());
+fn 方式ごとの音源は他の方式の綴りを持たない() {
+    let rules = presamp::Rules::builtin(UnitSet::Core);
+    let mine = |m: Method| -> std::collections::BTreeSet<String> {
+        oto_ini(&rules, m)
+            .lines()
+            .filter_map(|l| l.split_once('=')?.1.split(',').next().map(str::to_owned))
+            .collect()
+    };
+    let single = mine(Method::Single);
+    let sequential = mine(Method::Sequential);
+
+    // 単独音の音源に連続音の綴りがあると、あちらは `a か` を返す。
+    assert!(
+        !single.contains("a か"),
+        "単独音の音源が連続音の綴りを持っている"
+    );
+    assert!(single.contains("か"), "単独音の音源が素の仮名を持つ");
+    // 連続音の音源は、語頭と渡り先の両方を持つ。
+    assert!(sequential.contains("- か"));
+    assert!(sequential.contains("a か"));
+    // 渡りと語尾は CVVC だけ（`TR-RCL-05`）。
+    assert!(
+        !sequential.iter().any(|a| a == "a k"),
+        "連続音に VC は要らない"
+    );
+    assert!(mine(Method::Cvvc).contains("a k"), "CVVC は VC を持つ");
 }
 
-/// 書き出した `presamp.ini` を読み戻すと、同じ綴りが出る（`DEC-SYN-010` の層A）。
+/// 書き出した表から同じ綴りが出る（`DEC-SYN-010` の層A）。
 ///
 /// **往復を見る。** 表を書けても、その表から同じ綴りが出なければ、
 /// 受け取った側（OpenUtau）は別の綴りを作る。
@@ -172,7 +262,7 @@ fn 綴りを固定する() {
 fn 書き出した表から同じ綴りが出る() {
     let rules = presamp::Rules::builtin(UnitSet::Core);
     let round = presamp::parse(&presamp::write(&rules, "\n"));
-    for method in [Method::Single, Method::Sequential, Method::Cvvc] {
+    for (method, _) in METHODS {
         for (prev, kana) in CASES {
             let pv = prev.map(|p| rules.vowel_of(p).to_owned());
             assert_eq!(

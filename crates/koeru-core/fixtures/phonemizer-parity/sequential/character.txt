@@ -1,0 +1,1 @@
+name=KOERU parity sequential
