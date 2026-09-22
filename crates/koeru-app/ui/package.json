@@ -23,7 +23,7 @@
     "@radix-ui/react-slot": "1.3.3",
     "@tanstack/react-query": "5.103.2",
     "@tanstack/react-router": "1.170.38",
-    "@tanstack/react-start": "1.168.56",
+    "@tanstack/react-start": "1.168.57",
     "@tauri-apps/api": "2.11.1",
     "cn": "0.3.2",
     "motion": "13.4.0",
