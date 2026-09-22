@@ -35,6 +35,7 @@
 | [DEC-ALN-014](DEC-ALN-014.toml) | oto の再導出の担当 | アライメント境界を保存し、下位方式の5値の再導出を align に置く | accepted |
 | [DEC-ALN-015](DEC-ALN-015.toml) | 退避経路の段数 | Julius は採らない。退避は segment.rs の1段に確定し、多モーラ方式では MFA を必須にする | accepted |
 | [DEC-ALN-016](DEC-ALN-016.toml) | 退避経路の段数 | アライメントの退避経路を持たない。MFA が無ければ自動原音設定を行わない | accepted |
+| [DEC-ALN-017](DEC-ALN-017.toml) | 原音設定エントリの同一性 | 原音設定エントリの同一性を（収録音高, 綴り）にし、同じ音高の中で綴りの持ち主を1行に決める | accepted |
 | [DEC-EDT-003](DEC-EDT-003.toml) | 違反と確認済み | 上級モードの自動確認済みに「制約違反が残っていない場合に限る」を課す | accepted |
 | [DEC-PKG-001](DEC-PKG-001.toml) | 完成 | 完成状態と手渡し状態を直交させる | accepted |
 | [DEC-PKG-002](DEC-PKG-002.toml) | 周波数表 | `.frq` は録音時に作る | accepted |
@@ -120,4 +121,4 @@
 | [DEC-SYN-012](DEC-SYN-012.toml) | 曲のキーを誰が決めるか | 自動移調をやめる。キーは本人が決め、KOERU は勧めるだけにする | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-110 件。
+111 件。
