@@ -309,6 +309,27 @@ impl Ledger {
             .transaction(|c| {
                 let mut ordinal = 0_i32;
                 for tone in tones {
+                    // 1つの綴りを持つ行は、同じ音高の中に1つだけ（`TR-ALN-22`）。
+                    //
+                    // **連続音の第2段は語頭 CV を重複して生む。** 始点の母音を作る
+                    // 単位を行頭に置くしかなく、その単位の語頭は第1段で既に出ている
+                    // （`crate::reclist::generate_sequential`）。`Core` では
+                    // `- い` `- え` `- ん` の3つが、159 行から重ねて名乗る。
+                    //
+                    // 先に名乗った行が持つ。 `ordinal` の順に見るので、持つのは
+                    // 第1段の行——あちらはその単位を歌うためだけに置かれた行で、
+                    // 第2段の行頭は辺へ入るための運び役でしかない。
+                    //
+                    // 名乗らせると確認キューが片方を落とす。 鍵が（音高, 綴り）
+                    // なので、あとに読んだ行が前の行を置き換え、落ちたほうは
+                    // 確認もされず `oto.ini` にも出ない（`INV-ALN-003`）。
+                    let mut claimed: std::collections::BTreeSet<String> = row_aliases::table
+                        .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+                        .filter(rows::tone.eq(tone))
+                        .select(row_aliases::alias)
+                        .load::<String>(c)?
+                        .into_iter()
+                        .collect();
                     for r in list {
                         let id = if tones.len() > 1 {
                             format!("{}@{}", r.id, crate::tone::name(*tone))
@@ -349,10 +370,17 @@ impl Ledger {
                                 .execute(c)?;
                         }
                         // 行が生むエイリアス（`TR-PKG-22` の判定の正本）。
+                        //
+                        // `ordinal` は飛ぶことがある。 既に名乗られた綴りを
+                        // 飛ばすので、残った番号は行の中での初出位置のまま
+                        // ——詰め直すと、同じ行の綴りが名乗りの有無で動く。
                         for (n, alias) in crate::reclist::row_aliases(rules, method, &r.units)
                             .into_iter()
                             .enumerate()
                         {
+                            if !claimed.insert(alias.clone()) {
+                                continue;
+                            }
                             diesel::insert_into(row_aliases::table)
                                 .values((
                                     row_aliases::row_id.eq(&id),
@@ -576,6 +604,22 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map(|v| v.into_iter().collect())
             .map_err(db("covered_aliases"))
+    }
+
+    /// その行が持つエイリアス（`TR-RCL-18`）。
+    ///
+    /// **綴りから作り直さない。** 同じ綴りを2つの行が生むとき、持つのは
+    /// 先に名乗った1つだけで（[`install_reclist_for_tones`]）、その取り決めは
+    /// 台帳にしか無い。作り直すと、名乗らなかった行にも5値が生える。
+    ///
+    /// [`install_reclist_for_tones`]: Self::install_reclist_for_tones
+    pub fn aliases_of_row(&mut self, row_id: &str) -> Result<BTreeSet<String>> {
+        row_aliases::table
+            .filter(row_aliases::row_id.eq(row_id))
+            .select(row_aliases::alias)
+            .load::<String>(&mut self.conn)
+            .map(|v| v.into_iter().collect())
+            .map_err(db("aliases_of_row"))
     }
 
     /// 録音リストが要求するエイリアスの全体（`TR-RCL-18`）。
@@ -2094,11 +2138,17 @@ impl Ledger {
         Ok(())
     }
 
-    /// 採用しているのに oto が1つも無い収録単位（`TR-ALN-20`, `INV-ALN-003`）。
+    /// 採用しているのに、名乗った綴りの oto が揃っていない行（`TR-ALN-20`, `INV-ALN-003`）。
     ///
     /// 発声が見つからなかったテイクも採用される（取りこぼしが無ければ）。
     /// そのテイクは `oto_values` に1行も書かないので、**確認キューにも現れず、
     /// 書き出しからも黙って落ちる。** 関門がこれを見て止める。
+    ///
+    /// **数える分母は `row_aliases`。仮名の数ではない。** 行が生む綴りの数は
+    /// 仮名の数と一致しない——CVVC の行は渡りと語尾を足すぶん多く、連続音の
+    /// 第2段は名乗らない語頭 CV があるぶん少ない（`TR-ALN-22`）。仮名で
+    /// 数えると、**名乗っていない綴りを「取れていない切り出し」として
+    /// 数え、録り終えた連続音が書き出しの関門で止まる。**
     ///
     /// 返るのは行 ID。エイリアスではなく行で返すのは、画面が行で開くため。
     ///
@@ -2112,17 +2162,17 @@ impl Ledger {
             .map_err(db("adopted_rows_without_oto.adopted"))?;
         let mut out = Vec::new();
         for (row_id, take_id) in adopted {
-            let units: i64 = row_units::table
-                .filter(row_units::row_id.eq(&row_id))
+            let want: i64 = row_aliases::table
+                .filter(row_aliases::row_id.eq(&row_id))
                 .count()
                 .get_result(&mut self.conn)
-                .map_err(db("adopted_rows_without_oto.units"))?;
+                .map_err(db("adopted_rows_without_oto.aliases"))?;
             let otos: i64 = oto_values::table
                 .filter(oto_values::take_id.eq(take_id))
                 .count()
                 .get_result(&mut self.conn)
                 .map_err(db("adopted_rows_without_oto.otos"))?;
-            if otos < units {
+            if otos < want {
                 out.push(row_id);
             }
         }
@@ -2130,35 +2180,47 @@ impl Ledger {
         Ok(out)
     }
 
-    /// 別の採用テイクにまたがって重複しているエイリアス。
+    /// 同じ収録音高の中で、別の採用テイクにまたがって重複しているエイリアス。
     ///
-    /// エイリアスはエントリの識別子（`docs/design/ooui-model.md`。音源全体で一意）。
-    /// **重なると確認キューが片方を落とす**——鍵がエイリアスだけなので、
-    /// あとに読んだ行が前の行を置き換え、落ちたほうは確認もされず
-    /// `oto.ini` にも出ない。
+    /// エントリの識別子は（収録音高, 綴り）（`docs/design/ooui-model.md`）。
+    /// **重なると確認キューが片方を落とす**——あとに読んだ行が前の行を
+    /// 置き換え、落ちたほうは確認もされず `oto.ini` にも出ない。
+    ///
+    /// **音高を跨ぐ重なりは重なりではない**（`TR-ALN-22`）。 多音階は音高ごとに
+    /// フォルダと `oto.ini` を分け、配布物では区画の接頭辞・接尾辞が綴りを
+    /// 分ける（`koeru_package::tree` の `decorate`）。音高を見ずに数えると、
+    /// **`あ` を2音階で録っただけで全部の綴りが衝突になり、書き出しが止まる。**
     ///
     /// `TR-ALN-20` (6) の同一 WAV 内の重複とは別。 あちらは1つの WAV の中の話で、
     /// [`validate`] 側が WAV ごとに見る。ここが見るのは WAV をまたぐ重なり。
+    ///
+    /// **発火しないのが正常。** 綴りの持ち主は録音リストを入れる時点で1つに
+    /// 決まる（[`install_reclist_for_tones`]）。ここはその取り決めが破れた
+    /// ときに気づくための後備で、破れた状態で配らないことだけを保証する。
     ///
     /// # Errors
     ///
     /// SQLite の操作が失敗した。
     ///
     /// [`validate`]: https://docs.rs/koeru-align
+    /// [`install_reclist_for_tones`]: Self::install_reclist_for_tones
     pub fn adopted_conflicting_aliases(&mut self) -> Result<Vec<String>> {
-        let rows: Vec<(String, i32)> = oto_values::table
+        let rows: Vec<(i32, String, i32)> = oto_values::table
             .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
-            .select((oto_values::alias, oto_values::take_id))
+            .inner_join(rows::table.on(rows::id.eq(adopted_takes::row_id)))
+            .select((rows::tone, oto_values::alias, oto_values::take_id))
             .load(&mut self.conn)
             .map_err(db("adopted_conflicting_aliases"))?;
-        let mut seen: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
+        let mut seen: std::collections::BTreeMap<(i32, String), i32> =
+            std::collections::BTreeMap::new();
         let mut out = Vec::new();
-        for (alias, take_id) in rows {
-            match seen.get(&alias) {
+        for (tone, alias, take_id) in rows {
+            let key = (tone, alias.clone());
+            match seen.get(&key) {
                 Some(first) if *first != take_id => out.push(alias),
                 Some(_) => {}
                 None => {
-                    seen.insert(alias, take_id);
+                    seen.insert(key, take_id);
                 }
             }
         }
@@ -2407,7 +2469,12 @@ pub struct ConfidenceParts {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OtoEntry {
     pub take_id: i32,
-    /// エイリアス。音源全体で一意（`TR-ALN-20` (6)）。
+    /// エイリアス。行の収録音高と組で1つのエントリを指す（`TR-ALN-22`）。
+    ///
+    /// これだけでは一意にならない。 多音階は音高ごとに `oto.ini` を分けるので、
+    /// 同じ綴りが音高の数だけある（`DEC-ALN-017`）。音高は [`row_id`](Self::row_id)
+    /// の行が持つ。配布物で綴りが一意に戻るのは、区画の接頭辞・接尾辞が
+    /// 音高を織り込んだあと（`TR-PKG-19`）。
     pub alias: String,
     pub row_id: String,
     /// その WAV のフレーム数。長さを引くための問い合わせを1件ずつ出さないために持つ。
@@ -3178,7 +3245,7 @@ mod m5_tests {
         }
     }
 
-    fn adopt(l: &mut Ledger, sid: i32, row_id: &str) {
+    fn adopt(l: &mut Ledger, sid: i32, row_id: &str) -> i32 {
         let t = l
             .commit_take(&FinalizedTake {
                 row_id: row_id.into(),
@@ -3189,6 +3256,77 @@ mod m5_tests {
             })
             .expect("確定できる");
         l.adopt_take(row_id, t).expect("採用できる");
+        t
+    }
+
+    /// その行が持つ綴りの5値を置く。値は突合に使わないので同じものでよい。
+    fn put_otos_of_row(l: &mut Ledger, take_id: i32, row_id: &str) {
+        let o = koeru_oto::Oto {
+            offset_ms: 0.0,
+            consonant_ms: 10.0,
+            cutoff_ms: -100.0,
+            preutterance_ms: 5.0,
+            overlap_ms: 2.0,
+        };
+        for a in l.aliases_of_row(row_id).expect("引ける") {
+            l.put_oto(take_id, &a, &o, 0.9, None, false)
+                .expect("書ける");
+        }
+    }
+
+    /// 音高を跨ぐ同じ綴りは衝突ではない（`TR-ALN-22`）。
+    ///
+    /// **音高を見ずに数えていた。** 多音階は音高ごとにフォルダと `oto.ini` を
+    /// 分けるので `あ` が音階の数だけ並ぶのが正常なのに、全部が衝突として
+    /// 数えられ、**2音階で録っただけで書き出しの関門が開かなくなっていた。**
+    #[test]
+    fn 音高を跨ぐ同じ綴りは衝突にしない() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, &[60, 62])
+            .expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+
+        for suffix in ["@C4", "@D4"] {
+            let row_id = format!("{}{suffix}", list[0].id);
+            let t = adopt(&mut l, sid, &row_id);
+            put_otos_of_row(&mut l, t, &row_id);
+        }
+        assert!(
+            l.adopted_conflicting_aliases().expect("引ける").is_empty(),
+            "音高が違えば同じ綴りでも衝突しない"
+        );
+    }
+
+    /// 同じ音高の中では、1つの綴りを持つ行は1つ（`TR-ALN-22`）。
+    ///
+    /// **連続音の第2段が語頭 CV を重複して生んでいた。** `Core` では
+    /// `- い` `- え` `- ん` の3つを 159 行が重ねて名乗り、確認キューが
+    /// 片方を落とし、書き出しの関門が `review.conflicting_alias` で閉じていた。
+    #[test]
+    fn 連続音の語頭cvを持つ行は音高ごとに一つ() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
+            .expect("書き込める");
+
+        // 生成器は重複を出したままでよい。 名乗りを1つに決めるのは台帳。
+        let rules = builtin_rules();
+        let generated = list
+            .iter()
+            .flat_map(|r| crate::reclist::row_aliases(&rules, AliasMethod::Sequential, &r.units))
+            .filter(|a| a == "- い")
+            .count();
+        assert!(generated > 1, "第2段が語頭 CV を重ねて生む前提が崩れている");
+
+        let owners: Vec<String> = row_aliases::table
+            .filter(row_aliases::alias.eq("- い"))
+            .select(row_aliases::row_id)
+            .load(&mut l.conn)
+            .expect("引ける");
+        assert_eq!(owners.len(), 1, "持ち主は1行だけ: {owners:?}");
+        // 持つのは第1段の行。 第2段の行頭は辺へ入るための運び役でしかない。
+        assert_eq!(owners[0], list[1].id, "第1段の行が持つ");
     }
 
     /// 連続音の行が生むのは仮名ではなくエイリアス（`TR-PKG-22`）。
