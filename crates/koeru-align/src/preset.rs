@@ -36,6 +36,12 @@ const PRESETS_TOML: &str = include_str!("../resources/presets.toml");
 /// リソース側が欄を持たないときだけ使う。 CVVC の既定プリセットは持っている。
 const DEFAULT_VC_VOWEL_CONTEXT_MS: f64 = 60.0;
 
+/// 無声破裂音の閉鎖を無音とみなす差の既定（dB、`DEC-ALN-018`）。
+///
+/// リソース側が欄を持たないときだけ使う。 連続音と CVVC の既定プリセットは持っている。
+/// 単独音は検証しないので持たない。**20 は仮置き**（`Q-ALN-004`）。
+const DEFAULT_PLOSIVE_CLOSURE_DROP_DB: f64 = 20.0;
+
 /// 子音のクラス（`TR-ALN-17` の子音クラス別係数）。
 ///
 /// オーバーラップと子音部の扱いがクラスで分かれる。
@@ -119,6 +125,12 @@ pub struct Preset {
     ///
     /// CVVC でしか使わない。 他の方式のプリセットにも欄はあるが、参照されない。
     pub vc_vowel_context_ms: f64,
+    /// 無声破裂音の閉鎖が、直前の母音より何 dB 下なら無音とみなすか
+    /// （`TR-ALN-16`, `TR-ALN-17`, `DEC-ALN-018`）。
+    ///
+    /// **実測していない**（`Q-ALN-004`）。 5値の導出には効かず、
+    /// 分岐不一致の印を付けるかだけを決める。
+    pub plosive_closure_drop_db: f64,
     /// 子音クラスごとの係数。
     pub classes: BTreeMap<String, ClassCoefficients>,
 }
@@ -199,6 +211,10 @@ impl Preset {
             .get("vc_vowel_context_ms")
             .and_then(toml_edit::Item::as_float)
             .unwrap_or(DEFAULT_VC_VOWEL_CONTEXT_MS);
+        let plosive_closure_drop_db = t
+            .get("plosive_closure_drop_db")
+            .and_then(toml_edit::Item::as_float)
+            .unwrap_or(DEFAULT_PLOSIVE_CLOSURE_DROP_DB);
 
         let mut classes = BTreeMap::new();
         let ct = t
@@ -227,6 +243,7 @@ impl Preset {
             method,
             leading_margin_ms: f("leading_margin_ms")?,
             vc_vowel_context_ms,
+            plosive_closure_drop_db,
             classes,
         })
     }
@@ -254,8 +271,12 @@ impl Preset {
     #[must_use]
     pub fn to_toml(&self) -> String {
         let mut s = format!(
-            "id = {:?}\nversion = {}\nleading_margin_ms = {:?}\nvc_vowel_context_ms = {:?}\n",
-            self.id, self.version, self.leading_margin_ms, self.vc_vowel_context_ms
+            "id = {:?}\nversion = {}\nleading_margin_ms = {:?}\nvc_vowel_context_ms = {:?}\nplosive_closure_drop_db = {:?}\n",
+            self.id,
+            self.version,
+            self.leading_margin_ms,
+            self.vc_vowel_context_ms,
+            self.plosive_closure_drop_db
         );
         for (name, c) in &self.classes {
             s.push_str(&format!(

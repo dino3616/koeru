@@ -128,6 +128,7 @@ diesel::table! {
         conf_sharpness -> Nullable<Double>,
         conf_prior -> Nullable<Double>,
         conf_acoustic -> Nullable<Double>,
+        branch_mismatch -> Integer,
     }
 }
 

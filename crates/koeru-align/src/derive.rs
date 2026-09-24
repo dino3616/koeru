@@ -225,6 +225,101 @@ pub fn derive_row(
         .collect()
 }
 
+/// 無声破裂音の分岐が閉鎖の無音の上に乗っていない綴り（`TR-ALN-16`, `TR-ALN-17`, `DEC-ALN-018`）。
+///
+/// 分岐（オーバーラップ 0、VC の終わりを閉鎖の中に置く）は「そこが無音だ」という
+/// 前提の上に立つ。境界の推定がずれていたり、息が漏れていたりすると、素材の
+/// 終わりが声の途中に来る。ここが返したものに分岐不一致の印を付け、
+/// 確認キューの先頭へ回す。
+///
+/// 見るのは直前の母音を同じ WAV の中に持つエントリだけ。 単独音の CV と、
+/// 行頭の語頭形は比べる相手が無いので見ない——**見ないものは印も付かないが、
+/// 確信度の対象から外しもしない**（`TR-ALN-16` の「確信度対象外にしてよいのは、
+/// この事後検証に通った分岐だけとする」）。単独音の行の中の次のモーラは、
+/// 1音ずつ間をあけて読む（`TR-RCL-03`）ので直前の母音ではない。
+#[must_use]
+pub fn closure_mismatches(
+    entries: &[(String, Slot)],
+    boundaries: &[Boundary],
+    units: &[Unit],
+    samples: &[f64],
+    rate_hz: u32,
+    method: koeru_core::alias::Method,
+    preset: &Preset,
+) -> std::collections::BTreeSet<String> {
+    if method == koeru_core::alias::Method::Single {
+        return std::collections::BTreeSet::new();
+    }
+    let plosive = |i: usize| {
+        units
+            .get(i)
+            .is_some_and(|u| ConsonantClass::of(u.consonant) == ConsonantClass::UnvoicedPlosive)
+    };
+    entries
+        .iter()
+        .filter_map(|(alias, slot)| {
+            // 閉鎖を挟む2つのモーラ。 入っていく側が無声破裂音のときだけ分岐する。
+            let (prev, next) = match *slot {
+                Slot::Cv { mora } if mora > 0 => (mora - 1, mora),
+                Slot::Vc { prev, next } => (prev, next),
+                Slot::Cv { .. } | Slot::Ending { .. } => return None,
+            };
+            if !plosive(next) {
+                return None;
+            }
+            let holds = match (boundaries.get(prev), boundaries.get(next)) {
+                (Some(a), Some(b)) => {
+                    closure_holds(samples, rate_hz, a, b, preset.plosive_closure_drop_db)
+                }
+                // 境界が無ければ閉鎖も確かめられない。
+                _ => false,
+            };
+            (!holds).then(|| alias.clone())
+        })
+        .collect()
+}
+
+/// 前のモーラの母音と次のモーラの母音のあいだに、閉鎖の無音があるか（`DEC-ALN-018`）。
+///
+/// 閉鎖の区間は、前の母音の終わりから次の母音の始まりまでの**前半**。 後半には
+/// 破裂と気息が入る。VC の終わりもこの中点に置いている（[`derive_vc`]）。
+/// 閉鎖の RMS が前の母音の RMS より `drop_db` 以上低ければ通る。
+///
+/// 区間が1標本も無ければ通さない。 閉鎖が見つからないということなので。
+#[must_use]
+pub fn closure_holds(
+    samples: &[f64],
+    rate_hz: u32,
+    prev: &Boundary,
+    next: &Boundary,
+    drop_db: f64,
+) -> bool {
+    let closure_end = prev.vowel_end_ms.midpoint(next.vowel_start_ms);
+    let (Some(vowel), Some(closure)) = (
+        rms(samples, rate_hz, prev.vowel_start_ms, prev.vowel_end_ms),
+        rms(samples, rate_hz, prev.vowel_end_ms, closure_end),
+    ) else {
+        return false;
+    };
+    // 対数を取らずに比で比べる。 無音（0）の閉鎖で `log10(0)` を踏まない。
+    vowel > 0.0 && closure <= vowel * 10_f64.powf(-drop_db / 20.0)
+}
+
+/// 区間の RMS。 区間が1標本も無ければ `None`。
+fn rms(samples: &[f64], rate_hz: u32, from_ms: f64, to_ms: f64) -> Option<f64> {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "位置はミリ秒。標本数へ落として範囲に丸める"
+    )]
+    let cut = |ms: f64| ((ms / 1000.0 * f64::from(rate_hz)).max(0.0) as usize).min(samples.len());
+    let (a, b) = (cut(from_ms), cut(to_ms));
+    let part = samples.get(a..b).filter(|p| !p.is_empty())?;
+    #[allow(clippy::cast_precision_loss, reason = "区間の標本数は 2^53 に届かない")]
+    let n = part.len() as f64;
+    Some((part.iter().map(|x| x * x).sum::<f64>() / n).sqrt())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,5 +544,110 @@ mod rederive_tests {
         // 違うのは規約であって、境界ではない。
         assert!((a.preutterance_ms - c.preutterance_ms).abs() < 1e-9);
         assert_eq!(a.overlap_ms, 0.0, "無声破裂音は重ねない（`TR-ALN-16`）");
+    }
+
+    fn cvvc_preset() -> Preset {
+        Preset::default_for(Method::Cvvc).expect("既定がある")
+    }
+
+    /// 1 kHz で「あか」。母音 0〜100ms、閉鎖 100〜150ms、破裂 150〜200ms、母音 200〜400ms。
+    /// 閉鎖の振幅だけを変える。
+    fn aka(closure: f64) -> (Vec<f64>, Vec<Boundary>, Vec<Unit>) {
+        let wave = |amp: f64, n: usize| (0..n).map(move |i| if i % 2 == 0 { amp } else { -amp });
+        let samples: Vec<f64> = wave(0.5, 100)
+            .chain(wave(closure, 50))
+            .chain(wave(0.5, 250))
+            .collect();
+        let bounds = vec![
+            Boundary {
+                voice_start_ms: 0.0,
+                vowel_start_ms: 0.0,
+                vowel_end_ms: 100.0,
+            },
+            Boundary {
+                voice_start_ms: 150.0,
+                vowel_start_ms: 200.0,
+                vowel_end_ms: 400.0,
+            },
+        ];
+        let table = koeru_core::inventory::units(koeru_core::inventory::UnitSet::Core);
+        let line = ["あ", "か"]
+            .iter()
+            .filter_map(|k| table.iter().find(|u| u.kana == *k).cloned())
+            .collect();
+        (samples, bounds, line)
+    }
+
+    /// 閉鎖が直前の母音より十分低ければ印を付けない（`DEC-ALN-018`）。
+    #[test]
+    fn 閉鎖が無音なら分岐は通る() {
+        let (samples, bounds, line) = aka(0.001);
+        let entries = vec![
+            ("a k".to_owned(), Slot::Vc { prev: 0, next: 1 }),
+            ("か".to_owned(), Slot::Cv { mora: 1 }),
+        ];
+        let got = closure_mismatches(
+            &entries,
+            &bounds,
+            &line,
+            &samples,
+            1000,
+            Method::Cvvc,
+            &cvvc_preset(),
+        );
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    /// 息が漏れて閉鎖が無音でなければ、VC にも CV にも印を付ける（`TR-ALN-16`, `TR-ALN-17`）。
+    #[test]
+    fn 閉鎖が無音でなければ分岐不一致() {
+        // 母音より約 8 dB 低いだけ。
+        let (samples, bounds, line) = aka(0.2);
+        let entries = vec![
+            ("- あ".to_owned(), Slot::Cv { mora: 0 }),
+            ("a k".to_owned(), Slot::Vc { prev: 0, next: 1 }),
+            ("か".to_owned(), Slot::Cv { mora: 1 }),
+        ];
+        let got = closure_mismatches(
+            &entries,
+            &bounds,
+            &line,
+            &samples,
+            1000,
+            Method::Cvvc,
+            &cvvc_preset(),
+        );
+        let want: std::collections::BTreeSet<String> =
+            ["a k".to_owned(), "か".to_owned()].into_iter().collect();
+        assert_eq!(got, want, "母音始まりの語頭は分岐しない");
+    }
+
+    /// 単独音は直前の母音を持たないので見ない（`DEC-ALN-018`）。
+    #[test]
+    fn 単独音は閉鎖を見ない() {
+        let (samples, bounds, line) = aka(0.2);
+        let entries = vec![("か".to_owned(), Slot::Cv { mora: 1 })];
+        let single = Preset::default_for(Method::Single).expect("既定がある");
+        assert!(
+            closure_mismatches(
+                &entries,
+                &bounds,
+                &line,
+                &samples,
+                1000,
+                Method::Single,
+                &single
+            )
+            .is_empty()
+        );
+    }
+
+    /// 閾値は規約プリセットが持つ（`TR-ALN-23`）。 仮置きの 20 dB（`Q-ALN-004`）。
+    #[test]
+    fn 閉鎖の閾値はプリセットにある() {
+        for m in [Method::Sequential, Method::Cvvc] {
+            let p = Preset::default_for(m).expect("既定がある");
+            assert!((p.plosive_closure_drop_db - 20.0).abs() < 1e-9, "{m:?}");
+        }
     }
 }

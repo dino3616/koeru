@@ -178,6 +178,11 @@ pub struct Entry {
     pinned: [bool; 5],
     /// 確信度。推定していなければ `None`。
     pub confidence: Option<Confidence>,
+    /// 無声破裂音の分岐不一致（`TR-ALN-16`, `TR-ALN-17`, `DEC-ALN-018`）。
+    ///
+    /// 状態ではない。 推定の結果として台帳が持ち、キューは並べ方にだけ使う
+    /// （[`ReviewQueue::queued`]）。`align-review.fsl` の遷移は変えない。
+    pub branch_mismatch: bool,
 }
 
 impl Entry {
@@ -189,6 +194,7 @@ impl Entry {
             oto,
             pinned: [false; 5],
             confidence: None,
+            branch_mismatch: false,
         }
     }
 
@@ -210,7 +216,15 @@ impl Entry {
             oto,
             pinned,
             confidence,
+            branch_mismatch: false,
         }
+    }
+
+    /// 分岐不一致の印を載せる（`DEC-ALN-018`）。 台帳から組み直すときに使う。
+    #[must_use]
+    pub const fn with_branch_mismatch(mut self, mismatch: bool) -> Self {
+        self.branch_mismatch = mismatch;
+        self
     }
 
     /// 値ごとの固定（`TR-ALN-30`）。並びは `Slot::ALL` と同じ。
@@ -402,7 +416,12 @@ impl ReviewQueue {
 
     /// 確認キューの中身を、手が届く順に返す（`TR-ALN-26`）。
     ///
-    /// 確信度の低い順。 同点なら鍵の順で、並びは常に同じ（`TR-ALN-29`）。
+    /// 分岐不一致（`DEC-ALN-018`）を先に、そのあと確信度の低い順。
+    /// 同点なら鍵の順で、並びは常に同じ（`TR-ALN-29`）。
+    ///
+    /// 分岐不一致を確信度より前に置く。 閉鎖の無音を前提にした切り方が
+    /// 声の途中で切れているので、確信度が高くても聴けば分かる誤りになる。
+    /// 確認は合計時間の上限で切る（`DEC-ALN-003`）ので、後ろに並ぶと見られない。
     #[must_use]
     pub fn queued(&self) -> Vec<(&str, &Entry)> {
         let mut v: Vec<(&str, &Entry)> = self
@@ -414,7 +433,10 @@ impl ReviewQueue {
         v.sort_by(|(ka, a), (kb, b)| {
             let sa = a.confidence.map_or(0.0, |c| c.score());
             let sb = b.confidence.map_or(0.0, |c| c.score());
-            sa.total_cmp(&sb).then_with(|| ka.cmp(kb))
+            b.branch_mismatch
+                .cmp(&a.branch_mismatch)
+                .then_with(|| sa.total_cmp(&sb))
+                .then_with(|| ka.cmp(kb))
         });
         v
     }
@@ -910,6 +932,23 @@ mod tests {
 
         let ids: Vec<&str> = q.queued().iter().map(|(k, _)| *k).collect();
         assert_eq!(ids, ["e001", "e002", "e000"]);
+    }
+
+    /// 分岐不一致は確信度より先に並ぶ（`DEC-ALN-018`）。
+    #[test]
+    fn 分岐不一致は確認キューの先頭に並ぶ() {
+        let mut q = queue(0);
+        let c = |v: f64| Confidence {
+            sharpness: v,
+            ..Confidence::full()
+        };
+        q.insert("low", Entry::new(oto(1.0)));
+        q.insert("mismatch", Entry::new(oto(1.0)).with_branch_mismatch(true));
+        q.estimate_low_confidence("low", c(0.2)).unwrap();
+        q.estimate_low_confidence("mismatch", c(0.9)).unwrap();
+
+        let ids: Vec<&str> = q.queued().iter().map(|(k, _)| *k).collect();
+        assert_eq!(ids, ["mismatch", "low"], "確信度が高くても先に見せる");
     }
 
     #[test]

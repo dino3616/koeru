@@ -58,6 +58,9 @@ vowel_steady_margin_ms = 30.0
 id = "sequential-default"
 version = 1
 leading_margin_ms = 20.0
+# 無声破裂音の閉鎖が、直前の母音より何 dB 下なら無音とみなすか（TR-ALN-16 / 17、DEC-ALN-018）。
+# [Assumption] 20 は仮置き。実測していない（Q-ALN-004）。
+plosive_closure_drop_db = 20.0
 
 [sequential.class.none]
 overlap_ratio = 0.3333333333333333
@@ -97,6 +100,9 @@ leading_margin_ms = 20.0
 # [Unknown] 実測していない。 CVVC の VC は 50〜80ms が実務の幅と言われるが、
 # 出どころを追えていない。TR-ALN-32 の評価ハーネスで見直す。
 vc_vowel_context_ms = 60.0
+# 無声破裂音の閉鎖が、直前の母音より何 dB 下なら無音とみなすか（TR-ALN-16 / 17、DEC-ALN-018）。
+# [Assumption] 20 は仮置き。実測していない（Q-ALN-004）。
+plosive_closure_drop_db = 20.0
 
 [cvvc.class.none]
 overlap_ratio = 0.3333333333333333

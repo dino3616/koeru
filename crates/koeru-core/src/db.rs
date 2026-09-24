@@ -2015,10 +2015,27 @@ impl Ledger {
                 oto_values::conf_sharpness,
                 oto_values::conf_prior,
                 oto_values::conf_acoustic,
+                oto_values::branch_mismatch,
             ))
             .load::<OtoEntryRow>(&mut self.conn)
             .map_err(db("adopted_otos"))
             .map(|v| v.into_iter().map(OtoEntry::from).collect())
+    }
+
+    /// 無声破裂音の分岐不一致の印を書く（`TR-ALN-16`, `DEC-ALN-018`）。
+    ///
+    /// 推定するたびに書く。 立てるときだけ書くと、推定し直して閉鎖が
+    /// 見つかったあとも前の印が残る。
+    pub fn set_branch_mismatch(&mut self, take_id: i32, alias: &str, mismatch: bool) -> Result<()> {
+        diesel::update(
+            oto_values::table
+                .filter(oto_values::take_id.eq(take_id))
+                .filter(oto_values::alias.eq(alias)),
+        )
+        .set(oto_values::branch_mismatch.eq(i32::from(mismatch)))
+        .execute(&mut self.conn)
+        .map_err(db("set_branch_mismatch"))?;
+        Ok(())
     }
 
     /// エントリの状態を書く（`align-review.fsl` の `EntryState`）。
@@ -2475,6 +2492,7 @@ type OtoEntryRow = (
     Option<f64>,
     Option<f64>,
     Option<f64>,
+    i32,
 );
 
 /// 確信度の4成分（`TR-ALN-24`）。
@@ -2518,6 +2536,8 @@ pub struct OtoEntry {
     pub pinned: [bool; 5],
     /// 確信度の成分（`TR-ALN-24`）。この列より前に録ったものは持たない。
     pub parts: Option<ConfidenceParts>,
+    /// 無声破裂音の分岐不一致（`TR-ALN-16`, `DEC-ALN-018`）。
+    pub branch_mismatch: bool,
 }
 
 impl From<OtoEntryRow> for OtoEntry {
@@ -2543,6 +2563,7 @@ impl From<OtoEntryRow> for OtoEntry {
             c_sharp,
             c_prior,
             c_acoustic,
+            mismatch,
         ) = r;
         // 3つ揃っていて初めて成分として読む。 欠けたものを 0 で埋めない。
         let parts = match (c_sharp, c_prior, c_acoustic) {
@@ -2570,6 +2591,7 @@ impl From<OtoEntryRow> for OtoEntry {
             state,
             pinned: [p0 != 0, p1 != 0, p2 != 0, p3 != 0, p4 != 0],
             parts,
+            branch_mismatch: mismatch != 0,
         }
     }
 }
@@ -2820,6 +2842,32 @@ mod tests {
         let got = l.adopted_otos().expect("引ける");
         assert_eq!(got[0].state, "auto_confirmed");
         assert_eq!(got[0].pinned, [true, false, false, false, false]);
+    }
+
+    /// 分岐不一致の印が往復し、推定し直せば下ろせる（`DEC-ALN-018`）。
+    #[test]
+    fn 分岐不一致の印が往復する() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let id = l.commit_take(&take(row, sid, 1)).expect("確定できる");
+        l.adopt_take(row, id).expect("採用できる");
+        let oto = koeru_oto::Oto {
+            offset_ms: 10.0,
+            consonant_ms: 20.0,
+            cutoff_ms: -30.0,
+            preutterance_ms: 15.0,
+            overlap_ms: 5.0,
+        };
+        l.put_oto(id, "か", &oto, 0.9, None, false).expect("書ける");
+        assert!(
+            !l.adopted_otos().expect("引ける")[0].branch_mismatch,
+            "既定は無印"
+        );
+
+        l.set_branch_mismatch(id, "か", true).expect("書ける");
+        assert!(l.adopted_otos().expect("引ける")[0].branch_mismatch);
+        l.set_branch_mismatch(id, "か", false).expect("書ける");
+        assert!(!l.adopted_otos().expect("引ける")[0].branch_mismatch);
     }
 
     /// 採用していないテイクのエントリは確認キューに出ない。
