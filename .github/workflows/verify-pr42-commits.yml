@@ -1,0 +1,126 @@
+name: One-shot verified replay for PR 42
+
+on:
+  push:
+    branches:
+      - docs/design-system-proposal
+
+permissions:
+  contents: write
+
+jobs:
+  replay:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replay review commits through GitHub signed commit API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TARGET_BRANCH: docs/design-system-proposal
+          BASE_SHA: fe2fdeb2a70065dfd666314a8c29dbdaf7c5a439
+          SOURCE_HEAD: 68fa9452c9a5192e6eefdcffc24c24ff89d1035a
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          temp_branch="verified-replay-42-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          api="${GITHUB_API_URL}/repos/${REPO}"
+
+          cleanup() {
+            curl -fsS -X DELETE \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${api}/git/refs/heads/${temp_branch}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${api}/git/refs" \
+            -d "$(jq -cn --arg ref "refs/heads/${temp_branch}" --arg sha "${BASE_SHA}" '{ref:$ref,sha:$sha}')" >/dev/null
+
+          mutation='mutation($input: CreateCommitOnBranchInput!) {
+            createCommitOnBranch(input: $input) {
+              commit { oid }
+            }
+          }'
+
+          expected="${BASE_SHA}"
+          mapfile -t source_commits < <(git rev-list --reverse "${BASE_SHA}..${SOURCE_HEAD}")
+          if [[ "${#source_commits[@]}" -ne 25 ]]; then
+            echo "Expected 25 review commits, found ${#source_commits[@]}" >&2
+            exit 1
+          fi
+
+          for source_sha in "${source_commits[@]}"; do
+            headline="$(git show -s --format=%s "${source_sha}")"
+            body="$(git show -s --format=%b "${source_sha}")"
+            body="${body}"$'\n\n''Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'$'\n''Co-authored-by: shio <me@shio.studio>'
+
+            additions='[]'
+            deletions='[]'
+            while IFS=$'\t' read -r status file_path extra; do
+              case "${status}" in
+                A|M)
+                  file_content="$(git show "${source_sha}:${file_path}" | base64 -w0)"
+                  additions="$(jq -cn --argjson a "${additions}" --arg p "${file_path}" --arg c "${file_content}" '$a + [{path:$p,contents:$c}]')"
+                  ;;
+                D)
+                  deletions="$(jq -cn --argjson d "${deletions}" --arg p "${file_path}" '$d + [{path:$p}]')"
+                  ;;
+                *)
+                  echo "Unsupported change status ${status} for ${file_path}" >&2
+                  exit 1
+                  ;;
+              esac
+            done < <(git diff-tree --no-commit-id --name-status -r "${source_sha}")
+
+            input="$(jq -cn \
+              --arg repo "${REPO}" \
+              --arg branch "${temp_branch}" \
+              --arg expected "${expected}" \
+              --arg headline "${headline}" \
+              --arg body "${body}" \
+              --argjson additions "${additions}" \
+              --argjson deletions "${deletions}" \
+              '{branch:{repositoryNameWithOwner:$repo,branchName:$branch},expectedHeadOid:$expected,message:{headline:$headline,body:$body},fileChanges:{additions:$additions,deletions:$deletions}}')"
+
+            payload="$(jq -cn --arg q "${mutation}" --argjson input "${input}" '{query:$q,variables:{input:$input}}')"
+            response="$(curl -fsS -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${GITHUB_GRAPHQL_URL}" \
+              -d "${payload}")"
+
+            if [[ "$(jq '.errors | length // 0' <<<"${response}")" != "0" ]]; then
+              jq '.errors' <<<"${response}" >&2
+              exit 1
+            fi
+
+            expected="$(jq -r '.data.createCommitOnBranch.commit.oid' <<<"${response}")"
+            verification="$(curl -fsS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${api}/git/commits/${expected}")"
+            verified="$(jq -r '.verification.verified' <<<"${verification}")"
+            reason="$(jq -r '.verification.reason' <<<"${verification}")"
+            echo "${source_sha} -> ${expected}: verified=${verified} reason=${reason}"
+            if [[ "${verified}" != "true" ]]; then
+              echo "GitHub did not produce a Verified commit; refusing to update target branch." >&2
+              exit 1
+            fi
+          done
+
+          curl -fsS -X PATCH \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${api}/git/refs/heads/${TARGET_BRANCH}" \
+            -d "$(jq -cn --arg sha "${expected}" '{sha:$sha,force:true}')" >/dev/null
+
+          echo "Updated ${TARGET_BRANCH} to verified head ${expected}"
