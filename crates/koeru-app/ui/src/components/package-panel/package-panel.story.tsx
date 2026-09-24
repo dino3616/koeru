@@ -11,7 +11,18 @@ const rows: RowTakesView[] = [
     text: "か き く け こ",
     state: "recorded",
     units: 5,
-    takes: [{ take_id: 1, generation: 1, peak: 0.71, duration_ms: 3100, invalid: false }],
+    moras: 5,
+    risk_hard: 0,
+    takes: [
+      {
+        take_id: 1,
+        generation: 1,
+        peak: 0.71,
+        duration_ms: 3100,
+        invalid: false,
+        recorded_at: "2026-09-21T18:24:00Z",
+      },
+    ],
     adopted: 1,
   },
 ];
@@ -35,6 +46,7 @@ const ready: PackageStateView = {
   otos_ready: true,
   findings: [],
   unencodable: [],
+  downgrades: [],
 };
 
 const meta = {

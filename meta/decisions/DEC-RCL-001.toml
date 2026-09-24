@@ -24,6 +24,7 @@ affects_requirements = [
   'TR-RCL-01',
   'TR-RCL-09',
 ]
-affects_questions = [
-  'Q-RCL-003',
+# Q-RCL-003（方式ごとの所要時間の根拠）は DEC-RCL-008 で閉じた。
+affects_decisions = [
+  'DEC-RCL-008',
 ]

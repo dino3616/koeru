@@ -8,6 +8,8 @@ type NextPhraseProps = {
   text: string | null;
   /** その行から取れる音の数。 */
   units: number;
+  /** 読み間違いリスク（`TR-RCL-07`）。大きいほど読み間違えやすい。 */
+  risk?: { hard: number; moras: number } | undefined;
   recording: boolean;
   /** テイクを確かめている最中か。数秒かかる。 */
   settling: boolean;
@@ -53,6 +55,7 @@ export const NextPhrase = ({
   onStop,
   onContinuous,
   onPause,
+  risk,
 }: NextPhraseProps) => (
   <Card title="次に読む">
     <p className="flex items-baseline justify-between gap-3">
@@ -61,12 +64,44 @@ export const NextPhrase = ({
       </span>
     </p>
 
-    <p className="select-text text-center text-4xl font-semibold leading-relaxed tracking-[0.18em] text-slate-12">
-      {text ?? "全部読み終えました"}
-    </p>
+    {/*
+      モーラ境界を視覚的に区切って提示する（`TR-RCL-07`）。
+
+      行のテキストは空白区切りのモーラ列。 字間を空けるだけだと、
+      「きゃ」が2文字に見えて2拍で読まれる。**1拍ずつ箱に入れる。**
+
+      読み上げるのは人なので、文字そのものは選択できるままにする。
+    */}
+    {text === null ? (
+      <p className="select-text text-center text-4xl font-semibold leading-relaxed text-slate-12">
+        全部読み終えました
+      </p>
+    ) : (
+      <p className="flex flex-wrap items-center justify-center gap-2 select-text">
+        {text.split(/\s+/).map((mora, i) => (
+          <span
+            // 同じ拍が1行に2度出る（「あ か あ」）。位置でしか区別できない。
+            key={`${mora}-${i}`}
+            className="rounded-lg border border-slate-6 bg-slate-3 px-3 py-1 text-4xl font-semibold leading-relaxed text-slate-12"
+          >
+            {mora}
+          </span>
+        ))}
+      </p>
+    )}
 
     {text !== null && (
-      <p className="text-center text-xs text-slate-11">1 つずつ、間をあけて読みます。</p>
+      <p className="text-center text-xs text-slate-11">
+        {/*
+          読み間違いリスク（`TR-RCL-07`）。良し悪しではなく、何が起きるかを書く。
+          スコアの絶対値は出さない——重みに根拠が無い。
+        */}
+        {risk !== undefined && risk.hard > 0
+          ? "読みにくい音が混ざります。区切りのとおりに読みます。"
+          : (risk?.moras ?? 0) > 1
+            ? "区切りのとおりに、続けて読みます。"
+            : "1 つずつ、間をあけて読みます。"}
+      </p>
     )}
 
     <div className="flex flex-wrap items-center justify-center gap-2">

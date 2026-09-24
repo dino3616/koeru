@@ -15,5 +15,5 @@ review_triggers = [
   "Julius の .binhmm の権利状況が、配布できないと判明したとき",
   "内部評価ハーネスの実測で、境界精度が編集の手間を減らさないと判明したとき",
 ]
-affects_requirements = ["TR-ALN-03", "TR-ALN-04", "TR-ALN-05", "TR-PLT-07"]
+affects_requirements = ["TR-ALN-03", "TR-ALN-05", "TR-PLT-07"]
 affects_questions = ["Q-ALN-001"]

@@ -131,6 +131,10 @@ pub enum AlignError {
     TextDeviation,
 
     /// モデルを読めなかった。
+    ///
+    /// **`EmptyPhonemes` に混ぜない。** 境界への変換が落ちているのを
+    /// 「発声を見つけられませんでした」と表示して原因を隠したことがある
+    /// （`crates/koeru-align/tests/multi_mora_row.rs` の冒頭）。同じ形を作らない。
     #[error("音響モデルを読めない")]
     ModelUnavailable,
 }

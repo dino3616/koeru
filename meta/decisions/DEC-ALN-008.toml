@@ -73,7 +73,6 @@ affects_requirements = [
   'TR-ALN-01',
   'TR-ALN-02',
   'TR-ALN-03',
-  'TR-ALN-04',
   'TR-ALN-05',
   'TR-ALN-06',
   'TR-ALN-28',

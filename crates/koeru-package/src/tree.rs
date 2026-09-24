@@ -139,6 +139,13 @@ pub fn build(bank: &VoiceBank, profile: Profile) -> Result<Vec<PackagedFile>> {
     }
 
     let mut root = Vec::new();
+    // 音素体系とエイリアス規則（`TR-RCL-24`）。受け取った側が同じ表で解決する
+    // ための同梱物で、`character.yaml` の `default_phonemizer` がこれを指す。
+    root.push(text_file(
+        "presamp.ini",
+        &koeru_core::presamp::write(&bank.rules, crate::profile::NEWLINE),
+        profile,
+    )?);
     root.push(text_file(
         "character.txt",
         &character::character_txt(&bank.character, icon.is_some()),
@@ -297,8 +304,8 @@ fn contents_summary(root: &[PackagedFile], samples: &[PackagedFile]) -> Vec<Stri
 mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample};
+    use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
-    use koeru_core::project::Method;
 
     fn oto() -> Oto {
         Oto {
@@ -329,11 +336,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: if folder.is_some() {
-                vec![60]
-            } else {
-                Vec::new()
-            },
+            tone: folder.is_some().then_some(60),
             samples,
         }
     }
@@ -347,7 +350,9 @@ mod tests {
             },
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 
@@ -424,6 +429,37 @@ mod tests {
         assert!(p.contains(&"G4/oto.ini"));
         assert!(p.contains(&"prefix.map"));
         assert!(!p.contains(&"oto.ini"), "ルート直下には出さない");
+    }
+
+    /// 同梱する `presamp.ini` は、その音源の表（`TR-RCL-24`, `TR-SYN-36`）。
+    ///
+    /// **同梱の既定を書いていた。** 綴りを差し替えた音源では、配る
+    /// `presamp.ini` だけが既定のまま出て、同じ配布物の `oto.ini` と
+    /// 食い違う——受け取った側は1つも引けない。
+    #[test]
+    fn presamp_は音源の表を書く() {
+        let mut rules = koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core);
+        rules
+            .templates
+            .insert("BEGINING_CV".to_owned(), "^ %CV%".to_owned());
+        let b = VoiceBank {
+            rules,
+            ..bank(vec![subbank(
+                None,
+                "",
+                vec![sample("s001.wav", "あ", false)],
+            )])
+        };
+        let files = build(&b, Profile::Both).expect("組み立てられること");
+        let ini = files
+            .iter()
+            .find(|f| f.path.ends_with("presamp.ini"))
+            .expect("presamp.ini があること");
+        let Content::Bytes(bytes) = &ini.content else {
+            panic!("生成したバイト列であること");
+        };
+        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        assert!(text.contains("^ %CV%"), "{text}");
     }
 
     /// `TR-PKG-08`。`<wav>` 欄はフォルダ内の相対名だけ。

@@ -16,15 +16,40 @@ export const commands = {
 	/**
 	 *  選べる作り方（`TR-RCL-11`）。
 	 * 
-	 *  **いまは単独音だけ。** 連続音と CVVC は `PROFILE-M5` で足す。
-	 *  作れないものを灰色で並べない——欠けを失敗として描かない
-	 *  （`docs/reports/ux/direction.md`）ので、席は空けるが的は出さない。
+	 *  プリセットは `koeru_core::preset` が正本。 数はそこから導く——
+	 *  所要時間も到達点も値として持たない（`TR-RCL-01`）。
 	 * 
-	 *  数は録音リストから作る。 見積もりの係数は `koeru_core::plan` が持つ。
+	 *  **収録音高の本数を受け取る。** 方式と音高は別の選択で（`TR-RCL-01`）、
+	 *  本数は所要時間にだけ効く。リストは本数を変えても同じ（`TR-RCL-26`）。
+	 * 
+	 *  **差が5分未満のものを2つ並べない**（`TR-RCL-11`）。並べると、選ぶ側は
+	 *  「どちらでもいい」と読む。畳むのは `pace::distinct_offers`。
 	 */
-	methodPresets: () => typedError<MethodPresetView[], AppError>(__TAURI_INVOKE("method_presets")),
-	/**  プロジェクトを作る。 */
-	createProject: (displayName: string) => typedError<string, AppError>(__TAURI_INVOKE("create_project", { displayName })),
+	methodPresets: (tones: number) => typedError<MethodPresetView[], AppError>(__TAURI_INVOKE("method_presets", { tones })),
+	/**
+	 *  収録音高の推奨値（`TR-RCL-06`）。
+	 * 
+	 *  推奨であって制約ではない。 本数も音高も本人が決める（`TR-RCL-01`）ので、
+	 *  ここが返すのは「迷ったらこれ」の出発点だけ。
+	 */
+	toneSuggestions: () => __TAURI_INVOKE<ToneSuggestionView[]>("tone_suggestions"),
+	/**
+	 *  選べる収録音高（`TR-RCL-06`, `TR-REC-25`）。
+	 * 
+	 *  `prefix.map` が覆う C1〜B7 の 84 半音。 これより外は書き出しても
+	 *  鳴らす先が無い。画面に MIDI 番号を出さないので、名前を添えて返す。
+	 */
+	toneOptions: () => __TAURI_INVOKE<ToneOptionView[]>("tone_options"),
+	/**
+	 *  プロジェクトを作る。
+	 * 
+	 *  方式プリセットを選ばせる（`TR-RCL-01`, `TR-RCL-11`）。 画面が出した
+	 *  [`method_presets`] の `id` をそのまま渡す。
+	 * 
+	 *  `presamp` は本人が選んだ `presamp.ini` の中身（`DEC-SYN-013`）。 選ばなければ
+	 *  `null` で、同梱の既定になる。ここで固定し、あとから変える道は無い。
+	 */
+	createProject: (displayName: string, presetId: string, tones: number[], presamp: number[] | null) => typedError<string, AppError>(__TAURI_INVOKE("create_project", { displayName, presetId, tones, presamp })),
 	/**
 	 *  表示名を変える（`DEC-PKG-007`）。
 	 * 
@@ -35,6 +60,14 @@ export const commands = {
 	voiceState: () => typedError<VoiceStateView, AppError>(__TAURI_INVOKE("voice_state")),
 	/**  プロジェクトを開く。 */
 	openProject: (id: string) => typedError<ProgressView, AppError>(__TAURI_INVOKE("open_project", { id })),
+	/**
+	 *  開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+	 * 
+	 *  戻していなければ `null`。 本人が閉じるまで同じ名前を返す。
+	 */
+	presampNotice: () => typedError<string | null, AppError>(__TAURI_INVOKE("presamp_notice")),
+	/**  戻したことを知らせる札を下ろす（`DEC-SYN-013`）。 */
+	dismissPresampNotice: () => typedError<null, AppError>(__TAURI_INVOKE("dismiss_presamp_notice")),
 	/**  いまの進み具合。 */
 	progress: () => typedError<ProgressView, AppError>(__TAURI_INVOKE("progress")),
 	/**
@@ -63,8 +96,11 @@ export const commands = {
 	 *  既存のテイクを消さない。 世代を1つ足して積み、採用を新しい方へ切り替える。
 	 */
 	startRetake: (rowId: string) => typedError<string, AppError>(__TAURI_INVOKE("start_retake", { rowId })),
-	/**  全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。 */
 	rowsWithTakes: () => typedError<RowTakesView[], AppError>(__TAURI_INVOKE("rows_with_takes")),
+	/**  いまの録る順と、その並び（`TR-SYN-19`）。 */
+	recordingOrder: () => typedError<RecordingOrderView, AppError>(__TAURI_INVOKE("recording_order")),
+	/**  録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
+	setRecordingOrder: (mode: string) => typedError<null, AppError>(__TAURI_INVOKE("set_recording_order", { mode })),
 	/**
 	 *  採用テイクを切り替える（`TR-RCL-25`）。
 	 * 
@@ -153,10 +189,44 @@ export const commands = {
 	 *  曲から、その行の収録へ直接入るための口（`DEC-PLT-024` の横移動）。
 	 */
 	songPlan: (id: string) => typedError<SongPlanView, AppError>(__TAURI_INVOKE("song_plan", { id })),
-	/**  UST を取り込む（`TR-RCL-12`）。主経路はこれ。 */
-	importUst: (bytes: number[], title: string) => typedError<string, AppError>(__TAURI_INVOKE("import_ust", { bytes, title })),
+	/**
+	 *  取り込む前に中身を見る（`TR-RCL-12`）。**台帳へ入れない。**
+	 * 
+	 *  題を決めさせるために要る。 ファイル名から採った候補を返し、
+	 *  本人が打ち直してから [`import_songs`] が確定させる。
+	 */
+	songFilePreview: (bytes: number[], fileName: string) => typedError<SongDraftView[], AppError>(__TAURI_INVOKE("song_file_preview", { bytes, fileName })),
+	/**
+	 *  UST / USTX を取り込む（`TR-RCL-12`）。主経路はこれ。
+	 * 
+	 *  **題は本人が決める。** `titles` は [`song_file_preview`] が返した並びと
+	 *  同じ長さで、同じ順。空の題は受け取らない。
+	 */
+	importSongs: (bytes: number[], fileName: string, titles: string[]) => typedError<ImportedSongView[], AppError>(__TAURI_INVOKE("import_songs", { bytes, fileName, titles })),
+	/**  曲の題を変える（`TR-RCL-12`）。 */
+	renameSong: (id: string, title: string) => typedError<null, AppError>(__TAURI_INVOKE("rename_song", { id, title })),
+	/**
+	 *  取り込んだ曲すべて（`TR-RCL-12`）。曲バンクを組み替える画面が読む。
+	 * 
+	 *  歌える曲の一覧（[`song_status`]）とは別。 あちらはバンクの中だけを見せる。
+	 */
+	allSongs: () => typedError<BankSongView[], AppError>(__TAURI_INVOKE("all_songs")),
+	/**
+	 *  曲のキーを決める（`TR-SYN-15`, `DEC-SYN-012`）。
+	 * 
+	 *  **自動では動かさない。** 勧めはするが、当てるのは本人の操作だけ。
+	 */
+	setSongTranspose: (id: string, semitones: number) => typedError<null, AppError>(__TAURI_INVOKE("set_song_transpose", { id, semitones })),
 	/**  曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。 */
 	setSongInBank: (id: string, inBank: boolean) => typedError<null, AppError>(__TAURI_INVOKE("set_song_in_bank", { id, inBank })),
+	/**
+	 *  選んだノート群から録音リストを詰め直す（`TR-RCL-16`, `DEC-RCL-011`）。
+	 * 
+	 *  複数の曲から範囲を選べる。 返すのは足した行の数。
+	 */
+	repackForSelection: (selections: SongSelection[]) => typedError<number, AppError>(__TAURI_INVOKE("repack_for_selection", { selections })),
+	/**  曲のノート列（`TR-RCL-12`）。範囲を選ぶ画面が読む。 */
+	songNotes: (id: string) => typedError<NoteView[], AppError>(__TAURI_INVOKE("song_notes", { id })),
 	/**
 	 *  曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
 	 * 
@@ -204,7 +274,7 @@ export const commands = {
 	 */
 	reviewQueue: () => typedError<ReviewItemView[], AppError>(__TAURI_INVOKE("review_queue")),
 	/**  1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
-	confirmEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { alias })),
+	confirmEntry: (key: string) => typedError<null, AppError>(__TAURI_INVOKE("confirm_entry", { key })),
 	/**  まとめて確認する（`REQ-ALN-010`）。返るのは確定させた件数。 */
 	confirmAllEntries: () => typedError<number, AppError>(__TAURI_INVOKE("confirm_all_entries")),
 	/**
@@ -218,11 +288,11 @@ export const commands = {
 	 * 
 	 *  `slot` は `offset` / `consonant` / `cutoff` / `preutterance` / `overlap`。
 	 */
-	editOtoValue: (alias: string, slot: string, value: Finite) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { alias, slot, value })),
+	editOtoValue: (key: string, slot: string, value: Finite) => typedError<null, AppError>(__TAURI_INVOKE("edit_oto_value", { key, slot, value })),
 	/**  固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
-	revertOtoValue: (alias: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { alias, slot })),
+	revertOtoValue: (key: string, slot: string) => typedError<null, AppError>(__TAURI_INVOKE("revert_oto_value", { key, slot })),
 	/**  oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。 */
-	rerecordEntry: (alias: string) => typedError<null, AppError>(__TAURI_INVOKE("rerecord_entry", { alias })),
+	rerecordEntry: (key: string) => typedError<null, AppError>(__TAURI_INVOKE("rerecord_entry", { key })),
 	/**
 	 *  書き出し前の検証（`TR-ALN-20`）。
 	 * 
@@ -279,6 +349,16 @@ export const commands = {
 	 *  版の札は受け取らない。 配布に出す値として保存してあるものを使う。
 	 */
 	exportPackage: () => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_package")),
+	/**
+	 *  下位方式へ書き出す（`TR-PKG-23`, `TR-PKG-24`, `TR-PKG-25`）。
+	 * 
+	 *  独立した音源ルート・独立した ZIP。 同一 ZIP へ同梱しない。
+	 *  5値は対象方式の規約プリセットで作り直す（`TR-ALN-34`）。
+	 * 
+	 *  受け取るのは作り方の識別子だけ。 出せるかどうかは Rust が被覆から判定する
+	 *  ——画面の関門を通らずに叩かれても素通りさせない。
+	 */
+	exportDowngrade: (method: string) => typedError<ExportedView, AppError>(__TAURI_INVOKE("export_downgrade", { method })),
 	/**  書き出しの履歴（`TR-PKG-44`）。新しい順。 */
 	releases: () => typedError<ReleaseView[], AppError>(__TAURI_INVOKE("releases")),
 	/**
@@ -296,6 +376,18 @@ export type AppError = {
 	kind: string,
 	/**  画面に出す説明。送信層へ載せない。 */
 	message: string,
+};
+
+/**  曲バンクの1曲（`TR-RCL-12`）。 */
+export type BankSongView = {
+	id: string,
+	title: string,
+	/**  ノートの数。休符は入らない。 */
+	notes: number,
+	/**  曲バンクに入っているか（`TR-RCL-12`）。 */
+	in_bank: boolean,
+	/**  利用許諾（`TR-RCL-12` (f)）。 */
+	license: string,
 };
 
 /**  画面へ返す校正の結果（`TR-REC-14`）。 */
@@ -331,6 +423,22 @@ export type DeviceView = {
 	id: string,
 	/**  表示名。一覧に出すためだけ。 */
 	name: string,
+};
+
+/**  下位方式の書き出し1件（`TR-PKG-24`, `TR-PKG-25`）。 */
+export type DowngradeView = {
+	/**  書き出す作り方。 */
+	method: string,
+	/**
+	 *  複製される WAV の概算バイト数。
+	 * 
+	 *  **「oto.ini 1ファイル分」ではない。** 元とほぼ同等の容量がもう1本できる。
+	 * 
+	 *  `u32` に畳まない。 **畳んでいた**ので 4 GiB で頭打ちになり、多音階の
+	 *  大きな音源ほど「増える容量」が小さく出ていた——警告のための数が、
+	 *  いちばん警告したい場面で嘘をつく。小数なら 2^53 バイトまで正確に届く。
+	 */
+	bytes: Finite,
 };
 
 /**  画面へ返す、いま流れている音の包絡（`TR-REC-43`）。 */
@@ -420,6 +528,19 @@ export type GainControlView =
 /**  読み書きできない。 */
 "Unavailable";
 
+/**
+ *  取り込んだ曲（`TR-RCL-12`）。
+ * 
+ *  題をそのまま返す。 取り込んだ直後に本人が直せるようにするため、
+ *  一覧を引き直さずに出せる形で返す。
+ */
+export type ImportedSongView = {
+	id: string,
+	title: string,
+	/**  ノートの数。休符は入らない。 */
+	notes: number,
+};
+
 /**  試唱の待ち時間の実測（`TR-SYN-33`）。 */
 export type LatencyView = {
 	/**  `First` / `Warm` / `Incremental` / `Replay`。 */
@@ -486,6 +607,22 @@ export type MicModeView =
 "WideSpectrum" | 
 /**  判定できなかった。加工が無いことの根拠にはしない。 */
 "Unknown";
+
+/**  ノートの範囲（`[from, to)`）。 */
+export type NoteRange = {
+	from: number,
+	to: number,
+};
+
+/**  曲の1ノート（`TR-RCL-12` (a)(b)）。 */
+export type NoteView = {
+	/**  歌詞（1モーラぶん）。 */
+	lyric: string,
+	/**  音の高さ。英語音名（`TR-REC-25`）。 */
+	tone: string,
+	/**  長さ（ティック）。480 が4分音符。 */
+	ticks: number,
+};
 
 /**  画面へ返す原音設定の1件（`TR-ALN-33`）。5値をそのまま渡す。 */
 export type OtoView = {
@@ -577,6 +714,8 @@ export type PackageStateView = {
 	otos_ready: boolean,
 	findings: FindingView[],
 	unencodable: UnencodableView[],
+	/**  下位方式への書き出し（`TR-PKG-24`, `TR-PKG-25`）。 */
+	downgrades: DowngradeView[],
 };
 
 /**  画面へ返す「あと録る行」1件（`TR-RCL-17`）。 */
@@ -623,6 +762,26 @@ export type ProgressView = {
 	singable_songs: number,
 	/**  バンクに入っている曲の数。0 でも成立する。 */
 	songs_in_bank: number,
+	/**
+	 *  残り所要時間（秒、`TR-RCL-09`）。
+	 * 
+	 *  固定の見積もり。 実測では書き換えない（`DEC-RCL-013`）。
+	 */
+	remaining_seconds: number,
+	/**
+	 *  残りの行数（`TR-RCL-09`）。多音階では音高の本数を掛けた数。
+	 * 
+	 *  時間と並べて出す。 時間は桁しか合っていないが、行数は数え上げなので正確。
+	 */
+	remaining_rows: number,
+	/**
+	 *  音高ごとの消化率（`TR-RCL-26`）。単音階では1件。
+	 * 
+	 *  詳細表示に置く欄。 `singable_songs` は音高を跨いだ実際の判定結果で、
+	 *  これを足し合わせたものではない——1音高だけ録り終えても、
+	 *  音域の広い曲は歌えない。
+	 */
+	by_tone: ToneProgressView[],
 };
 
 /**  画面へ返すプロジェクト。 */
@@ -638,6 +797,21 @@ export type ProjectView = {
 	state: VoiceStateView | null,
 };
 
+/**
+ *  全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
+ *  録る順（`TR-SYN-19`）。
+ */
+export type RecordingOrderView = {
+	/**
+	 *  いまのモード。`SongBankFirst` か `CoverageEfficiency`。
+	 * 
+	 *  **どちらでいるかを常に表示する**（`TR-SYN-19`）。
+	 */
+	mode: string,
+	/**  次に録る順の行 ID。収録済みの行は入らない。 */
+	row_ids: string[],
+};
+
 /**  書き出しの履歴1件（`TR-PKG-44`）。 */
 export type ReleaseView = {
 	seq: number,
@@ -651,6 +825,13 @@ export type ReleaseView = {
 
 /**  確認キューの1件（`TR-ALN-26`）。 */
 export type ReviewItemView = {
+	/**
+	 *  このエントリを指す鍵。確認・編集・録り直しに渡す。
+	 * 
+	 *  **`oto.alias` では指せない。** 多音階は同じ綴りを音高の数だけ持つ
+	 *  （`TR-ALN-22`）。中身を読まずにそのまま返す文字列として扱う。
+	 */
+	key: string,
 	/**  そのエイリアスを録った行。一覧の絞り込みに要る（`DEC-PLT-024`）。 */
 	row_id: string,
 	/**  自動推定した5値（`TR-ALN-26` (2)）。エイリアスはこの中にある。 */
@@ -722,6 +903,31 @@ export type RowTakesView = {
 	takes: TakeSummaryView[],
 	/**  いま採用しているテイクの ID。 */
 	adopted: number | null,
+	/**  その行のモーラ数（`TR-RCL-07`）。境界の区切りの数と一致する。 */
+	moras: number,
+	/**
+	 *  難読音の数（`TR-RCL-07`）。拗音かつ外来音の拍。
+	 * 
+	 *  スコアの合成値は返さない。 重みに根拠が無いので、
+	 *  絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
+	 */
+	risk_hard: number,
+};
+
+/**  取り込む前の1曲（`TR-RCL-12`）。まだ台帳に無い。 */
+export type SongDraftView = {
+	/**
+	 *  ファイル名（と、複数あればトラック名）から採った題の候補。
+	 * 
+	 *  **空のことがある。** そのときは入力欄も空で出し、本人に打たせる。
+	 */
+	title_hint: string,
+	/**  ノートの数。休符は入らない。 */
+	notes: number,
+	/**  いちばん低い音。ノートが無ければ `null`。 */
+	low: string | null,
+	/**  いちばん高い音。 */
+	high: string | null,
 };
 
 /**  画面へ返す「その曲を歌うための計画」（`TR-RCL-16`, `TR-RCL-17`）。 */
@@ -733,6 +939,13 @@ export type SongPlanView = {
 	unreachable: number,
 	/**  読むのに掛かる見積もり（秒、`TR-RCL-09`）。 */
 	seconds: Finite,
+};
+
+/**  1曲ぶんの選択（`TR-RCL-12`）。 */
+export type SongSelection = {
+	song_id: string,
+	/**  選んだノートの範囲。空なら曲全体。 */
+	ranges: NoteRange[],
 };
 
 /**  画面へ返す曲の状態（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。 */
@@ -758,6 +971,28 @@ export type SongView = {
 	missing_rows: number,
 	/**  その行を録るのに掛かる推定時間（秒、`TR-RCL-09`）。 */
 	seconds: number,
+	/**
+	 *  収録音高から近いか（`TR-SYN-15`）。
+	 * 
+	 *  **偽でも鳴らせる。** 基準の ±7 半音・二乗平均 4 半音に実測の裏付けが
+	 *  無い（`DEC-SYN-012`）ので、押せなくするのではなく、どうなるかを先に言う。
+	 */
+	previewable: boolean,
+	/**
+	 *  いま指定されているキー（半音、`TR-SYN-15`）。0 なら書かれた調のまま。
+	 * 
+	 *  **自動では動かない。** 変わるのは本人が `set_song_transpose` を
+	 *  呼んだときだけ（`DEC-SYN-012`）。
+	 */
+	transpose: number,
+	/**  勧めるキー（半音、`TR-SYN-15`）。当てていない。提示するだけ。 */
+	recommended_transpose: number,
+	/**
+	 *  足すといまのキーのまま届くようになる収録音高（`TR-RCL-22`）。
+	 * 
+	 *  届いているなら `null`。 英語音名で返す——画面に MIDI 番号を出さない。
+	 */
+	rescuing_tone: string | null,
 	/**  総モーラ数。 */
 	total_moras: number,
 };
@@ -795,6 +1030,16 @@ export type SpectrogramView = {
 	rows: number,
 };
 
+/**  区画が切り替わった1箇所（`TR-SYN-16`）。 */
+export type SubbankSwitchView = {
+	/**  切り替わった音符の位置（0 始まり）。 */
+	note_index: number,
+	/**  直前まで使っていた音の高さ。英語音名（`TR-REC-25`）。 */
+	from: string | null,
+	/**  ここから使う音の高さ。 */
+	to: string | null,
+};
+
 /**  画面へ返す試唱の結果（`TR-SYN-18`）。 */
 export type SungSongView = {
 	title: string,
@@ -807,6 +1052,12 @@ export type SungSongView = {
 	dropped_phrases: number,
 	/**  鳴らす長さ（ミリ秒）。 */
 	duration_ms: number,
+	/**
+	 *  音の高さの区画が切り替わった位置（`TR-SYN-16`）。
+	 * 
+	 *  原音設定側の確認対象になる箇所。 単音階では常に空。
+	 */
+	subbank_switches: SubbankSwitchView[],
 };
 
 /**  一覧に出すテイク1件。 */
@@ -819,6 +1070,13 @@ export type TakeSummaryView = {
 	duration_ms: number,
 	/**  取りこぼしで自動的に無効にした（`TR-REC-07`）。 */
 	invalid: boolean,
+	/**
+	 *  録った時刻（RFC 3339、`DEC-RCL-015`）。
+	 * 
+	 *  **事実だけ。** 何回に跨るか・何日空いたかは集計しない——
+	 *  それは声質の推測材料になる。どう読むかは本人が決める。
+	 */
+	recorded_at: string,
 };
 
 /**  画面へ返すテイク。 */
@@ -852,6 +1110,32 @@ export type TakeView = {
 	 *  足りなくてもテイクは有効。 事実を伝えるだけ。
 	 */
 	has_required_margins: boolean,
+};
+
+/**  選べる音高1つ（`TR-REC-25`）。 */
+export type ToneOptionView = {
+	midi: number,
+	/**  英語音名。画面に出すのはこちらで、MIDI 番号は出さない。 */
+	name: string,
+};
+
+/**  音高ひとつぶんの消化率（`TR-RCL-26`）。 */
+export type ToneProgressView = {
+	/**  英語音名（`TR-REC-25`）。内部は MIDI で、画面に出すのはこちら。 */
+	tone: string,
+	/**  録り終えた行。 */
+	done: number,
+	/**  その音高の行の総数。 */
+	total: number,
+};
+
+/**  収録音高の推奨値1件（`TR-RCL-06`）。 */
+export type ToneSuggestionView = {
+	label: string,
+	/**  なぜこれを勧めるか。1行。 */
+	why: string,
+	/**  音高（MIDI）。名前は画面が `tone_name` で引く。 */
+	midi: number[],
 };
 
 /**  CP932 で書けない箇所（`TR-PKG-17`）。 */

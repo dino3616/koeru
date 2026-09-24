@@ -14,7 +14,7 @@
 //! ここが見ているのは「生成された行がそのまま通ること」。
 
 use koeru_align::phoneme;
-use koeru_align::segment::Boundaries;
+use koeru_align::segment::per_mora;
 use koeru_core::inventory::UnitSet;
 use koeru_core::reclist;
 
@@ -67,7 +67,7 @@ fn 生成した行すべてでモーラごとの境界が取れる() {
             for row in &rows {
                 let readings: Vec<&str> = row.units.iter().map(|u| u.kana).collect();
                 let a = alignment(slots_for(&readings));
-                let per = Boundaries::per_mora(&a, &readings).unwrap_or_else(|| {
+                let per = per_mora(&a, &readings).unwrap_or_else(|| {
                     panic!("{readings:?}（{} 区間）で境界が取れない", a.segments.len())
                 });
                 assert_eq!(
@@ -117,9 +117,9 @@ fn 行の長さによらず区間の数が読みから決まる() {
             .sum::<usize>()
             + 2;
         assert_eq!(slots_for(&readings), want);
-        assert!(Boundaries::per_mora(&alignment(want), &readings).is_some());
+        assert!(per_mora(&alignment(want), &readings).is_some());
         // **1つずれたら受けない。** 黙って先頭から詰めない。
-        assert!(Boundaries::per_mora(&alignment(want + 1), &readings).is_none());
-        assert!(Boundaries::per_mora(&alignment(want - 1), &readings).is_none());
+        assert!(per_mora(&alignment(want + 1), &readings).is_none());
+        assert!(per_mora(&alignment(want - 1), &readings).is_none());
     }
 }

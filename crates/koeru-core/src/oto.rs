@@ -25,6 +25,23 @@
 //! - 子音部（固定範囲） — 伸縮させない範囲（`TR-ALN-17`）
 //! - 右ブランク — 使い終わる位置。負値表現を既定にする（`TR-ALN-18`）
 
+/// アライメントが出した境界（ミリ秒、`TR-ALN-34`）。
+///
+/// **プロジェクトのデータなので `koeru-core` に置く**（`DEC-ALN-009` が [`Oto`] で
+/// 同じことをしている）。5値は境界と規約プリセットから導く派生物で、
+/// 境界のほうが上流にある（`TR-ALN-13` の三分法）。
+///
+/// 取り出す側は `koeru-align` の `segment`。 ここが持つのは形だけ。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Boundary {
+    /// 発声開始。無音の終わり。
+    pub voice_start_ms: f64,
+    /// 子音から母音への境界。母音始まりなら `voice_start_ms` と同じ。
+    pub vowel_start_ms: f64,
+    /// 母音の定常区間終端。
+    pub vowel_end_ms: f64,
+}
+
 /// oto.ini の1エントリ。単位はすべてミリ秒。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Oto {
@@ -129,6 +146,58 @@ impl Violation {
     }
 }
 
+/// 渡り（CVVC の VC）の最小の長さ（ティック、`TR-SYN-12`）。
+///
+/// OpenUtau の `JapanesePresampPhonemizer` が `Math.Max(30, ...)` で切る値。
+/// **ミリ秒ではなくティック**なので、テンポで長さが変わる。
+const MIN_TRANSITION_TICKS: f64 = 30.0;
+
+/// 次の CV の oto が引けないときの渡りの長さ（ティック）。
+///
+/// OpenUtau の `int vcLength = 120;`。
+const DEFAULT_TRANSITION_TICKS: f64 = 120.0;
+
+/// 4分音符のティック数。
+const TICKS_PER_QUARTER: f64 = 480.0;
+
+/// 渡り（CVVC の VC）の長さ（ミリ秒、`TR-SYN-12`, `TR-SYN-11`）。
+///
+/// **長さは次の CV から取る。** 渡り自身の oto ではない。
+/// 先行発声は「その素材が音符の頭よりどれだけ前から鳴り始めるか」で、
+/// 渡りはちょうどその助走ぶんを埋めるためにある。
+///
+/// これは presamp の `[VCLENGTH] 0`（既定）の振る舞いで、UTAU（presamp.exe）でも
+/// OpenUtau でも同じ。`[VCLENGTH] 1`（渡り自身から取る）は既定ではない。
+/// `TR-SYN-11` が「OpenUtau の公開された振る舞いを仕様として参照する」と
+/// 定めているので、既定のほうを採る。
+///
+/// ```text
+/// OpenUtau.Plugin.Builtin/JapanesePresampPhonemizer.cs
+///   if (nextOto.Overlap < 0) vcLength = MsToTick(nextOto.Preutter - nextOto.Overlap);
+///   else                     vcLength = MsToTick(nextOto.Preutter);
+///   vcLength = Min(totalDuration / 2, Max(30, vcLength));
+/// ```
+///
+/// **オーバーラップが負なら足す。** 負のオーバーラップは「前の音と重ねずに離す」
+/// 指定で、そのぶん助走が長くなる。
+///
+/// `owner_duration_ms` は渡りが乗る音符（直前の音符）の長さ。 その半分で頭打ちに
+/// する——短い音符を渡りが食い潰さないため。
+#[must_use]
+pub fn transition_ms(next: Option<&Oto>, owner_duration_ms: f64, beat_ms: f64) -> f64 {
+    let tick_ms = beat_ms / TICKS_PER_QUARTER;
+    let want = next.map_or(DEFAULT_TRANSITION_TICKS * tick_ms, |o| {
+        if o.overlap_ms < 0.0 {
+            o.preutterance_ms - o.overlap_ms
+        } else {
+            o.preutterance_ms
+        }
+    });
+    want.max(MIN_TRANSITION_TICKS * tick_ms)
+        .min(owner_duration_ms / 2.0)
+        .max(0.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +264,72 @@ mod tests {
             overlap_ms: 0.0,
         };
         assert!(o.violations(100.0).contains(&Violation::EmptyRegion));
+    }
+
+    /// 渡りの長さは次の CV の先行発声から取る（`TR-SYN-12`）。
+    #[test]
+    fn 渡りは次の先行発声から決まる() {
+        let beat = 500.0; // 120 BPM
+        let next = Oto {
+            offset_ms: 0.0,
+            consonant_ms: 50.0,
+            cutoff_ms: -300.0,
+            preutterance_ms: 80.0,
+            overlap_ms: 20.0,
+        };
+        assert!((transition_ms(Some(&next), 400.0, beat) - 80.0).abs() < 1e-9);
+    }
+
+    /// オーバーラップが負なら、そのぶん助走が長くなる。
+    #[test]
+    fn 負のオーバーラップは足す() {
+        let beat = 500.0;
+        let next = Oto {
+            offset_ms: 0.0,
+            consonant_ms: 50.0,
+            cutoff_ms: -300.0,
+            preutterance_ms: 80.0,
+            overlap_ms: -30.0,
+        };
+        assert!((transition_ms(Some(&next), 400.0, beat) - 110.0).abs() < 1e-9);
+    }
+
+    /// 短い音符を渡りが食い潰さない。半分で頭打ち。
+    #[test]
+    fn 渡りは直前の音符の半分を超えない() {
+        let beat = 500.0;
+        let next = Oto {
+            offset_ms: 0.0,
+            consonant_ms: 50.0,
+            cutoff_ms: -300.0,
+            preutterance_ms: 300.0,
+            overlap_ms: 20.0,
+        };
+        assert!((transition_ms(Some(&next), 100.0, beat) - 50.0).abs() < 1e-9);
+    }
+
+    /// 下限は 30 ティック。**ミリ秒ではない**ので、テンポで変わる。
+    #[test]
+    fn 渡りの下限はティックで効く() {
+        let next = Oto {
+            offset_ms: 0.0,
+            consonant_ms: 5.0,
+            cutoff_ms: -300.0,
+            preutterance_ms: 1.0,
+            overlap_ms: 5.0,
+        };
+        // 120 BPM: 1 ティック = 500/480 ms → 下限 31.25 ms
+        let slow = transition_ms(Some(&next), 400.0, 500.0);
+        assert!((slow - 30.0 * 500.0 / 480.0).abs() < 1e-9, "{slow}");
+        // 240 BPM では半分になる。
+        let fast = transition_ms(Some(&next), 400.0, 250.0);
+        assert!((fast - slow / 2.0).abs() < 1e-9, "{fast}");
+    }
+
+    /// 次の oto を引けなければ 120 ティック（OpenUtau の既定）。
+    #[test]
+    fn 次を引けなければ既定の長さ() {
+        let got = transition_ms(None, 400.0, 500.0);
+        assert!((got - 120.0 * 500.0 / 480.0).abs() < 1e-9, "{got}");
     }
 }

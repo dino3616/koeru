@@ -42,12 +42,15 @@ const row = (id: string, text: string, takes: number): RowTakesView => ({
   text,
   state: takes > 0 ? "recorded" : "unrecorded",
   units: text.split(" ").length,
+  moras: text.split(" ").length,
+  risk_hard: 0,
   takes: Array.from({ length: takes }, (_, i) => ({
     take_id: i + 1,
     generation: i + 1,
     peak: 0.71,
     duration_ms: 3100,
     invalid: false,
+    recorded_at: "2026-09-21T18:24:00Z",
   })),
   adopted: takes > 0 ? takes : null,
 });
@@ -72,6 +75,10 @@ const songs: SongView[] = [
     missing_rows: 0,
     seconds: 18.4,
     total_moras: 24,
+    previewable: true,
+    transpose: 0,
+    recommended_transpose: 0,
+    rescuing_tone: null,
   },
   {
     id: "s2",
@@ -84,6 +91,10 @@ const songs: SongView[] = [
     missing_rows: 3,
     seconds: 36,
     total_moras: 24,
+    previewable: true,
+    transpose: 0,
+    recommended_transpose: 0,
+    rescuing_tone: null,
   },
 ];
 
@@ -98,6 +109,9 @@ const 台帳 = () => {
     handoff: "NotExported",
     singable_songs: 2,
     songs_in_bank: 4,
+    by_tone: [],
+    remaining_seconds: 600,
+    remaining_rows: 72,
   });
   mocked(api.progress).mockResolvedValue({
     next_row_id: "s004",
@@ -108,10 +122,35 @@ const 台帳 = () => {
     handoff: "NotExported",
     singable_songs: 2,
     songs_in_bank: 4,
+    by_tone: [],
+    remaining_seconds: 600,
+    remaining_rows: 72,
   });
   mocked(api.voiceState).mockResolvedValue(voice);
   mocked(api.rowsWithTakes).mockResolvedValue(rows);
+  // 歌いたいところを選ぶ（`TR-RCL-12`）。
+  mocked(api.songNotes).mockResolvedValue([
+    { lyric: "さ", tone: "A4", ticks: 480 },
+    { lyric: "く", tone: "A4", ticks: 480 },
+    { lyric: "ら", tone: "B4", ticks: 960 },
+  ]);
+  // 録る順（`TR-SYN-19`）。曲バンク優先から始まる。
+  mocked(api.recordingOrder).mockResolvedValue({
+    mode: "SongBankFirst",
+    row_ids: rows.map((r) => r.row_id),
+  });
   mocked(api.songStatus).mockResolvedValue(songs);
+  // 曲バンクを組み替える一覧（`TR-RCL-12`）。外した曲も並ぶ。
+  mocked(api.allSongs).mockResolvedValue([
+    { id: "s1", title: "かえるの合唱", notes: 24, in_bank: true, license: "パブリックドメイン" },
+    {
+      id: "s2",
+      title: "さくらさくら",
+      notes: 14,
+      in_bank: true,
+      license: "不明（配布物には含めない）",
+    },
+  ]);
   // 確認キュー（`TR-ALN-25`）。既定は「見るものが無い」。
   mocked(api.reviewSummary).mockResolvedValue({
     mode: "individual",

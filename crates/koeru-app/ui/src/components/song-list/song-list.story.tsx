@@ -22,6 +22,10 @@ const song = (
   missing_rows: missingRows,
   seconds: 18.4,
   total_moras: 24,
+  previewable: true,
+  transpose: 0,
+  recommended_transpose: 0,
+  rescuing_tone: null,
 });
 
 const songs = [

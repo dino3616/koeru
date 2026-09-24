@@ -19,9 +19,15 @@ import { PackageForm } from "~/components/package-form";
 import { PackagePanel } from "~/components/package-panel";
 import { ReviewPanel } from "~/components/review-panel";
 import { PendingWork } from "~/components/pending-work";
+import { PresampNotice } from "~/components/presamp-notice";
 import { ReleaseList } from "~/components/release-list";
 import { SongDetail } from "~/components/song-detail";
+import { RecordingOrder } from "~/components/recording-order";
+import { SongBank } from "~/components/song-bank";
+import { SongKey } from "~/components/song-key";
 import { SongList } from "~/components/song-list";
+import { SongTarget } from "~/components/song-target";
+import { ToneProgressList } from "~/components/tone-progress";
 import { VoiceHeader, type VoiceTab } from "~/components/voice-header";
 import { VoicePortrait } from "~/components/voice-portrait";
 import { VoiceSettings } from "~/components/voice-settings";
@@ -35,6 +41,7 @@ import {
   openProjectQuery,
   progressQuery,
   reviewQueueQuery,
+  recordingOrderQuery,
   rowsWithTakesQuery,
   songStatusQuery,
   voiceStateQuery,
@@ -146,6 +153,7 @@ const VoiceBody = ({
     { data: songs },
     { data: devices },
     { data: chosen },
+    { data: order },
   ] = useSuspenseQueries({
     queries: [
       progressQuery(id),
@@ -155,7 +163,26 @@ const VoiceBody = ({
       songStatusQuery(id),
       devicesQuery(),
       chosenDeviceQuery(id),
+      recordingOrderQuery(id),
     ],
+  });
+
+  /*
+   * 提示順（`TR-SYN-19`）。
+   *
+   * 並べ替えるだけで、台帳の行集合は動かない。 順に無い行（収録済み）は
+   * 後ろへ回す——一覧から消すと、録ったものが見えなくなる。
+   */
+  const orderedRows = [...rows].sort((a, b) => {
+    const ia = order.row_ids.indexOf(a.row_id);
+    const ib = order.row_ids.indexOf(b.row_id);
+    return (ia < 0 ? Number.MAX_SAFE_INTEGER : ia) - (ib < 0 ? Number.MAX_SAFE_INTEGER : ib);
+  });
+
+  /** 録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
+  const switchOrder = useMutation({
+    mutationFn: (mode: string) => api.setRecordingOrder(mode),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ledgerKey }),
   });
 
   /**
@@ -298,6 +325,18 @@ const VoiceBody = ({
     mutationFn: (songId: string) => api.singSong(songId),
     onMutate: () => setError(null),
     onError: fail,
+    /*
+     * 区画が切り替わった位置を伝える（`TR-SYN-16`）。
+     *
+     * 切り替わったところは声が変わりうるので、原音設定で見てほしい箇所になる。
+     * 黙って鳴らすと、そこだけ別人に聞こえた理由が分からない。
+     */
+    onSuccess: (sung) => {
+      const n = sung.subbank_switches.length;
+      if (n > 0) {
+        setStatus(`音の高さの区画が ${n} 箇所で切り替わりました`);
+      }
+    },
   });
 
   /** いま何で録っているか。帯に出すのはこの1行だけ（`DEC-PLT-024`）。 */
@@ -344,6 +383,11 @@ const VoiceBody = ({
         onTab={(next) => void navigate({ to: "/voice", search: { id, tab: next } })}
         onBack={() => void navigate({ to: "/" })}
       />
+
+      {/* 知らせが無ければ枠ごと消す。 空の枠が余白だけ取ると、面の頭が下がる。 */}
+      <div className="px-8 pt-4 empty:hidden">
+        <PresampNotice voiceId={id} />
+      </div>
 
       {/* 状態の変化を支援技術へ通知する（`TR-PLT-29`）。 */}
       <p aria-live="polite" aria-atomic="true" className="sr-only">
@@ -400,6 +444,9 @@ const VoiceBody = ({
               <NextPhrase
                 text={progress.next_row_text}
                 units={nextRow?.units ?? 0}
+                risk={
+                  nextRow === null ? undefined : { hard: nextRow.risk_hard, moras: nextRow.moras }
+                }
                 recording={recording}
                 settling={settling}
                 continuous={continuous}
@@ -462,20 +509,48 @@ const VoiceBody = ({
                     onSing={(sid) => sing.mutate(sid)}
                   />
                 </Card>
+                {/* 音高ごとの消化率は詳細表示へ（`TR-RCL-26`）。単音階では出ない。 */}
+                <ToneProgressList byTone={progress.by_tone} />
               </>
             )}
 
-            {tab === "songs" && selectedSong !== null && (
-              <Suspense fallback={<CardSkeleton title={selectedSong.title} />}>
-                <SongDetail
-                  voiceId={id}
-                  song={selectedSong}
-                  onRecordFrom={(rowId) => {
-                    void navigate({ to: "/voice", search: { id, tab: "sound" } });
-                    retake(rowId);
-                  }}
-                />
-              </Suspense>
+            {tab === "songs" && (
+              <>
+                {/*
+                  曲を持ち込む口を、曲の面の先頭に置く（`TR-RCL-12`）。
+
+                  選んだ曲が無くても出す。 バンクが空のときこそ要る口なので、
+                  選択に紐づけると、1曲も無い人には永久に出てこない。
+                */}
+                <Suspense fallback={<CardSkeleton title="曲を持ち込む" />}>
+                  <SongBank voiceId={id} onImported={setSongId} />
+                </Suspense>
+
+                {selectedSong !== null && (
+                  <>
+                    <Suspense fallback={<CardSkeleton title={selectedSong.title} />}>
+                      <SongDetail
+                        voiceId={id}
+                        song={selectedSong}
+                        onRecordFrom={(rowId) => {
+                          void navigate({ to: "/voice", search: { id, tab: "sound" } });
+                          retake(rowId);
+                        }}
+                      />
+                    </Suspense>
+                    {/* キーは本人が決める（`TR-SYN-15`, `DEC-SYN-012`）。 */}
+                    <SongKey song={selectedSong} />
+                    {/* 歌いたいところを目標にする（`TR-RCL-12`, `TR-RCL-16`）。 */}
+                    <Suspense fallback={<CardSkeleton title={selectedSong.title} />}>
+                      <SongTarget
+                        voiceId={id}
+                        songId={selectedSong.id}
+                        title={selectedSong.title}
+                      />
+                    </Suspense>
+                  </>
+                )}
+              </>
             )}
 
             {/*
@@ -583,14 +658,25 @@ const VoiceBody = ({
           </h2>
 
           {tab === "sound" && (
-            <ItemList
-              rows={rows}
-              nextRowId={progress.next_row_id}
-              pendingRowIds={reviewEntries
-                .filter((i) => i.state === "in_queue" || i.state === "blocked")
-                .map((i) => i.row_id)}
-              onOpen={openTake}
-            />
+            <>
+              {/* どちらの順で録っているかを常に出す（`TR-SYN-19`）。 */}
+              <RecordingOrder
+                mode={order.mode}
+                remainingSeconds={progress.remaining_seconds}
+                remainingRows={progress.remaining_rows}
+                hasSongs={songs.length > 0}
+                switching={switchOrder.isPending}
+                onChange={(m) => switchOrder.mutate(m)}
+              />
+              <ItemList
+                rows={orderedRows}
+                nextRowId={progress.next_row_id}
+                pendingRowIds={reviewEntries
+                  .filter((i) => i.state === "in_queue" || i.state === "blocked")
+                  .map((i) => i.row_id)}
+                onOpen={openTake}
+              />
+            </>
           )}
           {tab === "songs" && (
             <SongList

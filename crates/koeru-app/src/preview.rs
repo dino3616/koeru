@@ -98,10 +98,12 @@ impl PhraseCache {
 /// 素材を WAV から読む口。
 #[derive(Debug)]
 pub struct WavSamples {
-    /// エイリアスごとの素材の場所。
-    pub paths: HashMap<String, PathBuf>,
-    /// エイリアスごとの周波数表（`TR-SYN-08`, `TR-SYN-25`）。
-    pub tables: HashMap<String, Vec<f64>>,
+    /// 素材ごとの周波数表（`TR-SYN-08`, `TR-SYN-25`）。**鍵はパス。**
+    ///
+    /// エイリアスで引かない。 多音階では音高ごとに同じエイリアスがあり
+    /// （`TR-RCL-26`）、エイリアスを鍵にすると**1音高ぶんしか残らない。**
+    /// どの音高の素材を使うかは `NoteSpec` が既に決めている。
+    pub tables: HashMap<PathBuf, Vec<f64>>,
 }
 
 /// 合成へ渡す素材のサンプルレート（`TR-SYN-31`）。
@@ -113,11 +115,16 @@ pub const REQUIRED_RATE_HZ: u32 = 44_100;
 
 impl Samples for WavSamples {
     fn load(&self, note: &NoteSpec) -> Result<(Vec<f64>, u32), RenderError> {
-        let path = self
-            .paths
-            .get(&note.alias)
-            .ok_or(RenderError::SourceUnavailable)?;
-        let w = koeru_audio::wav::read(path).map_err(|_| RenderError::SourceUnavailable)?;
+        /*
+          `NoteSpec` が持っているパスをそのまま読む。
+
+          **エイリアスで引き直さない。** 多音階では音高ごとに同じエイリアスが
+          あるので、エイリアスの表へ畳んだ時点で1音高ぶんしか残らない。
+          引き当ては解決（`Song::resolve_by_tone`）が音高まで含めて済ませてあり
+          （`TR-SYN-16`）、ここで引き直すとその判断が捨てられる。
+        */
+        let w = koeru_audio::wav::read(&note.sample_path)
+            .map_err(|_| RenderError::SourceUnavailable)?;
         // 変換して通さない（`TR-SYN-31`）。
         if w.rate_hz != REQUIRED_RATE_HZ {
             tracing::warn!(
@@ -131,8 +138,43 @@ impl Samples for WavSamples {
     }
 
     fn frequency_table(&self, note: &NoteSpec) -> Vec<f64> {
-        self.tables.get(&note.alias).cloned().unwrap_or_default()
+        // 素材と同じ鍵で引く。 別の音高の表を当てると、音高だけが飛ぶ。
+        self.tables
+            .get(&note.sample_path)
+            .cloned()
+            .unwrap_or_default()
     }
+}
+
+/// 1つの音符・1つの休みに置く長さの上限（ミリ秒）。
+///
+/// 取り込んだ曲の時間は外から来る（`TR-RCL-12`）。 極端に小さい BPM や
+/// 巨大な `Length` を書いた UST は作れてしまうので、**長さをそのまま信じない。**
+///
+/// **`as usize` は桁あふれで 0 に落ちない。** 飽和して巨大な値になるので、
+/// 確保に失敗してアプリごと落ちる。読めるファイルを試唱しただけで落ちるのは、
+/// 取り込みの経路として成立しない。休みだけ抑えていて、歌う音符の長さは
+/// 合成器まで素通りしていた——同じ理由なので、同じ上限を使う。
+///
+/// 30 秒。 1音を伸ばす長さとしても休みとしても十分に長く、無音なら確保は
+/// 5MB 程度に収まる。
+pub(crate) const MAX_SEGMENT_MS: f64 = 30_000.0;
+
+/// 無音を作る（`TR-RCL-12` の休符）。
+///
+/// フレーズの手前に置く。 キャッシュの鍵に混ぜない——同じフレーズは、
+/// 前の休みが何であっても同じ音。
+fn silence(ms: f64, rate_hz: u32) -> Vec<f32> {
+    // 有限でないものは 0 に倒す。 `NaN` は比較で常に偽になるので、
+    // `clamp` に任せず先に畳む。
+    let ms = if ms.is_finite() { ms } else { 0.0 };
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "上限を掛けたあとなので usize に収まる"
+    )]
+    let n = (ms.clamp(0.0, MAX_SEGMENT_MS) / 1000.0 * f64::from(rate_hz)) as usize;
+    vec![0.0; n]
 }
 
 /// 進行中の試唱。落とすと止まる。
@@ -186,7 +228,7 @@ pub trait Sink: Send {
 /// 先頭フレーズを合成できないとき。
 #[tracing::instrument(skip(phrases, samples, cache, sink), fields(count = phrases.len()), err)]
 pub fn start(
-    phrases: Vec<Phrase>,
+    phrases: Vec<(Phrase, f64)>,
     samples: Arc<dyn Samples + Send + Sync>,
     cache: Arc<Mutex<PhraseCache>>,
     sink: Box<dyn Sink>,
@@ -205,17 +247,24 @@ pub fn start(
             },
         ));
     }
-    let first = rest.remove(0);
-    let head = render_cached(&first, samples.as_ref(), &cache, rate_hz)?;
+    let (first, lead) = rest.remove(0);
+    let mut head = silence(lead, rate_hz);
+    head.extend(render_cached(&first, samples.as_ref(), &cache, rate_hz)?);
 
     let handle = std::thread::spawn({
         let cancel = Arc::clone(&cancel);
         let cache = Arc::clone(&cache);
         move || {
-            for p in rest {
+            for (p, lead) in rest {
                 if cancel.load(Ordering::Acquire) {
                     // 部分結果を書かない（`TR-SYN-27`）。
                     break;
+                }
+                // 曲の休み（`TR-RCL-12`）。 鳴らさない時間もそのまま流す——
+                // 詰めると、取り込んだ曲が元と違うリズムで鳴る。
+                let pause = silence(lead, rate_hz);
+                if !pause.is_empty() {
+                    sink.push(&pause);
                 }
                 match render_cached(&p, samples.as_ref(), &cache, rate_hz) {
                     Ok(pcm) => sink.push(&pcm),

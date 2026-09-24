@@ -5,6 +5,7 @@ import { ReviewEntry } from ".";
 import type { ReviewItemView } from "~/lib/ipc";
 
 const item: ReviewItemView = {
+  key: "か060",
   row_id: "s002",
   oto: {
     alias: "か",
@@ -46,6 +47,15 @@ export const ほかの回と違う: Story = {
 
 export const 音が割れている: Story = {
   args: { item: { ...item, cause: "confidence.acoustic" } },
+};
+
+export const 手前で途切れていない: Story = {
+  args: { item: { ...item, oto: { ...item.oto, alias: "a k" }, cause: "branch.mismatch" } },
+  play: async ({ canvasElement }) => {
+    // 用語を出さない（`TR-ALN-26` (3)）。
+    await expect(canvasElement.textContent).not.toContain("閉鎖");
+    await expect(canvasElement.textContent).not.toContain("branch");
+  },
 };
 
 export const 理由が分からない: Story = {

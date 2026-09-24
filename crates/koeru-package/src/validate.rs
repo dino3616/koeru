@@ -163,6 +163,8 @@ pub enum Place {
     Alias { file: String, alias: String },
     /// `readme.txt` のその節。
     ReadmeSection { title: &'static str },
+    /// 同梱する `presamp.ini`（`TR-RCL-24`）。 差し替えた表（`TR-SYN-36`）から来る。
+    Presamp,
 }
 
 /// 書き出し前に全件検査する（`TR-PKG-49`）。
@@ -483,6 +485,16 @@ fn unencodable_places(bank: &VoiceBank) -> Vec<Unencodable> {
             }
         }
     }
+
+    // 同梱する `presamp.ini` も CP932 で書く（`tree::build`）。 書くものそのものを見る。
+    //
+    // **見ていなかった。** 差し替えた表（`TR-SYN-36`）に CP932 で書けない字が
+    // あると——使っていない節のテンプレートでも——組み立てが落ちる。ここで
+    // 拾わないと検査は通り、書き出しの的は押せるのに、押すと必ず失敗した。
+    add(
+        Place::Presamp,
+        &koeru_core::presamp::write(&bank.rules, crate::profile::NEWLINE),
+    );
     out
 }
 
@@ -491,8 +503,8 @@ mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample, Subbank};
     use koeru_align::ini::IniEntry;
+    use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
-    use koeru_core::project::Method;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -556,7 +568,9 @@ mod tests {
             },
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 
@@ -566,7 +580,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: Vec::new(),
+            tone: None,
             samples,
         }
     }
@@ -789,6 +803,39 @@ mod tests {
 
         // UTF-8 で出すなら、この検査は要らない。
         assert!(validate(&b, Profile::OpenUtau).may_export());
+    }
+
+    /// 同梱する `presamp.ini` も CP932 で書けるかを見る（`TR-PKG-17`, `TR-SYN-36`）。
+    ///
+    /// **見ていなかった。** 差し替えた表の、使っていない節に書けない字があるだけで
+    /// 組み立てが落ちるのに、検査は通り、書き出しの的が押せてしまっていた。
+    #[test]
+    fn 差し替えた表の書けない字も挙げる() {
+        let d = tmp("presamp-cp932");
+        let w = write_wav(&d, "s001.wav", 1000);
+        let mut b = bank(vec![subbank(
+            None,
+            "",
+            vec![sample("s001.wav", w, &["あ"])],
+        )]);
+        // 綴りには出てこない節。 それでも `presamp.ini` には書かれる。
+        b.rules
+            .templates
+            .insert("LONG_V".to_owned(), "%V%🎤".to_owned());
+
+        let r = validate(&b, Profile::Both);
+        assert!(!r.may_export(), "書き出しの的を押させない");
+        assert!(
+            r.unencodable.iter().any(|u| u.place == Place::Presamp),
+            "{:?}",
+            r.unencodable
+        );
+        // 組み立ても実際に落ちる——検査がそれを先に言っている。
+        assert!(crate::tree::build(&b, Profile::Both).is_err());
+        assert!(
+            validate(&b, Profile::OpenUtau).may_export(),
+            "UTF-8 なら書ける"
+        );
     }
 
     #[test]

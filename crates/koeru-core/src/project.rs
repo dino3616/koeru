@@ -107,7 +107,14 @@ impl Method {
         }
     }
 
-    fn parse(s: &str) -> Result<Self> {
+    /// manifest の名前から戻す。
+    ///
+    /// 画面から作り方を受け取る口（下位方式の書き出し、`TR-PKG-24`）が要る。
+    ///
+    /// # Errors
+    ///
+    /// 4つのどれでもない名前。
+    pub fn parse(s: &str) -> Result<Self> {
         match s {
             "single" => Ok(Self::Single),
             "sequential" => Ok(Self::Sequential),
@@ -227,6 +234,15 @@ pub struct Manifest {
     /// 複製は「派生」として親子関係を残す。 同名・同内容の別プロジェクトが
     /// 並ぶと、どちらが後のものか分からなくなる。
     pub derived_from: Option<Uuid>,
+    /// 作ったときの方式プリセット（`TR-RCL-01`）。
+    ///
+    /// 方式名では足りない。 同じ VCV でも音高が1本か3本かで別のプリセットになる。
+    ///
+    /// 古いプロジェクトは持っていない。 版を上げて読めなくするより、
+    /// 無いことを表せるほうがよい。
+    pub preset_id: Option<String>,
+    /// 作ったときの音素インベントリの版（`TR-RCL-02`）。
+    pub inventory_version: Option<u32>,
 }
 
 /// manifest の先頭に置く説明。これが「人が見て判別できる」の実体。
@@ -246,6 +262,12 @@ impl Manifest {
         doc["item_count"] = value(i64::from(self.item_count));
         if let Some(parent) = self.derived_from {
             doc["derived_from"] = value(parent.to_string());
+        }
+        if let Some(id) = &self.preset_id {
+            doc["preset_id"] = value(id.as_str());
+        }
+        if let Some(v) = self.inventory_version {
+            doc["inventory_version"] = value(i64::from(v));
         }
         format!("{MANIFEST_HEADER}\n{doc}")
     }
@@ -292,10 +314,23 @@ impl Manifest {
             )?),
         };
 
+        // 無ければ無いまま持つ。 既定を当てると、古いプロジェクトが
+        // 作られたときのプリセットを名乗ることになる。
+        let preset_id = doc
+            .get("preset_id")
+            .and_then(toml_edit::Item::as_str)
+            .map(str::to_owned);
+        let inventory_version = doc
+            .get("inventory_version")
+            .and_then(toml_edit::Item::as_integer)
+            .and_then(|n| u32::try_from(n).ok());
+
         Ok(Self {
             display_name,
             method,
             item_count,
+            preset_id,
+            inventory_version,
             derived_from,
         })
     }
@@ -325,6 +360,76 @@ impl ProjectDir {
     #[must_use]
     pub fn manifest_path(&self) -> PathBuf {
         self.root.join("manifest.toml")
+    }
+
+    /// この音源の綴りの表（`TR-SYN-36`, `DEC-SYN-010`）。 書き出す `presamp.ini`
+    /// （`TR-RCL-24`）と同じ形式。
+    ///
+    /// **正本ではない。** 正本は台帳の写しで（`DEC-SYN-013`）、ここは本人が
+    /// 中身を見られるように置く控え。解決はここを読まない。
+    #[must_use]
+    pub fn presamp_path(&self) -> PathBuf {
+        self.root.join("presamp.ini")
+    }
+
+    /// 綴りの表を音源フォルダへ書く（`DEC-SYN-013`）。 作るときに1度だけ。
+    ///
+    /// # Errors
+    ///
+    /// 書けないとき。
+    #[tracing::instrument(skip(self, text), err)]
+    pub fn write_presamp(&self, text: &str) -> Result<()> {
+        write_atomically(&self.presamp_path(), text.as_bytes())
+    }
+
+    /// 音源フォルダの `presamp.ini` を、台帳の写しへ揃える（`DEC-SYN-013`）。
+    ///
+    /// 写しと違えば、書き換えられた中身を `presamp-{SHA-256 の先頭8桁}.ini` として
+    /// 同じフォルダに残し、`presamp.ini` を写しの中身へ戻す。返るのは残した
+    /// ファイルの名前。**本人が書いたものなので消さない。** 名前に中身の指紋を
+    /// 使うので、同じものを何度置いても1つにしかならない。
+    ///
+    /// 無ければ黙って戻す。 残す中身が無い。
+    ///
+    /// 突き合わせるのは読んだ文字列。 UTF-8 でも Shift_JIS でも、中身が同じなら
+    /// 書き換えられたとみなさない。
+    ///
+    /// # Errors
+    ///
+    /// 読めない（無いのは除く）、書けないとき。
+    #[tracing::instrument(skip(self, snapshot), err)]
+    pub fn restore_presamp(&self, snapshot: &str) -> Result<Option<String>> {
+        use sha2::{Digest as _, Sha256};
+
+        let path = self.presamp_path();
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                write_atomically(&path, snapshot.as_bytes())?;
+                return Ok(None);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let text = crate::text::decode(&bytes, crate::text::TextEncoding::Utf8)
+            .or_else(|_| crate::text::decode(&bytes, crate::text::TextEncoding::Cp932))
+            .ok();
+        if text.as_deref() == Some(snapshot) {
+            return Ok(None);
+        }
+        let digest = Sha256::digest(&bytes);
+        let name = format!(
+            "presamp-{}.ini",
+            digest[..4]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        let kept = self.root.join(&name);
+        if !kept.exists() {
+            write_atomically(&kept, &bytes)?;
+        }
+        write_atomically(&path, snapshot.as_bytes())?;
+        Ok(Some(name))
     }
 
     /// 構造化データ。
@@ -588,7 +693,54 @@ mod tests {
             method: Method::Single,
             item_count: 102,
             derived_from: None,
+            preset_id: None,
+            inventory_version: None,
         }
+    }
+
+    /// 書き換えられた `presamp.ini` は戻し、中身を別名で残す（`DEC-SYN-013`）。
+    #[test]
+    fn 書き換えられた表は戻して残す() {
+        let lib = Library::open(tmp("presamp")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let snapshot = "[VERSION]\r\n1.0\r\n";
+
+        // 無ければ黙って戻す。
+        assert_eq!(p.restore_presamp(snapshot).expect("揃う"), None);
+        assert_eq!(
+            fs::read_to_string(p.presamp_path()).expect("ある"),
+            snapshot
+        );
+
+        // 揃っていれば何もしない。
+        assert_eq!(p.restore_presamp(snapshot).expect("揃う"), None);
+
+        // 書き換えられていれば、中身を残して戻す。
+        fs::write(p.presamp_path(), "[BEGINING_CV]\r\n-%CV%\r\n").expect("書ける");
+        let kept = p.restore_presamp(snapshot).expect("揃う").expect("残した");
+        assert!(
+            kept.starts_with("presamp-") && kept.ends_with(".ini"),
+            "{kept}"
+        );
+        assert_eq!(kept.len(), "presamp-".len() + 8 + ".ini".len());
+        assert_eq!(
+            fs::read_to_string(p.root().join(&kept)).expect("残っている"),
+            "[BEGINING_CV]\r\n-%CV%\r\n"
+        );
+        assert_eq!(
+            fs::read_to_string(p.presamp_path()).expect("ある"),
+            snapshot
+        );
+
+        // 同じものを置き直しても、残すのは1つ。
+        fs::write(p.presamp_path(), "[BEGINING_CV]\r\n-%CV%\r\n").expect("書ける");
+        assert_eq!(p.restore_presamp(snapshot).expect("揃う"), Some(kept));
+        let kept_files = fs::read_dir(p.root())
+            .expect("読める")
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.starts_with("presamp-"))
+            .count();
+        assert_eq!(kept_files, 1);
     }
 
     #[test]
@@ -641,6 +793,8 @@ mod tests {
             method: Method::Sequential,
             item_count: 7,
             derived_from: None,
+            preset_id: None,
+            inventory_version: None,
         };
         let p = lib.create(&hostile).expect("作れること");
         assert_eq!(p.read_manifest().expect("読めること"), hostile);

@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use koeru_align::ini::IniEntry;
-use koeru_core::project::Method;
+use koeru_core::alias::Method;
 
 /// 配布する音源1本（`TR-PKG-01`）。
 #[derive(Debug, Clone)]
@@ -20,10 +20,26 @@ pub struct VoiceBank {
     pub character: Character,
     /// `readme.txt` に出る値。
     pub readme: Readme,
-    /// 収録方式。readme と `character.yaml` の `symbol_set` に出る。
+    /// 配布物の作り方。readme の「収録方式」に出る（`DEC-PKG-015`）。
+    ///
+    /// 下位方式で書き出すときは降りた先の方式（`TR-PKG-24`）。
+    /// **manifest の方式を入れていた。** 連続音から単独音へ降ろした配布物が
+    /// 「連続音」を名乗り、配布の記録（降りた方式を書く）とも食い違っていた。
+    ///
+    /// 多音階かどうかは持たない。 それは [`tones`](Self::tones) の本数。
     pub method: Method,
+    /// 収録音高（MIDI、低い順）。readme の「収録音高」に出る（`DEC-PKG-015`）。
+    ///
+    /// 単音階でも1つ入る。 区画（[`subbanks`](Self::subbanks)）は単音階で
+    /// 音高を持たないので、そちらからは引けない。
+    pub tones: Vec<i32>,
     /// 音階ごとの区画。単一音階では1つ（`TR-PKG-04`）。
     pub subbanks: Vec<Subbank>,
+    /// 同梱する `presamp.ini` の中身（`TR-RCL-24`）。
+    ///
+    /// 受け取った側が同じ規則で解決するための表（`DEC-SYN-010`）。
+    /// インベントリとフォールバック規則から作り、別定義を持たない。
+    pub rules: koeru_core::presamp::Rules,
 }
 
 /// `character.txt` / `character.yaml` に出る値（`TR-PKG-02`, `TR-PKG-03`）。
@@ -101,8 +117,12 @@ pub struct Subbank {
     pub prefix: String,
     /// エイリアスの後ろに付ける（`TR-PKG-19`）。
     pub suffix: String,
-    /// この区画が担う音階の MIDI 番号。単一音階では空。
-    pub tones: Vec<i32>,
+    /// この区画の収録音高（MIDI、`TR-REC-25`）。単一音階では `None`。
+    ///
+    /// **担う範囲（[`tones`](Self::tones)）と別に持つ。** 収録音高は「実際に録った音」で、
+    /// 担う範囲は floor 割り当ての結果（`TR-RCL-06`）。同じ値ではない——
+    /// G3 で録った区画は G3 から C#4 までを担う。
+    pub tone: Option<i32>,
     /// この区画の素材。
     pub samples: Vec<Sample>,
 }
@@ -250,7 +270,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: Vec::new(),
+            tone: None,
             samples: files.iter().map(|(f, a)| sample(f, a)).collect(),
         }
     }
@@ -261,7 +281,9 @@ mod tests {
             character: Character::default(),
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 

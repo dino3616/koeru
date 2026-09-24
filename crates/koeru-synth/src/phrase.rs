@@ -223,13 +223,16 @@ fn crossfade_append(out: &mut Vec<f64>, piece: &[f64], overlap: usize) {
 /// 残ったフレーズの合計が `min_total_ms` に満たなければ、試唱の選択肢に出さない
 /// （`TR-SYN-18` (3)）。
 #[must_use]
-pub fn shortened(phrases: &[(Phrase, bool)], min_total_ms: f64) -> Option<Vec<&Phrase>> {
-    let kept: Vec<&Phrase> = phrases
+pub fn shortened(phrases: &[(Phrase, bool)], min_total_ms: f64) -> Option<Vec<usize>> {
+    let kept: Vec<usize> = phrases
         .iter()
-        .filter(|(_, playable)| *playable)
-        .map(|(p, _)| p)
+        .enumerate()
+        .filter(|(_, (_, playable))| *playable)
+        .map(|(i, _)| i)
         .collect();
-    let total: f64 = kept.iter().map(|p| p.duration_ms()).sum();
+    // 鳴らせる長さで測る。 フレーズのあいだの休みは数えない——
+    // 「続けて鳴らせる長さ」（`TR-SYN-18`）は声の長さであって、間ではない。
+    let total: f64 = kept.iter().map(|i| phrases[*i].0.duration_ms()).sum();
     (total >= min_total_ms).then_some(kept)
 }
 
@@ -409,8 +412,8 @@ mod tests {
         let all = [(a.clone(), true), (b, false), (c.clone(), true)];
         let got = shortened(&all, 0.0).expect("出せること");
         assert_eq!(got.len(), 2, "鳴らせない1本を落とす");
-        assert_eq!(got[0], &a);
-        assert_eq!(got[1], &c, "落とした位置に何も挿さない");
+        assert_eq!(got[0], 0);
+        assert_eq!(got[1], 2, "落とした位置に何も挿さない");
     }
 
     /// 短すぎれば試唱の選択肢に出さない（`TR-SYN-18` (3)）。

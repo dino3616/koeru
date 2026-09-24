@@ -6,6 +6,11 @@
 //! 形式的な契約は `specs/requirements/packaging-export.fsl`。
 //! ここで見るのは、その契約どおりに実装が動くかどうか。
 
+// MFA を組んでいない OS では KOERU が起動しない（`DEC-ALN-016`）。
+// `Studio::open` が設計どおり失敗するので、ここは走らせない——
+// その契約そのものは `align.rs` の単体試験が見ている。
+#![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+
 use std::path::PathBuf;
 
 use koeru_app_lib::Studio;
@@ -192,4 +197,63 @@ fn 規約は未記入でも書き出せる() {
     assert!(contents.iter().any(|(p, _)| p == "readme.txt"));
 
     studio.export_package().expect("規約が無くても書き出せる");
+}
+
+/// 連続音で録った音源から、単独音の配布物が出る（`TR-PKG-22`〜`24`）。
+///
+/// **可否を変換後の綴りで見ていた。** 連続音の素材が持つのは `- か` で、
+/// 単独音が要求するのは素の `か`。それを作り出すのが再導出なのに、
+/// その手前で「持っていない」と断っていた——画面が「出せます」と
+/// 言う音源が、押すと必ず `package.incomplete_coverage` で落ちる。
+#[test]
+fn 連続音から単独音へ降りて書き出せる() {
+    use koeru_core::project::Method;
+
+    // 連続音で全行録る。 語頭 CV が全部揃うので、単独音へ降りられる。
+    let mut studio = Studio::open(library("downgrade")).expect("ライブラリを開ける");
+    let id = studio
+        .create_project_with("こえるちゃん", "sequential", &[57])
+        .expect("作れる");
+    studio.open_project(id).expect("開ける");
+    for row in studio.rows_with_takes().expect("引ける") {
+        studio
+            .seed_material_for_test(&row.row_id)
+            .expect("素材を置ける");
+    }
+
+    let mut d = studio.package_settings().expect("引ける");
+    d.version = Some("v1".to_owned());
+    studio.set_package_settings(&d).expect("保存できる");
+
+    // 画面が出す一覧に単独音が並ぶ（`TR-PKG-22`）。
+    let state = studio.package_state().expect("引ける");
+    assert!(
+        state.downgrades.iter().any(|x| x.method == Method::Single),
+        "単独音へ降りられる: {:?}",
+        state.downgrades
+    );
+
+    // **2つの関門で止まっていた。** 語頭 CV の重複で `review.conflicting_alias`、
+    // 越えたあとは綴りの重なりで `package.duplicate_alias`。
+    // 前者は綴りの持ち主を音高ごとに1行へ決めて（`DEC-ALN-017`、いまは `DEC-RCL-016`）、
+    // 後者は配る素材を綴りごとに1つ選んで（`DEC-PKG-014`）解いた。
+    let out = studio
+        .export_downgrade(Method::Single)
+        .expect("単独音へ降りて書き出せる");
+
+    // **綴りごとに1つ**（`TR-PKG-19`, `DEC-PKG-014`）。 同じ綴りを出せる素材は
+    // 30 以上あるので、選ばなければエイリアス数がその倍数に膨らむ。
+    // 単独音の要求表と同じ数なら、1綴り1件で収まっている。
+    let want = koeru_package::coverage::required(
+        &koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+        koeru_core::alias::Method::Single,
+        koeru_core::inventory::UnitSet::Core,
+    )
+    .expect("単独音は要求表を持つ");
+    assert_eq!(
+        usize::try_from(out.release.alias_count).expect("負にならない"),
+        want.len(),
+        "配るのは綴りごとに1つ"
+    );
+    assert_eq!(out.release.method, Method::Single);
 }

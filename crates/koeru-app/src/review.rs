@@ -34,10 +34,80 @@ use crate::error::Result;
 /// 実測が出たときに呼び出し側だけ直せばよいようにするため。
 pub const PER_ITEM: Duration = Duration::from_secs(10);
 
+/// 確認キューのエントリを指す鍵（`TR-ALN-22`, `TR-ALN-25`）。
+///
+/// **綴りだけでは足りない。** 多音階は音高ごとにフォルダと `oto.ini` を分ける
+/// （`TR-RCL-26`）ので、同じ綴りが音高の数だけ並ぶ。綴りだけを鍵にすると
+/// キューは最後に読んだ1件しか残さず、落ちたほうは確認もされないまま
+/// 配布物へ入る（`INV-ALN-003`）。**`あ` を2音階で録っただけで起きた。**
+///
+/// 配布物の側では綴りが一意に戻る。 区画の接頭辞・接尾辞が音高を綴りへ
+/// 織り込むので（`koeru_package::tree` の `decorate`）、`TR-PKG-19` の
+/// 「音源全体で一意」はそちらで満たされる。台帳の中だけが（音高, 綴り）。
+///
+/// 画面へは [`handle`](Self::handle) の文字列で渡す。 画面は中身を読まずに
+/// そのまま返すだけ——分解して組み直させると、綴りに区切り文字が入った
+/// ときに画面と台帳で別のエントリを指す。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EntryKey {
+    tone: i32,
+    alias: String,
+}
+
+/// 鍵の中で綴りと音高を分ける文字。
+///
+/// 制御文字を使う。 エイリアスに入りうる文字と重ならないもので、
+/// `TR-PKG-18` の綴りの形は制御文字を許していない。
+const SEP: char = '\u{1f}';
+
+impl EntryKey {
+    /// 音高と綴りから作る。
+    pub fn new(tone: i32, alias: impl Into<String>) -> Self {
+        Self {
+            tone,
+            alias: alias.into(),
+        }
+    }
+
+    /// `oto.ini` に出る綴り。
+    #[must_use]
+    pub fn alias(&self) -> &str {
+        &self.alias
+    }
+
+    /// 収録音高（MIDI）。
+    #[must_use]
+    pub const fn tone(&self) -> i32 {
+        self.tone
+    }
+
+    /// キューと画面が持ち回す文字列。
+    ///
+    /// 綴りを先に置く。 キューは鍵の順に並べるので（`TR-ALN-29`）、
+    /// **単音階では並びが綴り順のまま変わらない**——音高を先に置くと、
+    /// 音階を増やしただけで `oto.ini` の行順が入れ替わる。
+    ///
+    /// 音高は3桁に揃える。 MIDI の音高は 0〜127 なので、桁を揃えれば
+    /// 文字列の順が数の順と一致する。
+    #[must_use]
+    pub fn handle(&self) -> String {
+        format!("{}{SEP}{:03}", self.alias, self.tone)
+    }
+
+    /// [`handle`](Self::handle) の裏。形が違えば `None`。
+    ///
+    /// 既定へ倒さない。 倒すと、画面から来た壊れた鍵が別のエントリを書き換える。
+    #[must_use]
+    pub fn parse(handle: &str) -> Option<Self> {
+        let (alias, tone) = handle.rsplit_once(SEP)?;
+        Some(Self::new(tone.parse().ok()?, alias))
+    }
+}
+
 /// 台帳からキューを組み直す。
 ///
-/// 返るのは `(キュー, エイリアス → 書き戻す先のテイク)`。
-/// 書き戻す先を別に持つのは、キューが鍵にしているのがエイリアスだけで、
+/// 返るのは `(キュー, 鍵 → 書き戻す先のテイク)`。
+/// 書き戻す先を別に持つのは、キューが鍵にしているのが（音高, 綴り）だけで、
 /// どのテイクの行に書くかを知らないため。
 pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> {
     let s = ledger.review_state()?;
@@ -48,6 +118,9 @@ pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> 
         s.exported,
     );
     let mut takes = HashMap::new();
+    // 鍵に音高を織り込む（`TR-ALN-22`）。 行ごとに1度ずつ引かない——
+    // エントリは音源1つで数千あり、1件ずつ問い合わせると開くのが遅くなる。
+    let tones = ledger.row_tones()?;
     for e in ledger.adopted_otos()? {
         let state = EntryState::parse(&e.state);
         // 成分を持っているものだけ確信度を載せる。
@@ -68,8 +141,16 @@ pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> 
                 acoustic: p.acoustic,
             }),
         };
-        takes.insert(e.alias.clone(), e.take_id);
-        q.insert(e.alias, Entry::restored(e.oto, state, confidence, e.pinned));
+        // 行の音高が引けないものは 0 として置く。 落とすと、そのエントリは
+        // 確認もされず、書き出しの関門にも現れないまま配布物へ入る。
+        let tone = tones.get(&e.row_id).copied().unwrap_or_default();
+        let key = EntryKey::new(tone, e.alias).handle();
+        takes.insert(key.clone(), e.take_id);
+        q.insert(
+            key,
+            Entry::restored(e.oto, state, confidence, e.pinned)
+                .with_branch_mismatch(e.branch_mismatch),
+        );
     }
     Ok((q, takes))
 }
@@ -145,6 +226,64 @@ mod tests {
         assert_eq!(slot_of(""), None);
     }
 
+    /// 鍵は往復する（`DEC-ALN-017`）。
+    #[test]
+    fn 鍵が往復する() {
+        for (tone, alias) in [(60, "か"), (55, "- あ"), (127, "a k"), (0, "aー")] {
+            let k = EntryKey::new(tone, alias);
+            let back = EntryKey::parse(&k.handle()).expect("読み戻せる");
+            assert_eq!(back, k);
+            assert_eq!(back.alias(), alias);
+            assert_eq!(back.tone(), tone);
+        }
+    }
+
+    /// 壊れた鍵は既定へ倒さない。
+    ///
+    /// 倒すと、画面から来た鍵が別のエントリを書き換える。
+    #[test]
+    fn 形の違う鍵は読まない() {
+        assert_eq!(EntryKey::parse("か"), None, "区切りが無い");
+        assert_eq!(EntryKey::parse("か\u{1f}C4"), None, "音高が数でない");
+        assert_eq!(EntryKey::parse(""), None);
+    }
+
+    /// 単音階の並びは綴り順のまま（`TR-ALN-29`）。
+    ///
+    /// 音高を先に置くと、音階を増やしただけで `oto.ini` の行順が入れ替わる。
+    #[test]
+    fn 単音階の鍵は綴り順に並ぶ() {
+        let mut keys: Vec<String> = ["さ", "あ", "か"]
+            .into_iter()
+            .map(|a| EntryKey::new(60, a).handle())
+            .collect();
+        keys.sort();
+        let aliases: Vec<String> = keys
+            .iter()
+            .map(|k| EntryKey::parse(k).expect("読める").alias)
+            .collect();
+        assert_eq!(aliases, ["あ", "か", "さ"]);
+    }
+
+    /// 同じ綴りでも音高が違えば別の鍵（`DEC-ALN-017`）。
+    ///
+    /// 数の順に並ぶ。 桁を揃えていないと `110` が `62` より前に来る。
+    #[test]
+    fn 音高が違えば別の鍵() {
+        let mut keys: Vec<String> = [62, 110, 55]
+            .into_iter()
+            .map(|t| EntryKey::new(t, "あ").handle())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), 3, "潰れない");
+        let tones: Vec<i32> = keys
+            .iter()
+            .map(|k| EntryKey::parse(k).expect("読める").tone)
+            .collect();
+        assert_eq!(tones, [55, 62, 110]);
+    }
+
     /// 採用テイクが1つだけある台帳を作る。返るのは `(台帳, テイク, 行)`。
     fn 一件だけ入れた台帳() -> (Ledger, i32, String) {
         use koeru_core::inventory::UnitSet;
@@ -208,8 +347,11 @@ mod tests {
             .expect("書ける");
 
         let (q, takes) = load(&mut l).expect("組み直せる");
-        assert_eq!(takes.get("か"), Some(&take), "書き戻す先を持っている");
-        let e = q.get("か").expect("エントリがある");
+        // 鍵は（音高, 綴り）（`DEC-ALN-017`）。綴りでは引けない。
+        let key = EntryKey::new(60, "か").handle();
+        assert_eq!(takes.get(&key), Some(&take), "書き戻す先を持っている");
+        assert!(q.get("か").is_none(), "綴りだけでは指せない");
+        let e = q.get(&key).expect("エントリがある");
         assert_eq!(e.state, EntryState::InQueue);
         assert!(e.is_pinned(Slot::Offset));
         assert!(!e.is_pinned(Slot::Cutoff));
@@ -246,7 +388,8 @@ mod tests {
         .expect("書ける");
 
         let (q, _) = load(&mut l).expect("組み直せる");
-        assert!(q.get("き").expect("ある").confidence.is_none());
+        let key = EntryKey::new(60, "き").handle();
+        assert!(q.get(&key).expect("ある").confidence.is_none());
     }
 
     /// 成分を渡したものは、合成スコアが往復する。
@@ -279,7 +422,8 @@ mod tests {
         .expect("書ける");
 
         let (q, _) = load(&mut l).expect("組み直せる");
-        let c = q.get("き").expect("ある").confidence.expect("成分がある");
+        let key = EntryKey::new(60, "き").handle();
+        let c = q.get(&key).expect("ある").confidence.expect("成分がある");
         assert!(
             (c.score() - score).abs() < 1e-9,
             "点数が歪んでいる: {}",

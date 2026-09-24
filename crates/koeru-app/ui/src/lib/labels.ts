@@ -30,6 +30,8 @@ const CAUSES: Record<string, string> = {
   "confidence.sharpness": "音の変わり目がはっきりしません",
   "confidence.prior": "ほかの回と切り方が違います",
   "confidence.acoustic": "音が割れているか、小さすぎます",
+  // 無声破裂音の分岐不一致（`DEC-ALN-018`）。 「閉鎖」と言わない。
+  "branch.mismatch": "か行・た行・ぱ行の手前で、音が途切れていません",
 };
 
 /** 主因。無ければ `null`——「理由なし」と「まだ分からない」を分ける。 */
@@ -157,6 +159,8 @@ const PLACES: Record<string, string> = {
   character_field: "音源の情報",
   alias: "呼び名",
   readme_section: "説明文",
+  // 音源に置いた `presamp.ini` から来る（`TR-SYN-36`）。 直す先がそのファイルなので名前も出す。
+  presamp: "呼び名の決まり（presamp.ini）",
 };
 
 /** 書けない文字が出ている場所の言い方。 */

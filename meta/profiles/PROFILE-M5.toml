@@ -8,16 +8,14 @@ UST はノートに仮名の歌詞を持つので g2p が無くても通る。
 辞書の同梱は配布物の大きさに直接効くので、要る場面が来てから積む。'''
 includes_requirements = [
   'TR-ALN-19',
+  'TR-ALN-34',
   'TR-ALN-22',
-  'TR-ALN-04',
-  'TR-RCL-14',
   'TR-SYN-36',
   'TR-RCL-04',
   'TR-RCL-05',
   'TR-RCL-06',
   'TR-RCL-07',
   'TR-RCL-09',
-  'TR-RCL-10',
   'TR-RCL-11',
   'TR-RCL-22',
   'TR-RCL-24',
@@ -51,7 +49,20 @@ excludes = [
 decisions = [
   'DEC-ALN-010',
   'DEC-ALN-011',
+  'DEC-ALN-014',
+  'DEC-ALN-015',
+  'DEC-ALN-016',
   'DEC-RCL-001',
   'DEC-RCL-002',
+  'DEC-RCL-007',
+  'DEC-RCL-008',
+  'DEC-RCL-009',
+  'DEC-RCL-010',
+  'DEC-RCL-011',
+  'DEC-RCL-013',
+  'DEC-RCL-014',
+  'DEC-SYN-010',
+  'DEC-SYN-011',
+  'DEC-SYN-012',
 ]
 budgets = []

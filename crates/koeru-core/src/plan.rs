@@ -11,22 +11,9 @@
 
 use std::collections::BTreeSet;
 
+use crate::alias::Method;
+use crate::pace;
 use crate::reclist::Row;
-
-/// 1単位あたりの収録サイクル（秒、`TR-RCL-09`）。
-///
-/// [Unknown] 自前実測まで暫定値。 OREMO の録音周期に固有の値を一次基準に置いている。
-/// KOERU の録音 UI では連続収録でオーバーヘッドが下がるので、実測で確定する。
-pub const SECONDS_PER_UNIT: f64 = 8.3;
-
-/// 行読み上げ方式の1行あたり（秒、`TR-RCL-09`）。6モーラ以下のとき。
-pub const SECONDS_PER_ROW_BASE: f64 = 12.0;
-
-/// 6モーラを超えた分の1モーラあたり（秒）。
-pub const SECONDS_PER_EXTRA_MORA: f64 = 1.2;
-
-/// 1行あたりの基準モーラ数。
-const BASE_MORAS: usize = 6;
 
 /// 追加で録る計画（`TR-RCL-17`）。
 #[derive(Debug, Clone, PartialEq)]
@@ -51,15 +38,23 @@ pub struct Plan {
 /// 完全最小ではないが、行の中身が固定されている以上、差は小さい。
 /// それより「選んだ行がフルリストの行と同じであること」のほうが効く。
 #[must_use]
-pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
+pub fn rows_to_cover(
+    rules: &crate::presamp::Rules,
+    method: Method,
+    missing: &BTreeSet<String>,
+    full_list: &[Row],
+) -> Plan {
     let mut left: BTreeSet<String> = missing.clone();
     let mut chosen: Vec<Row> = Vec::new();
 
-    // どの行にも無い単位を先に外す。選びようが無い。
-    let all: BTreeSet<String> = full_list
-        .iter()
-        .flat_map(|r| r.units.iter().map(|u| u.kana.to_owned()))
-        .collect();
+    // 行が生む綴りで突き合わせる（`TR-RCL-18`）。
+    //
+    // **仮名で突き合わせていた。** `missing` は方式ごとの綴りで来るので、
+    // 連続音や CVVC では1つも一致せず、あと何行かが常に 0 行になっていた。
+    let aliases_of = |r: &Row| crate::reclist::row_aliases(rules, method, &r.units);
+
+    // どの行にも無い綴りを先に外す。選びようが無い。
+    let all: BTreeSet<String> = full_list.iter().flat_map(&aliases_of).collect();
     let unreachable: BTreeSet<String> = left.difference(&all).cloned().collect();
     for u in &unreachable {
         left.remove(u);
@@ -71,21 +66,24 @@ pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
             .iter()
             .filter(|r| !chosen.iter().any(|c| c.id == r.id))
             .map(|r| {
-                let gain = r.units.iter().filter(|u| left.contains(u.kana)).count();
+                let gain = aliases_of(r).iter().filter(|a| left.contains(*a)).count();
                 (gain, r)
             })
             .filter(|(gain, _)| *gain > 0)
             .max_by_key(|(gain, _)| *gain);
 
         let Some((_, row)) = best else { break };
-        for u in &row.units {
-            left.remove(u.kana);
+        // 選んだ行が埋めた綴りを外す。 **仮名を外していた**——点数は綴りで
+        // 数えるよう直したのに、ここだけ仮名のままだった。連続音や CVVC では
+        // 何も外れないので、`left` に触れる行を全部選び、行数も時間も膨らんだ。
+        for a in aliases_of(row) {
+            left.remove(&a);
         }
         chosen.push(row.clone());
     }
 
     let covers = missing.len() - left.len() - unreachable.len();
-    let seconds = estimate_seconds(&chosen);
+    let seconds = estimate_seconds(method, &chosen);
     Plan {
         rows: chosen,
         covers,
@@ -96,40 +94,57 @@ pub fn rows_to_cover(missing: &BTreeSet<String>, full_list: &[Row]) -> Plan {
 
 /// 行を録るのに掛かる時間（秒、`TR-RCL-09`）。
 ///
-/// 単独音は「1単位あたり × 単位数」、行読み上げは「1行 12 秒 ＋ 超過分」。
-/// 式を2本に分けるのは、単独音が1項目＝1モーラで、行読み上げとは周期が違うから。
+/// 式は [`crate::pace`] が持つ。 ここは単音階の場合の入口。
 #[must_use]
-pub fn estimate_seconds(rows: &[Row]) -> f64 {
-    rows.iter()
-        .map(|r| {
-            let moras = r.units.len();
-            if moras <= 1 {
-                // 単独音の1項目。
-                SECONDS_PER_UNIT
-            } else if moras <= BASE_MORAS {
-                SECONDS_PER_ROW_BASE
-            } else {
-                SECONDS_PER_ROW_BASE + (moras - BASE_MORAS) as f64 * SECONDS_PER_EXTRA_MORA
-            }
-        })
-        .sum()
+pub fn estimate_seconds(method: Method, rows: &[Row]) -> f64 {
+    pace::fixed_seconds(method, rows, 1)
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// 既定の綴り（`TR-SYN-36`）。
+    fn builtin_rules() -> crate::presamp::Rules {
+        crate::presamp::Rules::builtin(UnitSet::Core)
+    }
     use super::*;
     use crate::inventory::UnitSet;
+    use crate::pace::{SECONDS_PER_EXTRA_MORA, SECONDS_PER_ROW_BASE, SECONDS_PER_UNIT};
     use crate::reclist::generate_single;
 
     fn set(xs: &[&str]) -> BTreeSet<String> {
         xs.iter().map(|s| (*s).to_owned()).collect()
     }
 
+    /// 連続音でも、埋めた綴りを外してから次を選ぶ（`TR-RCL-16`）。
+    ///
+    /// **仮名を外していた。** 連続音の綴り（`- か`、`a か`）は仮名と一致しないので
+    /// 何も外れず、`left` に触れる行を全部選んでいた。単独音は綴りが仮名
+    /// そのものなので、単独音の試験では見えなかった。
+    #[test]
+    fn 連続音でも一行で足りるなら一行だけ選ぶ() {
+        let rules = builtin_rules();
+        let list = crate::reclist::generate_sequential(UnitSet::Core, 8).expect("生成できる");
+        let row = &list[0];
+        let missing: BTreeSet<String> =
+            crate::reclist::row_aliases(&rules, Method::Sequential, &row.units)
+                .into_iter()
+                .collect();
+        let plan = rows_to_cover(&rules, Method::Sequential, &missing, &list);
+        assert_eq!(plan.rows.len(), 1, "1行で足りる: {:?}", plan.rows.len());
+        assert_eq!(plan.covers, missing.len(), "全部埋まる");
+    }
+
     /// 選ぶのはフルリストの行そのもの（`TR-RCL-16`）。詰め直さない。
     #[test]
     fn 選ぶ行はフルリストの行と同じ() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        let plan = rows_to_cover(&set(&["さ", "く", "ら"]), &list);
+        let plan = rows_to_cover(
+            &builtin_rules(),
+            Method::Single,
+            &set(&["さ", "く", "ら"]),
+            &list,
+        );
 
         for row in &plan.rows {
             assert!(
@@ -144,7 +159,7 @@ mod tests {
     fn 必要な単位が全部埋まる() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
         let missing = set(&["さ", "く", "ら", "や", "よ", "い", "の", "そ", "は"]);
-        let plan = rows_to_cover(&missing, &list);
+        let plan = rows_to_cover(&builtin_rules(), Method::Single, &missing, &list);
 
         let covered: BTreeSet<String> = plan
             .rows
@@ -160,14 +175,14 @@ mod tests {
     #[test]
     fn 要らない行を採らない() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        let plan = rows_to_cover(&set(&["さ"]), &list);
+        let plan = rows_to_cover(&builtin_rules(), Method::Single, &set(&["さ"]), &list);
         assert_eq!(plan.rows.len(), 1, "1行で足りること");
     }
 
     #[test]
     fn 何も足りていなければ何も選ばない() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        let plan = rows_to_cover(&BTreeSet::new(), &list);
+        let plan = rows_to_cover(&builtin_rules(), Method::Single, &BTreeSet::new(), &list);
         assert!(plan.rows.is_empty());
         assert!((plan.seconds - 0.0).abs() < f64::EPSILON);
     }
@@ -177,7 +192,12 @@ mod tests {
     fn 届かない単位を分けて返す() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
         // 「ヴぁ」は拡張セットにしか無い。
-        let plan = rows_to_cover(&set(&["さ", "ヴぁ"]), &list);
+        let plan = rows_to_cover(
+            &builtin_rules(),
+            Method::Single,
+            &set(&["さ", "ヴぁ"]),
+            &list,
+        );
         assert_eq!(plan.unreachable, set(&["ヴぁ"]));
         assert_eq!(plan.covers, 1, "届く分だけ数える");
     }
@@ -187,46 +207,57 @@ mod tests {
     fn 決定的に選ぶ() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
         let missing = set(&["さ", "く", "ら", "な", "に", "ぬ"]);
-        let a = rows_to_cover(&missing, &list);
-        let b = rows_to_cover(&missing, &list);
+        let a = rows_to_cover(&builtin_rules(), Method::Single, &missing, &list);
+        let b = rows_to_cover(&builtin_rules(), Method::Single, &missing, &list);
         assert_eq!(a, b);
     }
 
-    /// 式を2本に分ける（`TR-RCL-09`）。
+    /// 式は方式で選ぶ（`TR-RCL-09`）。
+    ///
+    /// **行の長さで選んでいた。** 単独音の生成器は1行に5単位まで詰めるので、
+    /// ほとんどの行が「行読み上げ」の枝へ落ち、1行 12 秒で数えられていた
+    /// ——102 単位の音源が実際の 1/3 に見える。
     #[test]
-    fn 所要時間の式が要件どおり() {
+    fn 単独音は単位ごとに数える() {
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        // 1行5単位 → 6モーラ以下なので基準どおり。
         let five = list
             .iter()
             .find(|r| r.units.len() == 5)
             .cloned()
             .expect("5単位の行があること");
+        let want = 5.0 * SECONDS_PER_UNIT;
         assert!(
-            (estimate_seconds(std::slice::from_ref(&five)) - SECONDS_PER_ROW_BASE).abs() < 1e-9
+            (estimate_seconds(Method::Single, std::slice::from_ref(&five)) - want).abs() < 1e-9,
+            "単独音は「1単位あたり × 単位数」"
         );
 
-        // 1単位の行は単独音の周期。
-        if let Some(one) = list.iter().find(|r| r.units.len() == 1) {
-            assert!((estimate_seconds(std::slice::from_ref(one)) - SECONDS_PER_UNIT).abs() < 1e-9);
-        }
+        // リスト全体でも、単位数に比例する。
+        let units: usize = list.iter().map(|r| r.units.len()).sum();
+        let all = estimate_seconds(Method::Single, &list);
+        assert!((all - units as f64 * SECONDS_PER_UNIT).abs() < 1e-6);
     }
 
-    /// 6モーラを超えたら超過分を足す（`TR-RCL-09`）。
-    ///
-    /// 単独音の生成器は子音行で割るので8単位の行を作らない。
-    /// 式そのものを確かめたいので、行を組み立てて渡す。
+    /// 行読み上げは1行あたりで数え、6モーラを超えたら超過分を足す（`TR-RCL-09`）。
     #[test]
-    fn 長い行は超過分を足す() {
+    fn 行読み上げは行ごとに数える() {
         let all = crate::inventory::units(UnitSet::Core);
-        let long = Row {
+        let row = |n: usize| Row {
             id: "x".to_owned(),
-            text: "長い行".to_owned(),
-            units: all.iter().take(8).cloned().collect(),
+            text: "行".to_owned(),
+            units: all.iter().take(n).cloned().collect(),
             file_stem: "x".to_owned(),
         };
-        let want = SECONDS_PER_ROW_BASE + 2.0 * SECONDS_PER_EXTRA_MORA;
-        assert!((estimate_seconds(&[long]) - want).abs() < 1e-9);
+        for m in [Method::Sequential, Method::Cvvc] {
+            assert!(
+                (estimate_seconds(m, &[row(5)]) - SECONDS_PER_ROW_BASE).abs() < 1e-9,
+                "6モーラ以下は基準どおり"
+            );
+            let want = SECONDS_PER_ROW_BASE + 2.0 * SECONDS_PER_EXTRA_MORA;
+            assert!(
+                (estimate_seconds(m, &[row(8)]) - want).abs() < 1e-9,
+                "超過分を足す"
+            );
+        }
     }
 
     /// 被覆の計算が目標の中に収まる（TGT-RCL-004: 50ms 以内）。
@@ -239,7 +270,7 @@ mod tests {
             .collect();
 
         let t = std::time::Instant::now();
-        let plan = rows_to_cover(&missing, &list);
+        let plan = rows_to_cover(&builtin_rules(), Method::Single, &missing, &list);
         let elapsed = t.elapsed();
 
         assert_eq!(plan.covers, missing.len());

@@ -1,16 +1,18 @@
-//! どのアライナを使うかを選ぶ（`TR-ALN-03`, `DEC-ALN-008`）。
+//! アライナを用意する（`TR-ALN-03`, `DEC-ALN-008`）。
 //!
-//! 一次経路は MFA（`DEC-ALN-008`）。モデルが読めなければ、
-//! 音響モデルを使わない退避経路へ落とす（`DEC-ALN-006`）。
+//! MFA だけ（`DEC-ALN-016`）。 音響モデルを使わない退避経路は持たない。
 //!
-//! # なぜ落とすのか
+//! # モデルが無いのはエラー
 //!
-//! 黙って止めない。 モデルが同梱されていない開発中のビルドや、
-//! ファイルが壊れている環境でも、M2 の試唱は止まらないほうがよい
-//! （退避経路の上で動いている）。
+//! モデルは配布物に同梱している（`DEC-ALN-012`）。 開発でも submodule を
+//! 取ってくるのが前提（`setup-koeru`）。**だからモデルが読めないのは
+//! ビルドの失敗であって、動かしてよい状態ではない。**
 //!
-//! ただし黙って落とさない。 どちらを使っているかは
-//! [`Chosen::is_fallback`] で分かり、トレースにも1度だけ出す。
+//! 退避で埋めない。 実際に埋めて見えなくなっていた——macOS の配布物で
+//! 資源の場所を1箇所しか探しておらず、**全員が黙って退避経路で動いていた。**
+//!
+//! 起動で落とす。 [`Chosen::detect`] は失敗を返し、`Studio::open` がそれを
+//! 上げる。収録の途中で「原音設定だけ出ない」ことに気づく形にしない。
 //!
 //! # モデルの置き場所
 //!
@@ -27,7 +29,8 @@ use std::path::PathBuf;
 
 use koeru_align::aligner::Aligner;
 use koeru_align::mfa::MfaAligner;
-use koeru_align::segment::HeuristicAligner;
+
+use crate::error::AppError;
 
 /// 配布物の資源置き場（実行ファイルからの相対）。
 ///
@@ -40,32 +43,31 @@ use koeru_align::segment::HeuristicAligner;
 /// 退避経路で動くことになる。**
 const MODEL_DIRS_RELATIVE: [&str; 2] = ["models/japanese_mfa", "../Resources/models/japanese_mfa"];
 
-/// 選んだアライナ。
+/// 用意できたアライナ（`DEC-ALN-016`）。
+///
+/// **必ず在る。** 無い状態を型で表さない——無いのはビルドの失敗で、
+/// そこまで来たら起動が止まっている（[`Chosen::detect`]）。
 #[derive(Debug)]
 pub struct Chosen {
-    inner: Inner,
-}
-
-#[derive(Debug)]
-enum Inner {
-    /// 一次経路（`DEC-ALN-008`）。
-    Mfa(Box<MfaAligner>),
-    /// 退避経路（`DEC-ALN-006`）。
-    Fallback(HeuristicAligner),
+    inner: Box<MfaAligner>,
 }
 
 impl Chosen {
-    /// モデルが読めれば MFA、読めなければ退避経路。
+    /// MFA のモデルを読む。
     ///
-    /// 失敗しない。 落ちる代わりに退避へ下がる。
-    #[must_use]
-    pub fn detect() -> Self {
+    /// **読めなければ失敗を返す**（`DEC-ALN-016`）。 同梱されているはずのものが
+    /// 無いのはビルドの失敗で、そのまま動かすと退避も無いまま原音設定だけが
+    /// 出ないことになる。起動で止める。
+    ///
+    /// # Errors
+    ///
+    /// モデルが見つからない、または読めないとき。
+    pub fn detect() -> Result<Self, AppError> {
         let Some(dir) = model_dir() else {
-            tracing::info!(
-                reason = "model_not_found",
-                "自動原音設定は退避経路で動く（MFA のモデルが見つからない）"
-            );
-            return Self::fallback();
+            return Err(AppError::new(
+                "align.model_not_found",
+                "MFA のモデルが見つからない。submodule を取り込んでいるか確かめてほしい",
+            ));
         };
         // 識別子はモデルに名乗らせる（`TR-ALN-29`）。定数で持つと、
         // submodule を上げたときに指紋だけが古い版を指す。
@@ -73,45 +75,26 @@ impl Chosen {
         match MfaAligner::open(&dir, &identity) {
             Ok(a) => {
                 tracing::info!(dim = a.feature_dim(), "自動原音設定は MFA で動く");
-                Self {
-                    inner: Inner::Mfa(Box::new(a)),
-                }
+                Ok(Self { inner: Box::new(a) })
             }
-            Err(e) => {
-                // パスは載せない（AGENTS.md #3）。種別だけ。
-                tracing::warn!(
-                    reason = e.kind(),
-                    "自動原音設定は退避経路で動く（モデルを読めない）"
-                );
-                Self::fallback()
-            }
+            // パスは載せない（AGENTS.md #3）。種別だけ。
+            Err(e) => Err(AppError::new(
+                e.kind(),
+                "MFA のモデルを読めない。同梱物が壊れている",
+            )),
         }
     }
 
-    /// 退避経路で固定する。
-    #[must_use]
-    pub fn fallback() -> Self {
-        Self {
-            inner: Inner::Fallback(HeuristicAligner::new("heuristic@1")),
-        }
-    }
-
-    /// 退避経路で動いているか。
-    ///
-    /// 確信度の成分が欠けるので、呼び出し側はこれを見て扱いを変える
-    /// （`TR-ALN-24` の成分 (1) 経路確信度が出ない）。
-    #[must_use]
-    pub const fn is_fallback(&self) -> bool {
-        matches!(self.inner, Inner::Fallback(_))
-    }
-
-    /// 使っているアライナ。
+    /// 使うアライナ。
     #[must_use]
     pub fn as_aligner(&self) -> &dyn Aligner {
-        match &self.inner {
-            Inner::Mfa(a) => a.as_ref(),
-            Inner::Fallback(a) => a,
-        }
+        self.inner.as_ref()
+    }
+
+    /// 何で推定したかの札（`TR-ALN-29`）。
+    #[must_use]
+    pub fn identity(&self) -> &str {
+        self.inner.identity()
     }
 }
 
@@ -141,25 +124,35 @@ fn exe_model_dir() -> Option<PathBuf> {
 mod tests {
     use super::*;
 
-    /// モデルが無くても落ちない。 退避経路へ下がる。
-    #[test]
-    fn モデルが無ければ退避へ落ちる() {
-        // 環境変数を空にして探させる。
-        let c = Chosen::fallback();
-        assert!(c.is_fallback());
-        assert_eq!(c.as_aligner().identity(), "heuristic@1");
-    }
-
-    /// `detect` は失敗しない。 どちらかは必ず返る。
-    #[test]
-    fn 検出は必ず何かを返す() {
-        let c = Chosen::detect();
-        assert!(!c.as_aligner().identity().is_empty());
-    }
-
-    /// submodule を初期化していれば、環境変数なしで MFA が選ばれる（`DEC-ALN-012`）。
+    /// MFA を組んである OS では、モデルが読めて札を名乗る（`DEC-ALN-016`）。
     ///
-    /// 初期化していない環境では退避経路で通る。どちらでも落ちないことを見ている。
+    /// submodule は取ってあるのが前提（`setup-koeru`）。 通らない環境は、
+    /// まず submodule を取る——**退避で埋めない。**
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn モデルが読めれば札を名乗る() {
+        let c = Chosen::detect().expect("submodule を取り込んでいれば読める");
+        assert!(!c.identity().is_empty(), "何で推定したかの札を持つ");
+    }
+
+    /// MFA を組んでいない OS では、名指しで失敗する（`DEC-ALN-016`）。
+    ///
+    /// **黙って動かない。** 退避も持たないので、自動原音設定が無いまま
+    /// 収録だけ進む形を作らない。`Studio::open` がこれを上げて起動が止まる。
+    ///
+    /// `TR-PLT-01` は Windows を第一級の対象としているが、Kaldi の移植が
+    /// 終わるまでは動かない。**その衝突を隠さないための試験。**
+    #[cfg(any(not(target_os = "macos"), koeru_force_unsupported_backend))]
+    #[test]
+    fn 組んでいない_os_では名指しで失敗する() {
+        let e = Chosen::detect().expect_err("この OS には Kaldi を組んでいない");
+        assert_eq!(e.kind, "mfa.unsupported_platform");
+    }
+
+    /// submodule を初期化していれば、環境変数なしでモデルが見つかる（`DEC-ALN-012`）。
+    ///
+    /// 探す経路の試験で、アライナを組むかどうかとは別。 モデルが無い環境では
+    /// 何も見ずに戻る——そこは [`Chosen::detect`] が名指しで失敗する。
     #[test]
     fn リポジトリの中のモデルを見つけられる() {
         if koeru_align::mfa::repo_model_dir().is_none() {

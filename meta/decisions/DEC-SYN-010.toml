@@ -1,0 +1,161 @@
+schema = 'decision'
+id = 'DEC-SYN-010'
+constraint_label = 'phonemizer の差し替え'
+constraint = '差し替えた規則が、カバレッジ判定と試唱の両方へ同時に効くこと'
+title = 'phonemizer の差し替えを presamp.ini に置き、音素の時間位置は KOERU の規約に残す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'presamp.ini を読む',
+  '共有ライブラリの ABI',
+  'WASM ランタイムを同梱する',
+  '機構を持たず、抽象の形だけ保つ',
+]
+selected = 'presamp.ini を読む'
+rationale = '''
+前提をひとつ崩してから選んだ。 「利用者が手元に持っている phonemizer をそのまま使う」は、
+どの機構を選んでも成立しない。OpenUtau の phonemizer は C# のアセンブリで、
+共有ライブラリの ABI でも WASM でも読み込めない。UTAU のプラグインは exe か
+Python スクリプトで、後者は `TR-PLT-07` に当たる（`EVID-SYN-001`）。
+動くのは常に「KOERU のために新しく書かれたもの」だけになる。
+
+選定条件は `Q-SYN-004` が定めていた——既定の phonemizer 自体をその機構で書けるか。
+presamp.ini はこれを満たす。`alias.rs` が持つ規則は、母音クラスと子音の所属表、
+VCV / BEGINING_CV / CROSS_CV / VC / CV / LONG_V / ENDING のテンプレートに落ちる。
+
+決め手は、受け取った側へ規則が伝わる唯一の案であること。 `TR-RCL-24` が
+presamp.ini の書き出しを既に要求しており、`character.yaml` に `default_phonemizer` を
+宣言すれば、受け取った OpenUtau が同じ表を読む。共有ライブラリと WASM は KOERU の中でしか
+効かず、配布物には何も伝わらない——利用者が両側を自力で揃えた場合しか一致しない。
+
+WASM を採らなかった理由はもう2つある。 macOS で JIT を使うと
+`com.apple.security.cs.allow-jit` が要り、hardened runtime の W^X を外すことになる。
+他人のコードを安全に走らせるために選んだ機構が、OS 側の防御を1段外す取り引きになる。
+インタプリタなら避けられるが、常駐ぶんが `BUDGET-MEMORY-001` の編集中モードの余裕
+（1456MB に対して上限 1500MB）を削る。
+
+書けないものを2つ認める。 (1) 音素の時間位置。presamp.ini は綴りの表で、
+CVVC の VC をいつ差し込むかを持たない。ここは KOERU の規約プリセットが持つ
+（`TR-ALN-23` と同じ形で外部化する）。差し替えられるのは綴りまで。
+(2) 辞書引きを本体とする phonemizer。Arpasing は CMUdict 系の辞書で ARPAbet の音素列を作るので、
+仮名の所属表では表せない。ただしこれは phonemizer だけの話ではない——録音リストも
+カバレッジ判定も `TR-RCL-02` の仮名インベントリの上に建っている。別の軸になる。
+
+## 一致をどう確かめるか
+
+目標は音素レベルの一致に置く。 同じ音源と同じ UST なら、KOERU も OpenUtau も
+同じエイリアスを同じ位置で鳴らす、まで。波形の一致は目標にしない——
+合成コアと音の接続が別実装で、`TR-PLT-10` がコードの移植を禁じている以上、
+ビット単位では一致しない。`TR-SYN-35` の notes が既に同じことを書いている。
+
+3層に分けて確かめる。
+
+- 層A（KOERU の内部整合）— 解決と、書き出す presamp.ini が同じ定義から出ていること。
+  `TR-RCL-24` の「別定義を持たない」がそのまま試験になる。OpenUtau は要らない
+- 層B（相手の解釈）— OpenUtau が同じ表から同じ綴りを出すこと
+- 層C（時間位置）— 代表点のみ
+
+層A は入力空間の全体で確かめられる。 phonemizer が見るのは直前・直後の音符だけで
+（`TR-SYN-11` の抽象）、日本語のモーラ体系は有限。単独音 144、連続音 (7+1)×144 = 1,152、
+CVVC の VC 6×30 = 180。長音・促音・撥音・拗音の組み合わせを足しても数千で尽きる。
+**サンプリングではなく全数になる。**
+
+層C は全数にできない。 音符長とテンポが連続量なので代表点にしかならない。
+綴りと時間位置で保証の強さが違うことは、要件の側にも書く。
+
+層B は CI で毎回突き合わせる。 OpenUtau に公式の CLI が無いので（`EVID-SYN-001`）、
+配布物の中の .NET アセンブリを `pwsh` から直接読み込んで phonemizer を呼ぶ
+（`scripts/openutau-parity.ps1`）。
+
+**Windows は要らない。** 綴りを決めるのは managed なコードで、Linux 向け配布物に
+入っている `OpenUtau.Core.dll` / `OpenUtau.Plugin.Builtin.dll` が同じ振る舞いをする。
+
+**アセンブリは全部展開する。** 直に読むのは2つだが、そこから先の依存は
+こちらでは数え上げられない——`OpenUtau.Core.dll` だけを置くと `Preferences` の
+静的初期化が `Serilog` を読めずに落ちる（`EVID-SYN-002`）。数え上げる代わりに
+`AssemblyResolve` を置き、要求された名前を同じディレクトリから返す。
+
+**手元で回せる。** `nix shell nixpkgs#powershell` の pwsh に、同じ版の
+その OS 向け配布物のアセンブリを当てればよい。**Linux 向けの配布物は他の OS では
+読めない**（self-contained の R2R で `LoadFrom` が落ちる）ので、手元では
+その OS 向けのものを使う——CI が当てるのは固定したほうのまま。
+1手ごとに CI を1往復する形でしか直せないと、あちらの内部を当てずっぽうで辿ることになる。
+
+## チャンネルは OpenUtau の区分に合わせる
+
+OpenUtau は3つのチャンネルを持つ（`OpenUtau/ViewModels/UpdaterViewModel.cs` の
+`IsReleaseForChannel`）。
+
+| | 何を見るか |
+|---|---|
+| stable | prerelease でないもの。**`Preferences.Default.Channel` の既定** |
+| beta | prerelease のうち `-alpha` で終わらないもの |
+| alpha | prerelease すべて（beta を含む上位集合） |
+
+**stable と alpha の両方を突き合わせる。** stable は多くの人が動かしている版
+（いま `0.1.565`）で、alpha は綴りが変わるなら先に出る側。beta は alpha に
+含まれるので別に見ない。
+
+一度「OpenUtau は安定版を出さない」と書いた。 **嘘だった。** 直近の3件だけを見て
+決めつけていた。実際には 34 件中2件が安定版で、しかもそれが既定のチャンネル。
+**既定を外して突き合わせても、多くの人の手元と一致しているとは言えない。**
+
+## 版と指紋の両方を固定する
+
+`fslc` と同じ運用（`DEC-PLT-033`）。 片方だけだと、同じ札のまま中身を
+差し替えられる。版は Renovate が上げ、指紋は `nix-hash-fix` ワークフローが
+上流の digest から当てる。GitHub の API が資産の digest を返すので、
+100 MB 超を落とさずに取れる。
+
+一度「指紋は入力ではなく記録にする」と書いた。 **これも間違い。**「Renovate に
+任せるから指紋は固定できない」と思い込んでいたが、`fslc` は Renovate に任せた
+うえで指紋も固定している。仕組みは既にあった。
+
+配布物の名前はチャンネルで違う。 stable は zip、alpha は tar.gz。
+共通の名前が無いので、資産名も固定する。
+
+## 層B は方式ごとに音源を分ける
+
+**phonemizer に方式を渡す口が無い。** presamp phonemizer は1つで単独音・
+連続音・CVVC を賄い、どの綴りを出すかは音源の中身が決める——「その綴りの
+oto があるか」で候補を落としていく。音符1つに返る綴りも1つ。
+
+**1つの音源に3方式ぶんの綴りを入れて、3方式ぶんの答えを待っていた。**
+同じ音符を3度食わせて3つの違う答えを期待する形で、原理的に埋まらない。
+方式ごとに音源を分け、その方式が出しうる候補だけを置く。**候補は全部置く**
+——先頭の候補しか無い音源を渡すと、あちらは選ぶ余地を持たず、
+一致しても候補落としの順を確かめたことにならない。
+
+これが最初に見つけたのは、こちらの `presamp.ini` の欄の形だった。
+`[VOWEL]` を3列で書いていて（`[CONSONANT]` と同じ形と見なしていた）、
+**OpenUtau は所属表を1件も読めていなかった**（`EVID-SYN-002`）。
+読み書きの往復は層A が見ていたので、KOERU の中だけでは現れない。
+**層B が無ければ、配った音源で初めて分かる種類の食い違い。**
+
+## どの KOERU がどの OpenUtau と突き合わされたか
+
+`crates/koeru-core/fixtures/phonemizer-parity/openutau.toml` がその記録。
+**配布物の readme にも出す**（`koeru_package::readme`）——受け取った側は
+リポジトリを見ない。保証とは言わない。確かめた版を並べるだけ。
+'''
+review_triggers = [
+  'OpenUtau が presamp 系 phonemizer の解釈を変えたとき',
+  'presamp.ini の欄の形が上流で変わったとき。EVID-SYN-002 を当て直す',
+  '表で書けない規則を接続したいという要求が出たとき。そのときは WASM を上位経路として足す',
+  'UTAU 本体が presamp.ini を読むようになったとき',
+  'pwsh のリフレクションで OpenUtau.Core を叩けないと分かったとき。層B の手当てが手動固定へ落ちる',
+  'OpenUtau が beta チャンネルで stable と違う綴りを出すようになったとき。alpha に含まれるので気づけるが、そのときは beta も別に固定する',
+  'OpenUtau が managed でない経路で綴りを決めるようになったとき。Linux の配布物では突合できなくなる',
+]
+affects_requirements = [
+  'TR-SYN-36',
+  'TR-SYN-11',
+  'TR-SYN-12',
+  'TR-RCL-20',
+  'TR-RCL-24',
+  'TR-PKG-03',
+  'TR-PLT-07',
+]
+affects_decisions = [
+  'DEC-PLT-011',
+]

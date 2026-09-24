@@ -18,6 +18,7 @@ import { commands } from "~/lib/bindings.gen";
 export { Channel };
 export type {
   AppError,
+  BankSongView,
   CalibrationView,
   ChosenDeviceView,
   DeviceView,
@@ -25,10 +26,12 @@ export type {
   ExportedView,
   FindingView,
   GainControlView,
+  ImportedSongView,
   LatencyView,
   LeakView,
   MethodPresetView,
   MicModeView,
+  NoteView,
   OtoView,
   OutputKindView,
   PackageFileView,
@@ -43,6 +46,8 @@ export type {
   ReleaseView,
   RingView,
   RowTakesView,
+  SongDraftView,
+  SongSelection,
   SongPlanView,
   SongView,
   SpaceView,
@@ -50,12 +55,20 @@ export type {
   SungSongView,
   TakeSummaryView,
   TakeView,
+  ToneOptionView,
+  ToneSuggestionView,
   UnencodableView,
   VoiceStateView,
   VoiceView,
 } from "~/lib/bindings.gen";
 
-import type { AppError, EnvelopeView, MicModeView, PackageSettingsView } from "~/lib/bindings.gen";
+import type {
+  AppError,
+  EnvelopeView,
+  MicModeView,
+  PackageSettingsView,
+  SongSelection,
+} from "~/lib/bindings.gen";
 
 /** Rust 側の失敗かどうか。 */
 export const isAppError = (e: unknown): e is AppError =>
@@ -104,8 +117,33 @@ export const api = {
   listDevices: () => unwrap(commands.listDevices()),
   listProjects: () => unwrap(commands.listProjects()),
   /** 選べる作り方（`TR-RCL-11`）。いまは単独音だけ。 */
-  methodPresets: () => unwrap(commands.methodPresets()),
-  createProject: (displayName: string) => unwrap(commands.createProject(displayName)),
+  /** 選べる作り方（`TR-RCL-11`）。`tones` は収録音高の本数。 */
+  methodPresets: (tones: number) => unwrap(commands.methodPresets(tones)),
+  /** 選べる収録音高（`TR-RCL-06`）。C1〜B7。 */
+  toneOptions: () => commands.toneOptions(),
+  /** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
+  toneSuggestions: () => commands.toneSuggestions(),
+  /**
+   * 方式プリセットを選んで作る（`TR-RCL-01`）。
+   *
+   * `presamp` は本人が選んだ `presamp.ini` の中身。 選ばなければ同梱の既定。
+   * 作るときに固定し、あとから変える道は無い（`DEC-SYN-013`）。
+   */
+  createProject: ({
+    displayName,
+    presetId,
+    tones,
+    presamp,
+  }: {
+    displayName: string;
+    presetId: string;
+    tones: number[];
+    presamp: number[] | null;
+  }) => unwrap(commands.createProject(displayName, presetId, tones, presamp)),
+  /** 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。 */
+  presampNotice: () => unwrap(commands.presampNotice()),
+  /** 戻したことを知らせる札を下ろす。 */
+  dismissPresampNotice: () => unwrap(commands.dismissPresampNotice()),
   /** 表示名を変える（`DEC-PKG-007`）。空にはできない。 */
   renameProject: (id: string, displayName: string) =>
     unwrap(commands.renameProject(id, displayName)),
@@ -122,6 +160,10 @@ export const api = {
   /** 行を指定して録り直す（`TR-REC-21`）。既存のテイクは消えない。 */
   startRetake: (rowId: string) => unwrap(commands.startRetake(rowId)),
   rowsWithTakes: () => unwrap(commands.rowsWithTakes()),
+  /** いまの録る順と、その並び（`TR-SYN-19`）。 */
+  recordingOrder: () => unwrap(commands.recordingOrder()),
+  /** 録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
+  setRecordingOrder: (mode: string) => unwrap(commands.setRecordingOrder(mode)),
   /** 採用テイクを切り替える（`TR-RCL-25`）。カバレッジは変わらない。 */
   adoptTake: (rowId: string, takeId: number) => unwrap(commands.adoptTake(rowId, takeId)),
   finishTake: () => unwrap(commands.finishTake()),
@@ -159,11 +201,11 @@ export const api = {
   /** 採用テイクのエントリ全部を、確認待ちが先の順に（`TR-ALN-26`）。 */
   reviewQueue: () => unwrap(commands.reviewQueue()),
   /** 1件ずつ確認して確定させる（`REQ-ALN-008`）。 */
-  confirmEntry: (alias: string) => unwrap(commands.confirmEntry(alias)),
+  confirmEntry: (key: string) => unwrap(commands.confirmEntry(key)),
   /** まとめて確認する（`REQ-ALN-010`）。個別確認をやめたあとだけ通る。 */
   confirmAllEntries: () => unwrap(commands.confirmAllEntries()),
   /** 録り直しに回す（`REQ-ALN-009`）。エントリを未推定へ戻すだけ。 */
-  rerecordEntry: (alias: string) => unwrap(commands.rerecordEntry(alias)),
+  rerecordEntry: (key: string) => unwrap(commands.rerecordEntry(key)),
   /** 書き出し前の検証（`TR-ALN-20`）。直せるものを直す。 */
   validateOtos: () => unwrap(commands.validateOtos()),
   /**
@@ -191,12 +233,40 @@ export const api = {
   packageContents: () => unwrap(commands.packageContents()),
   /** 書き出す（`REQ-PKG-105`）。ZIP と UAR の2つが出る（`DEC-PKG-010`）。 */
   exportPackage: () => unwrap(commands.exportPackage()),
+  /**
+   * 下位方式へ書き出す（`TR-PKG-24`, `TR-PKG-25`）。
+   *
+   * 独立した音源ルート・独立した ZIP。 同じ ZIP には入らない。
+   */
+  exportDowngrade: (method: string) => unwrap(commands.exportDowngrade(method)),
   /** 書き出しの履歴（`TR-PKG-44`）。新しい順。 */
   releases: () => unwrap(commands.releases()),
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
   revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
-  importUst: (bytes: number[], title: string) => unwrap(commands.importUst(bytes, title)),
+  /** 取り込む前に中身を見る（`TR-RCL-12`）。台帳へ入れない。 */
+  songFilePreview: (bytes: number[], fileName: string) =>
+    unwrap(commands.songFilePreview(bytes, fileName)),
+  /**
+   * UST / USTX を取り込む（`TR-RCL-12`）。USTX は1トラックが1曲になる。
+   *
+   * `titles` は `songFilePreview` が返した並びと同じ長さで、同じ順。
+   */
+  importSongs: (bytes: number[], fileName: string, titles: string[]) =>
+    unwrap(commands.importSongs(bytes, fileName, titles)),
+  /** 曲の題を変える（`TR-RCL-12`）。 */
+  renameSong: (id: string, title: string) => unwrap(commands.renameSong(id, title)),
+  /** 曲のノート列（`TR-RCL-12`）。範囲を選ぶのに要る。 */
+  songNotes: (id: string) => unwrap(commands.songNotes(id)),
+  /** 選んだノート群から録音リストを詰め直す（`TR-RCL-16`）。 */
+  repackForSelection: (selections: SongSelection[]) =>
+    unwrap(commands.repackForSelection(selections)),
+  /** 取り込んだ曲すべて（`TR-RCL-12`）。外した曲も並ぶ。 */
+  allSongs: () => unwrap(commands.allSongs()),
+  /** 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。 */
+  /** 曲のキーを決める（`TR-SYN-15`）。自動では動かない。 */
+  setSongTranspose: (id: string, semitones: number) =>
+    unwrap(commands.setSongTranspose(id, semitones)),
   setSongInBank: (id: string, inBank: boolean) => unwrap(commands.setSongInBank(id, inBank)),
 
   /*
@@ -212,12 +282,12 @@ export const api = {
   switchReviewMode: (mode: "batch" | "suggest_rerecord") => unwrap(commands.switchReviewMode(mode)),
 
   /** 5値のどれかを人が直す。その値だけを固定する（`TR-ALN-30`）。 */
-  editOtoValue: ({ alias, slot, value }: { alias: string; slot: OtoSlot; value: number }) =>
-    unwrap(commands.editOtoValue(alias, slot, value)),
+  editOtoValue: ({ key, slot, value }: { key: string; slot: OtoSlot; value: number }) =>
+    unwrap(commands.editOtoValue(key, slot, value)),
 
   /** 固定を解いて自動へ戻す（`REQ-ALN-006`）。 */
-  revertOtoValue: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
-    unwrap(commands.revertOtoValue(alias, slot)),
+  revertOtoValue: ({ key, slot }: { key: string; slot: OtoSlot }) =>
+    unwrap(commands.revertOtoValue(key, slot)),
 
   waveformWindow: ({
     takeId,

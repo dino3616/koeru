@@ -23,6 +23,7 @@ affects_requirements = [
   'TR-RCL-21',
   'TR-PKG-24',
 ]
-affects_questions = [
-  'Q-RCL-002',
+# Q-RCL-002（上位方式から下位方式への移行経路）は DEC-RCL-007 で閉じた。
+affects_decisions = [
+  'DEC-RCL-007',
 ]

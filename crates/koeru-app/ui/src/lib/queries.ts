@@ -64,6 +64,15 @@ export const progressQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "progress"], queryFn: () => api.progress() });
 
 /**
+ * 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+ *
+ * 台帳の鍵の下に置かない。 テイクを録っても変わらず、変わるのは本人が閉じたときだけ。
+ * 開いたあとでなければ読めない（[`openProjectQuery`] の内側に置く）。
+ */
+export const presampNoticeQuery = (id: string) =>
+  queryOptions({ queryKey: ["presamp-notice", id], queryFn: () => api.presampNotice() });
+
+/**
  * 開いている音源の環と色（`DEC-PLT-025`、`DEC-PLT-027`）。
  *
  * 台帳の鍵の下に置く。 テイクが確定すると環が伸び、色も動く——
@@ -74,6 +83,15 @@ export const voiceStateQuery = (id: string) =>
 
 export const songStatusQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "songs"], queryFn: () => api.songStatus() });
+
+/**
+ * 取り込んだ曲すべて（`TR-RCL-12`）。曲バンクを組み替える画面が読む。
+ *
+ * `songStatusQuery` とは別の鍵にする。 あちらはバンクの中だけで、
+ * 外した曲が出てこない——同じ鍵に載せると、外した瞬間に戻す的も消える。
+ */
+export const allSongsQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "all-songs"], queryFn: () => api.allSongs() });
 
 /**
  * その曲を歌うために、あと録る行（`TR-RCL-17`）。
@@ -88,6 +106,17 @@ export const songPlanQuery = (id: string, songId: string) =>
 
 export const rowsWithTakesQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "rows"], queryFn: () => api.rowsWithTakes() });
+
+/** 曲のノート列（`TR-RCL-12`）。範囲を選ぶ画面が読む。 */
+export const songNotesQuery = (id: string, songId: string) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "song-notes", songId],
+    queryFn: () => api.songNotes(songId),
+  });
+
+/** いまの録る順（`TR-SYN-19`）。台帳が変われば並びも変わる。 */
+export const recordingOrderQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "order"], queryFn: () => api.recordingOrder() });
 
 /**
  * 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
@@ -199,10 +228,27 @@ export const modelNoticeQuery = () =>
  *
  * 台帳ではない。 録音リストの定義から作るので、起動中は変わらない。
  */
-export const methodPresetsQuery = () =>
+export const methodPresetsQuery = (tones: number) =>
   queryOptions({
-    queryKey: ["methods"],
-    queryFn: () => api.methodPresets(),
+    // 本数を鍵に混ぜる。 所要時間が本数に比例するので、別の本数は別の答え。
+    queryKey: ["methods", tones],
+    queryFn: () => api.methodPresets(tones),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/** 選べる収録音高（`TR-RCL-06`）。C1〜B7 の 84 半音。起動中は変わらない。 */
+export const toneOptionsQuery = () =>
+  queryOptions({
+    queryKey: ["tone-options"],
+    queryFn: () => api.toneOptions(),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
+/** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
+export const toneSuggestionsQuery = () =>
+  queryOptions({
+    queryKey: ["tone-suggestions"],
+    queryFn: () => api.toneSuggestions(),
     staleTime: Number.POSITIVE_INFINITY,
   });
 

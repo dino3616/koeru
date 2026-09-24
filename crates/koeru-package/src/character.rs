@@ -3,7 +3,7 @@
 //! 3つとも同じ割り当てを別の形で書く。 ここ1箇所が持つのは、
 //! `prefix.map` と `subbanks` が食い違わないようにするため（`TR-PKG-04`）。
 
-use crate::bank::{Character, Subbank, VoiceBank};
+use crate::bank::{Character, VoiceBank};
 use crate::profile::{NEWLINE, Profile};
 use crate::tone;
 
@@ -49,11 +49,23 @@ pub fn character_txt(c: &Character, has_icon: bool) -> String {
     out
 }
 
+/// 受け取った側が使う phonemizer（`TR-PKG-03`, `DEC-SYN-010`）。
+///
+/// 同梱する `presamp.ini`（`TR-RCL-24`）を読む phonemizer を指す。 これを書かないと、
+/// 受け取った側がどの規則で鳴らすかを自分で選べてしまい、KOERU の中での解決と
+/// 一致しない。音素レベルの一致は、ここが構造的な保証になる。
+///
+/// **[Unknown] 完全修飾の綴りを一次資料で確かめていない。** クラス名が
+/// `JapanesePresampPhonemizer` であることは確かめたが、`character.yaml` が
+/// 名前空間付きを求めるかは未確認（`EVID-SYN-001`）。外れていても OpenUtau 側が
+/// 既定へ倒すだけで、書かなかった場合と同じ状態に戻る。`DEC-SYN-010` の層B で確かめる。
+pub const DEFAULT_PHONEMIZER: &str = "OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer";
+
 /// `character.yaml` を組み立てる（`TR-PKG-03`, `TR-PKG-29`）。
 ///
 /// # 書かないキーがある
 ///
-/// `default_phonemizer` / `symbol_set` / `use_filename_as_alias` は出さない。
+/// `symbol_set` / `use_filename_as_alias` は出さない。
 /// OpenUtau が受け付ける値の一次情報を持っていないので、推測で書かない——
 /// 知らない値を書くと、読み手が既定へ倒すのか失敗するのかも分からない。
 /// 書かなければ OpenUtau 自身の既定が効く。
@@ -92,18 +104,28 @@ pub fn character_yaml(bank: &VoiceBank, profile: Profile, has_icon: bool) -> Str
         }
     }
 
+    // 同梱した presamp.ini を読ませる（`DEC-SYN-010`）。
+    y.field("default_phonemizer", DEFAULT_PHONEMIZER);
+
     // 単一音階では subbanks を書かない（`TR-PKG-29`）。
     // 書いても意味のある音域を宣言できず、推奨音域は readme.txt が持つ。
     if bank.is_multi_pitch() {
+        // 担う範囲は `prefix.map` と同じ floor 割り当てから作る（`TR-PKG-04`）。
+        // 区画が自分で範囲を持つと、2箇所が別々の割り当てを宣言する。
+        let assigned = tone::assigned_ranges(&recorded_tones(bank));
         y.line("subbanks:");
         for s in &bank.subbanks {
             y.indented(1, &format!("- color: {}", quote(&s.color)));
             y.indented(2, &format!("prefix: {}", quote(&s.prefix)));
             y.indented(2, &format!("suffix: {}", quote(&s.suffix)));
-            let ranges = tone::ranges(&s.tones);
-            if !ranges.is_empty() {
+            let owned = s
+                .tone
+                .and_then(|t| assigned.iter().find(|(r, _)| *r == t))
+                .map(|(_, v)| tone::ranges(v))
+                .unwrap_or_default();
+            if !owned.is_empty() {
                 y.indented(2, "tone_ranges:");
-                for r in ranges {
+                for r in owned {
                     y.indented(3, &format!("- {}", quote(&r)));
                 }
             }
@@ -112,34 +134,40 @@ pub fn character_yaml(bank: &VoiceBank, profile: Profile, has_icon: bool) -> Str
     y.finish()
 }
 
-/// `prefix.map` を組み立てる（`TR-PKG-04`）。
+/// `prefix.map` を組み立てる（`TR-PKG-04`, `TR-RCL-06`）。
 ///
-/// 1行1音階で「音階名 TAB prefix TAB suffix」。単一音階では `None`。
+/// C1 から B7 の 84 半音すべてに1行を持つ。 1行は「音階名 TAB prefix TAB suffix」で、
+/// 接尾辞はその半音を担う収録音高の音名。単一音階では `None`。
 ///
-/// 音階の並びは MIDI 番号順。 区画の並び順に出すと、区画を足したときに
-/// 全体の並びが動いて差分が読めなくなる。
+/// 割り当ては収録音高から導く（`koeru_core::tone::prefix_map_body`）。 区画が
+/// 宣言している範囲を書き写さない——`character.yaml` の `tone_ranges` と
+/// 同じ割り当てを2箇所で作ることになる。
 #[must_use]
 pub fn prefix_map(bank: &VoiceBank) -> Option<String> {
     if !bank.is_multi_pitch() {
         return None;
     }
-    let mut rows: Vec<(i32, &Subbank)> = bank
-        .subbanks
-        .iter()
-        .flat_map(|s| s.tones.iter().map(move |t| (*t, s)))
-        .collect();
-    rows.sort_by_key(|(t, _)| *t);
-
-    let mut out = String::new();
-    for (midi, s) in rows {
-        out.push_str(&format!(
-            "{}\t{}\t{}{NEWLINE}",
-            tone::name(midi),
-            s.prefix,
-            s.suffix
-        ));
+    let tones = recorded_tones(bank);
+    if tones.is_empty() {
+        return None;
     }
-    Some(out)
+    // 綴りは区画が持つ。 収録音高から引き直す——区画の並び順に出すと、
+    // 区画を足したときに全体の並びが動いて差分が読めなくなる。
+    let affix = |recorded: i32| {
+        bank.subbanks
+            .iter()
+            .find(|s| s.tone == Some(recorded))
+            .map_or_else(
+                || tone::default_affix(recorded),
+                |s| (s.prefix.clone(), s.suffix.clone()),
+            )
+    };
+    Some(tone::prefix_map_body(&tones, affix, NEWLINE))
+}
+
+/// 区画が名乗っている収録音高（`TR-REC-25`）。
+fn recorded_tones(bank: &VoiceBank) -> Vec<i32> {
+    bank.subbanks.iter().filter_map(|s| s.tone).collect()
 }
 
 /// YAML を素直に組み立てる小さな道具。
@@ -227,7 +255,7 @@ fn format_opacity(v: f64) -> String {
 mod tests {
     use super::*;
     use crate::bank::{Portrait, Readme, Sample, Subbank};
-    use koeru_core::project::Method;
+    use koeru_core::alias::Method;
     use std::path::PathBuf;
 
     fn character() -> Character {
@@ -245,7 +273,7 @@ mod tests {
             color: folder.unwrap_or_default().to_owned(),
             prefix: prefix.to_owned(),
             suffix: String::new(),
-            tones: tones.to_vec(),
+            tone: tones.first().copied(),
             samples: vec![Sample {
                 file: "s001.wav".to_owned(),
                 master: PathBuf::from("s001.wav"),
@@ -261,7 +289,9 @@ mod tests {
             character: character(),
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
+            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
     }
 
@@ -354,24 +384,35 @@ mod tests {
         assert_eq!(prefix_map(&b), None);
     }
 
-    /// `prefix.map` と `subbanks` は同じ割り当てを表す（`TR-PKG-04`）。
+    /// `prefix.map` と `subbanks` は同じ割り当てを表す（`TR-PKG-04`, `TR-RCL-06`）。
+    ///
+    /// どちらも収録音高から floor 割り当てで導く。 片方だけを直せないようにしてある。
     #[test]
-    fn 多音階では両方を同じ内容で出す() {
+    fn 多音階では両方を同じ割り当てを出す() {
         let b = bank(vec![
-            subbank(Some("G4"), "↑", &[67, 68]),
-            subbank(Some("C4"), "", &[60, 61]),
+            subbank(Some("G4"), "↑", &[67]),
+            subbank(Some("C4"), "", &[60]),
         ]);
         let y = character_yaml(&b, Profile::Both, false);
         assert!(y.contains("tone_ranges:"));
-        assert!(y.contains("\"C4-C#4\""));
-        assert!(y.contains("\"G4-G#4\""));
+        // C4 は C1 から F#4 まで、G4 は G4 から B7 まで担う。
+        assert!(y.contains("\"C1-F#4\""), "{y}");
+        assert!(y.contains("\"G4-B7\""), "{y}");
 
         let map = prefix_map(&b).expect("多音階なら出る");
-        assert_eq!(
-            map.lines().collect::<Vec<_>>(),
-            ["C4\t\t", "C#4\t\t", "G4\t↑\t", "G#4\t↑\t"],
-            "MIDI 番号順で、区画の並びに依存しない"
-        );
+        let lines: Vec<&str> = map.lines().collect();
+        assert_eq!(lines.len(), 84, "C1 から B7 まで抜けが無い");
+        assert_eq!(lines[0], "C1\t\t", "最低音高が下の全音域も担う");
+        assert_eq!(lines[43], "G4\t↑\t", "区画の prefix を落とさない");
+        assert_eq!(lines[83], "B7\t↑\t");
+    }
+
+    /// 区画の `prefix` を落とさない。 落とすとその音域のエイリアスが引けない。
+    #[test]
+    fn 区画の接頭辞が_prefix_map_に出る() {
+        let b = bank(vec![subbank(Some("G4"), "↑", &[67])]);
+        let map = prefix_map(&b).expect("多音階なら出る");
+        assert!(map.lines().all(|l| l.contains('↑')), "{map}");
     }
 
     #[test]

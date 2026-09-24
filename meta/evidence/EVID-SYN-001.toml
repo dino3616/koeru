@@ -1,0 +1,59 @@
+schema = 'evidence'
+id = 'EVID-SYN-001'
+title = 'UTAU / OpenUtau における phonemizer の指定方法と、外部から叩ける経路の調査'
+kind = 'component_survey'
+source = 'OpenUtau のリポジトリと Wiki、GitHub Issue #1615、第三者のヘッドレス実装2件（OpenUtau-Headless / agent2utau）、presamp.ini を読む既存実装の振る舞い'
+provenance = '''
+公開されている振る舞いの参照のみ（`DEC-PLT-011`）。コードは読み込んでいない。
+ヘッドレス経路の有無は、上流の Issue と第三者実装の説明文から確かめた。
+presamp.ini の欄の形は `DEC-RCL-004` が既に実物で確かめている
+（`r=r,ら,る,れ,ろ=1` の末尾フラグを読み違えた件）。
+'''
+confidence = 'Fact'
+supports_decisions = ['DEC-SYN-010']
+
+# ── どこで phonemizer を指定するか ──────────────────────
+selection = '''
+UTAU 本体は phonemizer を持たない。 ノートの歌詞欄に鳴らしたいエイリアスをそのまま書く。
+仮名から連続音・CVVC のエイリアスを組むのはプラグインの仕事で、本体は選択範囲を一時 UST へ
+書き出してプラグインへ渡し、書き換わった UST を読み戻す。プラグインは
+`plugins/<名前>/plugin.txt` に `name=` と `execute=` を書いて登録する exe かスクリプト。
+
+OpenUtau は phonemizer を一級の概念として持ち、トラック単位で選ぶ。 音源側が
+`character.yaml` の `default_phonemizer` に既定を宣言でき、読み込んだときに自動で選ばれる。
+実体は C# のクラスで、組み込みは `OpenUtau.Plugin.Builtin`。利用者は DLL を足せる。
+
+両方に共通するのは2つ。 指定は音源側かトラック単位で、アプリのグローバル設定ではない。
+利用者が任意のものを足す経路は、どちらも実行可能コード（exe / C# DLL）。
+'''
+
+# ── データだけで書ける経路 ────────────────────────────
+presamp = '''
+`presamp.ini` は両エコシステムで通用する唯一の宣言データ。 音源フォルダに置かれ、
+UTAU 側は presamp プラグインが、OpenUtau 側は presamp 対応の phonemizer が読む。
+`[VOWEL]` と `[CONSONANT]` が仮名の所属を、エイリアス規則の各節が
+VCV / BEGINING_CV / CROSS_CV / VC / CV / LONG_V / ENDING のテンプレートを持つ。
+
+**UTAU 本体は読まない。** 効くのは OpenUtau と presamp 系のプラグインだけ
+（`TR-RCL-24` の notes が既に同じことを書いている）。
+
+書けないものが2つある。 (1) 音素の時間位置。CVVC の VC を次の音符の何ミリ秒前から
+鳴らし始めるかは、綴りの表には無い。(2) 辞書引きを本体とする phonemizer。
+Arpasing は CMUdict 系の発音辞書で ARPAbet の音素列を作るので、仮名の所属表では表せない。
+'''
+
+# ── 外部から叩ける経路 ───────────────────────────────
+headless = '''
+OpenUtau に公式の CLI は無い。 `ustx` から `wav` をコマンドラインで出したいという要望は
+上がっているが（Issue #1615）、`PlaybackManager.RenderToFiles()` が
+`SynchronizationContext` など UI 側に依存していて素直に呼べない、という報告で止まっている。
+
+存在するのは第三者のラッパ2件。 `OpenUtau-Headless` と、`agent2utau` の `a2u-bridge`。
+後者は「OpenUtau のインストール先に置く小さな exe で、`OpenUtau.Core` を再利用して
+phonemize と render をする」もの。**どちらも「`OpenUtau.Core` を参照するホストを別に書く」形で、
+バイナリを入れれば叩ける、という形にはなっていない。**
+
+[Unknown] `pwsh` のリフレクション（`[Reflection.Assembly]::LoadFrom()`）で
+リリース物の `OpenUtau.Core.dll` を読み、phonemizer だけを呼べるかは未確認。
+self-contained 配布ならホストのランタイム版と合わない可能性がある。
+'''

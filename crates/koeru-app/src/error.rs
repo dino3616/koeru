@@ -63,6 +63,7 @@ from_domain!(
     koeru_core::text::TextError,
     koeru_core::frq::FrqError,
     koeru_core::reclist::ReclistError,
+    koeru_core::preset::PresetError,
     koeru_synth::resampler::RenderError,
 );
 

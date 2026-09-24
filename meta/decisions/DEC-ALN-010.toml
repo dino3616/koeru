@@ -3,7 +3,8 @@ id = 'DEC-ALN-010'
 constraint_label = '退避経路の段数'
 constraint = '一次経路が使えなくなったときに、oto を出せる経路が1つは残っていること'
 title = 'Julius の実装は M5 へ送る。M3 の退避は segment.rs 1段にする'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-ALN-015'
 owner = 'dino3616'
 options = [
   'M5（方式を広げる）へ送る',
@@ -43,7 +44,6 @@ review_triggers = [
 ]
 affects_requirements = [
   'TR-ALN-03',
-  'TR-ALN-04',
   'TR-ALN-11',
 ]
 affects_decisions = [

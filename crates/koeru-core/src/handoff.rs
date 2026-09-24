@@ -234,6 +234,8 @@ mod tests {
             method: Method::Single,
             item_count: 2,
             derived_from: None,
+            preset_id: None,
+            inventory_version: None,
         }
     }
 

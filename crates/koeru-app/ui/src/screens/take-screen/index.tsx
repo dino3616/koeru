@@ -144,30 +144,21 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
     enabled: shown !== null,
   });
 
-  /**
-   * その音のうち、人が決めた値（`TR-ALN-30`）。
-   *
-   * 確認が済んだものも引ける。 `reviewQueue` は採用テイクのエントリを全部返す
-   * ——確認待ちだけにすると、確定した瞬間に固定の印と「自動に戻す」が消える。
-   */
-  const pinnedOf = (alias: string | null): readonly OtoSlot[] =>
-    (entries.find((i) => i.oto.alias === alias)?.pinned ?? []) as OtoSlot[];
-
   /** いま見ている回が採用中か。確認と編集は採用中の回にしか効かない。 */
   const isAdopted = shown !== null && shown.take_id === row?.adopted;
 
   const afterReview = () => queryClient.invalidateQueries({ queryKey: ledgerKey });
 
   const confirm = useMutation({
-    mutationFn: (alias: string) => api.confirmEntry(alias),
+    mutationFn: (key: string) => api.confirmEntry(key),
     onMutate: () => setError(null),
     onSuccess: afterReview,
     onError: fail,
   });
 
   const revert = useMutation({
-    mutationFn: ({ alias, slot }: { alias: string; slot: OtoSlot }) =>
-      api.revertOtoValue({ alias, slot }),
+    mutationFn: ({ key, slot }: { key: string; slot: OtoSlot }) =>
+      api.revertOtoValue({ key, slot }),
     onMutate: () => setError(null),
     onSuccess: afterReview,
     onError: fail,
@@ -181,7 +172,7 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
     録っていないのに済んだことになる。採用の切り替えと同じ経路へ送る。
   */
   const rerecordAndGo = useMutation({
-    mutationFn: (alias: string) => api.rerecordEntry(alias),
+    mutationFn: (key: string) => api.rerecordEntry(key),
     onMutate: () => setError(null),
     onSuccess: async () => {
       await afterReview();
@@ -217,6 +208,20 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
 
   /** いま見ている音。選ぶ前は、この回から取れた先頭。 */
   const activeAlias = selected ?? otos[0]?.alias ?? null;
+
+  /**
+   * いま見ている音の確認エントリ（`TR-ALN-26`, `TR-ALN-30`）。
+   *
+   * 確認が済んだものも引ける。 `reviewQueue` は採用テイクのエントリを全部返す
+   * ——確認待ちだけにすると、確定した瞬間に固定の印と「自動に戻す」が消える。
+   *
+   * **綴りだけで引かない。** 多音階は同じ綴りを音高の数だけ持つ（`TR-ALN-22`）
+   * ので、行でも絞らないと別の音階のエントリが当たる。確認も録り直しも、
+   * そこから取った `key` に効かせる。
+   */
+  const activeEntry =
+    entries.find((i) => i.row_id === rowId && i.oto.alias === activeAlias) ?? null;
+  const activeKey = activeEntry?.key ?? null;
 
   const index = rows.findIndex((r) => r.row_id === rowId);
   const prev = index > 0 ? rows[index - 1] : undefined;
@@ -355,10 +360,8 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                   いて採用中の回のものなので、古い回の値に「手で決めました」と
                   出すことになる。
                 */
-                pinned={isAdopted ? pinnedOf(activeAlias) : []}
-                onRevert={(slot) =>
-                  activeAlias !== null && revert.mutate({ alias: activeAlias, slot })
-                }
+                pinned={isAdopted ? ((activeEntry?.pinned ?? []) as OtoSlot[]) : []}
+                onRevert={(slot) => activeKey !== null && revert.mutate({ key: activeKey, slot })}
                 busy={reviewBusy || !isAdopted}
               />
 
@@ -369,11 +372,11 @@ const TakeBody = ({ id, rowId, from }: { id: string; rowId: string; from: VoiceT
                 確認はここ、テイクを開いたところにある。
               */}
               <ReviewEntry
-                item={entries.find((i) => i.oto.alias === activeAlias) ?? null}
+                item={activeEntry}
                 adopted={isAdopted}
                 individual={review.mode === "individual"}
-                onConfirm={() => activeAlias !== null && confirm.mutate(activeAlias)}
-                onRerecord={() => activeAlias !== null && rerecordAndGo.mutate(activeAlias)}
+                onConfirm={() => activeKey !== null && confirm.mutate(activeKey)}
+                onRerecord={() => activeKey !== null && rerecordAndGo.mutate(activeKey)}
                 busy={reviewBusy}
               />
 

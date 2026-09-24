@@ -230,6 +230,7 @@ decisions = [
   'DEC-PKG-001',
   'DEC-PKG-002',
   'DEC-RCL-001',
+  'DEC-RCL-012',
 ]
 budgets = [
   'BUDGET-LATENCY-001',

@@ -40,12 +40,20 @@ export const SongList = ({
   return (
     <ul className="flex flex-col gap-3">
       {songs.map((s) => {
-        const line = s.singable
-          ? s.missing_units === 0
-            ? "いま歌えます"
-            : `近い音で置き換えて、いま歌えます（本来の音まであと ${s.missing_units} 音）`
-          : // 単位を1つの節に混ぜない。 録るのは行、そこから取れるのが音。
-            `あと ${s.missing_rows} 行（${s.missing_units} 音）を録ると歌えます`;
+        /*
+          いまのキーでどう鳴るか（`TR-SYN-15`、`DEC-SYN-012`）。
+
+          **「合いません」で終わらせない。** 遠いのはキーの問題で、
+          キーは本人が動かせる。何が起きるかを書き、直し方は曲の面が出す。
+        */
+        const line = !s.previewable
+          ? "このキーだと、録った高さから遠い音があります"
+          : s.singable
+            ? s.missing_units === 0
+              ? "いま歌えます"
+              : `近い音で置き換えて、いま歌えます（本来の音まであと ${s.missing_units} 音）`
+            : // 単位を1つの節に混ぜない。 録るのは行、そこから取れるのが音。
+              `あと ${s.missing_rows} 行（${s.missing_units} 音）を録ると歌えます`;
 
         const body = (
           <>
@@ -84,6 +92,14 @@ export const SongList = ({
 
               押したボタン自身を disabled にしない。 フォーカスが body へ落ちる。
               `aria-busy` で状態を伝え、二重起動は呼び出し側が弾く。
+            */}
+            {/*
+              遠くても的を出す（`DEC-SYN-012`）。
+
+              以前は `previewable` が偽なら的ごと消していた。 その基準
+              （±7 半音・二乗平均 4 半音）に実測の裏付けが無いので、
+              **根拠の無い線で「聴かせない」と決めていたことになる。**
+              どうなるかは上の1行が言っていて、押すかどうかは本人。
             */}
             <Button
               size="sm"

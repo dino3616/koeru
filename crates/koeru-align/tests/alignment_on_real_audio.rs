@@ -28,7 +28,7 @@
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
 use koeru_align::aligner::{AlignRequest, Aligner as _};
-use koeru_align::{mfa::MfaAligner, phoneme, segment::Boundaries};
+use koeru_align::{mfa::MfaAligner, phoneme, segment::per_mora};
 
 /// パワーで発声区間を粗く出す。ピークに対する比で切る。
 fn voiced_span_ms(samples: &[f64], rate_hz: u32) -> Option<(f64, f64)> {
@@ -88,7 +88,7 @@ fn 実音声で発声の位置がパワーと合う() {
         })
         .expect("アライメントできる");
 
-    let per = Boundaries::per_mora(&r, &readings).expect("モーラごとに取れる");
+    let per = per_mora(&r, &readings).expect("モーラごとに取れる");
     for (b, k) in per.iter().zip(&readings) {
         println!(
             "  {k:<4} {:>8.1} 〜 {:>8.1} ms",

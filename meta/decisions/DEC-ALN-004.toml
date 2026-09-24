@@ -45,7 +45,6 @@ review_triggers = [
   'segmentation-kit の License.md が改訂され、モデルファイルの扱いが明示されたとき',
 ]
 affects_requirements = [
-  'TR-ALN-04',
   'TR-ALN-31',
   'TR-ALN-02',
 ]

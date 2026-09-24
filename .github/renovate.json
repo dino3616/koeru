@@ -36,7 +36,20 @@
       "groupName": "tauri"
     },
     { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
-    { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" }
+    { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" },
+    {
+      "description": "OpenUtau の alpha は prerelease（DEC-SYN-010 の層B）。既定の stable とは別に追う——綴りが変わるならそちらに先に出る。",
+      "matchDepTypes": ["alpha"],
+      "matchPackageNames": ["stakira/OpenUtau"],
+      "ignoreUnstable": false
+    },
+    {
+      "description": "OpenUtau は phonemizer の突合相手（DEC-SYN-010 の層B）。版が上がると期待値のキャッシュが作り直され、綴りが変われば CI が落ちる。通れば automerge してよい。指紋は openutau-hash-fix が当てる。",
+      "matchPackageNames": ["stakira/OpenUtau"],
+      "automerge": true,
+      "groupName": null,
+      "labels": ["dependencies", "phonemizer"]
+    }
   ],
   "customManagers": [
     {
@@ -46,6 +59,14 @@
       "matchStrings": ["fslcVersion\\s*=\\s*\"(?<currentValue>v[0-9][0-9.]*)\""],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "ymm-oss/fsl"
+    },
+    {
+      "description": "OpenUtau は綴りの突合相手（DEC-SYN-010）。チャンネルごとに1件。SHA-256 は openutau-hash-fix ワークフローが当てる。",
+      "customType": "regex",
+      "managerFilePatterns": ["/^crates/koeru-core/fixtures/phonemizer-parity/openutau\\.toml$/"],
+      "matchStrings": ["name = \"(?<depType>[a-z]+)\"\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "stakira/OpenUtau"
     }
   ],
   "ignoreDeps": [],

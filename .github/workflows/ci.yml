@@ -104,6 +104,12 @@ jobs:
     # WSL 上の Nix は Linux 環境なので Windows ネイティブの検証にならない。
     # `TR-PLT-01` は Windows を第一級の対象としているので、ここが唯一の
     # 検証経路として残る——devShell では覆えない（`DEC-PLT-033`）。
+    #
+    # **いま Windows では KOERU が起動しない**（`DEC-ALN-016`）。Kaldi を
+    # macOS にしか組んでいないので、`Studio::open` が名指しで失敗する。
+    # ここが見ているのは、Windows ネイティブで組み立つことと、
+    # アライナを要さないドメイン層が通ること。`Studio` を要する試験は
+    # `cfg` で外してあり、失敗する契約そのものは `align.rs` が固定している。
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -217,3 +223,110 @@ jobs:
       # 外部 PR に対する防波堤。
       - name: cargo-deny
         run: cargo deny check
+
+  phonemizer-parity:
+    name: phonemizer parity (${{ matrix.channel }})
+    # Windows は要らない。 綴りを決めるのは managed なコードで、
+    # Linux 向け配布物に入っているアセンブリと同じ IL（`DEC-SYN-010` の層B）。
+    # pwsh は GitHub のランナーに最初から入っている。
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # OpenUtau のチャンネルに合わせる（`UpdaterViewModel.IsReleaseForChannel`）。
+        # **stable は既定のチャンネル**——多くの人が動かしているのはこれ。
+        # alpha は prerelease の上位集合で、綴りが変わるなら先に出る。
+        channel: [stable, alpha]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # 版・資産名・指紋は1箇所で持つ。 Renovate が版を上げ、
+      # openutau-hash-fix が指紋を当てる（`.github/renovate.json`）。
+      - name: 固定した OpenUtau を読む
+        id: pin
+        shell: bash
+        run: |
+          f=crates/koeru-core/fixtures/phonemizer-parity/openutau.toml
+          # `sub(/.*"/)` は使わない。 貪欲なので最後の引用符まで消える。
+          awk -v want='${{ matrix.channel }}' '
+            /^name *=/ { split($0, a, "\""); c = a[2] }
+            c == want && $1 == "version" { split($0, a, "\""); v = a[2] }
+            c == want && $1 == "asset"   { split($0, a, "\""); s = a[2] }
+            c == want && $1 == "sha256"  { split($0, a, "\""); h = a[2] }
+            END {
+              if (v == "" || s == "" || h == "") { print "固定が読めない: " want > "/dev/stderr"; exit 1 }
+              print "version=" v; print "asset=" s; print "sha256=" h
+            }' "$f" >> "$GITHUB_OUTPUT"
+
+      # 期待値を版ごとにキャッシュする。 100 MB 超を毎回引かない。
+      # 鍵が変われば（＝Renovate が版を上げれば）作り直される。
+      - name: 期待値のキャッシュ
+        id: cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .openutau
+          key: >-
+            openutau-parity-${{ matrix.channel }}-${{ steps.pin.outputs.version }}-${{ steps.pin.outputs.sha256 }}-${{
+              hashFiles('crates/koeru-core/fixtures/phonemizer-parity/**', '.github/scripts/openutau-parity.ps1') }}
+
+      # 引いたものが固定した指紋と一致するか、ここで見る。
+      # **版だけでは足りない。** 同じ札のまま中身を差し替えられる。
+      - name: OpenUtau を引いて期待値を作る
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          VERSION: ${{ steps.pin.outputs.version }}
+          ASSET: ${{ steps.pin.outputs.asset }}
+          WANT: ${{ steps.pin.outputs.sha256 }}
+        run: |
+          mkdir -p .openutau/dll
+          url="https://github.com/stakira/OpenUtau/releases/download/$VERSION/$ASSET"
+          curl -fsSL "$url" -o "/tmp/$ASSET"
+          got=$(sha256sum "/tmp/$ASSET" | cut -d' ' -f1)
+          if [ "$got" != "$WANT" ]; then
+            echo "指紋が固定と違う: $ASSET" >&2
+            echo "  固定: $WANT" >&2
+            echo "  実物: $got" >&2
+            exit 1
+          fi
+          # **アセンブリを全部展開する。** 直に読むのは2つだが、そこから先の
+          # 依存はこちらでは数え上げられない——`OpenUtau.Core.dll` だけを置くと
+          # `Preferences` の静的初期化が `Serilog` を読めずに落ちる。**踏んだ。**
+          case "$ASSET" in
+            *.zip)    unzip -j -o "/tmp/$ASSET" '*.dll' -d .openutau/dll ;;
+            *.tar.gz) tar -xzf "/tmp/$ASSET" -C .openutau/dll --wildcards '*.dll' ;;
+            *)        echo "知らない形式: $ASSET" >&2; exit 1 ;;
+          esac
+          printf '%s\n%s\n%s\n' "${{ matrix.channel }}" "$VERSION" "$WANT" > .openutau/source.txt
+          # **方式ごとに1つの音源**（`DEC-SYN-010`）。 presamp phonemizer は
+          # 音符1つに綴り1つしか返さないので、1つの音源から3方式ぶんは出ない。
+          for m in single sequential cvvc; do
+            pwsh -NoProfile -File .github/scripts/openutau-parity.ps1 \
+              -Assemblies .openutau/dll \
+              -Voicebank "crates/koeru-core/fixtures/phonemizer-parity/$m" \
+              -Out ".openutau/openutau-$m.tsv"
+          done
+
+      # 毎回突き合わせる。 キャッシュに当たった回も、KOERU 側の `expected.tsv`
+      # は作業ツリーのものを読む——実装が変われば、ここで食い違いが出る。
+      - name: KOERU の綴りと突き合わせる
+        shell: bash
+        run: |
+          {
+            echo '### 突き合わせた OpenUtau'
+            echo '```'
+            cat .openutau/source.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 方式ごとに見て、食い違った方式を全部出してから落とす。
+          # 先頭で止めると、1回の CI で1方式しか直せない。
+          bad=
+          for m in single sequential cvvc; do
+            diff -u "crates/koeru-core/fixtures/phonemizer-parity/$m/expected.tsv" \
+                    ".openutau/openutau-$m.tsv" || bad="$bad $m"
+          done
+          if [ -n "$bad" ]; then
+            echo "綴りが OpenUtau と食い違っている（DEC-SYN-010 の層B）:$bad"
+            exit 1
+          fi

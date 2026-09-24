@@ -46,7 +46,7 @@ depends_on = [
   'TR-PKG-02',
   'TR-PKG-12',
 ]
-statement = 'character.yaml を必ず同時生成する。書き出すキーを name / localized_names / singer_type / text_file_encoding / image / portrait / portrait_opacity / portrait_height / author / voice / web / version / sample / default_phonemizer / symbol_set / subbanks / use_filename_as_alias に限定し、未知のキーを追加しない'
+statement = 'character.yaml を必ず同時生成する。書き出すキーを name / localized_names / singer_type / text_file_encoding / image / portrait / portrait_opacity / portrait_height / author / voice / web / version / sample / default_phonemizer / symbol_set / subbanks / use_filename_as_alias に限定し、未知のキーを追加しない。default_phonemizer には同梱した presamp.ini を読む phonemizer を書く（DEC-SYN-010）。 これを書かないと、受け取った側がどの規則で鳴らすかを選べてしまい、KOERU の中での解決と一致しない'
 
 [[requirement]]
 id = 'TR-PKG-04'
@@ -285,7 +285,7 @@ depends_on = [
 formalized_as = [
   'REQ-PKG-001',
 ]
-statement = '下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。 WAV は複製されるため、コストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる（多音階連続音では 275MB × 2）。再切り出しを行わない点だけが節約になる（デコード・再エンコードは不要）。下位方式が参照する WAV の集合のみを複製することを性能上の最適化として明記する。書き出し前に容量をユーザーに提示する。5値は下位方式の規約プリセットで再導出する（align の新設要件）'
+statement = '下位方式パッケージは常に独立した音源ルート・独立した ZIP として生成する。 WAV は複製されるため、コストは「oto.ini 1ファイル分」ではなく「元パッケージとほぼ同等の容量と生成時間がもう1本」として見積もる（多音階連続音では 275MB × 2）。再切り出しを行わない点だけが節約になる（デコード・再エンコードは不要）。下位方式が参照する WAV の集合のみを複製することを性能上の最適化として明記する。書き出し前に容量をユーザーに提示する。声質の不連続は検知しない。 検知する手段が現在のスコープに無い。 跨ぐ収録セッションの数や期間といった推測材料も提示しない（DEC-RCL-015）——そこから読めるのは「声が揃っていないかもしれない」だけで、検知しないと言いながら判断材料を置くことになる。録音日時はテイクごとの事実として持ち、集計しない。5値は下位方式の規約プリセットで再導出する（TR-ALN-34）'
 notes = [
   '連続音の語頭 CV は前後の文脈を含むため、単独音として使ったときの先行発声・オーバーラップの許容幅が実用に足るかは未検証',
 ]
@@ -329,7 +329,7 @@ needs_component = false
 depends_on = [
   'TR-PKG-01',
 ]
-statement = 'readme.txt に次の節を含める。音源名 / 制作者名義 / バージョン / 収録方式 / 推奨音域 / 同梱物一覧 / 利用規約 / クレジット表記例 / 連絡先 / 免責 / 周波数表の扱い。このうち音源名・収録方式・同梱物一覧・周波数表の扱いは KOERU が持っている情報なので必ず出す。本人が書く節は、書いたものだけを出す（DEC-PKG-011）'
+statement = 'readme.txt に次の節を含める。音源名 / 制作者名義 / バージョン / 収録方式 / 収録音高 / 推奨音域 / 同梱物一覧 / 利用規約 / クレジット表記例 / 連絡先 / 免責 / 周波数表の扱い。このうち音源名・収録方式・収録音高・同梱物一覧・周波数表の扱いは KOERU が持っている情報なので必ず出す。本人が書く節は、書いたものだけを出す（DEC-PKG-011）。 収録方式は作り方（単独音 / 連続音 / CVVC）だけを書き、下位方式で書き出すときは降りた先の方式を書く。収録音高は録った高さを音名で並べ、単音階でも出す（DEC-PKG-015）'
 
 [[requirement]]
 id = 'TR-PKG-29'

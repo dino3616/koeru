@@ -1,0 +1,66 @@
+schema = 'decision'
+id = 'DEC-ALN-015'
+constraint_label = '退避経路の段数'
+constraint = '一次経路が使えなくなったときの挙動が、黙って劣化しないこと'
+title = 'Julius は採らない。退避は segment.rs の1段に確定し、多モーラ方式では MFA を必須にする'
+status = 'accepted'
+owner = 'dino3616'
+supersedes = ['DEC-ALN-010']
+options = [
+  'Julius を採らず、退避を segment.rs の1段に確定する',
+  'M5 で Julius を実装する（DEC-ALN-010 の予定どおり）',
+  '退避を snfa へ差し替える',
+]
+selected = 'Julius を採らず、退避を segment.rs の1段に確定する'
+rationale = '''
+MFA は実際に動いている。 `crates/koeru-app/src/align.rs` が一次経路として選び、
+モデルが読めたときは Kaldi が走る。`DEC-ALN-010` が「M5 で連続音に広げるとき」を
+実装の予定地にしていたが、その時点に来てみると、払う理由が見当たらない。
+
+`DEC-ALN-010` 自身が理由を並べていた。 Julius が守るのは「MFA だけが個別に引っ込む」
+場合に限られ、「学習コーパスの条件が派生モデルへ及ぶ」という筋に対しては
+Julius のほうが弱い（`corpus_status = "unverified"`。出所そのものが未確認）。
+その筋のためだけに、MFA でやったのと同じ量の作業をもう一度払う。
+
+払う量が大きい。 libjulius のリンク、モデル3本の submodule、`koeru-align` の
+ビルド構成。M5 に残っている作業の中で単独では最も重い。
+
+## 引き受けるもの
+
+**多モーラ方式では MFA が必須になる。** `segment.rs` の退避は音素3つ以上を受け取らない
+（`HeuristicAligner::align` が弾く）。単独音は音素列が `[C, V]` までなので degrade するが、
+連続音と CVVC は退避へ落ちた時点で oto が出ない。
+
+それでよいと判断する。 MFA は配布物に同梱していて（`DEC-ALN-012`）、読めないのは
+梱包の失敗と開発ビルドのときだけ。利用者の環境の問題ではなく、こちらの問題として直すもの。
+
+**ただし黙って落とさない。** 退避経路が多モーラ行を渡されたら、そのことを名指しで返す。
+以前、境界への変換が落ちているのに画面が「発声を見つけられませんでした」と出して
+原因を隠した（`crates/koeru-align/tests/multi_mora_row.rs` の冒頭）。同じ形を作らない。
+
+## 戻り先は残っている
+
+`segment.rs`（モデルを一切使わない）と snfa（`CMP-001`、重みが Public Domain 宣言、
+採用候補のまま）。`DEC-ALN-010` が「licensing の筋で本当に独立な戻り先」と呼んだ2つは
+どちらも生きている。snfa へ差し替える判断は、必要になったときに取る。
+'''
+review_triggers = [
+  'MFA のモデルが取り下げられたとき。 そのときは snfa への差し替えを判断する（Julius へ戻らない）',
+  '多モーラ方式で、MFA が読めない事故が実際に起きたとき',
+  'snfa の重みの Public Domain 宣言に法的文書が伴うと確認できたとき',
+]
+affects_requirements = [
+  'TR-ALN-03',
+  'TR-ALN-11',
+]
+affects_decisions = [
+  'DEC-ALN-001',
+  'DEC-ALN-004',
+  'DEC-ALN-006',
+  'DEC-ALN-008',
+  'DEC-ALN-010',
+]
+affects_components = [
+  'CMP-001',
+  'CMP-002',
+]

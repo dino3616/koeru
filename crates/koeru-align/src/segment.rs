@@ -24,92 +24,87 @@
 use crate::confidence::{Confidence, acoustic_score};
 
 /// 検出した境界（ミリ秒）。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Boundaries {
-    /// 発声開始。無音の終わり。
-    pub voice_start_ms: f64,
-    /// 子音から母音への境界。母音始まりなら `voice_start_ms` と同じ。
-    pub vowel_start_ms: f64,
-    /// 母音の定常区間終端。
-    pub vowel_end_ms: f64,
-}
+///
+/// 実体は [`koeru_core::oto::Boundary`]。 プロジェクトのデータで DB に載るので、
+/// 型は `koeru-core` が持つ（`DEC-ALN-009` が [`koeru_core::oto::Oto`] で同じことをしている）。
+/// ここが持つのは取り出し方だけ。
+pub use koeru_core::oto::Boundary as Boundaries;
 
-impl Boundaries {
-    /// アライメントの結果から、モーラごとの3境界を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
-    ///
-    /// 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03` が1行あたり最大N単位で
-    /// グルーピングする）。`readings` はその行のモーラの並びで、
-    /// 返るのは同じ長さの境界の列。 同じ WAV を複数のエイリアスが別の位置で指す。
-    ///
-    /// 並びは `[sil, (C V)+, sil]`。各モーラは `[C, V]` か `[V]`。
-    /// 区間の数が読みから期待される数と合わなければ `None`——
-    /// 黙って先頭から詰めない。
-    ///
-    /// # Errors
-    ///
-    /// 読みが辞書に無い、区間の数が合わない。
-    pub fn per_mora(a: &crate::aligner::Alignment, readings: &[&str]) -> Option<Vec<Self>> {
-        if readings.is_empty() {
-            return None;
-        }
-        // 各モーラが何音素か。辞書が正本（`TR-ALN-07`）。
-        let widths: Vec<usize> = readings
-            .iter()
-            .map(|r| crate::phoneme::phonemes_for(r).map(<[_]>::len))
-            .collect::<Result<_, _>>()
-            .ok()?;
-        let want: usize = widths.iter().sum::<usize>() + 2; // 前後の sil
-        if a.segments.len() != want {
-            return None;
-        }
-
-        let mut out = Vec::with_capacity(readings.len());
-        let mut at = 1; // 先頭の sil を飛ばす
-        for w in widths {
-            let seg = a.segments.get(at..at + w)?;
-            let (voice_start_ms, vowel_start_ms) = match w {
-                // [C, V]
-                2 => (seg[0].start_ms, seg[1].start_ms),
-                // [V]。母音始まりは発声開始と母音開始が同じ。
-                1 => (seg[0].start_ms, seg[0].start_ms),
-                _ => return None,
-            };
-            out.push(Self {
-                voice_start_ms,
-                vowel_start_ms,
-                vowel_end_ms: seg[w - 1].end_ms,
-            });
-            at += w;
-        }
-        Some(out)
+/// アライメントの結果から、モーラごとの3境界を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
+///
+/// 単独音でも1ファイルに複数モーラが入る（`TR-RCL-03` が1行あたり最大N単位で
+/// グルーピングする）。`readings` はその行のモーラの並びで、
+/// 返るのは同じ長さの境界の列。 同じ WAV を複数のエイリアスが別の位置で指す。
+///
+/// 並びは `[sil, (C V)+, sil]`。各モーラは `[C, V]` か `[V]`。
+/// 区間の数が読みから期待される数と合わなければ `None`——
+/// 黙って先頭から詰めない。
+///
+/// # Errors
+///
+/// 読みが辞書に無い、区間の数が合わない。
+#[must_use]
+pub fn per_mora(a: &crate::aligner::Alignment, readings: &[&str]) -> Option<Vec<Boundaries>> {
+    if readings.is_empty() {
+        return None;
+    }
+    // 各モーラが何音素か。辞書が正本（`TR-ALN-07`）。
+    let widths: Vec<usize> = readings
+        .iter()
+        .map(|r| crate::phoneme::phonemes_for(r).map(<[_]>::len))
+        .collect::<Result<_, _>>()
+        .ok()?;
+    let want: usize = widths.iter().sum::<usize>() + 2; // 前後の sil
+    if a.segments.len() != want {
+        return None;
     }
 
-    /// アライメントの結果から、単独音の3境界を取り出す（`TR-ALN-11`）。
-    ///
-    /// 1モーラの行だけ。 複数モーラなら [`Self::per_mora`] を使うこと。
-    ///
-    /// どのアライナが出したものでも同じ形で受ける（`TR-ALN-03` の trait 経由）。
-    /// 並びは `[sil, C, V, sil]` か `[sil, V, sil]`。
-    ///
-    /// それ以外の並び（連続音・CVVC）は `None`。**単独音の専用経路なので、
-    /// 黙って先頭2つを使ったりしない。**
-    #[must_use]
-    pub fn from_alignment(a: &crate::aligner::Alignment) -> Option<Self> {
-        match a.segments.len() {
-            // [sil, C, V, sil]
-            4 => Some(Self {
-                voice_start_ms: a.segments[1].start_ms,
-                vowel_start_ms: a.segments[2].start_ms,
-                vowel_end_ms: a.segments[2].end_ms,
-            }),
-            // [sil, V, sil]。母音始まりは発声開始と母音開始が同じ。
-            3 => Some(Self {
-                voice_start_ms: a.segments[1].start_ms,
-                vowel_start_ms: a.segments[1].start_ms,
-                vowel_end_ms: a.segments[1].end_ms,
-            }),
-            _ => None,
-        }
+    let mut out = Vec::with_capacity(readings.len());
+    let mut at = 1; // 先頭の sil を飛ばす
+    for w in widths {
+        let seg = a.segments.get(at..at + w)?;
+        let (voice_start_ms, vowel_start_ms) = match w {
+            // [C, V]
+            2 => (seg[0].start_ms, seg[1].start_ms),
+            // [V]。母音始まりは発声開始と母音開始が同じ。
+            1 => (seg[0].start_ms, seg[0].start_ms),
+            _ => return None,
+        };
+        out.push(Boundaries {
+            voice_start_ms,
+            vowel_start_ms,
+            vowel_end_ms: seg[w - 1].end_ms,
+        });
+        at += w;
+    }
+    Some(out)
+}
+
+/// アライメントの結果から、単独音の3境界を取り出す（`TR-ALN-11`）。
+///
+/// 1モーラの行だけ。 複数モーラなら [`per_mora`] を使うこと。
+///
+/// どのアライナが出したものでも同じ形で受ける（`TR-ALN-03` の trait 経由）。
+/// 並びは `[sil, C, V, sil]` か `[sil, V, sil]`。
+///
+/// それ以外の並び（連続音・CVVC）は `None`。**単独音の専用経路なので、
+/// 黙って先頭2つを使ったりしない。**
+#[must_use]
+pub fn from_alignment(a: &crate::aligner::Alignment) -> Option<Boundaries> {
+    match a.segments.len() {
+        // [sil, C, V, sil]
+        4 => Some(Boundaries {
+            voice_start_ms: a.segments[1].start_ms,
+            vowel_start_ms: a.segments[2].start_ms,
+            vowel_end_ms: a.segments[2].end_ms,
+        }),
+        // [sil, V, sil]。母音始まりは発声開始と母音開始が同じ。
+        3 => Some(Boundaries {
+            voice_start_ms: a.segments[1].start_ms,
+            vowel_start_ms: a.segments[1].start_ms,
+            vowel_end_ms: a.segments[1].end_ms,
+        }),
+        _ => None,
     }
 }
 
@@ -311,113 +306,6 @@ pub fn confidence(
     }
 }
 
-/// 退避経路のアライナ（`DEC-ALN-006`, `TR-ALN-11`）。
-///
-/// 音響モデルを使わない。 短時間パワーとゼロ交差率で境界を出す。
-/// MFA が使えないときと、MFA の統合が終わるまでの試唱に使う。
-///
-/// # 出せないものがある
-///
-/// `TR-ALN-03` は「いずれの実装も emission 行列を返す」と求めているが、
-/// ここには経路という概念が無いので [`crate::aligner::Alignment::posteriors`] は
-/// `None`。0 を入れない——0 は「確信が無い」であって「測れない」ではない。
-///
-/// その結果、確信度の成分 (1) 経路確信度（`TR-ALN-24`）と、
-/// 次善候補（`TR-ALN-26` (4)）が出せない。欠けた状態として扱う。
-#[derive(Debug, Clone)]
-pub struct HeuristicAligner {
-    config: SegmentConfig,
-    identity: String,
-}
-
-impl HeuristicAligner {
-    /// 既定の設定で作る。
-    ///
-    /// `identity` は決定性の鍵に混ぜる文字列（`TR-ALN-29`）。
-    #[must_use]
-    pub fn new(identity: impl Into<String>) -> Self {
-        Self {
-            config: SegmentConfig::default(),
-            identity: identity.into(),
-        }
-    }
-
-    /// 設定を差し替える。
-    #[must_use]
-    pub const fn with_config(mut self, config: SegmentConfig) -> Self {
-        self.config = config;
-        self
-    }
-}
-
-impl crate::aligner::Aligner for HeuristicAligner {
-    fn identity(&self) -> &str {
-        &self.identity
-    }
-
-    fn align(
-        &self,
-        req: &crate::aligner::AlignRequest<'_>,
-    ) -> Result<crate::aligner::Alignment, crate::aligner::AlignError> {
-        use crate::aligner::{AlignError, Alignment, Segment};
-
-        // 単独音の専用経路（`TR-ALN-11`）。子音＋母音か、母音だけ。
-        if req.phonemes.is_empty() || req.phonemes.len() > 2 {
-            return Err(AlignError::EmptyPhonemes);
-        }
-        if req.sample_rate_hz == 0 {
-            return Err(AlignError::RateMismatch);
-        }
-
-        let b = detect_single(req.samples, req.sample_rate_hz, &self.config)
-            .ok_or(AlignError::TooShort)?;
-
-        #[allow(clippy::cast_precision_loss)]
-        let total_ms = req.samples.len() as f64 / f64::from(req.sample_rate_hz) * 1000.0;
-        let sil = crate::phoneme::Phoneme::new(crate::phoneme::SILENCE)
-            .ok_or(AlignError::ModelUnavailable)?;
-
-        // 前後の `sil` を足した並び（`TR-ALN-09` の (a)(b) と同じ形にする）。
-        let mut segments = vec![Segment {
-            phoneme: sil,
-            start_ms: 0.0,
-            end_ms: b.voice_start_ms,
-        }];
-        if req.phonemes.len() == 2 {
-            segments.push(Segment {
-                phoneme: req.phonemes[0],
-                start_ms: b.voice_start_ms,
-                end_ms: b.vowel_start_ms,
-            });
-            segments.push(Segment {
-                phoneme: req.phonemes[1],
-                start_ms: b.vowel_start_ms,
-                end_ms: b.vowel_end_ms,
-            });
-        } else {
-            // 母音始まり。`voice_start` と `vowel_start` は同じ位置。
-            segments.push(Segment {
-                phoneme: req.phonemes[0],
-                start_ms: b.voice_start_ms,
-                end_ms: b.vowel_end_ms,
-            });
-        }
-        segments.push(Segment {
-            phoneme: sil,
-            start_ms: b.vowel_end_ms,
-            end_ms: total_ms.max(b.vowel_end_ms),
-        });
-
-        Ok(Alignment {
-            segments,
-            // 経路という概念が無い。 0 を入れずに欠けたままにする。
-            posteriors: None,
-            log_likelihood: None,
-            grid_divergence: None,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,9 +334,9 @@ mod tests {
         };
 
         // 1モーラ用は受けない。
-        assert!(Boundaries::from_alignment(&a).is_none());
+        assert!(from_alignment(&a).is_none());
 
-        let per = Boundaries::per_mora(&a, &readings).expect("モーラごとに取れる");
+        let per = per_mora(&a, &readings).expect("モーラごとに取れる");
         assert_eq!(per.len(), 4);
         // 1つめの「に」は区間 1（子音）と 2（母音）。
         assert!((per[0].voice_start_ms - 100.0).abs() < 1e-9);
@@ -481,7 +369,7 @@ mod tests {
             log_likelihood: None,
             grid_divergence: None,
         };
-        let per = Boundaries::per_mora(&a, &["あ", "か"]).expect("取れる");
+        let per = per_mora(&a, &["あ", "か"]).expect("取れる");
         assert_eq!(per.len(), 2);
         // 「あ」は母音始まりなので、発声開始と母音開始が同じ。
         assert!((per[0].voice_start_ms - per[0].vowel_start_ms).abs() < 1e-9);
@@ -507,57 +395,11 @@ mod tests {
             grid_divergence: None,
         };
         // 2モーラなら 6 区間のはずなのに 4 しかない。
-        assert!(Boundaries::per_mora(&a, &["か", "き"]).is_none());
-        assert!(Boundaries::per_mora(&a, &[]).is_none());
+        assert!(per_mora(&a, &["か", "き"]).is_none());
+        assert!(per_mora(&a, &[]).is_none());
         // 辞書に無い読み。
-        assert!(Boundaries::per_mora(&a, &["ぢゃ"]).is_none());
+        assert!(per_mora(&a, &["ぢゃ"]).is_none());
     }
-
-    /// アライメントの結果から単独音の境界を取り出せる（`TR-ALN-03` 経由）。
-    #[test]
-    fn アライメントから境界を取り出せる() {
-        use crate::aligner::{AlignRequest, Aligner as _};
-
-        let x = syllable(100.0, 50.0, 300.0, 100.0);
-        let a = HeuristicAligner::new("h@1");
-        let k = crate::phoneme::Phoneme::new("k").expect("ある");
-        let v = crate::phoneme::Phoneme::new("a").expect("ある");
-        let r = a
-            .align(&AlignRequest {
-                samples: &x,
-                sample_rate_hz: FS,
-                phonemes: &[k, v],
-                grid: None,
-            })
-            .expect("できる");
-
-        let b = Boundaries::from_alignment(&r).expect("取り出せる");
-        let direct = detect_single(&x, FS, &SegmentConfig::default()).expect("検出");
-        assert!((b.voice_start_ms - direct.voice_start_ms).abs() < 1e-9);
-        assert!((b.vowel_start_ms - direct.vowel_start_ms).abs() < 1e-9);
-        assert!((b.vowel_end_ms - direct.vowel_end_ms).abs() < 1e-9);
-    }
-
-    /// 母音始まりでは発声開始と母音開始が同じ。
-    #[test]
-    fn 母音始まりの境界も取り出せる() {
-        use crate::aligner::{AlignRequest, Aligner as _};
-
-        let x = syllable(100.0, 0.0, 300.0, 100.0);
-        let a = HeuristicAligner::new("h@1");
-        let v = crate::phoneme::Phoneme::new("a").expect("ある");
-        let r = a
-            .align(&AlignRequest {
-                samples: &x,
-                sample_rate_hz: FS,
-                phonemes: &[v],
-                grid: None,
-            })
-            .expect("できる");
-        let b = Boundaries::from_alignment(&r).expect("取り出せる");
-        assert!((b.voice_start_ms - b.vowel_start_ms).abs() < 1e-9);
-    }
-
     /// **連続音の並びは受けない。** 黙って先頭2つを使わない。
     #[test]
     fn 単独音でない並びは受けない() {
@@ -575,80 +417,8 @@ mod tests {
             log_likelihood: None,
             grid_divergence: None,
         };
-        assert!(Boundaries::from_alignment(&a).is_none());
+        assert!(from_alignment(&a).is_none());
     }
-
-    /// 退避経路も `Aligner` を実装する（`TR-ALN-03` の「いずれの実装も」）。
-    #[test]
-    fn 退避経路も同じ口で呼べる() {
-        use crate::aligner::{AlignRequest, Aligner as _};
-
-        let x = syllable(100.0, 50.0, 300.0, 100.0);
-        let a = HeuristicAligner::new("heuristic@1");
-        let k = crate::phoneme::Phoneme::new("k").expect("ある");
-        let v = crate::phoneme::Phoneme::new("a").expect("ある");
-
-        let r = a
-            .align(&AlignRequest {
-                samples: &x,
-                sample_rate_hz: FS,
-                phonemes: &[k, v],
-                grid: None,
-            })
-            .expect("できる");
-
-        assert_eq!(r.segments.len(), 4);
-        assert_eq!(r.segments[1].phoneme, k);
-        assert_eq!(r.segments[2].phoneme, v);
-        // 区間が繋がっていて単調。
-        for w in r.segments.windows(2) {
-            assert!((w[0].end_ms - w[1].start_ms).abs() < 1e-9);
-            assert!(w[1].end_ms >= w[1].start_ms);
-        }
-    }
-
-    /// 経路確信度を出せないことを、`None` で言う（`TR-ALN-24` の成分 (1)）。
-    /// 0 を入れると「確信が無い」と読まれる。
-    #[test]
-    fn 退避経路は事後確率を持たない() {
-        use crate::aligner::{AlignRequest, Aligner as _};
-
-        let x = syllable(100.0, 50.0, 300.0, 100.0);
-        let a = HeuristicAligner::new("heuristic@1");
-        let v = crate::phoneme::Phoneme::new("a").expect("ある");
-        let r = a
-            .align(&AlignRequest {
-                samples: &x,
-                sample_rate_hz: FS,
-                phonemes: &[v],
-                grid: None,
-            })
-            .expect("できる");
-        assert!(r.posteriors.is_none());
-        assert!(r.log_likelihood.is_none());
-        // 母音だけなら3区間。
-        assert_eq!(r.segments.len(), 3);
-    }
-
-    /// 単独音の専用経路なので、3音素以上は受けない（`TR-ALN-11`）。
-    #[test]
-    fn 三音素以上は受けない() {
-        use crate::aligner::{AlignRequest, Aligner as _};
-
-        let x = syllable(100.0, 50.0, 300.0, 100.0);
-        let a = HeuristicAligner::new("heuristic@1");
-        let v = crate::phoneme::Phoneme::new("a").expect("ある");
-        let e = a
-            .align(&AlignRequest {
-                samples: &x,
-                sample_rate_hz: FS,
-                phonemes: &[v, v, v],
-                grid: None,
-            })
-            .unwrap_err();
-        assert_eq!(e.kind(), "align.empty_phonemes");
-    }
-
     const FS: u32 = 44_100;
 
     /// 無音 + 無声子音（雑音）+ 母音（倍音）+ 減衰 という形を作る。
