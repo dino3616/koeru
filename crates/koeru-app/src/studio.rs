@@ -590,7 +590,6 @@ impl Sink for StreamSink {
     }
 }
 
-
 impl Studio {
     /// ライブラリを開く。無ければ作る。
     #[tracing::instrument(skip(library_root), err)]
@@ -4793,7 +4792,10 @@ mod tests {
             .expect("固定できる");
 
         let (_, blocked) = studio.validate_otos().expect("検証は落ちない");
-        assert!(blocked.contains(&item.alias), "止めた綴りを返す: {blocked:?}");
+        assert!(
+            blocked.contains(&item.alias),
+            "止めた綴りを返す: {blocked:?}"
+        );
         let state = studio
             .review_queue()
             .expect("キューを引ける")

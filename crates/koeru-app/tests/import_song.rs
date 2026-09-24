@@ -177,7 +177,11 @@ fn 範囲外の音高の曲は取り込まない() {
         .song_file_preview(wild.as_bytes(), "範囲外.ustx")
         .expect_err("下見で止まる");
     assert_eq!(e.kind, "song.note_out_of_range");
-    assert!(e.message.contains("2 番目"), "何番目かを伝える: {}", e.message);
+    assert!(
+        e.message.contains("2 番目"),
+        "何番目かを伝える: {}",
+        e.message
+    );
 }
 
 /// 題はファイル名から採るので、そのままでは並べられないことがある。

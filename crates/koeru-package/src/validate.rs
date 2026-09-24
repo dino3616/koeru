@@ -831,7 +831,10 @@ mod tests {
         );
         // 組み立ても実際に落ちる——検査がそれを先に言っている。
         assert!(crate::tree::build(&b, Profile::Both).is_err());
-        assert!(validate(&b, Profile::OpenUtau).may_export(), "UTF-8 なら書ける");
+        assert!(
+            validate(&b, Profile::OpenUtau).may_export(),
+            "UTF-8 なら書ける"
+        );
     }
 
     #[test]
