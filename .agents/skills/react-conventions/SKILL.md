@@ -93,7 +93,7 @@ const button = tv({
 
 ### 型を手で書かない
 
-`~/lib/bindings.gen.ts` が正本で、Rust のコマンド定義から生成する（`DEC-PLT-019`）。手で直さない——次の生成で消える。
+consumer への契約の正本は canonical SDL（`DEC-PLT-035`）。**移行中**は、`~/lib/bindings.gen.ts` を Rust のコマンド定義から生成して使う。手で直さない——次の生成で消える。新しい操作をここに足さない。
 
 ```bash
 KOERU_WRITE_BINDINGS=1 cargo test -p koeru-app --test bindings   # 作り直す
@@ -104,11 +104,11 @@ cargo test -p koeru-app --test bindings                          # 古くない�
 
 ### 読みは TanStack Query に載せる
 
-`useEffect` と `useState` で書き下ろさない（`DEC-PLT-023`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は経路の受け口（`RouteError`）と `__root` の `ErrorBoundary` が受ける。
+`useEffect` と `useState` で書き下ろさない（`DEC-PLT-037`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は経路の受け口（`RouteError`）と `__root` の `ErrorBoundary` が受ける。
 
 自前で書くと、部品ごとに「まだ無い」「取れた」「失敗した」を書き分けることになり、書き落としが出る——成功時にエラーを消し忘れて、一度失敗したあとは赤字が残ったままになっていた。
 
-鍵と取得口は `~/lib/queries` に集める。散らすと、同じものを別の鍵で引いて二重に取りに行く。台帳から読むものは `ledgerKey` の下に置き、テイクが確定したら `invalidateQueries({ queryKey: ledgerKey })` でまとめて無効化する。版番号を鍵に混ぜない——変わるたびに別の鍵になってキャッシュが積み上がる。
+何を読むかは部品の近くの fragment で宣言し、経路が1つの operation に束ねる（`DEC-PLT-037`）。**移行中**は、鍵と取得口を `~/lib/queries` に集めた形が残る。GraphQL の経路が来るまでは、散らさずにそこへ置く——散らすと、同じものを別の鍵で引いて二重に取りに行く。台帳から読むものは `ledgerKey` の下に置き、テイクが確定したら `invalidateQueries({ queryKey: ledgerKey })` でまとめて無効化する。版番号を鍵に混ぜない——変わるたびに別の鍵になってキャッシュが積み上がる。
 
 関係の無いものを同じ部品で2つ読まない。同じ部品に `useSuspenseQuery` を並べると**直列**になる——1つ目が中断した時点で React は降りるので、2つ目のフックまで到達しない（`EVID-PLT-001` で実測）。並行に取るなら `useSuspenseQueries`。兄弟をそれぞれの `Suspense` で包む場合は並行に動く。
 
@@ -143,9 +143,11 @@ const run = useMutation({ mutationFn: () => api.calibrate(4) });
 
 `await` は別。順序が要る手続き（`use-recorder` の状態機械）は `await` で書くのが自然で、そこは state を持ち直していない。
 
-### 流し続けるものは Channel
+### 流し続けるものは Subscription
 
-`invoke` で引きに行かせない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。
+流し続けるものは GraphQL Subscription にし、feature から Tauri の `Channel` を import しない（`DEC-PLT-036`）。**移行中**は波形の Channel が1本残る。新しく足さない。
+
+`invoke` で引きに行かせない。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。
 
 待ち数のように繰り返し引くものも Query に載せない。返ってきてから次を予約する形を自分で書く——`refetchInterval` も `setInterval` も、1回が間隔より長くかかったときの振る舞いを自分で決められない。
 

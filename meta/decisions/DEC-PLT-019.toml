@@ -3,7 +3,8 @@ id = 'DEC-PLT-019'
 constraint_label = '画面と Rust の型の一致'
 constraint = 'コマンドを1つ足したときに、画面側の型が黙って古いまま通らないこと'
 title = 'tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-PLT-035'
 owner = 'dino3616'
 options = [
   'tauri-specta で生成する',

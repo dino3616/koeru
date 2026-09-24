@@ -3,7 +3,8 @@ id = 'DEC-PLT-017'
 constraint_label = '画面へ流し続けるものの経路'
 constraint = '継続して届けるデータが、順序どおりに、一定の間隔で画面に届くこと'
 title = '流し続けるものは Channel で送る。画面から引きに行かせない'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-PLT-036'
 owner = 'dino3616'
 options = [
   'Tauri の Channel で Rust から送る',
