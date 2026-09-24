@@ -132,7 +132,17 @@ KOERU には、利用者の音声制作行動・意味理解・感情につい�
 
 **Design System は、デザイナーという人材を生産する装置ではなく、異なる人が良い創作判断に参加し、その判断を修正・継承できる条件を整える基盤とする。**
 
-学習は重要だが、プロダクトの良さと参加者の主体性を犠牲にして達成する目標ではない。
+学習は top-level objective ではない。しかし、**実践へ参加した結果として contributor の design capability が育つことは system requirement とする。**
+Product quality と learning を別プロジェクトに分けない。現在の UI を改善する仕事そのものが、
+過去判断・反例・比較・批評・Probe を通じて次の Contributor の curriculum になるようにする。
+
+ここで育てたいのは KOERU 用語への適応ではなく、観察を解釈から分ける、対照案を作る、
+反例を探す、何なら考えを変えるか言える、分からないことを分からないまま扱う、
+必要なら Canon を疑う、といった行動である。
+
+個人の maturity score や「卒業」は作らない。学習が成立しているかは、
+System が newcomer にも判断参加の機会を与え、元作者なしで reasoning を再構成できるかという
+product-development capability として観測する。
 
 ### 3.2 二つの状態を、絶対に混ぜない
 
