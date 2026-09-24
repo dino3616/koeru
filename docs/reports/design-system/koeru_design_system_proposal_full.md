@@ -311,7 +311,7 @@ meta/
 design/
   policy.toml                       # 経路・費用・保持・Agent の運用設定
   work/
-    Q-UX-001/
+    Q-UX-nnn/
       exploration.md                # action trace、比較、未探索領域
       critique.md                   # Issue の重要な結論への参照
       artifacts/                    # 残す価値のある最小限の自作 artifact
@@ -323,7 +323,7 @@ crates/koeru-app/ui/
     screens/                        # 既存
     styles/                         # 既存
     experiments/
-      Q-UX-001/
+      Q-UX-nnn/
         alternatives.story.tsx      # 非出荷の比較用
   .storybook/
     main.ts                         # stable / workbench の選択
@@ -355,12 +355,12 @@ xtask/src/
 
 #### Claim
 
-以下の ID は形式例であり、未予約である。実装時は `next-id` を拡張・使用して正式に採番する。
+以下の ID は形式例であり、未予約である。実装時は `next-id` を拡張・使用して正式に採番する。`Q-UX-nnn` の `nnn` は採番前のプレースホルダで、`check-references` が ID として拾わない形にしている。
 
 ```toml
 schema = "design-claim"
 id = "CLM-UX-001"
-question = "Q-UX-001"
+question = "Q-UX-nnn"
 
 claim_class = "semantic-comprehension"
 statement = """
@@ -394,7 +394,7 @@ Claim に「採用／不採用」を持たせない。Decision に「真／偽�
 [design]
 risk_lane = "R1"
 discriminator = "次の操作の発見と、環の意味理解を分けて比較する"
-artifact_root = "design/work/Q-UX-001"
+artifact_root = "design/work/Q-UX-nnn"
 effort_budget_minutes = 90
 
 [[design.alternative]]
@@ -415,7 +415,7 @@ action_trace = [
   "録音後に声の変化へ戻る",
 ]
 predicted_difference = "録音の開始は分かりやすくなるが、声の存在感が弱まるかもしれない"
-artifact = "crates/koeru-app/ui/src/experiments/Q-UX-001/alternatives.story.tsx"
+artifact = "crates/koeru-app/ui/src/experiments/Q-UX-nnn/alternatives.story.tsx"
 ```
 
 選んだ案はここに書かない。選択は `DEC` に残す。
@@ -1141,8 +1141,8 @@ rollback / migration / 再検討条件:
 {
   "baseline_commit": "<full-sha>",
   "roots": ["DEC-PLT-025", "TR-RCL-19"],
-  "work_item": "Q-UX-001",
-  "artifact": "design/work/Q-UX-001/exploration.md"
+  "work_item": "Q-UX-nnn",
+  "artifact": "design/work/Q-UX-nnn/exploration.md"
 }
 ```
 
@@ -1384,7 +1384,7 @@ Contributor が Voice 画面を使い、次の感覚を Issue `#101` に書く�
 C1 で、二つの問いを混ぜないよう整理する。
 
 ```text
-Q-UX-001：
+Q-UX-nnn：
   次の創作行為へ移りにくい原因は、操作の発見か、注意配分か。
 
 関連 Claim：
@@ -1404,7 +1404,7 @@ cargo xtask context --root DEC-PLT-025 --at HEAD --format md
 
 ### Exploration
 
-`design/work/Q-UX-001/exploration.md` と実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。
+`design/work/Q-UX-nnn/exploration.md` と実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。
 
 同じ fixture、同じ録音量、同じ待ち時間で比較する。配色まで同時に変えて、差の原因を曖昧にしない。
 
