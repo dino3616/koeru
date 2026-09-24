@@ -23,7 +23,10 @@ jobs:
           test "$(git rev-list --count fe2fdeb2a70065dfd666314a8c29dbdaf7c5a439..68fa9452c9a5192e6eefdcffc24c24ff89d1035a)" = 25
 
       - name: Replay as GitHub-verified commits
-        uses: pgaskin/push-signed-commits@5055c5f30c4dca7aa847ed2f07683d7359b8ff2b
-        with:
-          branch: verified-replay-pr42
-          revision: fe2fdeb2a70065dfd666314a8c29dbdaf7c5a439..68fa9452c9a5192e6eefdcffc24c24ff89d1035a
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          npx -y push-signed-commits@1.2.0 \
+            dino3616/koeru \
+            verified-replay-pr42 \
+            fe2fdeb2a70065dfd666314a8c29dbdaf7c5a439..68fa9452c9a5192e6eefdcffc24c24ff89d1035a
