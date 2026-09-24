@@ -442,7 +442,9 @@ fn write_package(
             ),
         ));
     }
-    tracing::debug!(findings = report.findings.len(), "検査を通った");
+    // 欄の名前は許可リストのもの（`tests/offline.rs`）。 `findings` と名付けると、
+    // 次に触った人が件数ではなく中身（エイリアスとパス）を載せられる形になる。
+    tracing::debug!(count = report.findings.len(), "検査を通った");
 
     let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
     let exports = dir.exports_dir();
