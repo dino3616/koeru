@@ -316,6 +316,30 @@ Signal、Critique、Context Bundle、Agent の各発言については、新し�
 
 ただし、Vision と形式契約が食い違ったときに、機械的な優先順位で問題を消してはいけない。「モデルが意図を取り違えたのか」「意図を改めるのか」を Question として扱う。
 
+### 5.2.1 現行 `direction.md` を authority ごとに分解する
+
+現在の UX direction は、重要な知識を一箇所に集約した結果として、異なる authority の命題が
+同じ文章レベルに並んでいる。理想形では、これを一括して「Design Guideline」として昇格しない。
+
+各命題を少なくとも次へ分類する。
+
+| 種類 | 例 | 将来の置き場所 |
+|---|---|---|
+| **Product promise / durable constraint** | Own your voice、アクセシビリティを既定で満たす | Vision / TR / FSL / DEC |
+| **Adopted design decision** | 特定の metaphor、情報構造を現在採用する理由 | DEC |
+| **Empirical claim** | 「この表現なら未完成を不足ではなく途中として理解する」 | CLM + Probe + EVID |
+| **Reusable pattern** | 特定条件で再利用する interaction / language practice | PAT |
+| **Aesthetic authorship** | 現時点で選ぶ tone / composition | DEC または artifact。疑似 Evidence を作らない |
+| **Implementation convention** | component API、CSS token、focus 実装 | code / checked convention |
+| **Example** | 現在の story / screenshot | Storybook / artifact |
+
+たとえば「Own your voice」と「道具は動かない」と「色相を限定する」を同じ強さの原則として扱わない。
+前者は product-level promise になりうるが、後二者は反証可能な design choice / hypothesis である。
+
+最終的な Human-readable guide は、この分類された正本を projection して読む。
+`direction.md` は移行中の背景・設計史として保持してもよいが、そこに書かれているだけで
+新しい規範が生まれる状態は終わらせる。
+
 ### 5.3 ディレクトリ構成
 
 以下は提案後の構成であり、新しいファイルやコマンドをすでに追加したという意味ではない。
