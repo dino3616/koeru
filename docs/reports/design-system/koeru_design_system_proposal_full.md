@@ -1586,6 +1586,25 @@ LLM 用 credential は、worker が自由に読める workspace に置かない�
 
 初期上限は、一依頼二反復まで、並列 worker は原則一つとする。単に複数モデルへ同じ依頼を投げることを標準にしない。
 
+### 14.3.1 LLM の自動起動と deterministic watcher を分ける
+
+Issue 作成や PR 更新だけで LLM Agent を自動起動しない方針は維持する。
+ただし、**決定的に検出できる知識状態の変化まで人間の手動確認に戻さない。**
+
+CI / `xtask` は自動で少なくとも次を表面化できる。
+
+- Decision が依存する Claim に contradicting Evidence が追加された
+- `review_triggers` に関連する Evidence / requirement change が生じた
+- PAT が参照する DEC が superseded された
+- Human-only Claim が release-critical な Decision の前提になった
+- active Question の discriminator を無効にする constraint change が入った
+- Context root が orphan / unmapped になった
+
+これらは「AI が判断した通知」ではなく、明示された relation と field change から導く watcher とする。
+結果は Question / PR の候補を開く材料になるが、自動で DEC を覆したり Issue を大量作成したりしない。
+
+**AI automation を抑制することと、deterministic automation を抑制することを混同しない。**
+
 ### 14.4 Skill は Context のコピーではなく入口にする
 
 ```markdown
