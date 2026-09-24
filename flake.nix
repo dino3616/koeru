@@ -132,15 +132,15 @@
           fslcAssets = {
             aarch64-darwin = {
               name = "fslc-macos-arm64";
-              hash = "sha256-KKPb138shsglN8DecMu1frWpd3XO3v68G22PC3f4Pbs=";
+              hash = "sha256-0k07IDSxMCtTkvjnSkpSzXPnBJaGrc6/fEtFhHcLtqg=";
             };
             x86_64-linux = {
               name = "fslc-linux-x64";
-              hash = "sha256-mLYKmRS8BiJal6XleapAmwTpyqpGjVnNOn6NqKqQKTQ=";
+              hash = "sha256-os5NJsKkq788xrdZCM9PfmfBhTnYuwx7Go1pD1Z2qMg=";
             };
             aarch64-linux = {
               name = "fslc-linux-arm64";
-              hash = "sha256-IqQ65dkTbc6HommxVY4Sj9CnjE8wRkqPx1vKOQANdkM=";
+              hash = "sha256-ZKNWzMIsR8ChjQTTTxYuBSwM7kXvg6Ia1WaylegvF/w=";
             };
           };
           # system を足して資産を足し忘れたら、ここで評価が落ちる。
