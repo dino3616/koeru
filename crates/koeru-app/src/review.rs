@@ -146,7 +146,11 @@ pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> 
         let tone = tones.get(&e.row_id).copied().unwrap_or_default();
         let key = EntryKey::new(tone, e.alias).handle();
         takes.insert(key.clone(), e.take_id);
-        q.insert(key, Entry::restored(e.oto, state, confidence, e.pinned));
+        q.insert(
+            key,
+            Entry::restored(e.oto, state, confidence, e.pinned)
+                .with_branch_mismatch(e.branch_mismatch),
+        );
     }
     Ok((q, takes))
 }

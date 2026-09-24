@@ -90,6 +90,12 @@ const RING_SECONDS: usize = 8;
 /// 何件が確認に回るかには効かない。
 const CAUSE_THRESHOLD: f64 = 0.5;
 
+/// 分岐不一致の主因（`TR-ALN-16`, `DEC-ALN-018`）。 送信してよい固定文字列。
+///
+/// 確信度の成分より先に名指す。 キューの先頭に並べた理由がこれなので
+/// （`ReviewQueue::queued`）、成分の主因を出すと並べた理由と食い違う。
+const BRANCH_MISMATCH_CAUSE: &str = "branch.mismatch";
+
 /// 読みの最初の音素。集団の鍵にする（`TR-ALN-12` (b)）。
 ///
 /// 音素へ写せない読みは `None`。 推測で既定の音素を当てない——
@@ -2329,6 +2335,13 @@ impl Studio {
                     koeru_align::derive::derive_row(&entries, v, &line, duration_ms, &preset)
                         .into_iter()
                         .collect();
+                // 無声破裂音の分岐を閉鎖の短時間パワーで確かめる（`TR-ALN-16`, `DEC-ALN-018`）。
+                let mismatches = koeru_align::derive::closure_mismatches(
+                    &entries, v, &line, &f64s, rate, method, &preset,
+                );
+                if !mismatches.is_empty() {
+                    tracing::info!(count = mismatches.len(), "閉鎖を確かめられなかった");
+                }
                 for (alias, slot) in &entries {
                     if !owned.contains(alias) {
                         continue;
@@ -2376,6 +2389,11 @@ impl Studio {
                         })
                         .as_ref(),
                         false,
+                    )?;
+                    self.opened_mut()?.ledger.set_branch_mismatch(
+                        take_id,
+                        reading,
+                        mismatches.contains(alias),
                     )?;
                     if first.is_none() {
                         first = Some(o);
@@ -3109,10 +3127,13 @@ impl Studio {
             oto: e.oto,
             // 主因は成分の内訳から出る（`TR-ALN-26` (3)）。
             // 成分を持たない（この版より前に録った）ものは出せない。
-            cause: e
-                .confidence
-                .and_then(|c| c.cause(CAUSE_THRESHOLD))
-                .map(|c| c.kind().to_owned()),
+            cause: if e.branch_mismatch {
+                Some(BRANCH_MISMATCH_CAUSE.to_owned())
+            } else {
+                e.confidence
+                    .and_then(|c| c.cause(CAUSE_THRESHOLD))
+                    .map(|c| c.kind().to_owned())
+            },
             confidence: e.confidence.map_or(0.0, |c| c.score()),
             state: e.state.as_str().to_owned(),
             pinned: e.pins(),
@@ -3276,6 +3297,16 @@ impl Studio {
             koeru_align::derive::derive_row(&entries, &per_mora, &line, duration_ms, &preset)
                 .into_iter()
                 .collect();
+        // 境界が動いたので、閉鎖も確かめ直す（`DEC-ALN-018`）。 前の印を残さない。
+        let mismatches = koeru_align::derive::closure_mismatches(
+            &entries,
+            &per_mora,
+            &line,
+            &f64s,
+            w.rate_hz,
+            here.method,
+            &preset,
+        );
 
         let mut next = self.opened()?.review.clone();
         let mut rows = Vec::new();
@@ -3348,8 +3379,12 @@ impl Studio {
 
         let open = self.opened_mut()?;
         open.ledger.put_review_entries(&rows)?;
-        open.review = next;
-        Ok(())
+        for r in &rows {
+            open.ledger
+                .set_branch_mismatch(r.take_id, &r.alias, mismatches.contains(&r.alias))?;
+        }
+        // 印は台帳から載せ直す。 キューの写しは遷移しか運ばない。
+        self.refresh_review()
     }
 
     /// oto を直すのではなく録り直す（`REQ-ALN-009`, `TR-ALN-27`）。
