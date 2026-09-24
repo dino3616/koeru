@@ -260,7 +260,7 @@ Decision: 不採用
 ```mermaid
 flowchart TB
   W["外部世界・User・Community<br/>制作経験／要望／不具合／文化・技術の変化"]
-  H["Human Contributor<br/>作る・聴く・観察する・異議を出す"]
+  H["Human Contributor<br/>作る・聴く・観察する・異議を出す<br/>System 外で変わり、新しい関心を持ち帰る"]
   LEAVE["離れる／途中を渡す<br/>C8 checkpoint＋次の一手"]
   RETURN["参加・再参加<br/>C8 baseline SHA＋関心領域"]
 
@@ -554,9 +554,9 @@ artifact = "crates/koeru-app/ui/src/experiments/Q-UX-nnn/alternatives.story.tsx"
 ### Execution Contract
 
 **Purpose：** 未整理な経験を失わず、判断が必要なものだけを問いに変える。  
-**Trigger：** feedback、bug、要望、実機での違和感、新しい Evidence、外部環境の変化、説明できなかった箇所。
+**Trigger：** feedback、bug、要望、実機での違和感、新しい Evidence、外部環境の変化、説明できなかった箇所、Contributor がプロジェクト外で得た経験や taste の変化。
 
-**Input：** 自由記述、操作場面、任意の screenshot／録画、対象 revision、関連 Issue。  
+**Input：** 自由記述、操作場面、任意の screenshot／録画、対象 revision、関連 Issue。既存 KOERU の語彙へ翻訳できていない外部経験もそのまま受け付ける。  
 **Transformation：** 場面を再構成し、既知の不具合・既存 Pattern の適用・未解決の設計判断を切り分ける。重複をまとめる。
 
 **Output：** 通常の修正 Issue、既存 Question への追加、または新しい Question の案。  
@@ -1648,6 +1648,23 @@ cargo xtask context-delta \
 ```
 
 古い commit が取得できない、旧 schema を解釈できない、対象 ID が消えて後継不明、という場合は、その不足を出す。推測で滑らかな物語にしない。
+
+### 13.2.1 Re-entry は Context の再インストールではなく衝突点を作る
+
+Context Delta が示すのは KOERU 側の変化だけである。復帰した人自身も、離れている間に
+別の道具、作品、共同制作、生活条件、taste によって変わっている。
+
+そのため Delta 提示後には、任意で次の問いを置く。
+
+> 以前この領域を見ていたときと比べ、今のあなたには違って見えることがあるか。
+
+回答を onboarding test にしない。Context と一致しない感覚を「再学習すべき誤差」として修正せず、
+必要なら C1 の新しい Signal にする。
+
+Architecture 上、人間は Context Graph の consumer だけではない。
+**Graph の外にある世界で変化し、その変化を graph の境界へ持ち帰る source** でもある。
+この経路があることで、Context Bundle / Delta は社会化装置ではなく、既存文脈と新しい経験を
+比較可能にする boundary surface になる。
 
 ### 13.3 Handoff は三点でよい
 
