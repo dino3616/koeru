@@ -713,6 +713,9 @@ fn reading_of(
 ///
 /// 方式プリセットを選ばせる（`TR-RCL-01`, `TR-RCL-11`）。 画面が出した
 /// [`method_presets`] の `id` をそのまま渡す。
+///
+/// `presamp` は本人が選んだ `presamp.ini` の中身（`DEC-SYN-013`）。 選ばなければ
+/// `null` で、同梱の既定になる。ここで固定し、あとから変える道は無い。
 #[tauri::command(async)]
 #[specta::specta]
 pub fn create_project(
@@ -720,10 +723,27 @@ pub fn create_project(
     display_name: String,
     preset_id: String,
     tones: Vec<i32>,
+    presamp: Option<Vec<u8>>,
 ) -> Result<String> {
     Ok(lock(&state)?
-        .create_project_with(&display_name, &preset_id, &tones)?
+        .create_project_with_presamp(&display_name, &preset_id, &tones, presamp.as_deref())?
         .to_string())
+}
+
+/// 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+///
+/// 戻していなければ `null`。 本人が閉じるまで同じ名前を返す。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn presamp_notice(state: State<'_, AppState>) -> Result<Option<String>> {
+    lock(&state)?.presamp_notice()
+}
+
+/// 戻したことを知らせる札を下ろす（`DEC-SYN-013`）。
+#[tauri::command(async)]
+#[specta::specta]
+pub fn dismiss_presamp_notice(state: State<'_, AppState>) -> Result<()> {
+    lock(&state)?.dismiss_presamp_notice()
 }
 
 /// プロジェクトを開く。

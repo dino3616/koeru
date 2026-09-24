@@ -298,42 +298,36 @@ fn cvvc_の書き出しは渡りと語尾を持つ() {
     );
 }
 
-/// 音源に置いた `presamp.ini` が綴りを決める（`TR-SYN-36`, `DEC-SYN-010`）。
+/// 作るときに選んだ `presamp.ini` が綴りを決める（`TR-SYN-36`, `DEC-SYN-013`）。
 ///
-/// **読んでいなかった。** 差し替え点だと書いてあるファイルを書き出すだけで、
-/// 解決も被覆も同梱の既定を通っていた。
+/// **作ったあとで置かせていた。** 台帳は作った瞬間に既定の表で綴りを書くので、
+/// あとから置いた表の綴りは台帳と噛み合わず、一度も効かなかった。
 #[test]
-fn 置いた_presamp_が綴りを決める() {
-    let (mut s, root) = studio("presamp");
+fn 選んだ_presamp_が綴りを決める() {
+    let (mut s, _root) = studio("presamp");
+    // 語頭形の印を `-` から `^` へ替えるだけの表。
     let id = s
-        .create_project_with("差し替え", "sequential", &[57])
+        .create_project_with_presamp(
+            "差し替え",
+            "sequential",
+            &[57],
+            Some(b"[VERSION]\n1.0\n[BEGINING_CV]\n^ %CV%\n"),
+        )
         .expect("作れる");
     s.open_project(id).expect("開ける");
     let dir = s.project_dir().expect("開いている").clone();
 
-    // 語頭形の印を `-` から `^` へ替えるだけの表。
-    std::fs::write(
-        dir.presamp_path(),
-        "[VERSION]\n1.0\n[BEGINING_CV]\n^ %CV%\n",
-    )
-    .expect("置ける");
-    // 同じ Studio を開き直しても、同じ音源なら `Open` を作り直さない
-    // （`TR-REC-30`）。読ませるには開き直しが要るので、別の Studio で開く。
-    let mut s = Studio::open(root.clone()).expect("開ける");
-    s.open_project(id).expect("開ける");
-
-    let song = bundled_song_id(&mut s);
-    let rows = s
-        .repack_for_selection(&[(song, Vec::new())])
-        .expect("詰め直せる");
-    assert!(rows > 0, "行が入る");
-
+    // 録音リストが最初から選んだ表の綴りで入っている。
     let mut l = Ledger::open(dir.db_path()).expect("開ける");
     let aliases = l.all_aliases().expect("引ける");
     assert!(
         aliases.iter().any(|a| a.starts_with("^ ")),
-        "置いた表の語頭形を使う: {:?}",
+        "選んだ表の語頭形を使う: {:?}",
         aliases.iter().take(8).collect::<Vec<_>>()
+    );
+    assert!(
+        !aliases.iter().any(|a| a.starts_with("- ")),
+        "既定の語頭形が混ざらない"
     );
     // 書いていない表は既定で埋まる（`TR-SYN-36`）。 所属表が空のままだと
     // `%v%` が空文字になり、先頭が空白の綴りができる。
@@ -350,6 +344,68 @@ fn 置いた_presamp_が綴りを決める() {
         "文脈つきの綴りは既定の所属表で解ける: {:?}",
         aliases.iter().take(8).collect::<Vec<_>>()
     );
+    // 本人が中身を見られるよう、フォルダにも置く。
+    let placed = std::fs::read_to_string(dir.presamp_path()).expect("置いてある");
+    assert!(placed.contains("^ %CV%"), "{placed}");
+    assert_eq!(
+        s.presamp_notice().expect("開いている"),
+        None,
+        "戻していない"
+    );
+}
+
+/// あとから書き換えた `presamp.ini` は戻し、中身を別名で残して知らせる（`DEC-SYN-013`）。
+#[test]
+fn 書き換えた_presamp_は戻して知らせる() {
+    let (mut s, root) = studio("presamp-restore");
+    let id = s
+        .create_project_with("戻す", "sequential", &[57])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+    let dir = s.project_dir().expect("開いている").clone();
+    let original = std::fs::read_to_string(dir.presamp_path()).expect("置いてある");
+
+    std::fs::write(
+        dir.presamp_path(),
+        "[VERSION]\n1.0\n[BEGINING_CV]\n^ %CV%\n",
+    )
+    .expect("置ける");
+    // 同じ Studio を開き直しても、同じ音源なら `Open` を作り直さない
+    // （`TR-REC-30`）。読ませるには開き直しが要るので、別の Studio で開く。
+    let mut s = Studio::open(root).expect("開ける");
+    s.open_project(id).expect("開ける");
+
+    let kept = s
+        .presamp_notice()
+        .expect("開いている")
+        .expect("戻したことを知らせる");
+    assert!(
+        std::fs::read_to_string(dir.root().join(&kept))
+            .expect("残してある")
+            .contains("^ %CV%"),
+        "書き換えた中身を消さない"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.presamp_path()).expect("ある"),
+        original,
+        "作ったときの表へ戻す"
+    );
+
+    // 綴りは作ったときの表のまま。
+    let song = bundled_song_id(&mut s);
+    s.repack_for_selection(&[(song, Vec::new())])
+        .expect("詰め直せる");
+    let mut l = Ledger::open(dir.db_path()).expect("開ける");
+    assert!(
+        !l.all_aliases()
+            .expect("引ける")
+            .iter()
+            .any(|a| a.starts_with("^ ")),
+        "書き換えた表の綴りを使わない"
+    );
+
+    s.dismiss_presamp_notice().expect("下ろせる");
+    assert_eq!(s.presamp_notice().expect("開いている"), None);
 }
 
 /// 最初の行の ID。

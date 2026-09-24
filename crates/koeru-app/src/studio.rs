@@ -304,12 +304,9 @@ struct Open {
     session_id: i32,
     /// エイリアスの綴りの表（`TR-SYN-36`, `DEC-SYN-010`）。
     ///
-    /// プロジェクトに `presamp.ini` があればそれ、無ければ同梱の既定。
+    /// 台帳の写しから組む（`DEC-SYN-013`）。 作るときに選んだ表で、あとから変わらない。
     /// 録音リストの生成・カバレッジ判定・試唱・書き出しが、**全部ここを通る**
     /// ——片方だけが差し替わると、歌える判定と実際に鳴る音がずれる。
-    ///
-    /// 開くときに1度だけ読む。 引くたびに読み直すと、収録の途中で
-    /// ファイルを差し替えられたときに、同じセッションの中で綴りが変わる。
     rules: koeru_core::presamp::Rules,
     /// 確認キュー（`TR-ALN-25`、`align-review.fsl`）。
     ///
@@ -318,6 +315,11 @@ struct Open {
     review: ReviewQueue,
     /// エイリアス → そのエントリを持つ採用テイク。書き戻す先。
     review_takes: HashMap<String, i32>,
+    /// 開いたときに書き換えられていた `presamp.ini` を残したファイル名（`DEC-SYN-013`）。
+    ///
+    /// 本人が閉じるまで持つ。 画面は経路を移るたびに開き直すが、同じ音源なら
+    /// ここを通らないので、1度きりの応答で返すと移った先で消える。
+    presamp_restored: Option<String>,
 }
 
 /// 1つのテイクの結果。
@@ -678,6 +680,33 @@ impl Studio {
         preset_id: &str,
         tones: &[i32],
     ) -> Result<Uuid> {
+        self.create_project_with_presamp(display_name, preset_id, tones, None)
+    }
+
+    /// 綴りの表を選んでプロジェクトを作る（`TR-SYN-36`, `DEC-SYN-013`）。
+    ///
+    /// `presamp` は本人が選んだ `presamp.ini` の中身。 `None` なら同梱の既定。
+    /// 選んだ表はここで固定し、台帳に写しを持つ——あとから変える道は無い。
+    ///
+    /// **作ったあとでフォルダへ置かせていた。** 台帳は作った瞬間に既定の表で
+    /// 綴りを書くので、あとから置いた表は台帳と噛み合わず、差し替えた綴りは
+    /// 一度も効かなかった。
+    ///
+    /// # Errors
+    ///
+    /// 表を読めない、プリセットが無い、リストを生成できない、台帳を書けないとき。
+    #[tracing::instrument(
+        skip(self, display_name, tones, presamp),
+        fields(preset = preset_id, tones = tones.len(), presamp = presamp.is_some()),
+        err
+    )]
+    pub fn create_project_with_presamp(
+        &mut self,
+        display_name: &str,
+        preset_id: &str,
+        tones: &[i32],
+        presamp: Option<&[u8]>,
+    ) -> Result<Uuid> {
         let preset = koeru_core::preset::by_id(preset_id).ok_or_else(|| {
             AppError::new(
                 "preset.unknown",
@@ -686,8 +715,28 @@ impl Studio {
         })?;
         // 本数も音高も本人が決める（`TR-RCL-01`）。弾くのは鳴らせないものだけ。
         let tones = koeru_core::tone::normalize(tones).map_err(|e| AppError::new(e.kind(), e))?;
-        // 作る時点では音源に `presamp.ini` が無いので既定（`TR-SYN-36`）。
-        let rules = koeru_core::presamp::Rules::builtin(preset.set);
+        // 綴りの表（`TR-SYN-36`）。 書いていない節は既定で埋める——テンプレート
+        // だけ差し替えた表でも、所属表が空のまま録音リストを作らない。
+        let rules = match presamp {
+            None => koeru_core::presamp::Rules::builtin(preset.set),
+            Some(bytes) => {
+                let text = koeru_core::text::decode(bytes, koeru_core::text::TextEncoding::Utf8)
+                    .or_else(|_| {
+                        koeru_core::text::decode(bytes, koeru_core::text::TextEncoding::Cp932)
+                    })
+                    .map_err(|_| {
+                        AppError::new(
+                            "presamp.unreadable",
+                            "presamp.ini を読めない。UTF-8 か Shift_JIS で保存してほしい",
+                        )
+                    })?;
+                koeru_core::presamp::parse(&text).or_builtin(preset.set)
+            }
+        };
+        // 写しは表そのものではなく、書き直した形で持つ。 開いたときに突き合わせる
+        // 控え（`ProjectDir::restore_presamp`）と同じ文字列になる。改行は配布する
+        // `presamp.ini` と揃える——控えを開いた人が見比べられる。
+        let snapshot = koeru_core::presamp::write(&rules, koeru_package::profile::NEWLINE);
         let list = preset.reclist(&rules)?;
         let dir = self.library.create(&Manifest {
             // 外から入る文字列は境界で NFC へ（`TR-PKG-11`）。
@@ -709,6 +758,8 @@ impl Studio {
         }
 
         let mut ledger = Ledger::open(dir.db_path())?;
+        ledger.put_presamp_snapshot(&snapshot)?;
+        dir.write_presamp(&snapshot)?;
         ledger.install_reclist_for_tones(&list, &rules, preset.method, &tones)?;
 
         // 初回のとっかかりに要る最小限だけ入れる（`TR-RCL-12`）。
@@ -750,13 +801,16 @@ impl Studio {
                     preset_of,
                 );
                 // 開いていない音源でも、綴りはその音源のものを使う（`TR-SYN-36`）。
-                let rules = load_rules(&dir, preset.set);
+                // 台帳の写しから読む（`DEC-SYN-013`）。 フォルダの控えは読まない
+                // ——書き換えられたままの表で数えると、開いたときと数が変わる。
+                let state = Ledger::open(dir.db_path()).ok().and_then(|mut l| {
+                    let rules = rules_of(&mut l, preset.set).ok()?;
+                    voice_state(&mut l, &rules, preset).ok()
+                });
                 LibraryEntry {
                     id: dir.id(),
                     manifest,
-                    state: Ledger::open(dir.db_path())
-                        .ok()
-                        .and_then(|mut l| voice_state(&mut l, &rules, preset).ok()),
+                    state,
                 }
             })
             .collect())
@@ -851,7 +905,25 @@ impl Studio {
         // 確認キューは開くときに組み直す（`crate::review`）。
         // 遷移をやり直すのではなく、書いてあった状態をそのまま載せる。
         let (review, review_takes) = crate::review::load(&mut ledger)?;
-        let rules = load_rules(&dir, preset_of(&dir.read_manifest()?).set);
+        let set = preset_of(&dir.read_manifest()?).set;
+        // 綴りの表は台帳の写し（`DEC-SYN-013`）。 写しを持たない古いプロジェクトは、
+        // 作ったときの台帳が既定の表で書かれているので、既定を写しにする。
+        let snapshot = if let Some(t) = ledger.presamp_snapshot()? {
+            t
+        } else {
+            let t = koeru_core::presamp::write(
+                &koeru_core::presamp::Rules::builtin(set),
+                koeru_package::profile::NEWLINE,
+            );
+            ledger.put_presamp_snapshot(&t)?;
+            t
+        };
+        // フォルダの控えが書き換えられていれば戻し、中身を別名で残す。
+        let presamp_restored = dir.restore_presamp(&snapshot)?;
+        if presamp_restored.is_some() {
+            tracing::info!("書き換えられた綴りの表を戻した");
+        }
+        let rules = koeru_core::presamp::parse(&snapshot).or_builtin(set);
         self.open = Some(Open {
             dir,
             ledger,
@@ -859,7 +931,29 @@ impl Studio {
             rules,
             review,
             review_takes,
+            presamp_restored,
         });
+        Ok(())
+    }
+
+    /// 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+    ///
+    /// 戻していなければ `None`。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない。
+    pub fn presamp_notice(&self) -> Result<Option<String>> {
+        Ok(self.opened()?.presamp_restored.clone())
+    }
+
+    /// 戻したことを本人が読んだので、知らせを下ろす（`DEC-SYN-013`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない。
+    pub fn dismiss_presamp_notice(&mut self) -> Result<()> {
+        self.opened_mut()?.presamp_restored = None;
         Ok(())
     }
 
@@ -4444,29 +4538,20 @@ impl Studio {
     }
 }
 
-/// プロジェクトのエイリアス規則を読む（`TR-SYN-36`, `DEC-SYN-010`）。
+/// プロジェクトのエイリアス規則（`TR-SYN-36`, `DEC-SYN-010`, `DEC-SYN-013`）。
 ///
-/// 置いてあれば利用者の `presamp.ini`、無ければ同梱の既定。
+/// 台帳の写しから組む。 写しを持たない古いプロジェクトは同梱の既定。
 ///
-/// **読めなくても落とさない。** 綴りの表が壊れているだけで音源が開けなく
-/// なるより、既定へ戻して開けるほうが軽い。`Rules::parse` は節が欠けても
-/// その節だけ既定へ戻すので、ここで見るのは「ファイルを読めたか」だけ。
-fn load_rules(dir: &ProjectDir, set: koeru_core::inventory::UnitSet) -> koeru_core::presamp::Rules {
-    let path = dir.presamp_path();
-    match std::fs::read(&path) {
-        Ok(bytes) => match koeru_core::text::decode(&bytes, koeru_core::text::TextEncoding::Utf8)
-            .or_else(|_| koeru_core::text::decode(&bytes, koeru_core::text::TextEncoding::Cp932))
-        {
-            Ok(text) => {
-                tracing::info!("差し替えのエイリアス規則を読んだ");
-                // 書いていない表は既定で埋める。 テンプレートだけ差し替えた
-                // ファイルでも、所属表が空のまま解決へ入らない。
-                koeru_core::presamp::parse(&text).or_builtin(set)
-            }
-            Err(_) => koeru_core::presamp::Rules::builtin(set),
-        },
-        Err(_) => koeru_core::presamp::Rules::builtin(set),
-    }
+/// **音源フォルダの `presamp.ini` を読まない。** あれは本人が中身を見るための控えで、
+/// あとから書き換えられうる。台帳の綴りは作ったときの表で書かれている。
+fn rules_of(
+    ledger: &mut Ledger,
+    set: koeru_core::inventory::UnitSet,
+) -> Result<koeru_core::presamp::Rules> {
+    Ok(ledger.presamp_snapshot()?.map_or_else(
+        || koeru_core::presamp::Rules::builtin(set),
+        |t| koeru_core::presamp::parse(&t).or_builtin(set),
+    ))
 }
 
 /// manifest から方式プリセットを引く（`TR-RCL-01`）。

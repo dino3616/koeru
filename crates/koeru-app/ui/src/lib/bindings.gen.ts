@@ -45,8 +45,11 @@ export const commands = {
 	 * 
 	 *  方式プリセットを選ばせる（`TR-RCL-01`, `TR-RCL-11`）。 画面が出した
 	 *  [`method_presets`] の `id` をそのまま渡す。
+	 * 
+	 *  `presamp` は本人が選んだ `presamp.ini` の中身（`DEC-SYN-013`）。 選ばなければ
+	 *  `null` で、同梱の既定になる。ここで固定し、あとから変える道は無い。
 	 */
-	createProject: (displayName: string, presetId: string, tones: number[]) => typedError<string, AppError>(__TAURI_INVOKE("create_project", { displayName, presetId, tones })),
+	createProject: (displayName: string, presetId: string, tones: number[], presamp: number[] | null) => typedError<string, AppError>(__TAURI_INVOKE("create_project", { displayName, presetId, tones, presamp })),
 	/**
 	 *  表示名を変える（`DEC-PKG-007`）。
 	 * 
@@ -57,6 +60,14 @@ export const commands = {
 	voiceState: () => typedError<VoiceStateView, AppError>(__TAURI_INVOKE("voice_state")),
 	/**  プロジェクトを開く。 */
 	openProject: (id: string) => typedError<ProgressView, AppError>(__TAURI_INVOKE("open_project", { id })),
+	/**
+	 *  開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+	 * 
+	 *  戻していなければ `null`。 本人が閉じるまで同じ名前を返す。
+	 */
+	presampNotice: () => typedError<string | null, AppError>(__TAURI_INVOKE("presamp_notice")),
+	/**  戻したことを知らせる札を下ろす（`DEC-SYN-013`）。 */
+	dismissPresampNotice: () => typedError<null, AppError>(__TAURI_INVOKE("dismiss_presamp_notice")),
 	/**  いまの進み具合。 */
 	progress: () => typedError<ProgressView, AppError>(__TAURI_INVOKE("progress")),
 	/**

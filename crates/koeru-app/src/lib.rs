@@ -44,6 +44,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::rename_project,
         commands::voice_state,
         commands::open_project,
+        commands::presamp_notice,
+        commands::dismiss_presamp_notice,
         commands::progress,
         commands::chosen_device,
         commands::arm_device,
