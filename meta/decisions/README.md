@@ -35,7 +35,8 @@
 | [DEC-ALN-014](DEC-ALN-014.toml) | oto の再導出の担当 | アライメント境界を保存し、下位方式の5値の再導出を align に置く | accepted |
 | [DEC-ALN-015](DEC-ALN-015.toml) | 退避経路の段数 | Julius は採らない。退避は segment.rs の1段に確定し、多モーラ方式では MFA を必須にする | accepted |
 | [DEC-ALN-016](DEC-ALN-016.toml) | 退避経路の段数 | アライメントの退避経路を持たない。MFA が無ければ自動原音設定を行わない | accepted |
-| [DEC-ALN-017](DEC-ALN-017.toml) | 原音設定エントリの同一性 | 原音設定エントリの同一性を（収録音高, 綴り）にし、同じ音高の中で綴りの持ち主を1行に決める | accepted |
+| [DEC-ALN-017](DEC-ALN-017.toml) | 原音設定エントリの同一性 | 原音設定エントリの同一性を（収録音高, 綴り）にし、同じ音高の中で綴りの持ち主を1行に決める | superseded |
+| [DEC-ALN-018](DEC-ALN-018.toml) | 無声破裂音の分岐の事後検証 | 無声破裂音の閉鎖は直前の母音と比べて検証し、閾値は実測までの仮置きにする | accepted |
 | [DEC-EDT-003](DEC-EDT-003.toml) | 違反と確認済み | 上級モードの自動確認済みに「制約違反が残っていない場合に限る」を課す | accepted |
 | [DEC-PKG-001](DEC-PKG-001.toml) | 完成 | 完成状態と手渡し状態を直交させる | accepted |
 | [DEC-PKG-002](DEC-PKG-002.toml) | 周波数表 | `.frq` は録音時に作る | accepted |
@@ -51,6 +52,7 @@
 | [DEC-PKG-012](DEC-PKG-012.toml) | 音源アイコン | 音源アイコンは本人の画像から作る | accepted |
 | [DEC-PKG-013](DEC-PKG-013.toml) | 配り物への到達 | 配り物の置き場所を、OS のファイルマネージャで見せる | accepted |
 | [DEC-PKG-014](DEC-PKG-014.toml) | 下位方式の出どころ | 下位方式へ降りるとき、綴りごとに行頭のモーラを持つ素材から採る | accepted |
+| [DEC-PKG-015](DEC-PKG-015.toml) | 配布物の方式の名乗り | readme の収録方式と収録音高を別の節に分け、収録音高は単音階でも出す | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -99,6 +101,7 @@
 | [DEC-RCL-013](DEC-RCL-013.toml) | 残り時間の出どころ | 所要時間を実測で推定しない。固定の見積もり1本にし、残りは件数と併記する | accepted |
 | [DEC-RCL-014](DEC-RCL-014.toml) | 方式と収録音高の分け方 | 収録音高をプリセットから外し、本数も音高も本人に選ばせる | accepted |
 | [DEC-RCL-015](DEC-RCL-015.toml) | 下位方式への移行 | 下位方式の書き出しから素材の由来を落とす。声質の推測材料も置かない | accepted |
+| [DEC-RCL-016](DEC-RCL-016.toml) | 一度録った綴りを二度読ませない | 未収録の行を録った綴りに合わせて組み直し、重なった綴りは先に録った行が持つ | accepted |
 | [DEC-REC-001](DEC-REC-001.toml) | 音声 I/O | 音声 I/O は各 OS の API を直接叩く。抽象レイヤを挟まない | accepted |
 | [DEC-REC-002](DEC-REC-002.toml) | 録音条件 | 録音条件は、ある程度の品質のマイクと通常の声量を前提にする | accepted |
 | [DEC-REC-003](DEC-REC-003.toml) | 前処理 | 録音直後のオフライン前処理を、試唱と配布に同じく適用する | accepted |
@@ -120,6 +123,8 @@
 | [DEC-SYN-010](DEC-SYN-010.toml) | phonemizer の差し替え | phonemizer の差し替えを presamp.ini に置き、音素の時間位置は KOERU の規約に残す | accepted |
 | [DEC-SYN-011](DEC-SYN-011.toml) | CVVC の候補順 | CVVC の候補順にも直前の音符を見せる | accepted |
 | [DEC-SYN-012](DEC-SYN-012.toml) | 曲のキーを誰が決めるか | 自動移調をやめる。キーは本人が決め、KOERU は勧めるだけにする | accepted |
+| [DEC-SYN-013](DEC-SYN-013.toml) | 綴りの表の固定 | presamp.ini はプロジェクトを作るときに選ばせて固定し、あとからの書き換えは戻して別名で残す | accepted |
+| [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-112 件。
+117 件。

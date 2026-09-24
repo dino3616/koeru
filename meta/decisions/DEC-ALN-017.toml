@@ -3,7 +3,8 @@ id = 'DEC-ALN-017'
 constraint_label = '原音設定エントリの同一性'
 constraint = '確認していないエントリが配布物へ入らないこと'
 title = '原音設定エントリの同一性を（収録音高, 綴り）にし、同じ音高の中で綴りの持ち主を1行に決める'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-RCL-016'
 owner = 'dino3616'
 options = [
   '（収録音高, 綴り）を鍵にし、同じ音高の中の重複は生成側で潰す',
