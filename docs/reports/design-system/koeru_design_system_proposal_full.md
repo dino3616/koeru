@@ -1,5 +1,22 @@
-# KOERU Design System 設計仕様
+# KOERU Design System Research & Reference Architecture
 ## 創作実践を引き継ぎ、作り替えるための社会技術基盤
+
+> [!IMPORTANT]
+> **この文書は調査報告兼 Reference Architecture であり、KOERU の規範の正本ではない。**
+> ここにある `shall` 相当の提案、時間・件数などの運用値、directory / schema / command の例は、
+> 採用前の設計候補である。実際に採用する規範は `TR-*`、FSL、`DEC-*`、将来の `PAT-*`、
+> およびそれらから参照される実装・policy に置く。
+> この文書と正本が食い違う場合、この文書を更新するか、食い違い自体を Question として扱う。
+> **この文書を引用しただけでは、提案が採用済みになったことを意味しない。**
+
+### この文書が保持するもの
+
+- なぜこの Architecture を候補とするのかという調査・推論・反証条件
+- 各 mechanism の Execution Contract と、repository 上へ落とす具体案
+- 採用前の schema / CLI / workflow の例
+- 実際に採用された正本への参照
+
+正本そのものは重複して保持しない。
 
 ## 1. KOERU の根本的な Design Problem
 
