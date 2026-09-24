@@ -109,6 +109,26 @@ fn last_phoneme(reading: &str) -> Option<Phoneme> {
         .and_then(|p| p.last().copied())
 }
 
+/// 話者内一貫性（`TR-ALN-12`）の集団を引く読み。 CV の枠だけ返す。
+///
+/// 集団の鍵は音素で、音素は仮名から引く（`phoneme::phonemes_for` は仮名の辞書）。
+/// **綴りを渡していた。** `a か` も `- か` も `a k` も辞書に無いので、
+/// 連続音と CVVC では集団が1つも作れず、事前分布がいつも 1.0 だった
+/// ——単独音だけは綴りが仮名そのものなので、試験が素通りしていた。
+///
+/// 渡りと語尾は測らない。 先行発声も子音長も CV とは別の区間を指すので、
+/// 同じ音素の集団へ混ぜると CV の集団のほうが歪む。分からないものを
+/// 外れ値にしない方針（[`Studio::prior_of`]）どおり、1.0 のままにする。
+fn consistency_reading(
+    slot: koeru_core::reclist::Slot,
+    line: &[koeru_core::inventory::Unit],
+) -> Option<&'static str> {
+    match slot {
+        koeru_core::reclist::Slot::Cv { mora } => line.get(mora).map(|u| u.kana),
+        koeru_core::reclist::Slot::Vc { .. } | koeru_core::reclist::Slot::Ending { .. } => None,
+    }
+}
+
 /// 音素ごとに集めた測度の集団（`TR-ALN-12`）。
 ///
 /// 条文が挙げるのは「先行発声位置・子音長・母音長」。 oto からそれぞれを引く。
@@ -2312,7 +2332,8 @@ impl Studio {
                     // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
                     // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
                     // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
-                    let prior = Self::prior_of(&pops, row_tone, reading, &o, duration_ms);
+                    let prior = consistency_reading(*slot, &line)
+                        .map_or(1.0, |k| Self::prior_of(&pops, row_tone, k, &o, duration_ms));
                     let c = span_conf(b, b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
                         c.prior = prior;
                         c
@@ -2840,15 +2861,34 @@ impl Studio {
     /// 入れても全部同じ値になる（`TR-ALN-22` は多音階で効く）。
     fn populations(&mut self) -> Result<Populations> {
         let mut out = Populations::default();
+        let here = self.current_preset()?;
+        let rules = self.current_rules()?;
         let tones = self.opened_mut()?.ledger.row_tones()?;
+        // 行ごとに「綴り → 仮名」を1度だけ組む。 エントリは行の数より多い。
+        let mut readings: HashMap<String, HashMap<String, &'static str>> = HashMap::new();
         for e in self.opened_mut()?.ledger.adopted_otos()? {
+            if !readings.contains_key(&e.row_id) {
+                let line = self
+                    .opened_mut()?
+                    .ledger
+                    .row_units_of(&e.row_id, here.set)?;
+                let map = koeru_core::reclist::row_entries(&rules, here.method, &line)
+                    .into_iter()
+                    .filter_map(|(a, slot)| Some((a, consistency_reading(slot, &line)?)))
+                    .collect();
+                readings.insert(e.row_id.clone(), map);
+            }
+            // CV の枠だけが集団に入る（`consistency_reading`）。
+            let Some(kana) = readings.get(&e.row_id).and_then(|m| m.get(&e.alias)) else {
+                continue;
+            };
             let tone = tones.get(&e.row_id).copied().unwrap_or_default();
             #[allow(
                 clippy::cast_precision_loss,
                 reason = "収録の長さは 2^53 フレームに届かない"
             )]
             let len_ms = e.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
-            out.push(tone, &e.alias, &e.oto, len_ms);
+            out.push(tone, kana, &e.oto, len_ms);
         }
         Ok(out)
     }
@@ -3218,10 +3258,12 @@ impl Studio {
                 continue;
             };
             let reading = alias.as_str();
-            // キューの鍵は（音高, 綴り）（`TR-ALN-22`）。 集団の鍵は綴りのまま
-            // ——あちらは音高で先に絞ってあるので、綴りだけで引く。
+            // キューの鍵は（音高, 綴り）（`TR-ALN-22`）。
             let key = crate::review::EntryKey::new(tone, reading).handle();
-            let prior = Self::prior_of(&pops, tone, reading, &o, duration_ms);
+            // 集団はそのモーラの仮名で引く（`consistency_reading`）。
+            // 綴りは音素へ写せないので、渡すと集団が引けない。
+            let prior = consistency_reading(*slot, &line)
+                .map_or(1.0, |k| Self::prior_of(&pops, tone, k, &o, duration_ms));
             // 音の質はその枠の区間で測る（`TR-ALN-26`）。
             //
             // **ファイル全体を渡していた。** 隣のモーラが割れていたり
@@ -4696,5 +4738,53 @@ mod subbank_tests {
             pick_material(&by_tone, &[55, 62, 69], 55, "か").is_none(),
             "G3 の音に D4 の素材を当てない"
         );
+    }
+}
+
+#[cfg(test)]
+mod consistency_tests {
+    use super::*;
+    use koeru_core::alias::Method;
+    use koeru_core::inventory::UnitSet;
+    use koeru_core::reclist::{Slot, row_entries};
+
+    /// 集団は綴りではなくモーラの仮名で引く（`TR-ALN-12`）。
+    ///
+    /// **綴りを渡していた。** 連続音と CVVC では集団が1つも作れず、
+    /// 事前分布がいつも 1.0 だった。単独音だけは綴りが仮名そのものなので、
+    /// 単独音の試験しか無いうちは誰も気づかなかった。
+    #[test]
+    fn どの方式でも_cv_の枠は音素へ写せる() {
+        let rules = koeru_core::presamp::Rules::builtin(UnitSet::Core);
+        let line: Vec<_> = koeru_core::inventory::units(UnitSet::Core)
+            .into_iter()
+            .filter(|u| ["あ", "か", "さ"].contains(&u.kana))
+            .collect();
+        for method in [Method::Single, Method::Sequential, Method::Cvvc] {
+            for (alias, slot) in row_entries(&rules, method, &line) {
+                let reading = consistency_reading(slot, &line);
+                match slot {
+                    Slot::Cv { .. } => {
+                        let k = reading.expect("CV の枠は仮名を返す");
+                        assert!(
+                            first_phoneme(k).is_some() && last_phoneme(k).is_some(),
+                            "{method:?} の {alias} から引いた {k} は音素へ写せる"
+                        );
+                    }
+                    // 渡りと語尾は CV の集団へ混ぜない。
+                    Slot::Vc { .. } | Slot::Ending { .. } => {
+                        assert_eq!(reading, None, "{method:?} の {alias} は測らない");
+                    }
+                }
+            }
+        }
+    }
+
+    /// 仮名でなく綴りを渡すと、集団が引けない——これが直す前の形。
+    #[test]
+    fn 綴りは音素へ写せない() {
+        for spelling in ["- か", "a か", "a k", "a -"] {
+            assert!(first_phoneme(spelling).is_none(), "{spelling}");
+        }
     }
 }
