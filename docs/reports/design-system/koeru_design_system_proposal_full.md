@@ -112,6 +112,36 @@ KOERU には、利用者の音声制作行動・意味理解・感情につい�
 
 人間と AI の組合せについてのメタ分析では、人間単独に対する改善と、人間・AI のうち優れた方を上回る相乗効果は区別される。平均的に後者が成立するわけではなく、課題によって結果が異なる。したがって、Human approval gate を付けたこと自体を品質保証とみなさない。([doi.org](https://doi.org/10.1038/s41562-024-02024-1))
 
+### 2.4.1 Community of Practice を権力から中立な学習装置とみなさない
+
+Situated learning / Community of Practice は、KOERU の「実践へ参加しながら学ぶ」という構想に
+重要な示唆を与える。一方で、その語彙をそのまま肯定的な community model として採用しない。
+
+Contu & Willmott (2003) は、situated learning が本来含んでいた power relations への視点が、
+企業が Community of Practice を管理目標へ利用する過程で弱められうると批判している。
+Fox (2000) も CoP theory を power relations の観点から再検討し、formal / canonical な組織像だけで
+learning を理解することへ疑問を向ける。Roberts (2006) は knowledge management における CoP
+approach の limits を整理している。
+
+KOERU では、この批判を次の architecture requirement に変換する。
+
+- Context mastery を発言権の前提にしない。知らない人の違和感も Signal として受ける。
+- 古参が Canon を説明できることを veto authority に変えない。
+- newcomer が周辺参加から中心へ進むことを success path と強制しない。
+- Canon に反する proposal だけ説明コストが高くなっていないか C10 で観測する。
+- Studio role を固定階層にせず、Reader / Contrarian / Context Keeper 等を輪番可能にする。
+- Community の語彙に馴染むことと、design capability を区別する。
+
+この注意は「権力をなくせる」という主張ではない。
+誰が merge / release / rights-related decision を担うかという実際の権限は明示しつつ、
+learning system がその権限差を不可視化・正当化しないことを目指す。
+
+参照:
+
+- Contu & Willmott (2003), *Re-Embedding Situatedness: The Importance of Power Relations in Learning Theory*, Organization Science 14(3):283–296. https://doi.org/10.1287/orsc.14.3.283.15167
+- Fox (2000), *Communities Of Practice, Foucault And Actor-Network Theory*, Journal of Management Studies 37(6):853–868. https://doi.org/10.1111/1467-6486.00207
+- Roberts (2006), *Limits to Communities of Practice*, Journal of Management Studies 43(3):623–639. https://doi.org/10.1111/j.1467-6486.2006.00618.x
+
 ### 2.5 Research evidence matrix
 
 外部研究は「引用したから正しい」という authority として使わない。
@@ -119,6 +149,7 @@ KOERU には、利用者の音声制作行動・意味理解・感情につい�
 
 | Source | 種類 / 対象 | この Architecture が借りるもの | KOERU への転用限界 | Status |
 |---|---|---|---|---|
+| Contu & Willmott; Fox; Roberts, critiques of Communities of Practice | organizational learning / power | Context learning can reproduce authority, exclusion, and managerial goals | KOERU is volunteer OSS, not the organizations studied; use as an adversarial lens, not a predicted outcome | peer-reviewed critical studies |
 | MacLean et al., QOC / Design Space Analysis | design rationale / software design | Question・Option・Criteria を分け、問いと案が相互に変化する見方 | KOERU の創作 UX を実証した研究ではない | academic / foundational |
 | Shipman & McCall, Incremental Formalization | HCI / design information management | informal な材料を必要時だけ形式化する原則 | GitHub OSS での運用コストは KOERU で観測が必要 | peer-reviewed HCI |
 | Collins, Brown & Newman / Cognitive Apprenticeship | learning / apprenticeship | modeling、coaching、articulation、reflection、exploration | volunteer OSS の長期在籍を前提にしてはいけない | academic / educational theory |
