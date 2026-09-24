@@ -9,7 +9,7 @@ import { type VariantProps, cn, tv } from "~/lib/tv";
  * `tv` に入れるのは値で変わるものだけ。 静的なクラスは下の JSX に直接書く
  * ——`base` に入れると、見た目を読むのに2箇所を行き来することになる。
  *
- * 押せるものに色相を与えない（`docs/reports/design/direction.md`）。 塗りは段 11、
+ * 押せるものに色相を与えない（`docs/reports/ux/direction.md`）。 塗りは段 11、
  * 字は段 1。色相を持ってよいのは声と状態色（red / amber）だけなので、
  * 「押せる」を色で言わず、塗りの有無で言う。
  */
@@ -60,7 +60,7 @@ type ButtonProps = ComponentProps<"button"> &
  * 差し込めるようにすると、`TR-PLT-31` の操作対象の大きさを呼び出し側が壊せる。
  * 何を通すかは `shadcn/no-restyle` の contract が持つ（`vite.config.ts`）。
  *
- * 色の遷移を持たない。 道具側は動かない（`docs/reports/design/direction.md`）ので、
+ * 色の遷移を持たない。 道具側は動かない（`docs/reports/ux/direction.md`）ので、
  * hover も即座に切り替わる。
  */
 export const Button = ({ variant, size, asChild = false, className, ...props }: ButtonProps) => {

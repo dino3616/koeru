@@ -29,7 +29,7 @@ type VoiceSettingsProps = {
  *
  * 作り方は変わらない。 最初に選んだまま。変える経路は `PROFILE-M5` で入る。
  *
- * 枠を持たない。 置く側の領域がそのまま枠になる（`docs/reports/design/direction.md` の
+ * 枠を持たない。 置く側の領域がそのまま枠になる（`docs/reports/ux/direction.md` の
  * 部品の粒度）。ここで `Card` を返すと、領域の枠の中にもう1枚枠が出る。
  */
 export const VoiceSettings = ({ id, name, method, rows, onRenamed }: VoiceSettingsProps) => {

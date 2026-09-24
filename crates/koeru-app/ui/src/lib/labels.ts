@@ -3,7 +3,7 @@
  *
  * `~/lib/ipc` にも同じ役目のものがある（`micModeLabel`）。 あちらは
  * 境界の層に属するもので、ここは画面の語彙。 分けているのは、
- * ここが `docs/reports/design/direction.md` の言葉の規律に従うため——
+ * ここが `docs/reports/ux/direction.md` の言葉の規律に従うため——
  * 内部表現の名前を出さない、評価しない、単位を省かない。
  */
 

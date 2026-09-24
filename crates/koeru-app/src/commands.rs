@@ -464,7 +464,7 @@ pub fn voice_state(state: State<'_, AppState>) -> Result<VoiceStateView> {
 
 /// 画面へ返す方式プリセット1つ（`TR-RCL-11`）。
 ///
-/// 選ぶときだけオブジェクトになるもの（`docs/reports/design/ooui-model.md`）。
+/// 選ぶときだけオブジェクトになるもの（`docs/reports/ux/ooui-model.md`）。
 /// 選ばれたら音源の属性に落ちるので、永続する実体を持たない。
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct MethodPresetView {
@@ -491,7 +491,7 @@ pub struct MethodPresetView {
 ///
 /// **いまは単独音だけ。** 連続音と CVVC は `PROFILE-M5` で足す。
 /// 作れないものを灰色で並べない——欠けを失敗として描かない
-/// （`docs/reports/design/direction.md`）ので、席は空けるが的は出さない。
+/// （`docs/reports/ux/direction.md`）ので、席は空けるが的は出さない。
 ///
 /// 数は録音リストから作る。 見積もりの係数は `koeru_core::plan` が持つ。
 #[tauri::command(async)]

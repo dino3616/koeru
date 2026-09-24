@@ -1,10 +1,10 @@
 # KOERU — Journey Map (As-Is / To-Be)
 
-ビジョン: [product-vision.md](./product-vision.md) ／ 調査資料: [utau_voicebank_creation_research_2026-08-26.pdf](./utau_voicebank_creation_research_2026-08-26.pdf)
+ビジョン: [product-vision.md](./product-vision.md) ／ 調査資料: [utau_voicebank_creation_research_2026-08-26.pdf](./reports/market/utau_voicebank_creation_research_2026-08-26.pdf)
 
 > **前提**: KOERU には実ヒアリングがまだない。本 JM はアンケート調査（n=600 / 未経験者 n=63）とビジョンで定義した2セグメントから組み立てた**仮説 JM** である。発話・エピソード・環境描写の多くは `※推測` であり、実際に話を聞いたら差し替える。
 >
-> **一次インタビューは行わない判断をしている**（`docs/reports/design/redesign-plan.md`）。代わりに、制作者が公開している制作記から行動の痕跡を拾い（`EVID-UX-003`）、既存ツールの情報構造を分解した（`EVID-UX-002`）。**`※出典あり` を付けた箇所は、誰かが実際に書いた言葉に対応している。** 推測ではないが、その人がそう書いたということであって、制作者一般に当てはまるかは確かめていない。
+> **一次インタビューは行わない判断をしている**（`docs/reports/ux/redesign-plan.md`）。代わりに、制作者が公開している制作記から行動の痕跡を拾い（`EVID-UX-003`）、既存ツールの情報構造を分解した（`EVID-UX-002`）。**`※出典あり` を付けた箇所は、誰かが実際に書いた言葉に対応している。** 推測ではないが、その人がそう書いたということであって、制作者一般に当てはまるかは確かめていない。
 
 ## ペルソナ
 

@@ -57,7 +57,7 @@ export const 一つも録っていない: Story = {
 export const 確認待ちがある: Story = {
   args: { pendingRowIds: ["s001", "s003"] },
   play: async ({ canvasElement }) => {
-    // 色だけで言わない。語も並べる（`docs/reports/design/direction.md`）。
+    // 色だけで言わない。語も並べる（`docs/reports/ux/direction.md`）。
     await expect(canvasElement.textContent).toContain("確認待ち");
     const labels = [...canvasElement.querySelectorAll("[aria-label]")].map((e) =>
       e.getAttribute("aria-label"),

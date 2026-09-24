@@ -1,7 +1,7 @@
 schema = 'decision'
 id = 'DEC-PLT-028'
 constraint_label = '画面で色相を持ってよいもの'
-constraint = '色相を持つのは本人の声と、危険・注意の状態色だけ（docs/reports/design/direction.md）'
+constraint = '色相を持つのは本人の声と、危険・注意の状態色だけ（docs/reports/ux/direction.md）'
 title = '押せるものの塗りとフォーカス環を無彩色へ移す。cyan と jade を画面から外す'
 status = 'accepted'
 owner = 'dino3616'
@@ -12,7 +12,7 @@ options = [
 ]
 selected = '両方 slate へ移す'
 rationale = '''
-`docs/reports/design/direction.md` は「道具は色相を持たない。**押せるものにも色相を与えない**」と
+`docs/reports/ux/direction.md` は「道具は色相を持たない。**押せるものにも色相を与えない**」と
 定めている。**画面上で色相を持つものが、本人の声か危ないことだけ**になるのが狙いで、
 teenage engineering が無彩色の筐体に画面の中だけ色を許していたのと同じ構造（`EVID-UX-004`）。
 

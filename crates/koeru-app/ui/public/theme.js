@@ -23,7 +23,7 @@
       /*
        * `matchMedia` が無い環境。暗い面を既定にする。
        *
-       * `docs/reports/design/direction.md` が既定を暗い面と決めている。
+       * `docs/reports/ux/direction.md` が既定を暗い面と決めている。
        * ここだけ明るい面へ落ちていたので、**文書が言う既定が
        * どの経路にも無かった。**
        */

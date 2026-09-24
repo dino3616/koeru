@@ -13,7 +13,7 @@ import { errorMessage } from "~/lib/ipc";
  * `ErrorBoundary` はその外側の backstop。収録の途中で起きうるので、
  * どちらの経路でもやり直す手段をその場に置く（`TR-PLT-29`）。
  *
- * 謝らない（`docs/reports/design/direction.md`）。 何が起きたかと、次に何をすれば
+ * 謝らない（`docs/reports/ux/direction.md`）。 何が起きたかと、次に何をすれば
  * よいかだけを書く。
  *
  * 原因は `errorMessage` を通す。 素の例外をそのまま出すと、

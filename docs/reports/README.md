@@ -4,6 +4,7 @@
 
 | 場所 | 内容 |
 |---|---|
-| [design/](design/) | 画面の設計。ディレクション、オブジェクトモデル、リデザインの対応方針 |
-| [koeru-architecture/](koeru-architecture/) | リポジトリ構造の外部レビュー（バンドル） |
-| [KOERU_GTM_Strategy_2026-09-24.md](KOERU_GTM_Strategy_2026-09-24.md) | GTM 戦略の整理 |
+| [ux/](ux/) | 画面の設計。ディレクション、オブジェクトモデル、リデザインの対応方針 |
+| [architecture/](architecture/) | リポジトリ構造の外部レビュー（バンドル） |
+| [gtm/](gtm/) | Go-to-market の整理 |
+| [market/](market/) | 市場・ユーザー調査 |

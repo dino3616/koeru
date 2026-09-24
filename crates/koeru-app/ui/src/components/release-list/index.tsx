@@ -18,7 +18,7 @@ type ReleaseListProps = {
  * ファイルマネージャに見せてもらう——**フォルダ操作を要求しないが、
  * 到達経路は残す。** 作れるのに手が届かないと、配り物として成立しない。
  *
- * 枠を持たない。 置く側の領域が枠になる（`docs/reports/design/direction.md`）。
+ * 枠を持たない。 置く側の領域が枠になる（`docs/reports/ux/direction.md`）。
  */
 export const ReleaseList = ({ voiceId }: ReleaseListProps) => {
   const { data: releases } = useSuspenseQuery(releasesQuery(voiceId));

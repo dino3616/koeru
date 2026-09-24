@@ -54,7 +54,7 @@ export const usableSpan = (o: OtoView, fileMs: number): [number, number] => {
  * 境界をつかんでいるあいだの描き直しは決めない（`DEC-PLT-024`）。
  * 実測前の推測を構造に焼き付けないため、いまは全体だけを描く。
  *
- * 色相を持たない。 波形は道具側の目盛り（`docs/reports/design/direction.md`）。
+ * 色相を持たない。 波形は道具側の目盛り（`docs/reports/ux/direction.md`）。
  * 割れているときだけ red——あれは状態であって装飾ではない。
  */
 export const TakeWaveform = ({

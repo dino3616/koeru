@@ -71,7 +71,7 @@ export const 録れた: Story = {
   play: async ({ canvasElement }) => {
     /*
      * 評価語を出さない（`DEC-REC-008`）。測った値だけを出す。
-     * 単位も省かない（`docs/reports/design/direction.md`）。
+     * 単位も省かない（`docs/reports/ux/direction.md`）。
      */
     const text = canvasElement.textContent ?? "";
     for (const word of ["小さすぎ", "歪ん", "ちょうどよい", "うまく"]) {

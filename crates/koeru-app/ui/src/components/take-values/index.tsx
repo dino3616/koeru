@@ -41,11 +41,11 @@ const spoken = (slot: OtoSlot, oto: OtoView, durationMs: number): string => {
  * 1回の録音から取れた音と、その切り出し（`TR-ALN-33`、`TR-EDT-01`）。
  *
  * **言い換えて置く。** エイリアスも oto の語も、既定では出さない
- * （`TR-REC-18`、`docs/reports/design/direction.md` の「内部表現の名前を出さない」）。
+ * （`TR-REC-18`、`docs/reports/ux/direction.md` の「内部表現の名前を出さない」）。
  *
  * ただし本人が生値へ切り替えられる。 上級者が数値を直接触れることは
  * `docs/product-vision.md` が求めている。切り替えは要件に無いので、
- * **判断記録が要る**（この形は `docs/reports/design/canvas` の付箋に残っている）。
+ * **判断記録が要る**（この形は `docs/reports/ux/canvas` の付箋に残っている）。
  *
  * 人が決めた値には印を付ける（`TR-ALN-30`）。 印が無いと、再推定で動くものと
  * 動かないものの区別が画面から消える。解く的もその値の隣に置く——
