@@ -716,6 +716,27 @@ Agent への依頼は、次のように分ける。
 
 人間が AI を見る前に短い案を作る方法は推奨するが、参加資格にはしない。手描きが難しい人は action trace や音声による説明でもよい。
 
+### 8.2.1 Design Space は隔離した exploration lane から合流させる
+
+一つの Agent に「案をたくさん出して」と頼むだけでは、同じ basin の表層 variation が増えやすい。
+そこで、必要な Question では入力文脈と探索 operator を意図的に変えた lane を並列に使う。
+重要なのは persona を演じ分けることではなく、**見せる情報と探索する方向を変えること**である。
+
+| Lane | 与える Context | 役割 |
+|---|---|---|
+| **Canon-aware** | Product Context + 現 Canon + Evidence | 現在の学習を最大限使って改善する |
+| **Constraint-only** | Promise / TR / hard constraint。現 direction / PAT は隠す | 既存解へ引かれず、同じ制約から別の構造を作る |
+| **Contrarian** | 現 Canon + 「一つを反転せよ」 | Canon が成立しない条件と逆側の価値を探す |
+| **Analogy Scout** | Question と構造だけ | 隣接領域・別 craft・反例から design move を輸入する |
+| **Human seed** | AI の候補を見る前の短い初期案 | 先行生成物による fixation を避けるための独立 seed |
+
+すべてを毎回走らせない。Question の重要度と探索予算で選ぶ。
+複数 lane を使う場合、**初回生成中は互いの出力を見せず、最後に merge / compare する**。
+同じ model を五人格にしただけなら独立した五案とは数えない。
+
+Human seed は参加資格ではない。何も思いつかなければ空でもよい。
+目的は人間優位を証明することではなく、AI の最初の framing が探索空間全体を決めることを避けることである。
+
 ### 8.3 探索終了の条件
 
 終了時に必要なのは、「十分に創造的だった」という評価ではない。
