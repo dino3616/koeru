@@ -15,7 +15,7 @@
 //! 品質スコア、良し悪しの判定、他音源との比較、上達度（`TR-SYN-20`）。
 //! 不足は「エイリアス名の一覧」ではなく「あと N 項目で『曲名』が歌える」の形で出す。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::alias::{self, Method};
 use crate::inventory::UnitSet;
@@ -223,6 +223,69 @@ impl Song {
         self.moras(set)
             .map(|m| alias::required_aliases(rules, method, &m, &self.phrase_breaks(set)))
             .unwrap_or_default()
+    }
+
+    /// モーラ `i` のノートを鳴らす音高。 本人が指定したキーを当てたあと（`TR-SYN-15`）。
+    ///
+    /// モーラと音符は1対1（`DEC-SYN-009`）。 対応するノートが無ければ `None`。
+    #[must_use]
+    pub fn sounding_midi(&self, i: usize) -> Option<i32> {
+        self.notes.get(i).map(|n| n.midi + self.transpose)
+    }
+
+    /// 必要単位を（floor の収録音高, エイリアス）の組で（`TR-RCL-15`, `DEC-SYN-014`）。
+    ///
+    /// 単音階でも音高を付ける。 区画が1つなので、全部同じ音高になる。
+    #[must_use]
+    pub fn required_by_tone(
+        &self,
+        rules: &Rules,
+        method: Method,
+        set: UnitSet,
+        tones: &[i32],
+    ) -> BTreeSet<(i32, String)> {
+        let Some(m) = self.moras(set) else {
+            return BTreeSet::new();
+        };
+        alias::required_entries(rules, method, &m, &self.phrase_breaks(set))
+            .into_iter()
+            .filter_map(|(i, a)| Some((tone::floor_tone(tones, self.sounding_midi(i)?)?, a)))
+            .collect()
+    }
+
+    /// 収録音高ごとの手持ちで、ノートごとに解決する（`TR-RCL-20`, `DEC-SYN-014`）。
+    ///
+    /// 各ノートは floor の区画から下へ探す（[`tone::chain`]）。 歌えるかの判定も
+    /// 試唱もここを通る——別々に解くと、「完全」と出たノートが鳴らない。
+    ///
+    /// 歌詞を読めなければ `None`。
+    #[must_use]
+    pub fn resolve_by_tone(
+        &self,
+        rules: &Rules,
+        method: Method,
+        set: UnitSet,
+        tones: &[i32],
+        have: &BTreeMap<i32, BTreeSet<String>>,
+    ) -> Option<Vec<alias::PhraseEntry>> {
+        let moras = self.moras(set)?;
+        let empty = BTreeSet::new();
+        Some(alias::resolve_phrase_in(
+            rules,
+            method,
+            &moras,
+            |i| {
+                let midi = self
+                    .sounding_midi(i)
+                    .unwrap_or(crate::preset::DEFAULT_TONE_MIDI);
+                tone::chain(tones, midi)
+                    .into_iter()
+                    .map(|t| (Some(t), have.get(&t).unwrap_or(&empty)))
+                    .collect()
+            },
+            set,
+            &self.phrase_breaks(set),
+        ))
     }
 }
 
@@ -511,12 +574,19 @@ pub struct SongStatus {
 ///
 /// 追加項目数が同じ曲は、総モーラ数の少ない順に並べる（`TR-RCL-17`）。
 /// 短い曲のほうが、最初の1曲としては手が届く。
+///
+/// `covered` は収録音高ごとの収録済みエイリアス（`TR-RCL-26`）。 単音階では
+/// 鍵が1つ。必要単位は（収録音高, エイリアス）の組で数え、解決はノートごとに
+/// そのノートが使える区画だけで行う（`DEC-SYN-014`）。
+///
+/// **音高を跨いだ和集合で数えていた。** 多音階で D4 だけ録り終えると、
+/// A3 のノートが D4 の綴りで「完全」と出て、試唱では鳴らなかった。
 #[must_use]
 pub fn status_of(
     songs: &[(String, Song)],
     rules: &Rules,
     method: Method,
-    recorded: &BTreeSet<String>,
+    covered: &BTreeMap<i32, BTreeSet<String>>,
     set: UnitSet,
     full_list: &[crate::reclist::Row],
     tones: &[i32],
@@ -524,9 +594,10 @@ pub fn status_of(
     let mut out: Vec<SongStatus> = songs
         .iter()
         .map(|(id, song)| {
-            let required = song.required_aliases(rules, method, set);
-            let covered = required.intersection(recorded).count();
-            let missing = required.len().saturating_sub(covered);
+            let required = song.required_by_tone(rules, method, set, tones);
+            let have = |(t, a): &(i32, String)| covered.get(t).is_some_and(|s| s.contains(a));
+            let still: BTreeSet<&(i32, String)> = required.iter().filter(|p| !have(p)).collect();
+            let missing = still.len();
 
             // 音域外はエイリアスが揃っていても歌えない（`TR-RCL-22`）。
             // 単位の被覆より先に見る——揃っていても届かない音は鳴らない。
@@ -536,18 +607,9 @@ pub fn status_of(
             } else if missing == 0 {
                 Singability::Complete
             } else {
-                let resolvable = song.moras(set).is_some_and(|m| {
-                    alias::resolve_phrase(
-                        rules,
-                        method,
-                        &m,
-                        recorded,
-                        set,
-                        &song.phrase_breaks(set),
-                    )
-                    .iter()
-                    .all(|e| e.unit.is_playable())
-                });
+                let resolvable = song
+                    .resolve_by_tone(rules, method, set, tones, covered)
+                    .is_some_and(|p| p.iter().all(alias::PhraseEntry::is_playable));
                 if resolvable {
                     Singability::WithFallback
                 } else {
@@ -556,18 +618,27 @@ pub fn status_of(
             };
 
             // あと何行かを、フルリストの部分集合として数える（`TR-RCL-16`）。
-            let still: BTreeSet<String> = required.difference(recorded).cloned().collect();
-            let plan = crate::plan::rows_to_cover(rules, method, &still, full_list);
+            // 音高ごとに独立した行集合なので（`TR-RCL-26`）、音高ごとに数えて足す。
+            let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+            for (t, a) in &still {
+                by_tone.entry(*t).or_default().insert(a.clone());
+            }
+            let (mut missing_rows, mut seconds) = (0, 0.0);
+            for want in by_tone.values() {
+                let plan = crate::plan::rows_to_cover(rules, method, want, full_list);
+                missing_rows += plan.rows.len();
+                seconds += plan.seconds;
+            }
 
             SongStatus {
                 id: id.clone(),
                 title: song.title.clone(),
                 singability,
-                covered,
+                covered: required.len() - missing,
                 required: required.len(),
                 missing_units: missing,
-                missing_rows: plan.rows.len(),
-                seconds: plan.seconds,
+                missing_rows,
+                seconds,
                 total_moras: song.total_moras(set),
                 recommended_transpose: recommended_transpose(song, tones),
                 rescuing_tone: rescuing_tone(song, tones),
@@ -700,6 +771,11 @@ mod tests {
         xs.iter().map(|s| (*s).to_owned()).collect()
     }
 
+    /// 1つの収録音高で録ってあるもの。
+    fn in_tone(tone: i32, s: BTreeSet<String>) -> BTreeMap<i32, BTreeSet<String>> {
+        [(tone, s)].into_iter().collect()
+    }
+
     fn full_list() -> Vec<crate::reclist::Row> {
         crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる")
     }
@@ -730,7 +806,7 @@ mod tests {
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
             &builtin_rules(),
             Method::Single,
-            &have(&["さ", "く", "ら"]),
+            &in_tone(60, have(&["さ", "く", "ら"])),
             UnitSet::Core,
             &full_list(),
             &[60],
@@ -748,7 +824,7 @@ mod tests {
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
             &builtin_rules(),
             Method::Single,
-            &have(&["さ", "ら"]),
+            &in_tone(60, have(&["さ", "ら"])),
             UnitSet::Core,
             &full_list(),
             &[60],
@@ -768,7 +844,7 @@ mod tests {
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
             &builtin_rules(),
             Method::Sequential,
-            &have(&["さ", "く", "ら"]),
+            &in_tone(60, have(&["さ", "く", "ら"])),
             UnitSet::Core,
             &full_list(),
             &[60],
@@ -793,7 +869,7 @@ mod tests {
             ],
             &builtin_rules(),
             Method::Single,
-            &have(&["さ", "く"]),
+            &in_tone(60, have(&["さ", "く"])),
             UnitSet::Core,
             &full_list(),
             &[60],
@@ -811,7 +887,7 @@ mod tests {
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
             &builtin_rules(),
             Method::Single,
-            &BTreeSet::new(),
+            &BTreeMap::new(),
             UnitSet::Core,
             &full_list(),
             &[60],
@@ -822,6 +898,32 @@ mod tests {
         // 行数でも出せる（`TR-RCL-16`, `TR-RCL-17`）。
         assert!(got[0].missing_rows > 0, "あと何行かも数えること");
         assert!(got[0].seconds > 0.0, "所要時間も出すこと");
+    }
+
+    /// 多音階は（収録音高, エイリアス）の組で数える（`TR-RCL-15`, `DEC-SYN-014`）。
+    ///
+    /// G3 と D4 の2音階で、ノートはどちらも G3 の区画（C4 と C#4）。本来の
+    /// `a か` は D4 にしか無い。**和集合で数えていたので「完全」と出て、
+    /// 試唱では鳴らなかった。** G3 の `か` で代用して鳴るので代替あり。
+    #[test]
+    fn 多音階は音高ごとに数える() {
+        let s = song("あか", &["あ", "か"]);
+        let covered: BTreeMap<i32, BTreeSet<String>> =
+            [(55, have(&["- あ", "か"])), (62, have(&["- あ", "a か"]))]
+                .into_iter()
+                .collect();
+        let got = status_of(
+            std::slice::from_ref(&("s1".to_owned(), s)),
+            &builtin_rules(),
+            Method::Sequential,
+            &covered,
+            UnitSet::Core,
+            &full_list(),
+            &[55, 62],
+        );
+        assert_eq!(got[0].singability, Singability::WithFallback);
+        assert_eq!((got[0].covered, got[0].required), (1, 2));
+        assert_eq!(got[0].missing_units, 1, "G3 の a か が足りない");
     }
 
     /// 読めない歌詞の曲は必要集合が空になる。 一部だけ読めた形で先へ進めない。
@@ -1073,7 +1175,9 @@ mod range_tests {
             std::slice::from_ref(&("s1".to_owned(), s)),
             &builtin_rules(),
             Method::Single,
-            &["あ".to_owned()].into_iter().collect(),
+            &[(60, ["あ".to_owned()].into_iter().collect())]
+                .into_iter()
+                .collect(),
             UnitSet::Core,
             &crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる"),
             &[60],

@@ -189,6 +189,23 @@ pub fn floor_tone(tones: &[i32], midi: i32) -> Option<i32> {
         .or_else(|| sorted.first().copied())
 }
 
+/// その音を鳴らすときに素材を探す収録音高の順（`TR-RCL-20`, `DEC-SYN-014`）。
+///
+/// floor から始めて、下へ1段ずつ。 **上へは登らない。** 低い素材を上へ伸ばすほうが、
+/// 高い素材を下げるより声が保つ。
+///
+/// 収録音高が空なら空。
+#[must_use]
+pub fn chain(tones: &[i32], midi: i32) -> Vec<i32> {
+    let Some(floor) = floor_tone(tones, midi) else {
+        return Vec::new();
+    };
+    let mut sorted = tones.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    sorted.into_iter().rev().filter(|t| *t <= floor).collect()
+}
+
 /// 鳴らすのに要るピッチシフト量（半音、`TR-RCL-22`）。
 ///
 /// 正なら上へ、負なら下へ。floor 割り当ての帰結として、
@@ -261,6 +278,17 @@ pub fn assigned_ranges(tones: &[i32]) -> Vec<(i32, Vec<i32>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// floor から下へ降りる。 上へは登らない（`TR-RCL-20`, `DEC-SYN-014`）。
+    #[test]
+    fn 素材を探す順は_floor_から下へ() {
+        let tones = [69, 55, 62];
+        assert_eq!(chain(&tones, 69), [69, 62, 55]);
+        assert_eq!(chain(&tones, 61), [55], "G3 の音に D4 の素材を当てない");
+        assert_eq!(chain(&tones, 50), [55], "最低音高より下は最低音高だけ");
+        assert_eq!(chain(&[57], 80), [57], "単音階は1つ");
+        assert!(chain(&[], 60).is_empty());
+    }
 
     /// 最低音高より下は、その最低音高が担う（`TR-RCL-06`）。
     #[test]

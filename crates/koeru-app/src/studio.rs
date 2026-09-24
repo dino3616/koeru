@@ -3807,11 +3807,28 @@ impl Studio {
         // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
         // 収録音高ごとの素材（`TR-SYN-16`）。 単音階なら鍵は `None` の1つ。
         let by_tone = self.materials_by_tone(&root)?;
-        // 解決の可否は全体で見る。 どの音高にも無い単位だけを欠損とする。
-        let available: std::collections::BTreeSet<String> = by_tone
-            .values()
-            .flat_map(|m| m.paths.keys().cloned())
+        // 解決はノートごとに、そのノートが使える区画だけで行う（`DEC-SYN-014`）。
+        //
+        // **全体の和集合で綴りを選んでいた。** 選んだ綴りがそのノートの区画に
+        // 無いと、素材を引く段で落ちて黙って鳴らなかった——代用の綴りが
+        // その区画にあっても使わなかった。
+        //
+        // 単音階は区画が1つで、鍵は `None`。 解決の側は音高で数えるので、
+        // 収録音高の1本へ読み替える。
+        let have: std::collections::BTreeMap<i32, std::collections::BTreeSet<String>> = by_tone
+            .iter()
+            .filter_map(|(t, m)| {
+                let tone = t.or_else(|| tones.first().copied())?;
+                Some((tone, m.paths.keys().cloned().collect()))
+            })
             .collect();
+        let key_of = |tone: Option<i32>| {
+            if by_tone.contains_key(&None) {
+                None
+            } else {
+                tone
+            }
+        };
         /*
           周波数表は素材のパスで引く（`TR-SYN-25`）。
 
@@ -3830,22 +3847,15 @@ impl Studio {
             .collect();
 
         // ## フレーズに割る
-        let moras = song
-            .moras(preset.set)
-            .ok_or_else(|| AppError::new("app.unreadable_lyrics", "この曲の歌詞を読めない"))?;
+        //
         // この音源の作り方で解決する（`TR-SYN-36`）。 単独音で解決すると、
         // 連続音の音源が持っている `a か` を一度も引かない。
         // 休符で綴りの文脈を切る（`TR-RCL-12`）。 繋げて解決すると、
         // 休符のあとの音符が語頭形ではなく継続に解決される。
-        let breaks = song.phrase_breaks(preset.set);
-        let resolved = koeru_core::alias::resolve_phrase(
-            &rules,
-            preset.method,
-            &moras,
-            &available,
-            preset.set,
-            &breaks,
-        );
+        // 曲の状態と同じ入口を通る（`TR-RCL-20`）。
+        let resolved = song
+            .resolve_by_tone(&rules, preset.method, preset.set, &tones, &have)
+            .ok_or_else(|| AppError::new("app.unreadable_lyrics", "この曲の歌詞を読めない"))?;
 
         let mut phrases: Vec<(koeru_synth::phrase::Phrase, bool)> = Vec::new();
         // フレーズの手前に置く無音（`TR-RCL-12` の休符）。`phrases` と同じ並び。
@@ -3912,10 +3922,11 @@ impl Studio {
                     {
                         continue;
                     }
-                    // その音を担う収録音高から素材を引く（`TR-SYN-13`, `TR-SYN-16`）。
-                    // 無ければ1段下、さらに下、最低音高へ落ちる（`TR-RCL-20`）。
-                    let Some((used_tone, m)) = pick_material(&by_tone, &tones, midi, &res.alias)
-                    else {
+                    // 解決した区画から素材を引く（`TR-SYN-13`, `TR-SYN-16`）。
+                    // どの区画かは解決が決めている（`DEC-SYN-014`）。 **ここで
+                    // 引き直さない**——別の順で引くと、判定と違う素材で鳴る。
+                    let used_tone = key_of(res.tone);
+                    let Some(m) = by_tone.get(&used_tone) else {
                         playable = false;
                         continue;
                     };
@@ -3955,13 +3966,7 @@ impl Studio {
                                 koeru_core::alias::PhraseUnit::Sound(r) => Some((n, r)),
                                 _ => None,
                             })
-                            .and_then(|(n, r)| {
-                                let next_midi =
-                                    song.notes.get(n.mora).map_or(DEFAULT_TONE_MIDI, |x| x.midi)
-                                        + fit.transpose;
-                                let (_, nm) = pick_material(&by_tone, &tones, next_midi, &r.alias)?;
-                                nm.otos.get(&r.alias)
-                            });
+                            .and_then(|(_, r)| by_tone.get(&key_of(r.tone))?.otos.get(&r.alias));
                         let vc_ms = koeru_core::oto::transition_ms(next_oto, owner_ms, beat_ms);
                         if let Some(prev) = current.last_mut() {
                             prev.duration_ms = (prev.duration_ms - vc_ms).max(0.0);
@@ -4466,31 +4471,6 @@ fn manifest_method(p: &koeru_core::preset::MethodPreset, multi_pitch: bool) -> M
     }
 }
 
-/// その音を鳴らす素材を、収録音高から引き当てる（`TR-SYN-13`, `TR-SYN-16`, `TR-RCL-20`）。
-///
-/// floor 割り当てでまず1つ選び、そこに無ければ1段下、さらに下、最低音高へ落ちる。
-/// **上へは登らない。** 低い素材を上へ伸ばすほうが、高い素材を下げるより声が保つ。
-///
-/// 単音階（鍵が `None`）はそのまま返す。
-fn pick_material<'a>(
-    by_tone: &'a std::collections::BTreeMap<Option<i32>, Materials>,
-    tones: &[i32],
-    midi: i32,
-    alias: &str,
-) -> Option<(Option<i32>, &'a Materials)> {
-    if let Some(m) = by_tone.get(&None) {
-        return m.paths.contains_key(alias).then_some((None, m));
-    }
-    let floor = koeru_core::tone::floor_tone(tones, midi)?;
-    let mut sorted = tones.to_vec();
-    sorted.sort_unstable();
-    // floor 以下を高い順に。 見つからなければ最低音高まで降りる。
-    sorted.iter().rev().filter(|t| **t <= floor).find_map(|t| {
-        let m = by_tone.get(&Some(*t))?;
-        m.paths.contains_key(alias).then_some((Some(*t), m))
-    })
-}
-
 /// 曲ごとの状態を、開いた台帳から求める（`TR-RCL-17`, `TR-RCL-19`, `TR-SYN-20`）。
 ///
 /// [`Studio`] の外に置く。 ライブラリの一覧は、開いていない音源の台帳を
@@ -4502,7 +4482,10 @@ fn song_status_of(
 ) -> Result<Vec<SongStatus>> {
     // 綴りで突き合わせる（`TR-RCL-18`）。 **仮名で引いていた**ので、
     // 連続音や CVVC では必要集合と交わらず、曲が永久に「歌えない」ままだった。
-    let covered = ledger.covered_aliases()?;
+    //
+    // 音高ごとに渡す（`TR-RCL-26`, `DEC-SYN-014`）。 試唱と同じく、ノートごとに
+    // そのノートが使える区画だけで解く。
+    let covered = ledger.covered_aliases_by_tone()?;
     let songs: Vec<(String, Song)> = ledger.songs_in_bank()?;
     // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
     // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
@@ -4806,113 +4789,6 @@ mod tests {
         assert_eq!(state, "blocked", "書き出し阻止へ回る");
 
         let _ = std::fs::remove_dir_all(&root);
-    }
-}
-
-#[cfg(test)]
-mod subbank_tests {
-    use super::*;
-
-    fn materials(aliases: &[&str]) -> Materials {
-        Materials {
-            paths: aliases
-                .iter()
-                .map(|a| {
-                    (
-                        (*a).to_owned(),
-                        std::path::PathBuf::from(format!("{a}.wav")),
-                    )
-                })
-                .collect(),
-            tables: HashMap::new(),
-            otos: HashMap::new(),
-        }
-    }
-
-    /// 単音階は鍵が `None` のまま引ける。
-    #[test]
-    fn 単音階はそのまま引く() {
-        let by_tone = [(None, materials(&["か"]))].into_iter().collect();
-        assert!(pick_material(&by_tone, &[57], 60, "か").is_some());
-        assert!(pick_material(&by_tone, &[57], 60, "き").is_none());
-    }
-
-    /// floor 割り当てでその音を担う音高から引く（`TR-SYN-16`）。
-    #[test]
-    fn 担当する音高から引く() {
-        let by_tone = [
-            (Some(55), materials(&["か"])),
-            (Some(62), materials(&["か"])),
-            (Some(69), materials(&["か"])),
-        ]
-        .into_iter()
-        .collect();
-        let tones = [55, 62, 69];
-        assert_eq!(
-            pick_material(&by_tone, &tones, 55, "か").map(|(t, _)| t),
-            Some(Some(55))
-        );
-        assert_eq!(
-            pick_material(&by_tone, &tones, 61, "か").map(|(t, _)| t),
-            Some(Some(55))
-        );
-        assert_eq!(
-            pick_material(&by_tone, &tones, 62, "か").map(|(t, _)| t),
-            Some(Some(62))
-        );
-        assert_eq!(
-            pick_material(&by_tone, &tones, 90, "か").map(|(t, _)| t),
-            Some(Some(69))
-        );
-    }
-
-    /// 無ければ1段下、さらに下へ落ちる（`TR-RCL-20`）。上へは登らない。
-    #[test]
-    fn 無ければ下へ落ちる() {
-        // A4 でだけ録っていない。
-        let by_tone = [
-            (Some(55), materials(&["か"])),
-            (Some(62), materials(&["か"])),
-            (Some(69), materials(&[])),
-        ]
-        .into_iter()
-        .collect();
-        let tones = [55, 62, 69];
-        assert_eq!(
-            pick_material(&by_tone, &tones, 69, "か").map(|(t, _)| t),
-            Some(Some(62)),
-            "1段下へ落ちる"
-        );
-
-        // D4 も A4 も無い。最低音高まで降りる。
-        let by_tone = [
-            (Some(55), materials(&["か"])),
-            (Some(62), materials(&[])),
-            (Some(69), materials(&[])),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(
-            pick_material(&by_tone, &tones, 69, "か").map(|(t, _)| t),
-            Some(Some(55))
-        );
-    }
-
-    /// 上へは登らない。 低い音に高い素材を当てない。
-    #[test]
-    fn 上へは登らない() {
-        // G3 でだけ録っていない。
-        let by_tone = [
-            (Some(55), materials(&[])),
-            (Some(62), materials(&["か"])),
-            (Some(69), materials(&["か"])),
-        ]
-        .into_iter()
-        .collect();
-        assert!(
-            pick_material(&by_tone, &[55, 62, 69], 55, "か").is_none(),
-            "G3 の音に D4 の素材を当てない"
-        );
     }
 }
 

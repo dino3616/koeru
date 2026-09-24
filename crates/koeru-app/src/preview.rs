@@ -120,7 +120,7 @@ impl Samples for WavSamples {
 
           **エイリアスで引き直さない。** 多音階では音高ごとに同じエイリアスが
           あるので、エイリアスの表へ畳んだ時点で1音高ぶんしか残らない。
-          引き当ては `pick_material` が音高まで含めて済ませてあり
+          引き当ては解決（`Song::resolve_by_tone`）が音高まで含めて済ませてあり
           （`TR-SYN-16`）、ここで引き直すとその判断が捨てられる。
         */
         let w = koeru_audio::wav::read(&note.sample_path)

@@ -56,7 +56,27 @@ pub struct Resolved {
     ///
     /// 0 より大きければ「代替」として台帳に記録する（`TR-RCL-20`）。
     pub rank: usize,
+    /// どの収録音高の素材で当たったか。 区画を分けない解決では `None`。
+    pub tone: Option<i32>,
+    /// floor の収録音高から何段降りたか。 0 が floor（`DEC-SYN-014`）。
+    ///
+    /// 0 より大きければ、第一候補でも「代替」（`TR-RCL-20`）。
+    pub step: usize,
 }
+
+impl Resolved {
+    /// 本来の素材か。 floor の区画の第一候補だけが真（`DEC-SYN-014`）。
+    #[must_use]
+    pub const fn is_exact(&self) -> bool {
+        self.rank == 0 && self.step == 0
+    }
+}
+
+/// 1音符が素材を探す区画の並び（`DEC-SYN-014`）。
+///
+/// 先頭が floor の区画で、そこから下へ降りる。 区画を分けない解決では
+/// `(None, 持っている集合)` の1つだけ。
+pub type Chain<'a> = Vec<(Option<i32>, &'a BTreeSet<String>)>;
 
 /// 解決できなかった音符。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,13 +103,34 @@ pub fn resolve(
     req: &Request<'_>,
     available: &BTreeSet<String>,
 ) -> Result<Resolved, Missing> {
+    resolve_in(rules, method, req, &vec![(None, available)])
+}
+
+/// 区画の並びから、1音符を解決する（`TR-RCL-20`, `DEC-SYN-014`）。
+///
+/// **1つの区画の中で候補を尽くしてから、下の区画へ降りる。** OpenUtau は
+/// ノートの音高を含む区画の中で候補を試し、下の区画へは降りない。
+/// 降りるのは KOERU が足した動きなので、区画の中で尽きたときだけにする。
+///
+/// **和集合で綴りを選んでいた。** 選んだ綴りがそのノートの区画に無く、
+/// 素材を引く段で落ちて黙って鳴らなかった。曲の状態は「完全」と出ていた。
+pub fn resolve_in(
+    rules: &Rules,
+    method: Method,
+    req: &Request<'_>,
+    chain: &Chain<'_>,
+) -> Result<Resolved, Missing> {
     let tried = candidates(rules, method, req);
-    for (rank, c) in tried.iter().enumerate() {
-        if available.contains(c) {
-            return Ok(Resolved {
-                alias: c.clone(),
-                rank,
-            });
+    for (step, (tone, available)) in chain.iter().enumerate() {
+        for (rank, c) in tried.iter().enumerate() {
+            if available.contains(c) {
+                return Ok(Resolved {
+                    alias: c.clone(),
+                    rank,
+                    tone: *tone,
+                    step,
+                });
+            }
         }
     }
     Err(Missing {
@@ -110,6 +151,26 @@ pub fn required_aliases(
     moras: &[Mora],
     breaks: &BTreeSet<usize>,
 ) -> BTreeSet<String> {
+    required_entries(rules, method, moras, breaks)
+        .into_iter()
+        .map(|(_, a)| a)
+        .collect()
+}
+
+/// 必要エイリアスを、それを鳴らすモーラと組にして返す（`TR-RCL-15`）。
+///
+/// 多音階では必要単位が（エイリアス, 収録音高）の組になる。 音高はモーラの
+/// ノートから決まるので、どのモーラが要求したかを残す。
+///
+/// 渡り（CVVC の VC）は直前のモーラが持つ。 その尾に乗って鳴るので
+/// （[`resolve_phrase`] の [`Role::Transition`]）、音高も直前のノートのもの。
+#[must_use]
+pub fn required_entries(
+    rules: &Rules,
+    method: Method,
+    moras: &[Mora],
+    breaks: &BTreeSet<usize>,
+) -> BTreeSet<(usize, String)> {
     let mut out = BTreeSet::new();
     let mut prev_vowel: Option<String> = None;
 
@@ -134,7 +195,7 @@ pub fn required_aliases(
             previous_vowel: prev_vowel.as_deref(),
         };
         if let Some(first) = candidates(rules, method, &req).first() {
-            out.insert(first.clone());
+            out.insert((i, first.clone()));
         }
         /*
           CVVC は渡りも要る（`TR-RCL-05`）。
@@ -148,7 +209,8 @@ pub fn required_aliases(
         {
             let c = rules.consonant_of(unit);
             if !c.is_empty() {
-                out.insert(rules.vc(prev, c));
+                // 直前の母音があるなら、直前のモーラがある。
+                out.insert((i.saturating_sub(1), rules.vc(prev, c)));
             }
         }
         prev_vowel = non_empty(rules.vowel_of(unit)).map(str::to_owned);
@@ -264,6 +326,35 @@ pub fn resolve_phrase(
     set: UnitSet,
     breaks: &BTreeSet<usize>,
 ) -> Vec<PhraseEntry> {
+    resolve_phrase_in(
+        rules,
+        method,
+        moras,
+        |_| vec![(None, available)],
+        set,
+        breaks,
+    )
+}
+
+/// フレーズ全体を、モーラごとの区画の並びで解決する（`TR-RCL-20`, `DEC-SYN-014`）。
+///
+/// `chain_of(i)` はモーラ `i` のノートが使える区画を、floor から下へ並べたもの。
+/// 候補の順は [`resolve_in`]。
+///
+/// 渡りは、その尾に乗る直前のモーラの区画から引く。 同じ順で探し、
+/// どこにも無ければ挟まない（`TR-SYN-12`）。
+#[must_use]
+pub fn resolve_phrase_in<'a, F>(
+    rules: &Rules,
+    method: Method,
+    moras: &[Mora],
+    chain_of: F,
+    set: UnitSet,
+    breaks: &BTreeSet<usize>,
+) -> Vec<PhraseEntry>
+where
+    F: Fn(usize) -> Chain<'a>,
+{
     let table = units(set);
     let mut out: Vec<PhraseEntry> = Vec::new();
     let mut prev_vowel: Option<String> = None;
@@ -291,7 +382,7 @@ pub fn resolve_phrase(
                             lyric: kana,
                             previous_vowel: prev_vowel.as_deref(),
                         };
-                        resolve(rules, method, &req, available)
+                        resolve_in(rules, method, &req, &chain_of(i))
                     });
                 out.push(main(match unit {
                     Some(Ok(r)) => PhraseUnit::Sound(r),
@@ -331,9 +422,18 @@ pub fn resolve_phrase(
             && let Some(owner) = out.last().map(|e| e.mora)
         {
             let alias = rules.vc(prev, consonant);
-            if available.contains(&alias) {
+            let hit = chain_of(owner)
+                .into_iter()
+                .enumerate()
+                .find(|(_, (_, available))| available.contains(&alias));
+            if let Some((step, (tone, _))) = hit {
                 out.push(PhraseEntry {
-                    unit: PhraseUnit::Sound(Resolved { alias, rank: 0 }),
+                    unit: PhraseUnit::Sound(Resolved {
+                        alias,
+                        rank: 0,
+                        tone,
+                        step,
+                    }),
                     mora: owner,
                     role: Role::Transition,
                 });
@@ -344,7 +444,7 @@ pub fn resolve_phrase(
             lyric: unit,
             previous_vowel: prev_vowel.as_deref(),
         };
-        out.push(main(match resolve(rules, method, &req, available) {
+        out.push(main(match resolve_in(rules, method, &req, &chain_of(i)) {
             Ok(r) => PhraseUnit::Sound(r),
             Err(e) => PhraseUnit::Missing(e),
         }));
@@ -567,7 +667,9 @@ mod tests {
             got[1].unit,
             PhraseUnit::Sound(Resolved {
                 alias: "い".to_owned(),
-                rank: 0
+                rank: 0,
+                tone: None,
+                step: 0,
             })
         );
     }
@@ -699,6 +801,73 @@ mod tests {
             got.iter().map(|e| e.role).collect::<Vec<_>>()
         );
         assert_eq!(got.len(), 2);
+    }
+
+    /// ノートが使えない区画の綴りを選ばない（`DEC-SYN-014`）。
+    ///
+    /// G3 と D4 の2音階で、D4 だけに `a か` がある。A3 のノートは G3 以下しか
+    /// 使えないので、G3 の代用の `か` で鳴る。**和集合で選ぶと `a か` に決まり、
+    /// G3 に無いので鳴らなかった。**
+    #[test]
+    fn ノートが使えない区画の綴りを選ばない() {
+        let m = parse("あか", UnitSet::Core).expect("読める");
+        let g3 = have(&["- あ", "か"]);
+        let d4 = have(&["- あ", "a か"]);
+        let got = resolve_phrase_in(
+            &builtin_rules(),
+            Method::Sequential,
+            &m,
+            // どちらのノートも A3。 使えるのは floor の G3 だけ。
+            |_| vec![(Some(55), &g3)],
+            UnitSet::Core,
+            &BTreeSet::new(),
+        );
+        let PhraseUnit::Sound(ka) = &got[1].unit else {
+            panic!("鳴る: {got:?}")
+        };
+        assert_eq!(ka.alias, "か");
+        assert_eq!(ka.tone, Some(55));
+        assert!(!ka.is_exact(), "代用なので代替");
+        assert!(d4.contains("a か"), "D4 には本来の綴りがあるが使わない");
+    }
+
+    /// 同じ区画の中の代用を、下の区画の本来の綴りより先に試す（`DEC-SYN-014`）。
+    ///
+    /// E4 のノート。floor の D4 には代用の `か` しか無く、G3 には `a か` がある。
+    /// 高さを守る——OpenUtau は区画の中で候補を試し、下の区画へは降りない。
+    #[test]
+    fn 区画の中の代用を下の区画より先に試す() {
+        let m = parse("あか", UnitSet::Core).expect("読める");
+        let d4 = have(&["- あ", "か"]);
+        let g3 = have(&["- あ", "a か"]);
+        let got = resolve_phrase_in(
+            &builtin_rules(),
+            Method::Sequential,
+            &m,
+            |_| vec![(Some(62), &d4), (Some(55), &g3)],
+            UnitSet::Core,
+            &BTreeSet::new(),
+        );
+        let PhraseUnit::Sound(ka) = &got[1].unit else {
+            panic!("鳴る: {got:?}")
+        };
+        assert_eq!((ka.alias.as_str(), ka.tone, ka.step), ("か", Some(62), 0));
+
+        // floor の区画に何も無ければ、下の区画へ降りる。
+        let empty = BTreeSet::new();
+        let got = resolve_phrase_in(
+            &builtin_rules(),
+            Method::Sequential,
+            &m,
+            |_| vec![(Some(62), &empty), (Some(55), &g3)],
+            UnitSet::Core,
+            &BTreeSet::new(),
+        );
+        let PhraseUnit::Sound(ka) = &got[1].unit else {
+            panic!("鳴る: {got:?}")
+        };
+        assert_eq!((ka.alias.as_str(), ka.tone, ka.step), ("a か", Some(55), 1));
+        assert!(!ka.is_exact(), "下の区画で鳴るのは代替");
     }
 
     /// 単独音と連続音は渡りを挟まない。 つなぎ目は素材の中にある。
