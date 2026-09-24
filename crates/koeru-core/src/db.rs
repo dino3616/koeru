@@ -32,9 +32,9 @@ use crate::project::Method;
 use crate::reclist::Row as ReclistRow;
 use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
-    adopted_takes, calibrations, distribution, oto_values, recording_order, releases, review_state,
-    row_aliases, row_units, rows, sessions, song_notes, songs, take_analysis, take_boundaries,
-    take_fingerprints, take_metrics, takes,
+    adopted_takes, calibrations, distribution, oto_values, presamp_snapshot, recording_order,
+    releases, review_state, row_aliases, row_units, rows, sessions, song_notes, songs,
+    take_analysis, take_boundaries, take_fingerprints, take_metrics, takes,
 };
 use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
@@ -2293,6 +2293,34 @@ impl Ledger {
                 over_budget: over_budget != 0,
                 exported: exported != 0,
             })
+    }
+
+    /// 綴りの表の写し（`TR-SYN-36`, `DEC-SYN-013`）。 作ったときに書いたもの。
+    ///
+    /// 無ければ `None`。 写しを持つ前に作ったプロジェクトで、台帳の綴りは
+    /// 同梱の既定の表で書かれている。
+    pub fn presamp_snapshot(&mut self) -> Result<Option<String>> {
+        presamp_snapshot::table
+            .filter(presamp_snapshot::id.eq(1))
+            .select(presamp_snapshot::text)
+            .first::<String>(&mut self.conn)
+            .optional()
+            .map_err(db("presamp_snapshot"))
+    }
+
+    /// 綴りの表の写しを書く（`DEC-SYN-013`）。
+    ///
+    /// 作るときと、写しを持たない古いプロジェクトを初めて開くときだけ呼ぶ。
+    /// **録り始めたあとに書き換えない。** 台帳の綴りはこの表で書かれている。
+    pub fn put_presamp_snapshot(&mut self, text: &str) -> Result<()> {
+        diesel::insert_into(presamp_snapshot::table)
+            .values((presamp_snapshot::id.eq(1), presamp_snapshot::text.eq(text)))
+            .on_conflict(presamp_snapshot::id)
+            .do_update()
+            .set(presamp_snapshot::text.eq(text))
+            .execute(&mut self.conn)
+            .map_err(db("put_presamp_snapshot"))?;
+        Ok(())
     }
 
     /// 確認の進み方を書く。

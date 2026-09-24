@@ -133,6 +133,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// 綴りの表の写し（`TR-SYN-36`, `DEC-SYN-013`）。音源ごとに高々1行。
+    presamp_snapshot (id) {
+        id -> Integer,
+        text -> Text,
+    }
+}
+
+diesel::table! {
     /// 確認キューの進み方（`TR-ALN-25`）。音源ごとに1行。
     review_state (id) {
         id -> Integer,
@@ -297,4 +305,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     review_state,
     take_fingerprints,
     distribution,
+    presamp_snapshot,
 );
