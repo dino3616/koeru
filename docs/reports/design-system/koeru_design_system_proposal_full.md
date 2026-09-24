@@ -1447,6 +1447,31 @@ voice hue A → B
 relation は PAT / TR / Claim から導出し、どの relation を何が守っているか追跡できるようにする。
 「全 UI に同じ metamorphic test を課す」ことはしない。
 
+### 12.4.2 Design Mutation Testing で Probe の感度を検査する
+
+Probe が多数あっても、悪化した UI を何も検出できないなら検証 harness は空洞である。
+そこで一部の機械化可能な Probe には、意図的な design mutation を入れて感度を見る。
+
+mutation の例:
+
+```text
+action label を消す
+status の表現を色だけにする
+focus indicator を弱くする
+feedback を不自然に遅延させる
+heading relation を壊す
+error recovery action を隠す
+```
+
+目的は mutation 後の UI を「悪い UI の真理」として扱うことではない。
+**この Probe は、守ると宣言した性質が壊れたとき本当に反応するか**を検査することである。
+
+FSL mutation と同様に、生き残った mutation は即 failure とは限らない。
+「Probe がその差に感度を持たない」「そもそも守る性質ではなかった」のどちらかを review する。
+
+Aesthetic / emotional Claim に mutation score を持ち込まない。適用するのは、明確な observable relation を
+持つ Probe に限る。
+
 ### 12.5 PR template の追加欄
 
 既存 template に巨大な Design Review Form を足さない。設計に関わる変更だけ、次の四項目を足す。
