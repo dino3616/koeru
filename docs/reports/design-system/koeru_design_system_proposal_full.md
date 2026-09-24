@@ -752,6 +752,49 @@ PR review は実装差分の検査に適しているが、コードが完成し�
 
 Storybook は「議論そのものの保存先」ではなく、議論する実物の提示先である。
 
+### 9.1.1 Blind Read を標準的な Studio mode にする
+
+作者の Intent を先に説明すると、Reader が interface を読んだのか、説明を理解したのかを
+区別できなくなる。そこで、意味理解や visual hierarchy が論点の Studio では次の順を使う。
+
+```text
+1. Blind Read
+   artifact / state / task だけを見る。作者の Intent は隠す。
+
+2. Reading
+   何が主役に見えたか。
+   次に何をすると思ったか。
+   何が起きたと思ったか。
+   何を大事にしている UI だと読んだか。
+
+3. Intent Reveal
+   作者が、狙い・守ろうとしたもの・意図的な trade-off を公開する。
+
+4. Intent–Reading Gap
+   Intent と Reading の一致／不一致を列挙する。
+
+5. Critique / Reframe
+   Gap が interface の問題か、Intent の問題か、Question の framing の問題かを検討する。
+```
+
+例:
+
+```text
+Intent:
+  声そのものを主役にした。
+
+Reading:
+  録音ボタンが最も重要に見えた。
+
+Gap:
+  「声を主役にしたい」という狙いが interface hierarchy に現れていない可能性。
+```
+
+Gap があること自体を失敗とはしない。作者の Intent が利用者や Product Context に対して
+間違っている可能性も同時に扱う。したがって Studio の目的は「作者の意図どおりに読ませる」
+ことではなく、**artifact が実際に何を語っているかを、作者の説明から独立して観察できること**
+である。
+
 ### 9.2 コメントの protocol
 
 ```text
