@@ -1414,6 +1414,39 @@ cargo xtask index-decisions --check
 
 音声に関する gate は、既存 harness を包む実行入口で fixture の存在を先に確かめ、実行結果を構造化して残す。`cargo test` が成功終了しただけでは、実音声を確認した扱いにしない。
 
+### 12.4.1 Metamorphic Design Testing を追加する
+
+「正解の screenshot」を一枚持てない性質でも、入力条件を変えたときに保たれるべき relation は書ける。
+KOERU の UI 検査では、この **metamorphic relation** を Story / browser test / app test に使う。
+
+例:
+
+```text
+zoom 100% → 200%
+  primary action と status の理解に必要な情報が消えない。
+
+label length ×1.8
+  action と対象の対応が崩れない。
+
+prefers-reduced-motion = true
+  motion がなくても state transition を理解できる。
+
+take count 1 → 100
+  heading hierarchy と対象の同一性が変わらない。
+
+viewport wide → narrow
+  primary action や理由説明が viewport 外へ押し出されない。
+
+voice hue A → B
+  voice artifact 以外の danger / warning の意味色が変わらない。
+```
+
+これらは Human UX research の代替ではない。
+**利用者がいなくても大量に攻撃できる invariance / resilience を増やす**ための Probe である。
+
+relation は PAT / TR / Claim から導出し、どの relation を何が守っているか追跡できるようにする。
+「全 UI に同じ metamorphic test を課す」ことはしない。
+
 ### 12.5 PR template の追加欄
 
 既存 template に巨大な Design Review Form を足さない。設計に関わる変更だけ、次の四項目を足す。
