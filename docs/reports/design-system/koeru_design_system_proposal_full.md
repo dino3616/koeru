@@ -737,6 +737,34 @@ Agent への依頼は、次のように分ける。
 Human seed は参加資格ではない。何も思いつかなければ空でもよい。
 目的は人間優位を証明することではなく、AI の最初の framing が探索空間全体を決めることを避けることである。
 
+### 8.2.2 Concept の distinctness を監査する
+
+複数案があることと、複数の可能世界を探索したことは同じではない。
+探索 artifact は、少なくとも次の dimension について baseline との差を記述できるようにする。
+
+```text
+primary object
+temporal model
+control locus
+navigation model
+information hierarchy
+```
+
+配色、radius、spacing、copy だけを変え、上の dimension と action trace がほぼ同じなら
+`concept` ではなく `variation` として扱う。
+
+`check-design` または Agent reviewer はこれを warning として表面化できる。
+
+```text
+DESIGN SPACE WARNING:
+  alternative B and C share the same primary object, temporal model,
+  control locus, navigation model, and action trace.
+  They may be visual variations rather than distinct concepts.
+```
+
+自動判定で Concept を失格にはしない。目的は「三案作った」という儀式を達成することではなく、
+**いま探索している差が何なのかを作者自身が説明できるようにすること**である。
+
 ### 8.3 探索終了の条件
 
 終了時に必要なのは、「十分に創造的だった」という評価ではない。
