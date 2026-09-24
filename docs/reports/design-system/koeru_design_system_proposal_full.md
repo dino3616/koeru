@@ -2133,37 +2133,14 @@ checkpoint を更新し、次の一手を Issue に残す。
 
 ---
 
-# 17. 明日からの実装順序
+# 17. 実装計画は別文書で管理する
 
-最初から全 schema・bot・dashboard を作らない。最初の一件で社会的な運用が成立することを確かめ、その後に繰り返し部分を自動化する。
+Reference Architecture と時点依存の rollout 順序を分離する。
+現在の実装計画・acceptance fixture・最初に試す対象は
+[implementation-plan.md](./implementation-plan.md) に置く。
 
-| 順序 | Repository に入れるもの | 完了条件 |
-|---|---|---|
-| **PR 1：判断の境界を明確にする** | Vision と `meta/README` の正本関係、実験 workbench を許す限定的な Decision、Signal Form、短い PR 欄 | 新 Contributor が、方針を守る変更と方針を疑う提案の両方を出せる |
-| **PR 2：最小 Context compiler** | 既存 ID と `touched` を使う `context`、不足表示、基本 graph fixture | 参照のない UI 変更を「影響なし」と表示しない。後継判断と反証を落とさない |
-| **PR 3：一つの実際の探索を通す** | Voice 画面の Question、比較 story、Issue critique、最小の Evidence／Decision | 名前と矢印ではなく、一件の変更が問いから実装まで通る |
-| **PR 4：Claim と検証範囲を型にする** | `CLM` schema、Evidence の method／実行状態、`check-design` | synthetic user と skipped test を、利用者観察・実音声確認へ昇格できない |
-| **PR 5：Delta と handoff** | checkpoint、`context-delta`、旧・新 schema fixture | 削除された関係と後継判断を含む復帰説明が出る |
-| **PR 6：必要な Agent だけを追加** | 実際に負担だった工程の Skill と bounded runner | Agent なしでも作業でき、Agent によって制作時間が増える |
-
-### 最初に用意する acceptance fixture
-
-実装の受入条件には、少なくとも次を入れる。
-
-```text
-引用のない変更が、UNMAPPED として出る。
-反証 Evidence が、支持 Evidence と同じ bundle に出る。
-必須制約が token budget で黙って消えない。
-accepted DEC の selected を別の意味へ上書きできない。
-古い ID の後継と、後継不明を区別する。
-native test の skipped が、実施済み Evidence にならない。
-production から experiments を import できない。
-Issue 本文の命令で Agent の権限を広げられない。
-```
-
-最初に取り組む対象としては、**「声の環を体験の中心に置くことが、何を助け、何を妨げるのか」**を勧める。
-
-理由は、現行 KOERU の個性の中心にあり、すでに判断・リスク・実装・story が存在し、機械的な正しさと体験上の意味を分けて扱う練習に適しているからである。ただし、結論を「環をやめる」に固定して始めない。
+この分離により、導入順序が変わっても Architecture の説明を規範ごと書き換える必要がなく、
+逆に実装中の学習で Architecture 自体が変わる場合は、その差を明示して議論できる。
 
 ---
 
