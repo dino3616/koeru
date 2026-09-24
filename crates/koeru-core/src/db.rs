@@ -577,17 +577,41 @@ impl Ledger {
             .map_err(db("takes_of"))
     }
 
-    /// 収録済みの単位集合。 採用テイクを持つ行の単位の和集合として導出する
-    /// （`TR-RCL-18`。二重に保持しない）。
+    /// 収録済みの単位集合。 設定した音高のすべてで録れているものだけ。
+    ///
+    /// 音高の中では、採用テイクを持つ行の単位の和集合として導出する
+    /// （`TR-RCL-18`。二重に保持しない）。 音高を跨いでは積を取る——
+    /// 被覆は（エイリアス, 収録音高）の組で持つ（`TR-RCL-26`）。
+    ///
+    /// **音高を跨いだ和集合を返していた。** 多音階で1音高だけ録り終えると
+    /// 全部揃ったように見え、見出しの被覆も環も満ち、完成の判定まで進んだ
+    /// ——残りの音高は1本も録っていないのに。単音階では和と積が同じなので、
+    /// 単音階の試験では見えなかった。
     pub fn covered_units(&mut self) -> Result<BTreeSet<String>> {
-        row_units::table
+        let rows: Vec<(i32, String)> = row_units::table
+            .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(row_units::row_id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .filter(takes::invalid.eq(0))
-            .select(row_units::kana)
-            .load::<String>(&mut self.conn)
-            .map(|v| v.into_iter().collect())
-            .map_err(db("covered_units"))
+            .select((rows::tone, row_units::kana))
+            .load(&mut self.conn)
+            .map_err(db("covered_units"))?;
+        let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+        for (tone, kana) in rows {
+            by_tone.entry(tone).or_default().insert(kana);
+        }
+        // 1テイクも録っていない音高は空集合として数える。 台帳に現れないので、
+        // `by_tone` の値だけで積を取ると、その音高が判定から漏れる。
+        let mut tones = self.recording_tones()?.into_iter();
+        let Some(first) = tones.next() else {
+            return Ok(BTreeSet::new());
+        };
+        let mut out = by_tone.remove(&first).unwrap_or_default();
+        for t in tones {
+            let here = by_tone.get(&t);
+            out.retain(|k| here.is_some_and(|s| s.contains(k)));
+        }
+        Ok(out)
     }
 
     /// 収録済みのエイリアス集合（`TR-RCL-18`, `TR-PKG-22`）。
@@ -3390,6 +3414,41 @@ mod m5_tests {
         assert!(by_tone.contains_key(&55));
         // 音高を跨いで混ぜない。1音高だけ録り終えても他は空のまま。
         assert!(!by_tone.contains_key(&62));
+    }
+
+    /// 見出しの被覆は、設定した音高のすべてで録れた単位だけ（`TR-RCL-26`）。
+    ///
+    /// **音高を跨いだ和集合で数えていた。** 1音高だけ録り終えると
+    /// 見出しも環も満ち、完成の判定まで進んでいた。
+    #[test]
+    fn 一音高だけ録り終えても被覆は満ちない() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, &[55, 62])
+            .expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+
+        // G3 を全行録る。 D4 は1行も録らない。
+        for r in &list {
+            adopt(&mut l, sid, &format!("{}@G3", r.id));
+        }
+        assert!(
+            l.covered_units().expect("引ける").is_empty(),
+            "D4 が空なので、どの単位も揃っていない"
+        );
+        let (done, total) = l
+            .coverage_by_kana_row()
+            .expect("引ける")
+            .into_iter()
+            .fold((0, 0), |(d, t), (c, n)| (d + c, t + n));
+        assert!(total > 0);
+        assert_eq!(done, 0, "環も満ちない");
+
+        // D4 で1行録ると、その行の単位だけが両方で揃う。
+        adopt(&mut l, sid, &format!("{}@D4", list[0].id));
+        let covered = l.covered_units().expect("引ける");
+        let want: BTreeSet<String> = list[0].units.iter().map(|u| u.kana.to_owned()).collect();
+        assert_eq!(covered, want);
     }
 
     /// 不足は全件返す（`TR-PKG-23`）。件数だけにしない。
