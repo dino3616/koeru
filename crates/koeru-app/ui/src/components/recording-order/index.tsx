@@ -42,7 +42,7 @@ const labelOf = (mode: string) =>
  * カバレッジ台帳の行集合も動かない。そう1行で書いておく——
  * 順序が変わると「録り直しになる」と読まれる。
  */
-/** 秒を読める長さにする。単位を省かない（`docs/design/direction.md`）。 */
+/** 秒を読める長さにする。単位を省かない（`docs/reports/ux/direction.md`）。 */
 const remaining = (seconds: number) => {
   if (seconds < 60) return "あと少し";
   const m = Math.round(seconds / 60);

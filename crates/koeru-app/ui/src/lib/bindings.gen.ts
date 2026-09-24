@@ -557,7 +557,7 @@ export type LeakView = {
 /**
  *  画面へ返す方式プリセット1つ（`TR-RCL-11`）。
  * 
- *  選ぶときだけオブジェクトになるもの（`docs/design/ooui-model.md`）。
+ *  選ぶときだけオブジェクトになるもの（`docs/reports/ux/ooui-model.md`）。
  *  選ばれたら音源の属性に落ちるので、永続する実体を持たない。
  */
 export type MethodPresetView = {

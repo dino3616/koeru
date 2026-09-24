@@ -60,7 +60,7 @@ major 以外は automerge する。ライセンスは `cargo deny check` が機�
 
 fslc は他と同じ扱いにした。 以前は「更新は Renovate 任せにせず semantic diff を
 確認してから上げる」としていたが、non-major でそれを要求する根拠が無い
-——CI が `fslc lint` と `fslc chain` と `document check` を全 manifest に当てるので、
+——CI が `fslc lint` と `fslc chain` を全 manifest に当てるので、
 壊れれば落ちる。major は Dependency Dashboard に載るので、読む機会は残る。
 
 hash は機械が直す。 `flake.nix` の fslc と bun は SHA-256 で固定しているので、

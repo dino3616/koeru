@@ -89,4 +89,4 @@
 
 ## Source
 
-- 調査資料: [utau_voicebank_creation_research_2026-08-26.pdf](./utau_voicebank_creation_research_2026-08-26.pdf)（UTAU 歌唱音声合成ライブラリ制作環境 / Product Discovery Report）
+- 調査資料: [utau_voicebank_creation_research_2026-08-26.pdf](./reports/market/utau_voicebank_creation_research_2026-08-26.pdf)（UTAU 歌唱音声合成ライブラリ制作環境 / Product Discovery Report）

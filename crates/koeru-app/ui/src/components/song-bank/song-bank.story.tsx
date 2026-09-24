@@ -54,7 +54,7 @@ export const 持ち込んだ曲が並ぶ: Story = {
       消すと、間違えて外した曲を戻す的がどこにも無くなる。
     */
     await expect(canvasElement.textContent).toContain("New Project — ハモリ");
-    // 状態を字でも出す（`docs/design/direction.md`）。的の名前だけで言わない。
+    // 状態を字でも出す（`docs/reports/ux/direction.md`）。的の名前だけで言わない。
     await expect(canvasElement.textContent).toContain("外してあります");
     const labels = [...canvasElement.querySelectorAll("[aria-label]")].map((e) =>
       e.getAttribute("aria-label"),

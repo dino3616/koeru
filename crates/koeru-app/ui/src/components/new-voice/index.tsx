@@ -16,7 +16,7 @@ type NewVoiceProps = {
   onClose: () => void;
 };
 
-/** 秒を「約 N 分」にする。単位を省かない（`docs/design/direction.md`）。 */
+/** 秒を「約 N 分」にする。単位を省かない（`docs/reports/ux/direction.md`）。 */
 const minutes = (seconds: number) => `約 ${Math.max(1, Math.round(seconds / 60))} 分`;
 
 /**
@@ -29,7 +29,7 @@ const minutes = (seconds: number) => `約 ${Math.max(1, Math.round(seconds / 60)
  * （`DEC-PKG-007`）ので、ここで判断を求めていない。
  *
  * 作れない作り方を灰色で並べない。 グレーアウトは未完成を失敗として描く形
- * （`docs/design/direction.md`）。**いま作れるものだけを出し、無いものは
+ * （`docs/reports/ux/direction.md`）。**いま作れるものだけを出し、無いものは
  * 1行で「まだ無い」と書く。**
  *
  * 作り方は選ばせる（`TR-RCL-11`）。 出すのは所要時間の代表値1個、到達点、

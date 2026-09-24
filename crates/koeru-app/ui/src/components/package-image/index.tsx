@@ -25,7 +25,7 @@ type PackageImageProps = {
  * 選んだ時点で変換できるかを Rust が確かめる。 書き出しの一歩手前で
  * 「この画像は使えません」と言われないようにする。
  *
- * 枠を持たない。 置く側の領域が枠になる（`docs/design/direction.md`）。
+ * 枠を持たない。 置く側の領域が枠になる（`docs/reports/ux/direction.md`）。
  */
 export const PackageImage = ({ voiceId, slot, label, hint }: PackageImageProps) => {
   const inputId = useId();

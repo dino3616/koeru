@@ -121,6 +121,6 @@ measured = '''
 
 ## 8. 声の色の面積
 
-[Fact] 環がいちばん多い面でも、有彩画素は 5.11%。 `docs/design/direction.md` の
+[Fact] 環がいちばん多い面でも、有彩画素は 5.11%。 `docs/reports/ux/direction.md` の
 目安（声の色が1割を超えない）の内側。細い線で描く選択がここで効いている。
 '''

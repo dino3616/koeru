@@ -45,7 +45,7 @@ const matches = (row: RowTakesView, filter: Filter, pending: ReadonlySet<string>
  * 行 ID を出さない（`Q-REC-003`、`TR-REC-18`）。 読み上げにも入れない。
  * 行を指すのはテキストと並び順で、内部の識別子は経路の引数として持つだけ。
  *
- * まだ録っていない行を薄くしない（`docs/design/direction.md`）。
+ * まだ録っていない行を薄くしない（`docs/reports/ux/direction.md`）。
  * 欠けは不足ではなく「まだ」なので、灰色にも警告色にもしない。
  */
 export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListProps) => {
@@ -84,7 +84,7 @@ export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListPro
                   row.takes.length === 0
                     ? "まだ録っていません"
                     : `${row.takes.length} 回録りました`,
-                  // 色や位置ではなく語で言う（`docs/design/direction.md`）。
+                  // 色や位置ではなく語で言う（`docs/reports/ux/direction.md`）。
                   pending.has(row.row_id) ? "確認待ちです" : null,
                 ]
                   .filter((s) => s !== null)
@@ -102,7 +102,7 @@ export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListPro
                   </span>
                   {/*
                     色を持たせない。 欠けを失敗として描かない
-                    （`docs/design/direction.md`）ので、状態は語だけで言う。
+                    （`docs/reports/ux/direction.md`）ので、状態は語だけで言う。
                   */}
                   {pending.has(row.row_id) && (
                     <span className="text-xs text-slate-11">確認待ち</span>

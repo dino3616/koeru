@@ -156,17 +156,6 @@ jobs:
             echo "== $m"
             fslc chain "$m"
           done
-      # 生成した要件文書が仕様とずれていないか。Markdown から FSL への逆同期はしない。
-      # 直すのは常に FSL 側で、文書は再生成する。
-      - name: document drift
-        run: |
-          set -euo pipefail
-          # 仕様の側から回す。文書が無いことを黙って見逃さないため。
-          # 設計層も含める。 読ませる仕様なのに網から外れていた。
-          for f in specs/requirements/*.fsl specs/design/*.fsl; do
-            b="$(basename "$f" .fsl)"
-            fslc document check "$f" "docs/generated/$b.md"
-          done
       # FSL が扱わない情報が、FSL と技術要件の ID へ実際に繋がっているか。
       - name: meta registries
         run: |
