@@ -12,7 +12,7 @@ provenance = '''
 
 `ProgressView` のフィールドは `bindings.gen.ts` の型定義と、その参照箇所の grep で確かめた。
 
-説明と読みどころは `docs/design/inventory.md`。 ここは観察した事実だけを持つ。
+説明と読みどころは `docs/reports/ux/inventory.md`。 ここは観察した事実だけを持つ。
 '''
 confidence = 'Fact'
 

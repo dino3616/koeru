@@ -1,0 +1,86 @@
+{
+  "bundle": "koeru-architecture-redesign",
+  "revision": "graphql-application-contract",
+  "generated_date": "2026-09-23",
+  "manifest_note": "MANIFEST.json intentionally does not hash itself.",
+  "files": [
+    {
+      "path": "00-architecture-report.md",
+      "bytes": 47648,
+      "sha256": "c1c744998850540494aae021694841d650c3084dd4547463d66290dc86b8274d",
+      "purpose": "Primary architecture investigation and target redesign report."
+    },
+    {
+      "path": "01-contributor-guide.md",
+      "bytes": 17231,
+      "sha256": "0084bb46b36a4773fb78a5c4a469ddf095c954c8175651f5f58b96574f33b4d7",
+      "purpose": "Contributor placement/dependency/contract/testing rules."
+    },
+    {
+      "path": "02-tests-observability.md",
+      "bytes": 33664,
+      "sha256": "7b97a225bd6b802a50b1ca259f2f3bdca61b1ab15cf51e36e7e52d1ab470bfd8",
+      "purpose": "Risk-based testing, observability, privacy, performance and fitness functions."
+    },
+    {
+      "path": "03-task-dag.md",
+      "bytes": 33831,
+      "sha256": "c17b1610d11fc4e90964adbd08d917dff70434c0a4a4bfd97d0cc6515d7c3c7b",
+      "purpose": "Detailed GraphQL-first refactoring task DAG."
+    },
+    {
+      "path": "04-skills-design.md",
+      "bytes": 15293,
+      "sha256": "9de1fda3f6ae6d2eca989a9d12671ddb57a9c6383c71ffc7b1e6f6037fdfc75a",
+      "purpose": "Design for plan-koeru-change and verify-koeru Agent Skills."
+    },
+    {
+      "path": "05-agent-handoff.md",
+      "bytes": 15762,
+      "sha256": "10339935143f2a4db1371d6a736cbde655b3e35e21dcdbc3469c798a67acd0d7",
+      "purpose": "Standalone instructions for implementing Skills after refactor."
+    },
+    {
+      "path": "06-evidence.md",
+      "bytes": 15316,
+      "sha256": "5792e370ea4df5193cd4eb32280b45e686dac30a9dcbdd45a5b5b551e47b90df",
+      "purpose": "Repository and external technical evidence index."
+    },
+    {
+      "path": "07-worked-examples.md",
+      "bytes": 19747,
+      "sha256": "e8eb1382b95e5d5762ca3f89c5e2f1adbea419c6b8a50e64b4460c281260ff67",
+      "purpose": "Worked architecture examples across major workflows."
+    },
+    {
+      "path": "08-graphql-application-contract.md",
+      "bytes": 19806,
+      "sha256": "8db91b98e1d9ca25ca669cf68e02a64663066a5c96c594d702dc6c17b8099f07",
+      "purpose": "Detailed schema-first GraphQL application contract design."
+    },
+    {
+      "path": "QA.md",
+      "bytes": 3264,
+      "sha256": "f03ca86410bce27a5d596f2f7971c3c605c918c99e12554d7d7bfcbbb4cac99b",
+      "purpose": "Bundle validation scope, limitations and remaining human decisions."
+    },
+    {
+      "path": "README.md",
+      "bytes": 4215,
+      "sha256": "f1b5c33896b979ba761e36d7187254d4a93904e241cda7ec1268f18614d26b01",
+      "purpose": "Bundle index, revised architecture decisions, reading order, status."
+    },
+    {
+      "path": "task-dag.json",
+      "bytes": 1823,
+      "sha256": "79356f92ae20ac925ccd75a5fdf46a5d5e826246e241f2202856918aff4fb322",
+      "purpose": "Machine-readable task dependencies."
+    },
+    {
+      "path": "validate_bundle.py",
+      "bytes": 5623,
+      "sha256": "24040d66d57b34b4c250010ec2dde838ed2cc9c77efaaf85a98e1ba82cd3a459",
+      "purpose": "Mechanical bundle consistency and integrity validator."
+    }
+  ]
+}

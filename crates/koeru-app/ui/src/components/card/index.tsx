@@ -22,7 +22,7 @@ const HEADINGS = ["h2", "h3", "h4", "h5", "h6"] as const;
  * 見出しの段は入れ子の深さから決まる。 画面の `h1` の下が `h2`、
  * その中の `Card` が `h3`。飛ばすと、見出しだけを辿る移動が壊れる。
  *
- * 質感を持たない（`docs/design/direction.md`）。 影もグラデーションも置かない。
+ * 質感を持たない（`docs/reports/ux/direction.md`）。 影もグラデーションも置かない。
  * 面は段 2 の塗り、輪郭は 1px の段 7 だけ。
  *
  * 中身の間隔は `Card` が持つ。 呼ぶ側が `mt-*` を足していくと、
@@ -56,7 +56,7 @@ export const Card = ({
 /**
  * 領域の名前。
  *
- * 段 11 の 0.875rem・600（`docs/design/direction.md` の文字の段）。
+ * 段 11 の 0.875rem・600（`docs/reports/ux/direction.md` の文字の段）。
  * 読ませる文章ではなく、どこにいるかを示す札なので、本文より弱くする。
  */
 export const CardTitle = ({

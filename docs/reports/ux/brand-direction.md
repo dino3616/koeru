@@ -1,6 +1,6 @@
 # ブランドの方向
 
-`docs/design/redesign-plan.md` の Phase 4。判断は `DEC-PLT-025`（画面の重心と視覚言語）と `DEC-PKG-007`（完成の関門）。ここは読みどころ。
+`docs/reports/ux/redesign-plan.md` の Phase 4。判断は `DEC-PLT-025`（画面の重心と視覚言語）と `DEC-PKG-007`（完成の関門）。ここは読みどころ。
 
 `docs/product-vision.md` の Tone と Naming は上位にある。ここで作るのはその視覚化であって、新しいブランドの発明ではない。
 

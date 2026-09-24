@@ -66,14 +66,14 @@ const MAX_STEP = 13;
  * 差し替え、canvas へ描いたピクセルには触らない——図が元の色のまま取り残される。
  * `stroke` は CSS の色なので、SVG なら形が残る。
  *
- * **欠けに軌道を置かない**（`docs/design/direction.md`）。 まだ録っていない
+ * **欠けに軌道を置かない**（`docs/reports/ux/direction.md`）。 まだ録っていない
  * ぶんに薄い線を敷かない。それは「進捗バーの空白部分を薄くする」ことで、
  * 未完成を欠落として描くことになる。1本も録れていない環は描かない。
  *
  * 色は props で受ける。 部品に音源固有の色を渡さないのが規則だが、
- * 声の形はその唯一の例外（`docs/design/direction.md`）。
+ * 声の形はその唯一の例外（`docs/reports/ux/direction.md`）。
  *
- * 質感を許すのは産物側だけ（`docs/design/direction.md`）。 線を少し揺らす。
+ * 質感を許すのは産物側だけ（`docs/reports/ux/direction.md`）。 線を少し揺らす。
  * 強制カラーモードではフィルタが効かなくなるが、環の形そのものは残るので
  * 情報は失われない。
  */
