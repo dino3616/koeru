@@ -569,7 +569,7 @@ migration_cost      既存データ・workflow・学習を壊すか
 
 Agent が自動的に Question を大量起票することはしない。候補は一回の依頼で少数に制限し、既存 Question への追加を優先する。
 
-初期設定では、単独 Contributor の**能動的な探索は同時に二件まで**とする。これは最適値が実証されたという意味ではなく、運用費を抑えるための変更可能な初期値である。
+能動的な探索の同時数は `design/policy.toml` の `max_active_explorations` で制御する。Reference Architecture は値を固定しない。
 
 ---
 
@@ -1318,7 +1318,7 @@ Decision には、従来の項目に加え、次を読み取れるようにす�
 
 「既存方針だから」で終えない。
 
-初期の R2 review window は七暦日とする。これは不連続な参加への余地を確保する運用上の初期値である。重大な新論点が出たら延長する。緊急の危険回避や rollback は先に実施し、後から記録できる。
+R2 の review window は `design/policy.toml` の `r2_review_window_days` で設定する。重大な新論点が出たら延長でき、緊急の危険回避や rollback は先に実施して後から記録できる。Reference Architecture は日数を規範化しない。
 
 単独 maintainer の判断は認めるが、複数人の合意があったかのようには記録しない。
 
@@ -1689,7 +1689,7 @@ GitHub の公式 Agentic Workflows は、現在 public preview として、read-
 
 LLM 用 credential は、worker が自由に読める workspace に置かない。必要なら broker が、許可した文脈だけを model に送る。
 
-初期上限は、一依頼二反復まで、並列 worker は原則一つとする。単に複数モデルへ同じ依頼を投げることを標準にしない。
+Agent の反復数・並列 worker 数・出力上限は `design/policy.toml` に置く。単に複数モデルへ同じ依頼を投げることを標準にしない。
 
 ### 14.3.1 LLM の自動起動と deterministic watcher を分ける
 
@@ -1754,21 +1754,35 @@ Vision 全文や全 Pattern を各 Skill にコピーしない。既存の `.age
 
 **Downstream：** C1・C6。削減後の運用を再び観測する。
 
-### 15.1 Cost と latency の上限
+### 15.1 Cost と latency は policy parameter にする
 
-初期運用は、次を目安とする。
+Reference Architecture は「どこに上限が必要か」を定義し、分数・日数・件数そのものは規範化しない。
+運用値は `design/policy.toml` の tuning parameter とする。
 
-| 対象 | 初期方針 |
-|---|---|
-| R0 | 通常の開発経路。新しい探索儀式を足さない |
-| R1 | 初回探索は30〜90分程度の作業予算を設定し、超過時に続行理由を確認する |
-| R1 の外部 critique | 依頼した場合は48時間などの応答期間を明示。返答がなければ「独立した critique なし」として判断できる |
-| R2 | 七暦日の公開検討を初期値とする。危険回避の緊急措置は例外 |
-| Active exploration | 単独 Contributor では二件まで |
-| Agent | 明示起動。自動再試行や連鎖起動を標準にしない |
-| System review | 最初は設計変更四件程度を通した時点で実施。活動がない期間に review のための活動を作らない |
+```toml
+[exploration]
+max_active = 2
+soft_budget_minutes = 90
 
-これらは研究から導いた普遍的な最適値ではない。KOERU で反証・変更する初期設定である。
+[critique]
+external_response_hours = 48
+
+[decision]
+r2_review_window_days = 7
+
+[agent]
+max_iterations = 2
+max_parallel_workers = 1
+
+[system_review]
+completed_design_changes = 4
+```
+
+上の数値は **例示 default** であり、この report の規範ではない。
+実装時に DEC として採用し、実際の負担から変更する。
+
+R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起動は default で無効にする、といった
+構造的方針だけを Reference Architecture に残す。
 
 ### 15.2 何を残し、何を消すか
 
