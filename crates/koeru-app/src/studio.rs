@@ -1289,7 +1289,12 @@ impl Studio {
         // 収録音高は台帳が持つ（`TR-RCL-01`）。プリセットは方式だけ。
         let tones = self.opened_mut()?.ledger.recording_tones()?;
         let songs = self.opened_mut()?.ledger.songs_in_bank()?;
-        let mut required = std::collections::BTreeSet::new();
+        // 要るものは（収録音高, 綴り）の組（`TR-RCL-15`）。 ノートの floor の音高でだけ要る。
+        //
+        // **全部の音高に同じ行を入れていた。** 低い曲を選んでも、使わない高い
+        // 区画の行まで読ませることになる。
+        let mut required: std::collections::BTreeSet<(i32, String)> =
+            std::collections::BTreeSet::new();
         for (id, ranges) in selections {
             let song = songs
                 .iter()
@@ -1301,23 +1306,101 @@ impl Studio {
             } else {
                 song.select(ranges)
             };
-            required.extend(part.required_aliases(&rules, preset.method, preset.set));
+            required.extend(part.required_by_tone(&rules, preset.method, preset.set, &tones));
         }
 
-        let rows = preset
-            .reclist_for(&rules, &required)
-            .map_err(|e| AppError::new(e.kind(), e))?;
+        // 一度録った綴りは読ませない（`DEC-RCL-016`）。 まだ録っていない詰め直しの
+        // 行が既に作る綴りも除く——選び直すたびに同じ綴りを別の行でもう一度読ませない。
+        let covered = self.opened_mut()?.ledger.covered_aliases_by_tone()?;
+        let suffixed = tones.len() > 1;
         // 返すのは台帳に実際に入った行の数。 **作った数を返していた**ので、
         // 同じ範囲を2度詰め直しても「N 行を足しました」と出ていた
         // ——既にある行は飛ばすので、台帳は増えていない。
-        let added = self.opened_mut()?.ledger.install_reclist_for_tones(
-            &rows,
-            &rules,
-            preset.method,
-            &tones,
-        )?;
+        let mut added = 0;
+        for t in &tones {
+            let waiting: std::collections::BTreeSet<String> = self
+                .opened_mut()?
+                .ledger
+                .untaken_rows(*t, koeru_core::db::RowOrigin::Repack)?
+                .into_iter()
+                .flat_map(|(_, a)| a)
+                .collect();
+            let want: std::collections::BTreeSet<String> = required
+                .iter()
+                .filter(|(rt, a)| {
+                    rt == t
+                        && !waiting.contains(a)
+                        && !covered.get(t).is_some_and(|c| c.contains(a))
+                })
+                .map(|(_, a)| a.clone())
+                .collect();
+            if want.is_empty() {
+                continue;
+            }
+            let rows = preset
+                .reclist_for(&rules, &want)
+                .map_err(|e| AppError::new(e.kind(), e))?;
+            added += self.opened_mut()?.ledger.install_rows(
+                &rows,
+                &rules,
+                preset.method,
+                *t,
+                suffixed,
+                koeru_core::db::RowOrigin::Repack,
+            )?;
+        }
         tracing::info!(count = added, "選択から録音リストを詰め直した");
         Ok(added)
+    }
+
+    /// 録った行と別の出どころの、まだ録っていない行を組み直す（`DEC-RCL-016`）。
+    ///
+    /// フルリストの行を録ったら詰め直しの行を、詰め直しの行を録ったらフルリストの
+    /// 行を、まだ録っていない綴りだけを覆う行へ作り直す。**一度録った綴りを
+    /// 二度読ませない。** 曲のために録った `さ` を、フルリストの「さしすせそ」で
+    /// もう一度読ませていた。
+    ///
+    /// 録っている側は組み直さない。 本人が読み進めている並びが、読むたびに
+    /// 足元で変わる。組み直すのはテイクを1本も持たない行だけ（`Ledger::untaken_rows`）。
+    fn reconcile_other_origin(&mut self, row_id: &str) -> Result<()> {
+        let preset = self.current_preset()?;
+        let rules = self.current_rules()?;
+        let ledger = &mut self.opened_mut()?.ledger;
+        let origin = ledger.row_origin(row_id)?.other();
+        let tone = ledger.row_tone(row_id)?;
+        let waiting = ledger.untaken_rows(tone, origin)?;
+        let covered = ledger
+            .covered_aliases_by_tone()?
+            .remove(&tone)
+            .unwrap_or_default();
+        // 録った綴りを1つも含まないなら、組み直しても同じ行になる。
+        if !waiting
+            .iter()
+            .any(|(_, a)| a.iter().any(|x| covered.contains(x)))
+        {
+            return Ok(());
+        }
+        let want: std::collections::BTreeSet<String> = waiting
+            .iter()
+            .flat_map(|(_, a)| a.iter())
+            .filter(|a| !covered.contains(*a))
+            .cloned()
+            .collect();
+        let rows = if want.is_empty() {
+            Vec::new()
+        } else {
+            preset
+                .reclist_for(&rules, &want)
+                .map_err(|e| AppError::new(e.kind(), e))?
+        };
+        let suffixed = ledger.recording_tones()?.len() > 1;
+        ledger.replace_untaken_rows(&rows, &rules, preset.method, tone, suffixed, origin)?;
+        tracing::info!(
+            rows = rows.len(),
+            count = waiting.len(),
+            "まだ録っていない行を組み直した"
+        );
+        Ok(())
     }
 
     /// いま開いているプロジェクトの方式プリセット（`TR-RCL-01`）。
@@ -2005,65 +2088,47 @@ impl Studio {
             .filter(|r| r.adopted.is_some())
             .map(|r| r.row_id.clone())
             .collect();
-        let song_required: std::collections::BTreeSet<String> = self
-            .opened_mut()?
-            .ledger
-            .songs_in_bank()?
-            .iter()
-            .flat_map(|(_, s)| s.required_aliases(&rules, preset.method, preset.set))
-            .collect();
-        let list = preset
-            .reclist(&rules)
-            .map_err(|e| AppError::new(e.kind(), e))?;
-
         let tones = self.opened_mut()?.ledger.recording_tones()?;
-        if tones.len() <= 1 {
-            let covered = self.opened_mut()?.ledger.covered_aliases()?;
-            return Ok((
-                mode,
-                koeru_core::order::present(
-                    &rules,
-                    mode,
-                    preset.method,
-                    &list,
-                    &recorded,
-                    &covered,
-                    &song_required,
-                ),
-            ));
+        // 曲が要る綴りは、そのノートの floor の音高ごとに（`TR-RCL-15`, `DEC-SYN-014`）。
+        let mut song_required: std::collections::BTreeMap<i32, std::collections::BTreeSet<String>> =
+            std::collections::BTreeMap::new();
+        for (_, song) in self.opened_mut()?.ledger.songs_in_bank()? {
+            for (t, a) in song.required_by_tone(&rules, preset.method, preset.set, &tones) {
+                song_required.entry(t).or_default().insert(a);
+            }
         }
+        // 並べるのは台帳の行（`TR-SYN-19`, `DEC-RCL-016`）。
+        //
+        // **プリセットから生成し直したリストを並べていた。** 詰め直した行も、
+        // 録った綴りに合わせて組み直した行も一度も並ばず、録り終えた綴りを
+        // もう一度読ませるフルリストの行が出続けた。
+        let listed = self.opened_mut()?.ledger.listed_rows(preset.set)?;
 
-        // 多音階は音高ごとに並べ、低い音高から順に繋ぐ（`TR-RCL-26`）。
+        // 音高ごとに並べ、低い音高から順に繋ぐ（`TR-RCL-26`）。
         //
         // **音高を跨いで1本で並べていた。** 被覆を和集合で渡したので、1音高を
         // 録り終えると全部の綴りが揃ったことになり、残りの音高ではどの行も
-        // 点が 0——モードに関係なく正準順へ戻っていた。行 ID も素のまま返して
-        // いたので、台帳の `s001@G3` とは一度も一致しなかった。
+        // 点が 0——モードに関係なく正準順へ戻っていた。
         //
-        // 音高の向きは台帳の正準順（`install_reclist_for_tones` の `ordinal`）と同じ。
-        // 並べ直すのは、各音高の中だけ。
+        // 音高の向きは台帳の正準順（`ordinal`）と同じ。 並べ直すのは、各音高の中だけ。
         let by_tone = self.opened_mut()?.ledger.covered_aliases_by_tone()?;
         let empty = std::collections::BTreeSet::new();
         let mut order = Vec::new();
         for t in &tones {
-            let suffix = format!("@{}", koeru_core::tone::name(*t));
-            let recorded_here: std::collections::BTreeSet<String> = recorded
+            let here: Vec<koeru_core::reclist::Row> = listed
                 .iter()
-                .filter_map(|id| id.strip_suffix(&suffix).map(str::to_owned))
+                .filter(|(rt, _)| rt == t)
+                .map(|(_, r)| r.clone())
                 .collect();
-            order.extend(
-                koeru_core::order::present(
-                    &rules,
-                    mode,
-                    preset.method,
-                    &list,
-                    &recorded_here,
-                    by_tone.get(t).unwrap_or(&empty),
-                    &song_required,
-                )
-                .into_iter()
-                .map(|id| format!("{id}{suffix}")),
-            );
+            order.extend(koeru_core::order::present(
+                &rules,
+                mode,
+                preset.method,
+                &here,
+                &recorded,
+                by_tone.get(t).unwrap_or(&empty),
+                song_required.get(t).unwrap_or(&empty),
+            ));
         }
         Ok((mode, order))
     }
@@ -2418,13 +2483,15 @@ impl Studio {
                     .collect();
                 self.opened_mut()?.ledger.put_boundaries(take_id, &saved)?;
 
-                // 5値を置くのは、この行が名乗った綴りだけ（`TR-ALN-22`）。
+                // 5値を置くのは、この行が持ち主の綴りだけ（`TR-ALN-22`, `DEC-RCL-016`）。
+                // 先に録った行が持つので、同じ音高で同じ綴りを既に録ってあれば
+                // ここでは置かない。
                 //
                 // **境界のほうは全モーラぶん残す。** 下位方式への書き出しは
                 // モーラ順に境界を並べ直し、1つでも欠けたらその素材を丸ごと
-                // 落とす（`packaging::rederived_entries`）。名乗らなかった
+                // 落とす（`packaging::rederived_entries`）。持ち主でない
                 // 行頭の境界まで捨てると、その行の綴りが全部消える。
-                let owned = self.opened_mut()?.ledger.aliases_of_row(&row_id)?;
+                let owned = self.opened_mut()?.ledger.owned_aliases_of_row(&row_id)?;
                 let derived: std::collections::BTreeMap<String, Oto> =
                     koeru_align::derive::derive_row(&entries, v, &line, duration_ms, &preset)
                         .into_iter()
@@ -2529,6 +2596,8 @@ impl Studio {
             self.opened_mut()?.ledger.adopt_take(&row_id, take_id)?;
             // 採用が変わったので、確認キューを組み直して新しいエントリを入れる。
             self.enqueue_take(take_id)?;
+            // 録れた綴りを、もう片方の出どころで二度読ませない（`DEC-RCL-016`）。
+            self.reconcile_other_origin(&row_id)?;
         }
 
         // ## 背後で前処理を進める（`TR-SYN-04`, `TR-SYN-34`）
@@ -3385,8 +3454,11 @@ impl Studio {
         // 行が生むエイリアスごとに1つ（`TR-RCL-18`）。 確定のときと同じ表を通す
         // ——別の表で作り直すと、確認キューに無いエイリアスが生える。
         let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
-        // 名乗った綴りだけ。 確定のときと同じ絞り方を通す（`TR-ALN-22`）。
-        let owned = self.opened_mut()?.ledger.aliases_of_row(&take.row_id)?;
+        // 持ち主の綴りだけ。 確定のときと同じ絞り方を通す（`TR-ALN-22`, `DEC-RCL-016`）。
+        let owned = self
+            .opened_mut()?
+            .ledger
+            .owned_aliases_of_row(&take.row_id)?;
         let derived: std::collections::BTreeMap<String, Oto> =
             koeru_align::derive::derive_row(&entries, &per_mora, &line, duration_ms, &preset)
                 .into_iter()
@@ -4338,6 +4410,8 @@ impl Studio {
             recorded_at: now_rfc3339(),
         })?;
         self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+        // 本番の確定と同じく、もう片方の出どころを組み直す（`DEC-RCL-016`）。
+        self.reconcile_other_origin(row_id)?;
         Ok(())
     }
 
@@ -4379,13 +4453,13 @@ impl Studio {
         // **収録単位そのものを置いていた。** 連続音や CVVC では書き出しの
         // 綴りと違う名前になり、被覆が満ちないまま試験が通っていた。
         //
-        // 行から導き直さない。 同じ綴りを2つの行が生むとき、名乗るのは
-        // 1つだけで（`TR-ALN-22`）、その取り決めは台帳にしか無い。
+        // 行から導き直さない。 同じ綴りを2つの行が生むとき、持つのは
+        // 先に録った1つだけで（`DEC-RCL-016`）、その取り決めは台帳にしか無い。
         // 導き直すと、本番では作られない5値を試験だけが持つ。
         let here = self.current_preset()?;
         let rules = self.current_rules()?;
         let line = self.opened_mut()?.ledger.row_units_of(row_id, here.set)?;
-        let aliases = self.opened_mut()?.ledger.aliases_of_row(row_id)?;
+        let aliases = self.opened_mut()?.ledger.owned_aliases_of_row(row_id)?;
         // 境界も置く。 下位方式の書き出し（`TR-PKG-24`）が引く。
         let saved: Vec<(String, koeru_core::oto::Boundary)> =
             koeru_core::reclist::row_entries(&rules, here.method, &line)
@@ -4445,6 +4519,8 @@ impl Studio {
         );
         self.opened_mut()?.ledger.put_analysis(take, &analysis)?;
         self.refresh_review()?;
+        // 本番の確定と同じく、もう片方の出どころを組み直す（`DEC-RCL-016`）。
+        self.reconcile_other_origin(row_id)?;
         Ok(take)
     }
 

@@ -235,7 +235,7 @@ fn 連続音から単独音へ降りて書き出せる() {
 
     // **2つの関門で止まっていた。** 語頭 CV の重複で `review.conflicting_alias`、
     // 越えたあとは綴りの重なりで `package.duplicate_alias`。
-    // 前者は綴りの持ち主を音高ごとに1行へ決めて（`DEC-ALN-017`）、
+    // 前者は綴りの持ち主を音高ごとに1行へ決めて（`DEC-ALN-017`、いまは `DEC-RCL-016`）、
     // 後者は配る素材を綴りごとに1つ選んで（`DEC-PKG-014`）解いた。
     let out = studio
         .export_downgrade(Method::Single)

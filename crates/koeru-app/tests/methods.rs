@@ -469,3 +469,137 @@ fn 録る順が次のフレーズに効く() {
         "戻したモードの先頭になる"
     );
 }
+
+/// 詰め直した行を録ると、原音設定も被覆も増える（`DEC-RCL-016`）。
+///
+/// **何も増えなかった。** 綴りの持ち主を「台帳に先に入った行」にしていたので、
+/// フルリストのあとに足した詰め直しの行は綴りを1つも持たなかった。
+#[test]
+fn 詰め直した行を録ると被覆が増える() {
+    let (mut s, _root) = studio("repack-owns");
+    let id = s.create_project("曲から").expect("作れる");
+    s.open_project(id).expect("開ける");
+    let song = bundled_song_id(&mut s);
+    assert!(
+        s.repack_for_selection(&[(song, Vec::new())])
+            .expect("詰め直せる")
+            > 0
+    );
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    let packed = repacked_rows(&mut l);
+    let row = packed.first().expect("詰め直した行がある").clone();
+    let want = l.aliases_of_row(&row).expect("引ける");
+
+    s.seed_material_for_test(&row).expect("置ける");
+    let covered = l.covered_aliases().expect("引ける");
+    assert!(want.is_subset(&covered), "録った綴りが被覆に入る");
+    assert_eq!(
+        l.owned_aliases_of_row(&row).expect("引ける"),
+        want,
+        "先に録った行が持つ"
+    );
+}
+
+/// 詰め直した行を録ったら、フルリストの残りでその綴りを読ませない（`DEC-RCL-016`）。
+///
+/// **二度読ませていた。** 曲の行で `さ` を録っても、フルリストの「さしすせそ」は
+/// 録る行として残り、`さ` をもう一度読ませた。
+#[test]
+fn 詰め直した行を録るとフルリストの残りを組み直す() {
+    let (mut s, _root) = studio("repack-rebuild");
+    let id = s.create_project("組み直し").expect("作れる");
+    s.open_project(id).expect("開ける");
+    let song = bundled_song_id(&mut s);
+    s.repack_for_selection(&[(song, Vec::new())])
+        .expect("詰め直せる");
+
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    let before = l.all_aliases().expect("引ける");
+    for row in repacked_rows(&mut l) {
+        s.mark_recorded_for_test(&row).expect("印を付けられる");
+    }
+    let covered = l.covered_aliases().expect("引ける");
+    assert!(!covered.is_empty());
+
+    // まだ録っていないフルリストの行は、録った綴りを1つも作らない。
+    let untaken = l
+        .untaken_rows(
+            koeru_core::preset::DEFAULT_TONE_MIDI,
+            koeru_core::db::RowOrigin::Preset,
+        )
+        .expect("引ける");
+    assert!(!untaken.is_empty(), "残りがある");
+    for (row, aliases) in &untaken {
+        assert!(
+            aliases.is_disjoint(&covered),
+            "{row} が録った綴りをもう一度読ませる: {:?}",
+            aliases.intersection(&covered).collect::<Vec<_>>()
+        );
+    }
+    // 録っていない綴りは、組み直したあとも全部どこかの行にある。
+    let after = l.all_aliases().expect("引ける");
+    assert!(
+        before.is_subset(&after),
+        "取りこぼした綴り: {:?}",
+        before.difference(&after).collect::<Vec<_>>()
+    );
+}
+
+/// 詰め直すときは、もう録ってある綴りを除く（`DEC-RCL-016`）。
+#[test]
+fn 詰め直しは録った綴りを除く() {
+    let (mut s, _root) = studio("repack-skip");
+    let id = s.create_project("除く").expect("作れる");
+    s.open_project(id).expect("開ける");
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    // フルリストで「さ」を持つ行を先に録る。
+    let row = l
+        .rows_with_takes()
+        .expect("引ける")
+        .into_iter()
+        .find(|r| r.text.split_whitespace().any(|k| k == "さ"))
+        .expect("さ の行がある")
+        .row_id;
+    s.mark_recorded_for_test(&row).expect("印を付けられる");
+    let covered = l.covered_aliases().expect("引ける");
+
+    let song = bundled_song_id(&mut s);
+    s.repack_for_selection(&[(song, Vec::new())])
+        .expect("詰め直せる");
+    for packed in repacked_rows(&mut l) {
+        let aliases = l.aliases_of_row(&packed).expect("引ける");
+        assert!(
+            aliases.is_disjoint(&covered),
+            "{packed} が録った綴りを読ませる: {:?}",
+            aliases.intersection(&covered).collect::<Vec<_>>()
+        );
+    }
+}
+
+/// 提示順は台帳の行を並べる。 詰め直した行も並ぶ（`TR-SYN-19`, `DEC-RCL-016`）。
+#[test]
+fn 詰め直した行も提示順に並ぶ() {
+    let (mut s, _root) = studio("repack-order");
+    let id = s.create_project("並ぶ").expect("作れる");
+    s.open_project(id).expect("開ける");
+    let song = bundled_song_id(&mut s);
+    s.repack_for_selection(&[(song, Vec::new())])
+        .expect("詰め直せる");
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    let packed = repacked_rows(&mut l);
+    let (_, order) = s.recording_order().expect("引ける");
+    assert!(
+        packed.iter().all(|p| order.contains(p)),
+        "詰め直した行が並ばない: {order:?}"
+    );
+}
+
+/// 詰め直した行（出どころが詰め直し）の ID。
+fn repacked_rows(l: &mut Ledger) -> Vec<String> {
+    l.rows_with_takes()
+        .expect("引ける")
+        .into_iter()
+        .map(|r| r.row_id)
+        .filter(|id| l.row_origin(id).expect("引ける") == koeru_core::db::RowOrigin::Repack)
+        .collect()
+}
