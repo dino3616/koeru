@@ -968,6 +968,35 @@ not-applicable
 
 重要なのは、**人間による観察がないことと、変更を一切出荷できないことを同一視しない**ことである。可逆的な変更なら、未検証の効果を未検証と記したまま試す。一方、同意・元音声・不可逆なデータ操作などの危険を、未検証という札だけで通してはいけない。
 
+### 10.3.1 Human Verification Debt を derived queue として扱う
+
+「人間に会えないので untested のまま残す」だけでは、human-only な Claim が静かに積み上がる。
+一方、それらをすべて blocking にすると KOERU は進まない。
+
+そこで、人間の観察でしか十分に扱えない未解決 Claim を正本とは別の **derived queue** として
+いつでも取り出せるようにする。
+
+```bash
+cargo xtask design-debt --human
+```
+
+出力には少なくとも次を含める。
+
+- Claim と claim class
+- なぜ human evidence が必要か
+- その Claim に依存している Decision / Pattern
+- blast radius と reversibility
+- 現在持っている Evidence と不足
+- 一回の session で同時に観察できる他の Claim
+- 有効な Probe があるか
+
+優先度を単一 score にしない。人との接触機会が得られたときに、
+**その一回を最も情報価値の高い観察へ変換するための planning surface** とする。
+
+Queue から消えるのは、Claim が解決した場合だけではない。
+Decision がその Claim に依存しなくなった場合、Claim 自体が不要になった場合も含む。
+「未検証数を減らすこと」を目的化しない。
+
 ### 10.4 専門家の位置づけ
 
 専門家は、プロジェクト全体の恒久的な最終権威ではなく、**特定の問いに対する、範囲と期限を持つ相談先**とする。
