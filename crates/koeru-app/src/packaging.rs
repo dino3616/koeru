@@ -833,7 +833,7 @@ fn rederived_entries(
     // 乗っている直前のモーラで数える（`derive_row` と同じ見方）。
     let depth = |alias: &str| {
         entries.iter().find_map(|(a, slot)| {
-            (a == alias).then(|| match *slot {
+            (a == alias).then_some(match *slot {
                 Slot::Cv { mora } | Slot::Ending { mora } => mora,
                 Slot::Vc { prev, .. } => prev,
             })
