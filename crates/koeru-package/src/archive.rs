@@ -524,8 +524,8 @@ mod tests {
     use crate::bank::{Character, Readme, Sample, Subbank};
     use crate::tree;
     use koeru_align::ini::IniEntry;
+    use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
-    use koeru_core::project::Method;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn tmp(tag: &str) -> PathBuf {
@@ -554,6 +554,7 @@ mod tests {
             },
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks: vec![Subbank {
                 folder: None,
                 color: String::new(),

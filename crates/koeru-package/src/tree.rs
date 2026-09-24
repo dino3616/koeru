@@ -304,8 +304,8 @@ fn contents_summary(root: &[PackagedFile], samples: &[PackagedFile]) -> Vec<Stri
 mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample};
+    use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
-    use koeru_core::project::Method;
 
     fn oto() -> Oto {
         Oto {
@@ -350,6 +350,7 @@ mod tests {
             },
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
             rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }

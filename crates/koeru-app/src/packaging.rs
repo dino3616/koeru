@@ -685,7 +685,9 @@ fn bank_of(
             disclaimer: d.disclaimer.clone(),
             character_note: d.character_note.clone(),
         },
-        method: manifest.method,
+        // 降りた回は降りた先の方式を名乗る（`TR-PKG-24`, `DEC-PKG-015`）。
+        method: down.map_or_else(|| alias_method(manifest.method), |t| t.method),
+        tones: tones.clone(),
         // 多音階は収録音高ごとに区画を分ける（`TR-ALN-22`, `TR-PKG-04`）。
         //
         // **1区画にまとめると、フォルダ間でエイリアスが衝突する。** 3音高の

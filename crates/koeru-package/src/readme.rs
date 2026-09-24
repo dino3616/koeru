@@ -1,6 +1,6 @@
 //! `readme.txt`（`TR-PKG-28`, `TR-PKG-06`, `TR-PKG-31`, `TR-PKG-32`）。
 //!
-//! KOERU が持っている情報（音源名・収録方式・同梱物一覧・周波数表の扱い）は
+//! KOERU が持っている情報（音源名・収録方式・収録音高・同梱物一覧・周波数表の扱い）は
 //! 必ず出し、本人が書く節は書いたものだけを出す（`DEC-PKG-011`）。
 //!
 //! # KOERU の名前をここへ書かない
@@ -11,18 +11,32 @@
 
 use crate::bank::VoiceBank;
 use crate::profile::NEWLINE;
-use koeru_core::project::Method;
+use koeru_core::alias::Method;
 
-/// 収録方式の表示名。
+/// 収録方式の表示名。 作り方だけで、多音階かどうかは含めない（`DEC-PKG-015`）。
 ///
-/// `Method::as_str` は機械が読む識別子なので、そちらは使わない。
+/// **「多音階連続音」を名乗らせていた。** 多音階の単独音と CVVC は
+/// 「単独音」「CVVC」とだけ書かれ、多音階の連続音から降りた単独音は
+/// 名乗る名前が無かった。高さは「収録音高」の節が持つ。
 const fn method_label(m: Method) -> &'static str {
     match m {
         Method::Single => "単独音",
         Method::Sequential => "連続音",
         Method::Cvvc => "CVVC",
-        Method::MultiPitchSequential => "多音階連続音",
     }
+}
+
+/// 収録音高の表示（`DEC-PKG-015`）。 音名を低い順に並べる。
+///
+/// 単音階でも出す。 何の高さで録ったかは、受け取った人が音域を決める手がかりになる。
+fn tones_label(tones: &[i32]) -> String {
+    let mut sorted = tones.to_vec();
+    sorted.sort_unstable();
+    sorted
+        .iter()
+        .map(|t| koeru_core::tone::name(*t))
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 /// 周波数表について受け手に伝えること（`TR-PKG-06`）。
@@ -44,6 +58,7 @@ pub fn readme_txt(bank: &VoiceBank, contents: &[String]) -> String {
     out.written("制作者名義", bank.character.author.as_deref());
     out.written("バージョン", bank.character.version.as_deref());
     out.always("収録方式", method_label(bank.method));
+    out.always("収録音高", &tones_label(&bank.tones));
     out.written("推奨音域", r.tone_range_note.as_deref());
     out.written("キャラクター設定", r.character_note.as_deref());
     out.always("同梱物一覧", &contents.join(NEWLINE));
@@ -134,6 +149,7 @@ mod tests {
             },
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks: Vec::new(),
             rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
@@ -146,11 +162,35 @@ mod tests {
     #[test]
     fn 持っている情報は必ず出る() {
         let txt = readme_txt(&bank(), &contents());
-        for t in ["音源名", "収録方式", "同梱物一覧", "周波数表の扱い"] {
+        for t in [
+            "音源名",
+            "収録方式",
+            "収録音高",
+            "同梱物一覧",
+            "周波数表の扱い",
+        ] {
             assert!(txt.contains(&format!("【{t}】")), "{t} が無い");
         }
         assert!(txt.contains("単独音"));
         assert!(txt.contains("character.txt"));
+    }
+
+    /// 方式と高さを別の節に書く（`DEC-PKG-015`）。 単音階でも高さを出す。
+    #[test]
+    fn 収録音高は方式と別の節に出る() {
+        let single = readme_txt(&bank(), &contents());
+        assert!(single.contains("【収録音高】\r\nA3\r\n"), "{single}");
+
+        // 多音階の連続音から単独音へ降ろした配布物。 名乗るのは降りた先の方式。
+        let mut b = bank();
+        b.tones = vec![69, 55, 62];
+        let multi = readme_txt(&b, &contents());
+        assert!(multi.contains("【収録方式】\r\n単独音\r\n"), "{multi}");
+        assert!(
+            multi.contains("【収録音高】\r\nG3 / D4 / A4\r\n"),
+            "{multi}"
+        );
+        assert!(!multi.contains("多音階"), "方式の名前に高さを混ぜない");
     }
 
     /// 書いていない節を空の見出しで置かない（`DEC-PKG-011`）。

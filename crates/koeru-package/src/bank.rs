@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use koeru_align::ini::IniEntry;
-use koeru_core::project::Method;
+use koeru_core::alias::Method;
 
 /// 配布する音源1本（`TR-PKG-01`）。
 #[derive(Debug, Clone)]
@@ -20,8 +20,19 @@ pub struct VoiceBank {
     pub character: Character,
     /// `readme.txt` に出る値。
     pub readme: Readme,
-    /// 収録方式。readme と `character.yaml` の `symbol_set` に出る。
+    /// 配布物の作り方。readme の「収録方式」に出る（`DEC-PKG-015`）。
+    ///
+    /// 下位方式で書き出すときは降りた先の方式（`TR-PKG-24`）。
+    /// **manifest の方式を入れていた。** 連続音から単独音へ降ろした配布物が
+    /// 「連続音」を名乗り、配布の記録（降りた方式を書く）とも食い違っていた。
+    ///
+    /// 多音階かどうかは持たない。 それは [`tones`](Self::tones) の本数。
     pub method: Method,
+    /// 収録音高（MIDI、低い順）。readme の「収録音高」に出る（`DEC-PKG-015`）。
+    ///
+    /// 単音階でも1つ入る。 区画（[`subbanks`](Self::subbanks)）は単音階で
+    /// 音高を持たないので、そちらからは引けない。
+    pub tones: Vec<i32>,
     /// 音階ごとの区画。単一音階では1つ（`TR-PKG-04`）。
     pub subbanks: Vec<Subbank>,
     /// 同梱する `presamp.ini` の中身（`TR-RCL-24`）。
@@ -270,6 +281,7 @@ mod tests {
             character: Character::default(),
             readme: Readme::default(),
             method: Method::Single,
+            tones: vec![57],
             subbanks,
             rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
         }
