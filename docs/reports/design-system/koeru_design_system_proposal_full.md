@@ -826,6 +826,25 @@ Gap があること自体を失敗とはしない。作者の Intent が利用�
 
 一方で、すべての taste を実験仮説へ翻訳する必要はない。`Q-PLT-005` が扱うロゴのように、作者・maintainer が作品として選ぶ判断は成立する。その場合は「作者としてこの形を選ぶ」と記録し、「利用者が声の気配を感じることを検証した」とは書かない。
 
+### 9.2.1 Studio の参加 role を分離し、輪番できるようにする
+
+Studio に価値を出すために、全員が experienced designer である必要はない。
+一つの session / Issue で必要な faculty を role として分離する。
+
+| Role | 主な仕事 |
+|---|---|
+| **Author** | artifact と、守ろうとした Intent / trade-off を持ち込む |
+| **Reader** | 説明前の artifact を読み、主役・次の行為・状態を記述する |
+| **Contrarian** | 現在案や Canon の反対側が成立する条件を探す |
+| **Context Keeper** | TR / DEC / Q / EVID と衝突・未解決前提を示す |
+| **Investigator** | 次に必要な Probe、外部事例、専門相談を探す |
+
+これは役職や権限階層ではない。同じ Contributor が別の Question では違う role を取る。
+初参加者でも Reader や Investigator としてすぐ参加できる。長期的には role を回すことで、
+「作る」「読む」「壊す」「歴史を見る」という異なる design faculty に触れられる。
+
+Agent も role の一部を補助できるが、複数 role の Agent 出力を「独立した人間の合意」と数えない。
+
 ### 9.3 同期を使う場面
 
 同期は、声を聴き比べる、視線の誘導をその場で動かす、細かな spacing を直して見せる、といった文章化しにくい場面に使う。
