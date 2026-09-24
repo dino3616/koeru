@@ -580,15 +580,23 @@ Edge の意味を区別する。
 
 ### 7.2 Traversal
 
-基本は、型付き edge を使った breadth-first traversal とする。
+基本は、型付き edge を使った traversal とする。ただし **graph distance を relevance の代理にしない。**
 
-通常は root から二段までを読み、次は距離とは別に必須取得する。
+まず root の種類ごとに semantic closure を必須取得する。
 
-- 現在有効な安全・同意・元データ保護の制約。
-- 直接関係する Decision の後継。
-- Decision が依存する Claim の反証と未解決状態。
-- release を止める Question。
-- root の取得に失敗した参照。
+- normative ancestor：現在有効な安全・同意・元データ保護を含む上位制約
+- supersession chain：直接関係する Decision / Pattern の現在有効な後継
+- empirical dependency：Decision が `relies_on_claims` で依存する Claim
+- contradiction closure：その Claim の contradicting Evidence と scope mismatch
+- open uncertainty：関連する未解決 Question と release blocker
+- artifact closure：読むべき stable story / workbench / implementation
+- broken edge：root の取得に失敗した参照、orphan、UNMAPPED path
+
+`mentions` は原則として closure を拡張しない。必要なら presentation layer から参照候補として見る。
+
+semantic closure を集めた後でだけ、探索用の周辺 context を token / item budget 付きで広げる。
+五段先でも `supersedes → relies_on_claims → contradicting_evidence` なら重要であり、
+一段先でも単なる `mentions` なら通常は重要ではない。
 
 一般の参照グラフには循環があってよい。`visited` 集合で止める。`supersedes` の循環は不正として検査する。
 
