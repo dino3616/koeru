@@ -1,0 +1,96 @@
+schema = 'decision'
+id = 'DEC-PLT-035'
+constraint_label = '画面と Rust の契約の正本'
+constraint = 'Rust の型を変えても consumer への約束が黙って変わらず、約束を変えたら実装と画面が黙って古いまま通らないこと'
+title = 'consumer への契約は specs/application/schema.graphql を正本にし、process 内で実行する。Rust の型から契約を生成しない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'tauri-specta で Rust の型と関数から生成する（現状）',
+  'schema-first の GraphQL を process 内で実行する',
+  'schema-first の Protobuf と RPC',
+  '手書きの型を試験で突き合わせる',
+]
+selected = 'schema-first の GraphQL を process 内で実行する'
+rationale = '''
+比較と設計の詳細は `docs/reports/architecture/08-graphql-application-contract.md`。
+
+## tauri-specta で起きていること
+
+`DEC-PLT-019` は「Rust と TS の型ずれ」を防ぐために tauri-specta を選び、それは効いた。
+効かなかったのは別の問題で、**Rust の command registry と DTO がそのまま契約になる。**
+コマンドは 78 本あり（`EVID-PLT-004`）、
+
+- 「今開いているプロジェクト」が暗黙に1つあり、ほとんどの読みが project を引数に取らない
+- 方式・確認モード・欄の名前など6つの引数が自由な文字列で、画面が手で絞っている
+- 1つの画面が別々のコマンドを並べて読むので、同じ版を読んでいる保証が無い
+
+M6 では収録・確認・編集・曲・試唱・配布が、同じ application model の違う断面を読む。
+MCP や自動化のような2つ目の consumer が来たとき、Rust の関数をそのまま公開すると
+GUI の都合がそのまま外部契約になる。
+
+## 選んだもの
+
+Rust の domain model、consumer への契約、React の UX model を別のものとして持つ。
+契約は `specs/application/schema.graphql` が正本で、FSL と meta の下に置く。
+**SDL は FSL / meta の命題を上書きしない。** product の規則は FSL と meta が持ち、
+SDL は consumer に約束する語彙・形・能力・予期できる結果・変更の規則を持つ。
+
+- `Query` は一貫した読みの投影。1つの operation の中の project 由来の欄は同じ版を読む
+- `Mutation` は利用者の意図。DB の CRUD を写さない。確定を伴うものは `operationId` を取り、
+  同じ ID・同じ要求には同じ受領証、同じ ID・違う要求は衝突として返す
+- `Subscription` は長く続く観測（`DEC-PLT-036`）
+- 予期できる結果は payload / union で返す。`errors[]` は想定外の実行失敗だけ（`DEC-PLT-038`）
+
+GraphQL を選ぶ理由は HTTP でも分散でもない。 HTTP server は立てず、process 内で
+実行する。得たいのは、読み・意図・観測の分類と、部品の近くで必要な断面を宣言する
+fragment と、Rust にも React にも所有されない契約の3つを、既にある1つの言語で得ること。
+
+## schema-first を Rust の実装の癖込みで成り立たせる
+
+Rust の GraphQL 実装は、Rust の型とマクロから schema を組む code-first が主流。
+SDL から resolver の骨組みを生成する仕組みは自作しない。 代わりに、実装が組んだ
+runtime schema を SDL として書き出し、canonical SDL と構造が一致することを CI で見る。
+画面の operation と fragment は canonical SDL に対して検査し、生成した TS の差分を許さない。
+**Rust の宣言は実装で、正本ではない。** この二重記述は GraphQL 案の実費として受け入れる。
+
+production の画面は任意の GraphQL 文を実行しない。 build 時に operation の名前・
+hash・種類・schema の hash・要る能力・費用の区分を並べた manifest を作り、
+runtime は登録された operation だけを実行する。
+
+## 変更の規則
+
+- 内部の Rust / DB / crate の変更だけなら schema は変えない
+- 出力の欄を足すのは原則として後方互換。改名は新しい欄を足し、古い欄を `@deprecated` にし、
+  使っている operation が 0 件になったことを確かめてから消す
+- 同じ名前の Mutation の意味を黙って変えない
+
+## 採らなかったもの
+
+Protobuf でも Rust と React から独立した契約は作れる。 しかし部品ごとの断面を同じ強さで
+持つには、FieldMask・選択の合成・結果の絞り込み・依存の台帳を自分で足すことになる。
+
+手書きは `DEC-PLT-019` が退けた理由（型が合っているように見えて合っていない）がそのまま残る。
+
+## 移行のあいだ
+
+tauri-specta の面は、画面を移し終えるまで残す。**新しい操作を tauri-specta に足さない。**
+GraphQL の経路ができる前に足す必要が出たら、ここへ戻って判断する。 具体的な crate と
+npm の部品は、入れる段で別の判断に記録する（ライセンスの確認を含む）。
+'''
+review_triggers = [
+  'resolver に業務規則が入り始めたとき（GraphQL 層が第二の Studio になった合図）',
+  'canonical SDL と runtime の宣言の二重記述が、変更のたびの主な作業になったとき',
+  'Rust の schema-first の実装が成熟し、runtime の宣言を SDL から生成できるようになったとき',
+  'operation 1回あたりの実行の上乗せが、利用者に見える予算（TR-SYN-33 など）を削ると測れたとき',
+  '外部 consumer（MCP・自動化・拡張）を正式に公開するとき。互換の期間を決め直す',
+]
+affects_requirements = [
+  'TR-PLT-03',
+]
+affects_decisions = [
+  'DEC-PLT-001',
+  'DEC-PLT-015',
+]
+supersedes = ['DEC-PLT-019']
+evidence = ['EVID-PLT-004']

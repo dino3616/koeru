@@ -18,6 +18,8 @@ M2 と M4 を実装中。 録音 → テイク確定 → 試唱 → 配布パッ
 
 `docs/` の各文書は [README.md](README.md) が一覧している。`docs/product-vision.md` は確定している方針で、ここに反することはしない。
 
+**アーキテクチャを移行中。** 境界は `DEC-PLT-034`、consumer への契約は `DEC-PLT-035`〜`037`、失敗の分類は `DEC-PLT-038`、テストの判定は `DEC-PLT-039` が決めた。進め方は [docs/reports/architecture/03-task-dag.md](docs/reports/architecture/03-task-dag.md)。コードはまだ旧構成（`koeru-core` / `koeru-package` / `koeru-app` と tauri-specta）のところが多い。下の「移行中」と書いた行は、今のコードの事実と、新しく足すときの規則を分けて書いてある。
+
 技術的なことは `docs/` には無い。 ID の住所は次のとおり。
 
 - `TR-*` → [meta/requirements/](meta/requirements/) ／ `DEC-*` → [meta/decisions/](meta/decisions/) ／ `Q-*` → [meta/questions/](meta/questions/)
@@ -55,7 +57,7 @@ FSL を書く前に、形式化メモをチャットに出して確認を取る�
 
 ## 破ってはいけないもの
 
-1. ドメイン層で `anyhow::Error` を返さない。 `thiserror` の列挙体を返す。畳むのはアプリケーション境界だけ。詳細は `rust-conventions` skill。
+1. ドメイン層で `anyhow::Error` を返さない。 `thiserror` の列挙体を返す。境界では、分類・code・確定したかどうかを持つ失敗に写す。予期できる結果（解析の保留や衝突）は失敗にせず値で返す（`DEC-PLT-038`）。詳細は `rust-conventions` skill。
 
 2. `println!` / `eprintln!` / `dbg!` を使わない。 出力は `tracing` に統一する。lint で deny されている。例外は実機ハーネス（`tests/guide_leak.rs` など）だけで、そこはファイル先頭の `#![allow(clippy::print_stdout)]` に理由を添える。`dbg!` はテストでも禁止のまま。
 
@@ -142,9 +144,9 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - 部品へ注入してよいクラスは lint の contract が決める（`shadcn/no-restyle`、`vite.config.ts`）。型で言えるのは「受け取るか否か」までで、「幅は良いが高さは駄目」が書けない。畳むのは外から来たものと突き合わせる1箇所だけ——`~/lib/tv` の `cn`。`tv` は畳まない入口（`tailwind-variants/lite`）から取る。詳細は `react-conventions` skill
-- 画面へ渡す型と呼び出し口は Rust から生成する（`DEC-PLT-019`）。`ui/src/lib/bindings.gen.ts` は手で直さない
-- 画面から Rust を読むのは TanStack Query（`DEC-PLT-023`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は `RouteError` と `ErrorBoundary`。鍵は `ui/src/lib/queries.ts` に集め、台帳は `ledgerKey` でまとめて無効化する。**`open_project` は台帳の鍵の下に置かない**——あれは収録セッションを始め直すので（`TR-REC-30`）、テイクのたびに呼ぶと録音の途中でセッションが切り替わる
-- 画面へ流し続けるものは Tauri の Channel で送る。`invoke` で引きに行かせない（`DEC-PLT-017`）。`invoke` は応答の順序を保証しないので、引きに行くと波形が巻き戻る。流し続けるものはアプリの状態ロックの外から読む（テイク確定中は数秒握られる）
+- consumer への契約の正本は canonical SDL で、Rust の型から生成しない（`DEC-PLT-035`）。**移行中。** 今の画面はまだ tauri-specta の生成物 `ui/src/lib/bindings.gen.ts` で Rust を呼ぶ（手で直さない）。**新しい操作を tauri-specta に足さない**
+- 画面の読みは、部品の近くの fragment と経路の operation で宣言し、結果の寿命は TanStack Query が持つ（`DEC-PLT-037`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は `RouteError` と `ErrorBoundary`。**移行中**は `ui/src/lib/queries.ts` の取得口と `ledgerKey` の無効化が残る。**`open_project` を読みの寿命に隠さない**——あれは収録セッションを始め直すので（`TR-REC-30`）、テイクのたびに呼ぶと録音の途中でセッションが切り替わる
+- 画面へ流し続けるものは GraphQL Subscription にする。用途ごとの Channel を契約にしない（`DEC-PLT-036`）。**移行中**は波形の Channel が1本残る。新しく足さない。`invoke` で引きに行かせない——応答の順序が保証されず、波形が巻き戻る。流し続けるものはアプリの状態ロックの外から読む（テイク確定中は数秒握られる）
 - 収録画面の状態機械は `ui/src/lib/use-recorder.ts` が持つ。画面は組み立てだけ。二重確定を避ける札（`TR-REC-42`）と連続収録のループは描画と別の寿命で回るので、`useRef` で持つ——state にすると押すたびに描き直す
 - `Card` の見出しの段は入れ子の深さが決める。段を props で渡さない。渡すと、部品を移したときに数え直しを忘れて `h2` の中に `h2` が入る
 - 配色は Radix Colors の段の意味を守る。 1=地、2=面、…11=低コントラストの字、12=高コントラストの字。塗りは段 9 ではなく段 11（段 9 は明暗で同じ値になる色があり、字を載せると 4.5:1 に届かない）。検査は実ブラウザの axe で、段の網羅は `crates/koeru-app/ui/src/styles/palette.story.tsx` が並べたものだけ（`DEC-PLT-022`）

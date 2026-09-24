@@ -69,13 +69,13 @@
 | [DEC-PLT-014](DEC-PLT-014.toml) | 描画面 | 描画は Canvas 2D と WebGL2 に置く。WebGPU（vgpu）は採らない | accepted |
 | [DEC-PLT-015](DEC-PLT-015.toml) | フロントの枠組み | React + TanStack Start（SPA）+ Tailwind + Radix。shadcn は写す先であって依存先ではない | accepted |
 | [DEC-PLT-016](DEC-PLT-016.toml) | C / C++ の調達 | C / C++ は submodule で調達する。WORLD の同梱も submodule へ移す | accepted |
-| [DEC-PLT-017](DEC-PLT-017.toml) | 画面へ流し続けるものの経路 | 流し続けるものは Channel で送る。画面から引きに行かせない | accepted |
+| [DEC-PLT-017](DEC-PLT-017.toml) | 画面へ流し続けるものの経路 | 流し続けるものは Channel で送る。画面から引きに行かせない | superseded |
 | [DEC-PLT-018](DEC-PLT-018.toml) | メモ化の置き場所 | React Compiler を通す。手でメモ化しない | accepted |
-| [DEC-PLT-019](DEC-PLT-019.toml) | 画面と Rust の型の一致 | tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない | accepted |
+| [DEC-PLT-019](DEC-PLT-019.toml) | 画面と Rust の型の一致 | tauri-specta で画面の型と呼び出し口を Rust から生成する。rspc は採らない | superseded |
 | [DEC-PLT-020](DEC-PLT-020.toml) | クラス名の組み立て | tailwind-variants を variants にだけ使う。tailwind-merge は使わず、className を props で受けない | superseded |
 | [DEC-PLT-021](DEC-PLT-021.toml) | 画面の分け方 | OOUI はカード（面）の単位で採る。ルートはオブジェクトごとに分けない | accepted |
 | [DEC-PLT-022](DEC-PLT-022.toml) | アクセシビリティの自動検査 | Storybook の story を検査範囲にし、axe を実ブラウザで当てる。自前の配色検査は廃止する | accepted |
-| [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | accepted |
+| [DEC-PLT-023](DEC-PLT-023.toml) | 読みの取り回し | Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける | superseded |
 | [DEC-PLT-024](DEC-PLT-024.toml) | 画面の骨格 | 面を工程で切らず、オブジェクトで切る。詳細の主語はテイク、音高は第一級の軸 | accepted |
 | [DEC-PLT-025](DEC-PLT-025.toml) | 画面の重心と視覚言語 | 中央に「育っていく声」を置く。声から決定的に形を生成し、ロゴも同じ規則から作る | accepted |
 | [DEC-PLT-026](DEC-PLT-026.toml) | 同梱する日本語書体 | Noto Sans JP を1本だけ同梱する。カバレッジを個性より優先し、サブセット化しない | accepted |
@@ -86,6 +86,12 @@
 | [DEC-PLT-031](DEC-PLT-031.toml) | デザインシステムの規則の検査 | デザインシステムの規則は `@shadcn/lint` を oxlint から呼んで見る。`components.json` を置く | accepted |
 | [DEC-PLT-032](DEC-PLT-032.toml) | 画面遷移の持ち場 | 画面遷移は Motion の AnimateView が持ち、CSS には root の抑止だけ残す | accepted |
 | [DEC-PLT-033](DEC-PLT-033.toml) | 開発環境の調達 | 開発ツールは Nix の devShell で揃える。Nix を第一級の前提開発環境とする | accepted |
+| [DEC-PLT-034](DEC-PLT-034.toml) | アーキテクチャの境界 | 意味を決める所と確定する所を分け、寿命ごとの実行域に載せる | accepted |
+| [DEC-PLT-035](DEC-PLT-035.toml) | 画面と Rust の契約の正本 | consumer への契約は specs/application/schema.graphql を正本にし、process 内で実行する。Rust の型から契約を生成しない | accepted |
+| [DEC-PLT-036](DEC-PLT-036.toml) | 画面へ流し続けるものの経路 | 画面へ流し続けるものは GraphQL Subscription にする。用途ごとの Channel を契約にしない | accepted |
+| [DEC-PLT-037](DEC-PLT-037.toml) | 読みの取り回し | 画面が読むものは部品の近くの fragment で宣言し、経路が1つの operation に束ねる。結果の寿命は TanStack Query が持つ | accepted |
+| [DEC-PLT-038](DEC-PLT-038.toml) | 失敗の分類と伝え方 | 失敗は「呼び出し側の次の手」と「確定したかどうか」で分類する。予期できる結果は失敗にせず、失敗の記録は持ち主が1回だけ型で出す | accepted |
+| [DEC-PLT-039](DEC-PLT-039.toml) | 検査が通ったことの意味 | テストは危険ごとに最も安い検出点を選び、必須の suite は meta に登録して実行した件数で判定する。前提を欠いたら黙って return しない | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -127,4 +133,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-117 件。
+123 件。

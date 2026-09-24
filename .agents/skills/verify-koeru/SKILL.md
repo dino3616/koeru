@@ -93,7 +93,7 @@ axe に規則が無い性質を見る（`TR-PLT-25`、`DEC-PLT-022`）。
 
 `check:ipc` は `api` の呼び方を見る。 `api.…()` に `.then` / `.catch` /
 `.finally` を繋いでいたら落ちる——その場で状態を持ち直している合図で、
-押して走るものは `useMutation`、読みは `~/lib/queries` へ寄せる（`DEC-PLT-023`）。
+押して走るものは `useMutation`、読みは `~/lib/queries` へ寄せる（移行中の形。`DEC-PLT-037`）。
 
 検査範囲は story の範囲そのもの。 部品に story が無ければ一度も検査されない。
 配色の段も `src/styles/palette.story.tsx` に並べたものだけが測られる。
@@ -128,7 +128,7 @@ lint の規則は、`lint.plugins` に載っているプラグインのぶんだ
 
 ### 画面へ渡す型（生成物）
 
-正本は Rust のコマンド定義（`DEC-PLT-019`）。 `bindings.gen.ts` を手で直さない。
+移行中の生成物で、Rust のコマンド定義から作る（契約の正本は canonical SDL、`DEC-PLT-035`）。 `bindings.gen.ts` を手で直さない。
 
 ```bash
 # コマンドや境界の型を足したら作り直す

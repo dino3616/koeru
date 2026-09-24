@@ -1,0 +1,71 @@
+schema = 'decision'
+id = 'DEC-PLT-036'
+constraint_label = '画面へ流し続けるものの経路'
+constraint = '継続して届けるデータが順序どおりに一定の間隔で届き、観測をやめることが作業の取消にならないこと'
+title = '画面へ流し続けるものは GraphQL Subscription にする。用途ごとの Channel を契約にしない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '用途ごとの Tauri Channel で送る（現状）',
+  'GraphQL Subscription にし、Tauri Channel は実行結果を運ぶ汎用の経路にだけ使う',
+  'invoke で画面から定期的に引きに行く',
+  'emit / listen のイベントで送る',
+]
+selected = 'GraphQL Subscription にし、Tauri Channel は実行結果を運ぶ汎用の経路にだけ使う'
+rationale = '''
+`DEC-PLT-017` の教訓はそのまま残す。**Rust 側が間隔を刻み、画面から引きに行かせない。
+流し続けるものはアプリの状態ロックの外から読む。** `invoke` を定期的に叩くと応答の
+順序が保証されず、波形が巻き戻った。
+
+変えるのは、何を契約にするか。 `Channel<EnvelopeView>` のように用途ごとの Channel を
+置くと、流すものだけが Rust / Tauri 固有の契約に戻り、`DEC-PLT-035` の canonical SDL の
+外に出る。2つ目の consumer は Tauri の Channel を持たない。
+
+## 決めたこと
+
+application から見える継続的な流れは、すべて GraphQL Subscription にする。
+Tauri Channel が残るのは、GraphQL の実行結果を運ぶ汎用の経路（execute / subscribe /
+unsubscribe）の中だけ。React の feature は Channel を import しない。
+
+Subscription は1 operation に1つの root field で、寿命の持ち主ごとに分ける。
+巨大な「全部のイベント」を作らない。 届け方は source ごとに決め、1つに揃えない。
+
+| 流れ | 持ち主 | 届け方 |
+|---|---|---|
+| project の変更通知 | ProjectRuntime | 落とさない。欠けたら Query の snapshot で取り直す |
+| ジョブの経過 | JobRuntime | 今の状態 ＋ 以後の変化。今の状態は Query でも読める |
+| 入力の包絡 | 入力の lease | 捨ててよい。詰まったら古い観測を捨て、新しいものを送る。再送しない |
+| 再生の経過 | 再生の lease | 捨ててよい。再送しない |
+
+GraphQL は背圧を自動では解かない。 持ち主が件数とバイトの上限を持つ。
+
+## 観測の取消と作業の取消を分ける
+
+unsubscribe は「もう観測しない」で、ジョブも収録も止めない。 作業を止めるのは
+`cancelAnalysis` のような Mutation。画面を離れて Subscription が閉じても、裏のジョブは
+止まらない。
+
+## realtime callback からは遠ざける
+
+callback は GraphQL も直列化も IPC もしない（`TR-REC-40`）。 callback →
+事前確保のリング → pump → 有界の観測 → Subscription の順に渡す。
+
+待ち数（`TR-SYN-33`）は今、返ってから次を予約する問い合わせで回している。
+これも jobEvents の Subscription へ移す。
+'''
+review_triggers = [
+  '新しく流し続けるものを足すとき。用途ごとの Channel にしない',
+  '1フレームの大きさが増え、JSON で運ぶ費用が予算を削ると測れたとき（寿命と順序は Subscription の契約に残したまま、運び方だけ最適化する）',
+  'Tauri を上げるとき。Channel の推奨と、execute_stream を運ぶ経路が変わっていないかを見る',
+  'アプリの状態ロックを握る処理が長くなるとき。その間に止まっては困る流れが無いか',
+]
+affects_requirements = [
+  'TR-REC-40',
+  'TR-REC-43',
+  'TR-SYN-33',
+  'TR-PLT-04',
+]
+affects_decisions = [
+  'DEC-PLT-035',
+]
+supersedes = ['DEC-PLT-017']

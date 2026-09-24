@@ -1,0 +1,84 @@
+schema = 'decision'
+id = 'DEC-PLT-039'
+constraint_label = '検査が通ったことの意味'
+constraint = '実行されなかった検査が通ったとして数えられず、壊れた実装を入れたら最も安い検出点が赤くなること'
+title = 'テストは危険ごとに最も安い検出点を選び、必須の suite は meta に登録して実行した件数で判定する。前提を欠いたら黙って return しない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '各テストが前提を欠くと return して ok になる（現状）',
+  '危険ごとに検出点を選び、必須の suite を meta に登録して実行件数と前提で判定する',
+  'E2E を増やして全体を覆う',
+  'line coverage の閾値で判定する',
+]
+selected = '危険ごとに検出点を選び、必須の suite を meta に登録して実行件数と前提で判定する'
+rationale = '''
+危険と検出点の対応は `docs/reports/architecture/02-tests-observability.md` にある。
+ここに残すのは、判定の規則と、それを選んだ理由になった観測。
+
+## 通ったことが何も意味しない経路（`EVID-PLT-004`）
+
+Rust のテストは約 865 本ある。 そのうち、実音声の環境変数・マイク・モデルが無いと
+`return` して `ok` と数えられるものが多数ある。実音声の2本は CI で毎回素通りしている。
+CI は `koeru_force_unsupported_backend` を一度も走らせず、clippy は macOS で走っていない。
+トレースの許可リスト検査は、複数行にまたがるマクロと `instrument` の欄を読んでいない。
+
+これは初めてではない。 0 件で緑になった試験（PR #3）、構造の試験を全部通したまま
+実音声を壊した CMVN（`EVID-ALN-001`）、何も検査せずに通る7つの経路（`DEC-PLT-022`）。
+**unit が無価値なのでも、E2E を増やせば済むのでもない。** 何を oracle にし、
+どの経路で実行したかを選ぶ必要がある。
+
+## 決めたこと
+
+**危険から検出点を選ぶ。** 「Rust だから unit」「React だから story」「大事だから E2E」で
+決めない。意図した欠陥を入れたときに、最も安い検出点が赤くなるかで選ぶ。
+実行の頻度は、毎 PR・platform matrix・nightly・release・人の確認に分ける。
+
+**必須の suite を meta に登録する。** `meta/suites/` に `schema = 'test-portfolio'` の
+収集ファイルを置き、`[[suite]]` ごとに `SUITE-*` の ID、支える契約の ID（TR / FSL / DEC）、
+実行する crate と target、対応する platform、前提（モデル・fixture・デバイス・環境変数）、
+最小件数、区分を持たせる。 `cargo xtask check-meta` が契約 ID の実在を検査する。
+
+**実行した件数で判定する。** `cargo xtask test-receipt` が各 suite を実行し、発見した件数・
+実行した件数・成功・失敗・無視を数えて登録と突き合わせる。 数えるのは libtest の
+安定版の出力（`--list` と要約行）で、道具を増やさない。 cargo-nextest の機械可読な
+出力は頑丈だが、CI の実行器が変わり、doctest を別に走らせることになる。 結果は git の SHA と
+fixture の hash を添えた受領証として残す。 unsupported の組み立てで 0 件が正しい target も
+あるが、それは登録で宣言する。同じ release に native で通す義務は別に残る。
+
+**前提を欠いたときの振る舞いを区分で決める。**
+
+- 必須: 前提が無ければ失敗させる。モデルや fixture が無いことを成功と数えない
+- 手動: マイクや実音声が要るハーネスは `#[ignore = "理由"]` を付け、無視として数えさせる。
+  明示して走らせたときに前提が無ければ失敗させる
+
+**検査そのものを検査する。** 検査を足したら、それを赤くする破壊（件数を 0 にする、
+glob を空にする、許可リストの外の欄を入れる）を一度は当て、赤くなった証拠を残す。
+
+## 採らなかったもの
+
+E2E を増やす案は、同じ組み合わせを遅い経路で回すだけで、0 件や前提の欠落を
+見分ける仕組みにはならない。 E2E は「新しい project → 録音 → 保存 → 試唱 → 書き出し →
+開き直し」と「旧 project → 移行 → 編集 → 書き出し」の少数の旅に絞る。
+
+line coverage は「意味のある実音声の経路を通ったか」を示さない。
+
+property・loom・miri・障害注入の道具は、それが要る段で依存の判断とともに入れる。
+'''
+review_triggers = [
+  '必須の suite が、platform の都合で恒常的に実行されなくなったとき',
+  'libtest や vitest の出力の形が変わり、受領証の集計が壊れたとき',
+  'nightly の失敗を放置したまま release だけ緑になっていると分かったとき',
+  '受領証の維持が、足した検査の数に見合わない手間になったとき',
+]
+affects_requirements = [
+  'TR-SYN-32',
+  'TR-REC-40',
+  'TR-PLT-29',
+]
+affects_decisions = [
+  'DEC-PLT-022',
+  'DEC-REC-007',
+  'DEC-ALN-007',
+]
+evidence = ['EVID-PLT-004', 'EVID-ALN-001']

@@ -3,7 +3,8 @@ id = 'DEC-PLT-023'
 constraint_label = '読みの取り回し'
 constraint = 'Rust から読むものを、部品ごとに書き下ろさないこと'
 title = 'Rust からの読みは TanStack Query に載せ、Suspense と ErrorBoundary で受ける'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-PLT-037'
 owner = 'dino3616'
 options = [
   'TanStack Query（useSuspenseQuery / useMutation）',

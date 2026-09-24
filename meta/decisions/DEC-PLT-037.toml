@@ -1,0 +1,75 @@
+schema = 'decision'
+id = 'DEC-PLT-037'
+constraint_label = '読みの取り回し'
+constraint = 'Rust から読むものを部品ごとに書き下ろさず、1つの画面の読みが同じ版を観測すること'
+title = '画面が読むものは部品の近くの fragment で宣言し、経路が1つの operation に束ねる。結果の寿命は TanStack Query が持つ'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '鍵と取得口を queries.ts に集める（現状）',
+  '部品の近くに fragment、経路が operation を束ね、結果の寿命は TanStack Query',
+  '正規化キャッシュを持つ GraphQL client（Apollo / urql）',
+  'useEffect と useState で部品ごとに書く',
+]
+selected = '部品の近くに fragment、経路が operation を束ね、結果の寿命は TanStack Query'
+rationale = '''
+`DEC-PLT-023` の骨格は残す。 読みは `useSuspenseQuery`、押して初めて走るものは
+`useMutation`。待ちは `Suspense`、失敗は `RouteError` と `__root` の `ErrorBoundary`。
+版番号を鍵に混ぜない。取りに行く順序の実測（`EVID-PLT-001`）もそのまま使う。
+
+## 変えるもの
+
+**持ち主の置き場所。** 今は `queries.ts` に 28 の取得口があり、どの部品が何を読むかは
+そこを読まないと分からない（`EVID-PLT-004`）。 canonical SDL（`DEC-PLT-035`）の上では、
+部品と feature が要る断面を近くの fragment で宣言し、経路と作業の境界がそれを1つの
+operation に束ねる。
+
+```text
+何を読むか   = 部品 / feature
+いつ投げるか = 経路 / 作業の境界
+```
+
+fragment を部品の近くに置くことは、部品ごとに要求を投げることを意味しない。
+feature A は feature B の private な hook を import せず、どちらも canonical schema に依存する。
+
+**鍵。** `[operation の hash, 変数, project lease]`。 版ごとに鍵を作らない。
+Mutation の受領証と project の変更通知で、開いている operation を無効化する。
+最初は project 単位でまとめて取り直し、細かくするのは実測が要ると示してから。
+
+**`open_project`。** 読みの寿命に隠さない理由（収録セッションを始め直す、`TR-REC-30`）は
+変わらない。 開くことを明示の Mutation にし、project lease を返させる。 読みはその
+lease を変数に取る。
+
+**流し続けるもの。** Subscription（`DEC-PLT-036`）の高頻度の観測は TanStack Query の
+キャッシュへ毎フレーム書かない。 feature に閉じた外部 store に流し、
+`requestAnimationFrame` と `useSyncExternalStore` で描く。 変更通知だけを無効化に使う。
+
+## 採らなかったもの
+
+正規化キャッシュは、同じ entity を別の断面で読んだ結果を1つに畳む。 KOERU では
+同じ版の snapshot を一貫して読むことのほうが要り、畳んだ結果が別の版から来た欄を
+混ぜると、それを見分ける手段が無くなる。
+
+## 検査
+
+`bun run check:ipc` の「`api.…()` に約束を繋がない」は、GraphQL の経路では
+「feature から Tauri の invoke / Channel を import しない」「operation と fragment が
+canonical SDL に対して通る」に置き換わる。 画面を移し終えるまでは両方を走らせる。
+'''
+review_triggers = [
+  'project 単位の取り直しが、利用者に見える遅さになると測れたとき（変わった断面だけ取り直す）',
+  'fragment が細かくなりすぎ、1画面の operation を組むのに部品を十数個たどる必要が出たとき',
+  'React の use() と Suspense だけで、入れ物なしに同じことが書けるようになったとき',
+]
+affects_requirements = [
+  'TR-PLT-29',
+  'TR-RCL-17',
+  'TR-RCL-25',
+  'TR-REC-30',
+]
+affects_decisions = [
+  'DEC-PLT-035',
+  'DEC-PLT-036',
+]
+supersedes = ['DEC-PLT-023']
+evidence = ['EVID-PLT-001', 'EVID-PLT-004']

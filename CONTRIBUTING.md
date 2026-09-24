@@ -86,8 +86,8 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 
 特に次の3つは PR で必ず見ます。
 
-- ドメイン層で `anyhow::Error` を返さない。 `thiserror` の列挙体を返す。畳むのはアプリケーション境界だけ
-- `?` を並べる関数には `#[tracing::instrument(err)]` を付ける
+- ドメイン層で `anyhow::Error` を返さない。 `thiserror` の列挙体を返す。境界では分類・code・確定したかどうかを持つ失敗に写し、予期できる結果は値で返す（`meta/decisions/DEC-PLT-038.toml`）
+- 失敗は、結果を決める持ち主が1回だけ型つきの event で記録する。`#[tracing::instrument(err)]` は使わない（同上。既存の箇所は移行中です）
 - `println!` / `eprintln!` / `dbg!` を使わない。 出力は `tracing` に統一する（例外は実機ハーネスだけ。下記）
 
 `clippy::all` はリポジトリ全体で deny です。例外は行単位・ブロック単位の `#[allow(...)]` で入れ、理由をコメントに書いてください。
@@ -138,8 +138,10 @@ RUSTFLAGS="$F" RUSTDOCFLAGS="$F" cargo test --workspace --all-features
 `RUSTDOCFLAGS` を忘れないでください。 `RUSTFLAGS` は rustdoc に届かないので、
 doctest だけが違う設定でコンパイルされます。
 
-画面へ渡す型は Rust から生成しています（`meta/decisions/DEC-PLT-019.toml`）。
-コマンドや境界の型を足したら作り直してください。`bindings.gen.ts` は手で直しません。
+consumer への契約の正本は canonical SDL です（`meta/decisions/DEC-PLT-035.toml`）。
+移し終えるまで、今の画面は tauri-specta が Rust から生成した `bindings.gen.ts` で
+Rust を呼びます。新しい操作は tauri-specta に足さないでください。既存のコマンドの
+境界の型を変えたら作り直してください。`bindings.gen.ts` は手で直しません。
 
 ```bash
 KOERU_WRITE_BINDINGS=1 cargo test -p koeru-app --test bindings

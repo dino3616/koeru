@@ -1,0 +1,106 @@
+schema = 'decision'
+id = 'DEC-PLT-034'
+constraint_label = 'アーキテクチャの境界'
+constraint = '同じ規則の判断と確定が別々の場所に書かれず、寿命の違う仕事が1つの可変オブジェクトを取り合わないこと'
+title = '意味を決める所と確定する所を分け、寿命ごとの実行域に載せる'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '現状の構成を保ち、局所的に直す',
+  '不変条件の持ち主を決め、寿命ごとに実行域を分ける',
+  '全域を ports / actors / event に分ける',
+  '常駐プロセスと汎用 API と event sourcing に載せる',
+]
+selected = '不変条件の持ち主を決め、寿命ごとに実行域を分ける'
+rationale = '''
+調査と比較は `docs/reports/architecture/00-architecture-report.md`。
+ここに残すのは、選んだ境界と、それを選んだ理由になった観測だけ。
+
+## 何が問題だったか
+
+`Studio` は 5037 行・pub メソッド 85 個を1つの `Mutex` の下に持ち、録音・解析・合成・
+書き出し・保存を1つの可変オブジェクトに集めている（`EVID-PLT-004`）。長いファイルで
+あること自体は問題ではない。**寿命と成功の境界が違う仕事が同じロックを取り合う**のが問題で、
+次はどれもそこから出ている。
+
+- テイクを DB に確定したあとで解析が失敗すると、コマンド全体が失敗を返す。
+  保存済みなのに「録れなかった」と見える
+- 画面の鍵には project ID があるのに、Rust への呼び出しには無い。
+  「今開いているもの」が暗黙に1つあり、A→B→A で遅れた応答がどちらに効くかを型が言えない
+- 解析の完了を受け取るかどうかを、仕事の側が決めている。 開き直したあとの古い完了を
+  弾く場所が無い
+
+## 選んだ境界
+
+意味を決める所（同じ入力から同じ判断を作る）と、確定する所（何をいつ永続化し受理するか）を
+分ける。crate は次のとおり。**crate の数は目標ではない。** 機械的に守れない境界
+（native SDK、build target、consumer API、依存の許可）があるものだけを分ける。
+
+| crate | 持つもの | 持たないもの |
+|---|---|---|
+| `koeru-failure` | 失敗の分類・確定の状態・次の手の語彙と、エラー型が実装する trait（`DEC-PLT-038`）。どの crate からも引けるよう依存は tracing だけ | 個々のエラー型、表示文、業務の判断 |
+| `koeru-model` | 素材と要求の解決、編集と確認の規則、収録の状態遷移、書き出しの可否と計画 | IO・SQLite・Tauri・GraphQL・native handle |
+| `koeru-formats` | OTO / UST / USTX / WAV / FRQ / archive の構文と符号化。無損失の往復 | 採用・台帳・確信度の方針 |
+| `koeru-runtime` | Application、project の単一 writer、一貫した読み、永続化と回復、ジョブ、取り込みと書き出し、同意 | Tauri・GraphQL・callback の処理 |
+| `koeru-graphql` | canonical SDL の Rust 実装（`DEC-PLT-035`）。resolver は Application だけを呼ぶ | SQLite・native・業務規則 |
+| `koeru-audio` | デバイスと制御スレッド、capture / playback、RT バッファ、pump | 採用・エイリアス・GraphQL |
+| `koeru-align` / `koeru-synth` | 計算だけ。入力から境界・品質・音を出す | 候補の選択、利用者の判断、書き出しの可否 |
+| `koeru-desktop` | 組み立て、GraphQL を運ぶ汎用の Tauri 経路、OS shell | 業務不変条件、用途ごとのコマンドと Channel |
+| `koeru-editor-wasm` | M6 のドラッグ中の予測だけ。`koeru-model` の同じ規則を WASM で呼ぶ | 保存・選択・GraphQL・native audio |
+
+`koeru-editor-wasm` は M6 の前に空箱で作らない。 旧 `koeru-core` / `koeru-package` /
+`koeru-app` は移し終えた時点で取り除き、新旧の契約を恒久的に並べない。
+
+## 実行域
+
+| 域 | 持つもの | してはいけないこと |
+|---|---|---|
+| realtime callback | 事前確保のバッファとアトミック | DB・FS・log・確保・解放・一般の mutex・await（`TR-REC-40`） |
+| 制御 | デバイスの開閉と lease | DB やジョブの完了を待ってから止める |
+| 確定 | project ごとの単一 writer。短い判断・比較・SQL トランザクション・受領証 | DSP や巨大なファイル複写 |
+| 計算 | 有界のジョブ。不変の入力と取消の観測点 | DB への書き込み権限を持つ |
+| 観測 | 版つきの snapshot と有界の通知 | 毎フレームのキャッシュ無効化 |
+
+非同期の完了を受け取るかは、仕事ではなく project の持ち主が決める。 lease が生きていて、
+その試行が最新で、計算が実際に読んだ入力の版が変わっておらず、対象がまだあり、
+取消が先に確定しておらず、利用者の保護した値を上書きしないときだけ受け取る。
+project 全体の版だけを比べると、無関係な編集で全部のジョブが捨てられる。
+
+## 採らなかったもの
+
+現状を保つ案は、規約だけで暗黙の「今のプロジェクト」を守れる前提に立つ。 素材の
+同一性・受理・編集の kernel・受領証を入れれば結局この案に近づくので、名前を残すことに
+意味は無い。
+
+全域を ports / actors に分ける案は、pure な関数や SQLite の1実装まで trait にする。
+小さな変更のたびに trait・メッセージ・設定が増え、業務のまとまりが層の数に薄まる。
+差し替える backend が実際に複数あるところだけ trait にする。
+
+常駐プロセスと event sourcing は、remote / multi-user / untrusted plugin が要件に
+無い今は先払いが大きすぎる。 GraphQL の採否（`DEC-PLT-035`）はこれとは別の判断で、
+process 内で実行する。
+
+## 最大の欠点
+
+同一性の移行と結果の受理を、一度に正しく入れるのが難しい。 ProjectRuntime が
+第二の Studio になる危険も残る。 そこで writer は DB と受理だけを持ち、判断と
+組み立ては能力ごとの module に置き、RT と CPU の仕事は writer へ移さない。
+'''
+review_triggers = [
+  'ProjectRuntime の1 module が、寿命の違う仕事を2つ以上持ち始めたとき（第二の Studio の兆候）',
+  'remote / multi-user / untrusted plugin が正式な要件になったとき（常駐プロセス案を見直す）',
+  '独立に差し替える backend が実際に2つ以上できたとき（その境界だけ trait にするか見直す）',
+  'M6 の代表スライスで、native と WASM の編集規則の一致か 8ms が成立しなかったとき',
+]
+affects_requirements = [
+  'TR-REC-40',
+  'TR-PKG-43',
+]
+affects_decisions = [
+  'DEC-PLT-001',
+  'DEC-PLT-015',
+  'DEC-ALN-009',
+  'DEC-RCL-012',
+  'DEC-REC-001',
+]
+evidence = ['EVID-PLT-004']
