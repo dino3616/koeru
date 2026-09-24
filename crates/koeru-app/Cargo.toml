@@ -27,10 +27,10 @@ workspace = true
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-anyhow.workspace = true
 koeru-align = { path = "../koeru-align" }
 koeru-audio = { path = "../koeru-audio" }
 koeru-core = { path = "../koeru-core" }
+koeru-failure = { path = "../koeru-failure" }
 koeru-package = { path = "../koeru-package" }
 koeru-synth = { path = "../koeru-synth" }
 serde.workspace = true

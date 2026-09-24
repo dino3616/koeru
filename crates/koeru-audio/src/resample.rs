@@ -42,12 +42,17 @@ pub enum ResampleError {
     ZeroRate,
 }
 
-impl ResampleError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ResampleError {
+    fn code(&self) -> &'static str {
         match self {
-            Self::ZeroRate => "resample.zero_rate",
+            Self::ZeroRate => "audio.resample.zero_rate",
+        }
+    }
+
+    /// レートはデバイスと固定のマスターから来る。0 は呼び出し側の欠陥。
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::ZeroRate => koeru_failure::Class::Internal,
         }
     }
 }
@@ -371,6 +376,8 @@ mod tests {
             Resampler::new(48_000, 0).err(),
             Some(ResampleError::ZeroRate)
         );
-        assert!(ResampleError::ZeroRate.kind().starts_with("resample."));
+        assert!(
+            koeru_failure::Failure::code(&ResampleError::ZeroRate).starts_with("audio.resample.")
+        );
     }
 }

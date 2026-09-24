@@ -3,6 +3,8 @@
 //! ドメイン層なので `anyhow::Error` を返さない。 呼び出し側が `match` で
 //! 網羅的に分岐できることが、回復の前提になる。
 
+use koeru_failure::{Class, Failure};
+
 use crate::session::{Device, Effects, Gain, Liveness};
 
 /// 収録セッションの状態遷移が拒まれた理由。
@@ -16,30 +18,30 @@ pub enum SessionError {
     Exited,
 
     /// デバイスの状態が操作の前提に合わない。
-    #[error("デバイスが {actual:?} なので、この操作には {expected:?} が要る")]
+    #[error("マイクの状態がこの操作に合わない")]
     DeviceState { expected: Device, actual: Device },
 
     /// ストリームの開閉状態が操作の前提に合わない。
-    #[error("ストリームが開いている必要がある: {want_open}")]
+    #[error("入力の流れの開閉がこの操作に合わない")]
     StreamState { want_open: bool },
 
     /// 効果の列挙状態が操作の前提に合わない。
-    #[error("効果の状態が {actual:?} なので、この操作には {expected:?} が要る")]
+    #[error("OS の音声加工の確認がこの操作に合わない")]
     EffectsState { expected: Effects, actual: Effects },
 
     /// 入力レベルの校正状態が操作の前提に合わない。
-    #[error("ゲインが {actual:?} なので、この操作には {expected:?} が要る")]
+    #[error("入力レベルの校正がこの操作に合わない")]
     GainState { expected: Gain, actual: Gain },
 
     /// 入力経路の生死判定が操作の前提に合わない。
-    #[error("入力の生死が {actual:?} なので、この操作には {expected:?} が要る")]
+    #[error("マイクから音が届いているかの確認がこの操作に合わない")]
     LivenessState {
         expected: Liveness,
         actual: Liveness,
     },
 
     /// 収録中／収録していない、が操作の前提に合わない。
-    #[error("収録中である必要がある: {want_recording}")]
+    #[error("収録中かどうかがこの操作に合わない")]
     RecordingState { want_recording: bool },
 
     /// 手順の提示は多くとも一度しか出さない（INV-REC-108）。
@@ -59,13 +61,34 @@ pub enum SessionError {
     NotEnoughSpace,
 }
 
-impl SessionError {
-    /// 送信層へ載せてよい固定文字列。
-    ///
-    /// `Display` を送らない。 `Display` にはデバイス名やパスが入りうる。
-    /// 送ってよいのはこの固定語彙だけで、ホワイトリストはここが唯一の出どころ。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl Failure for SessionError {
+    fn class(&self) -> Class {
+        match self {
+            // 失われたマイクと、音が届かない入力は、手順の誤りではない。
+            // 選び直すかつなぎ直すまで、何度押しても同じ結果になる。
+            Self::DeviceState {
+                actual: Device::Lost,
+                ..
+            }
+            | Self::LivenessState {
+                actual: Liveness::Dead,
+                ..
+            } => Class::DeviceUnavailable,
+            Self::NotEnoughSpace => Class::Storage,
+            Self::Exited
+            | Self::DeviceState { .. }
+            | Self::StreamState { .. }
+            | Self::EffectsState { .. }
+            | Self::GainState { .. }
+            | Self::LivenessState { .. }
+            | Self::RecordingState { .. }
+            | Self::PromptAlreadyShown
+            | Self::LeakNotChecked
+            | Self::GuideAlreadyEnabled => Class::Rejected,
+        }
+    }
+
+    fn code(&self) -> &'static str {
         match self {
             Self::Exited => "recording.session_exited",
             Self::DeviceState { .. } => "recording.device_state",

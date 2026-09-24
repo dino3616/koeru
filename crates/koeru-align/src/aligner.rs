@@ -139,19 +139,27 @@ pub enum AlignError {
     ModelUnavailable,
 }
 
-impl AlignError {
-    /// 送信してよい種別文字列。
-    ///
-    /// `Display` は送らない。 トレースに載せてよいのはここに列挙した固定文字列だけ
-    /// （AGENTS.md の破ってはいけないもの #3）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for AlignError {
+    fn code(&self) -> &'static str {
         match self {
             Self::EmptyPhonemes => "align.empty_phonemes",
             Self::TooShort => "align.too_short",
             Self::RateMismatch => "align.rate_mismatch",
             Self::TextDeviation => "align.text_deviation",
             Self::ModelUnavailable => "align.model_unavailable",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        use koeru_failure::Class;
+        match self {
+            // 読みから音素列を作るのも、レートを揃えるのも呼び出し側。
+            Self::EmptyPhonemes | Self::RateMismatch => Class::Internal,
+            // 録り直せば直る。
+            Self::TooShort => Class::InvalidInput,
+            // 推定を採らないだけで、録音は残る。確認キューへ回す。
+            Self::TextDeviation => Class::EngineFailed,
+            Self::ModelUnavailable => Class::Unsupported,
         }
     }
 }
@@ -215,7 +223,8 @@ mod tests {
             AlignError::TextDeviation,
             AlignError::ModelUnavailable,
         ] {
-            assert!(e.kind().starts_with("align."), "{}", e.kind());
+            let code = koeru_failure::Failure::code(&e);
+            assert!(code.starts_with("align."), "{code}");
         }
     }
 }

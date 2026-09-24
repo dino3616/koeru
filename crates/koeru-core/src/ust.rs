@@ -52,17 +52,20 @@ pub enum UstError {
     MalformedUstx,
 }
 
-impl UstError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for UstError {
+    fn code(&self) -> &'static str {
         match self {
-            Self::Encoding(e) => e.kind(),
+            Self::Encoding(e) => e.code(),
             Self::NoNotes => "ust.no_notes",
             Self::Malformed => "ust.malformed",
             Self::IncompleteNote { .. } => "ust.incomplete_note",
             Self::MalformedUstx => "ust.malformed_ustx",
         }
+    }
+
+    /// 読むのは本人が選んだ曲のファイル。読めないのは渡されたものの問題。
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::InvalidInput
     }
 }
 
@@ -87,7 +90,7 @@ const fn other(enc: TextEncoding) -> TextEncoding {
 /// CP932 の日本語は、まず UTF-8 として不正になる。だから UTF-8 を先に試す。
 ///
 /// ASCII だけの UST はどちらで読んでも同じ字になる。 順序は効かない。
-#[tracing::instrument(skip(bytes, title), fields(len = bytes.len()), err)]
+#[tracing::instrument(skip(bytes, title), fields(len = bytes.len()))]
 pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
     let declared = text::oto_charset_declaration(bytes)
         .as_deref()
@@ -280,7 +283,7 @@ impl Format {
 /// # Errors
 ///
 /// 符号化を判定できない、ノートが1つも無い、書式が想定と違う。
-#[tracing::instrument(skip(bytes, file_name), fields(len = bytes.len()), err)]
+#[tracing::instrument(skip(bytes, file_name), fields(len = bytes.len()))]
 pub fn parse_file(bytes: &[u8], file_name: &str) -> Result<Vec<Song>, UstError> {
     let stem = title_hint(file_name);
     match Format::of(file_name, bytes) {
@@ -568,6 +571,7 @@ mod tests {
     use super::*;
     use crate::alias::Method;
     use crate::inventory::UnitSet;
+    use koeru_failure::Failure;
 
     const SAMPLE: &str = "[#VERSION]\nUST Version1.2\n[#SETTING]\nTempo=120.00\n[#0000]\nLength=480\nLyric=さ\nNoteNum=60\n[#0001]\nLength=480\nLyric=く\nNoteNum=62\n[#0002]\nLength=240\nLyric=R\nNoteNum=60\n[#TRACKEND]\n";
 
@@ -593,7 +597,7 @@ mod tests {
             matches!(e, UstError::IncompleteNote { index: 2 }),
             "2 番目の節を名指す: {e:?}"
         );
-        assert_eq!(e.kind(), "ust.incomplete_note");
+        assert_eq!(e.code(), "ust.incomplete_note");
         assert!(!e.to_string().contains('く'), "歌詞は載せない");
 
         // 読めない長さも欠けたのと同じ。
@@ -649,7 +653,7 @@ mod tests {
     #[test]
     fn ノートが無ければ拒む() {
         let e = parse_ust(b"[#VERSION]\nUST Version1.2\n[#TRACKEND]\n", "x").expect_err("拒むこと");
-        assert_eq!(e.kind(), "ust.no_notes");
+        assert_eq!(e.code(), "ust.no_notes");
     }
 
     /// 休符だけの UST もノート無し。
@@ -846,7 +850,7 @@ wave_parts: []
     fn ustx_の壊れたノートを落とさない() {
         let broken = USTX.replace("    tone: 60\n", "");
         let e = parse_file(broken.as_bytes(), "テスト.ustx").expect_err("拒むこと");
-        assert_eq!(e.kind(), "ust.malformed_ustx");
+        assert_eq!(e.code(), "ust.malformed_ustx");
     }
 
     /// .NET が書くと BOM が付くことがある。 復号の時点で落とす。
@@ -868,14 +872,14 @@ wave_parts: []
     #[test]
     fn ustx_として読めなければ拒む() {
         let e = parse_file(b"\tname: x\n  - broken", "x.ustx").expect_err("拒むこと");
-        assert_eq!(e.kind(), "ust.malformed_ustx");
+        assert_eq!(e.code(), "ust.malformed_ustx");
     }
 
     #[test]
     fn 歌うノートが無い_ustx_を拒む() {
         let empty = "name: x\nresolution: 480\nvoice_parts: []\n";
         let e = parse_file(empty.as_bytes(), "x.ustx").expect_err("拒むこと");
-        assert_eq!(e.kind(), "ust.no_notes");
+        assert_eq!(e.code(), "ust.no_notes");
     }
 
     /// 拡張子が当てにならないときは中身で決める。

@@ -137,7 +137,7 @@ pub trait Samples {
 /// # Errors
 ///
 /// 素材を読めない、または合成できないとき。
-#[tracing::instrument(skip(phrase, samples), fields(notes = phrase.notes.len()), err)]
+#[tracing::instrument(skip(phrase, samples), fields(notes = phrase.notes.len()))]
 pub fn render_phrase(
     phrase: &Phrase,
     samples: &dyn Samples,

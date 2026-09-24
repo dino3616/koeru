@@ -92,7 +92,7 @@ pub fn read(id: &DeviceId) -> Option<f32> {
 ///
 /// ハードウェア側でないデバイスには書かない（`TR-REC-14`）。
 /// ソフトウェアのボリュームを動かしても、校正にならないうえ元の状態を壊す。
-#[tracing::instrument(skip(id), fields(value), err)]
+#[tracing::instrument(skip(id), fields(value))]
 pub fn write(id: &DeviceId, value: f32) -> Result<()> {
     if !control(id).is_usable() {
         return Err(CoreAudioError::Property {

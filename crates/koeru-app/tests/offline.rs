@@ -217,10 +217,13 @@ fn repo_root() -> std::path::PathBuf {
         .expect("リポジトリの根があること")
 }
 
+/// `.rs` を全部たどる。
+///
+/// **読めないディレクトリで黙って戻っていた。** 走査する先を打ち間違えると、
+/// 1ファイルも見ずに検査が通る。読めなければ落とす（`DEC-PLT-039`）。
 fn walk(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let entries =
+        std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{} を読めない: {e}", dir.display()));
     for e in entries.filter_map(Result::ok) {
         let p = e.path();
         if p.is_dir() {
@@ -238,7 +241,47 @@ fn walk(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
 /// 数・寸法・列挙・ID だけ。自由文を入れない。
 /// 音源名・ファイルパス・歌詞・プロジェクト名が入ると、
 /// 「非公開のまま完成できる」という製品の前提が崩れる。
-const TRACE_FIELDS_ALLOWED: [&str; 60] = [
+const TRACE_FIELDS_ALLOWED: &[&str] = &[
+    // 失敗の記録（`DEC-PLT-038`）。 どれも `koeru-failure` の固定の語彙で、
+    // `phase` も工程を指す固定の名前。画面から来た値を入れない。
+    "code",
+    "class",
+    "outcome",
+    "phase",
+    // 検査が複数行の event と省略形を読めるようになって見つかったもの。
+    // どれも件数・寸法・真偽・レート・OSStatus・固定の語彙で、本人のものではない。
+    "attempt",
+    "budget_ms",
+    "bytes",
+    // 試唱の待ち時間の区分（`latency::Case`）。固定の列挙。
+    "case",
+    "ch",
+    "converting",
+    "correlation",
+    "device_rate_hz",
+    "elapsed_ms",
+    "entries",
+    "got",
+    "held",
+    "held_ms",
+    "lag_ms",
+    "leaking",
+    "master_rate_hz",
+    "max_frames",
+    "may_mix",
+    "next_gain",
+    "presamp",
+    "rate",
+    // リサンプラの識別子（`koeru_audio::resample::IDENTIFIER`）。定数。
+    "resampler",
+    "rms",
+    "singable",
+    "songs",
+    "source_channel",
+    "status",
+    "subbanks",
+    "want",
+    "want_ms",
     "added_at",
     // ここから下は、値そのものが本人のものではないもの。
     // 数・レート・固定の語彙で、識別にも復元にも使えない。
@@ -333,35 +376,32 @@ const TRACE_FIELDS_ALLOWED: [&str; 60] = [
 fn トレースのフィールドが許可リストに収まっている() {
     let root = repo_root();
     let mut leaked = Vec::new();
+    let (mut files, mut events, mut spans) = (0_usize, 0_usize, 0_usize);
 
     // 全クレートを見る。 **足し忘れると、その crate だけ素通りする。**
     // `koeru-package` を足したとき、`verify` が配布名と `install.txt` の
     // バイト列をそのままスパンへ載せていた。**踏んだ。**
-    for crate_name in [
-        "koeru-core",
-        "koeru-synth",
-        "koeru-audio",
-        "koeru-app",
-        "koeru-align",
-        "koeru-package",
-    ] {
+    for crate_name in CRATES {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
+            files += 1;
+            // `info!(reason = …)` のように、イベントへ直接付けたフィールド。
+            //
+            // `#[instrument]` だけ見ていた頃は、この経路が丸ごと素通りだった。
+            // 実際に `device = ?id` がデバイス識別子を載せていた。
+            for (line_no, name) in event_fields(text) {
+                events += 1;
+                if !TRACE_FIELDS_ALLOWED.contains(&name.as_str()) {
+                    leaked.push(format!("{}:{line_no}: イベントの `{name}`", path.display()));
+                }
+            }
+
             let lines: Vec<&str> = text.lines().collect();
             for (i, line) in lines.iter().enumerate() {
-                // `info!(reason = …)` のように、イベントへ直接付けたフィールド。
-                //
-                // `#[instrument]` だけ見ていた頃は、この経路が丸ごと素通りだった。
-                // 実際に `device = ?id` がデバイス識別子を載せていた。
-                for name in event_fields(line) {
-                    if !TRACE_FIELDS_ALLOWED.contains(&name.as_str()) {
-                        leaked.push(format!("{}:{}: イベントの `{name}`", path.display(), i + 1));
-                    }
-                }
-
-                if !line.contains("tracing::instrument") {
+                if !line.contains("tracing::instrument") || line.trim_start().starts_with("//") {
                     continue;
                 }
+                spans += 1;
                 // 属性から関数シグネチャまでを1つに畳む。
                 //
                 // **シグネチャは閉じ括弧まで読む。** 1行目だけを見ていたので、
@@ -388,6 +428,43 @@ fn トレースのフィールドが許可リストに収まっている() {
                 if sig.is_empty() {
                     continue;
                 }
+
+                let attr_args = attr
+                    .split_once("instrument(")
+                    .map(|(_, rest)| top_level_args(rest))
+                    .unwrap_or_default();
+                // `err` と `ret` は失敗や戻り値の `Display` を段ごとに記録する。
+                // 失敗は持ち主が1回だけ、型つきの event で出す（`DEC-PLT-038`）。
+                for arg in &attr_args {
+                    let arg = arg.trim();
+                    if ["err", "ret"]
+                        .iter()
+                        .any(|k| arg == *k || arg.starts_with(&format!("{k}(")))
+                    {
+                        leaked.push(format!(
+                            "{}:{} の instrument が `{arg}` を持つ",
+                            path.display(),
+                            i + 1
+                        ));
+                    }
+                }
+                // `fields(...)` に書いた名前も、スパンに載る。
+                for arg in attr_args.iter().filter(|a| a.trim().starts_with("fields(")) {
+                    let inner = &arg.trim()["fields(".len()..];
+                    for name in top_level_args(inner)
+                        .iter()
+                        .filter_map(|f| field_name(f.trim()))
+                    {
+                        if !TRACE_FIELDS_ALLOWED.contains(&name.as_str()) {
+                            leaked.push(format!(
+                                "{}:{} の instrument の fields に `{name}`",
+                                path.display(),
+                                i + 1
+                            ));
+                        }
+                    }
+                }
+
                 if attr.contains("skip_all") {
                     continue;
                 }
@@ -469,9 +546,38 @@ fn トレースのフィールドが許可リストに収まっている() {
         "トレースに載ってはいけない値がスパンへ入る:\n  {}",
         leaked.join("\n  ")
     );
+    // 0件で通らないようにする。 走査の先を打ち間違えても、件数で気づく（`DEC-PLT-039`）。
+    assert!(
+        files > 80 && events > 40 && spans > 100,
+        "走査したものが少なすぎる（ファイル {files} / event のフィールド {events} / instrument {spans}）"
+    );
     println!(
-        "instrument の記録フィールドは許可リスト {} 語に収まっている",
+        "ファイル {files} 個の event のフィールド {events} 件と instrument {spans} 個が、許可リスト {} 語に収まっている",
         TRACE_FIELDS_ALLOWED.len()
+    );
+}
+
+/// 走査する crate。 **足し忘れると、その crate だけ素通りする。**
+const CRATES: [&str; 7] = [
+    "koeru-core",
+    "koeru-synth",
+    "koeru-audio",
+    "koeru-app",
+    "koeru-align",
+    "koeru-package",
+    "koeru-failure",
+];
+
+/// 検査そのものを検査する（`DEC-PLT-039`）。 読み方が壊れると、上の検査は黙って通る。
+#[test]
+fn トレースの読み方が改行と省略形を拾う() {
+    let src = "tracing::info!(\n    device_rate_hz,\n    reason = e.code(),\n    %path,\n    \"始める {}\", x\n);\n// tracing::warn!(commented = 1)\n";
+    let names: Vec<String> = event_fields(src).into_iter().map(|(_, n)| n).collect();
+    assert_eq!(names, ["device_rate_hz", "reason", "path"]);
+    assert_eq!(field_name("a == b"), None);
+    assert_eq!(
+        top_level_args("skip(self), fields(n = f(a, b)), err)"),
+        ["skip(self)", " fields(n = f(a, b))", " err"]
     );
 }
 
@@ -547,46 +653,109 @@ fn 境界のenumがバックエンドの綴りを網羅している() {
     }
 }
 
-/// イベントマクロに直接書かれたフィールド名を拾う。
+/// イベントマクロに直接書かれたフィールド名を、書かれた行とともに拾う。
 ///
-/// `info!(reason = e.kind(), "…")` の `reason`。 名前だけを見る——
+/// `info!(reason = e.code(), "…")` の `reason`。 名前だけを見る——
 /// 値が何であれ、許可リストに無い名前は送信層へ載せない（禁止事項3）。
 ///
 /// `%` と `?` の前置きも同じ扱い。`?id` は `Debug` を載せる形なので、
-/// むしろ危ないほうに入る。
-fn event_fields(line: &str) -> Vec<String> {
-    let trimmed = line.trim_start();
-    // コメント行は対象外。例の記述で落とさない。
-    if trimmed.starts_with("//") {
-        return Vec::new();
-    }
-    let Some(open) = ["info!(", "warn!(", "error!(", "debug!(", "trace!("]
-        .iter()
-        .find_map(|m| line.find(m).map(|i| i + m.len()))
-    else {
-        return Vec::new();
-    };
-
+/// むしろ危ないほうに入る。 `warn!(discontinuities, "…")` のように名前だけを書く
+/// 省略形も、同じ名前のフィールドになる。
+///
+/// **マクロの1行目しか読んでいなかった。** 引数を改行して並べた event と、
+/// 省略形のフィールドは、どちらも素通りしていた。 括弧の深さと文字列を見て
+/// 引数を切り、最初の文字列（文言）より前だけをフィールドとして読む。
+fn event_fields(text: &str) -> Vec<(usize, String)> {
+    const MACROS: [&str; 5] = ["info!(", "warn!(", "error!(", "debug!(", "trace!("];
     let mut out = Vec::new();
-    let rest = &line[open..];
-    for part in rest.split(',') {
-        let Some((lhs, _)) = part.split_once('=') else {
+    for (start, _) in text.match_indices('!') {
+        let Some(m) = MACROS.iter().find(|m| {
+            start + 2 >= m.len() && text.get(start + 2 - m.len()..start + 2) == Some(**m)
+        }) else {
             continue;
         };
-        // `==` や `>=` は比較。フィールドではない。
-        if lhs.ends_with(['=', '!', '<', '>']) {
+        let begin = start + 2 - m.len();
+        let line_no = text[..begin].matches('\n').count() + 1;
+        let line = text[..begin].rsplit('\n').next().unwrap_or("");
+        // コメントの中の例は対象外。
+        if line.contains("//") {
             continue;
         }
-        let name = lhs.trim().trim_start_matches(['%', '?']).trim();
-        // 識別子だけを採る。`e.kind()` のような右辺は来ない。
-        if !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && !name.starts_with(|c: char| c.is_ascii_digit())
-        {
-            out.push(name.to_owned());
+        for arg in top_level_args(&text[start + 2..]) {
+            let arg = arg.trim();
+            // 文言より後ろは書式の引数。フィールドではない。
+            if arg.starts_with('"') {
+                break;
+            }
+            if let Some(name) = field_name(arg) {
+                out.push((line_no, name));
+            }
         }
     }
     out
+}
+
+/// 開き括弧の直後から、対応する閉じ括弧までを、深さ 0 の `,` で切る。
+fn top_level_args(rest: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut depth = 0_i32;
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                cur.push(ch);
+                while let Some(c) = chars.next() {
+                    cur.push(c);
+                    if c == '\\' {
+                        if let Some(esc) = chars.next() {
+                            cur.push(esc);
+                        }
+                    } else if c == '"' {
+                        break;
+                    }
+                }
+            }
+            '(' | '[' | '{' => {
+                depth += 1;
+                cur.push(ch);
+            }
+            ')' | ']' | '}' if depth == 0 => break,
+            ')' | ']' | '}' => {
+                depth -= 1;
+                cur.push(ch);
+            }
+            ',' if depth == 0 => parts.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur);
+    }
+    parts
+}
+
+/// `name = 値` / `%name` / `?name` / `name` のフィールド名。 `target:` などの指定は除く。
+fn field_name(arg: &str) -> Option<String> {
+    if ["target:", "parent:", "name:"]
+        .iter()
+        .any(|k| arg.starts_with(k))
+    {
+        return None;
+    }
+    let lhs = match arg.split_once('=') {
+        // `==` や `>=` は比較。フィールドではない。
+        Some((l, r)) if !r.starts_with('=') && !l.ends_with(['!', '<', '>']) => l,
+        Some(_) => return None,
+        None => arg,
+    };
+    let name = lhs.trim().trim_start_matches(['%', '?']).trim();
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        && !name.starts_with(|c: char| c.is_ascii_digit()))
+    .then(|| name.to_owned())
 }
 
 /// `as_str` の本体に現れる文字列リテラルを拾う。

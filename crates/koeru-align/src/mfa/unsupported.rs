@@ -23,11 +23,13 @@ pub enum MfaError {
     Unsupported,
 }
 
-impl MfaError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for MfaError {
+    fn code(&self) -> &'static str {
         "mfa.unsupported_platform"
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::Unsupported
     }
 }
 
@@ -96,6 +98,10 @@ mod tests {
     #[test]
     fn この_os_では開けない() {
         let e = MfaAligner::open(Path::new("/any"), "t").unwrap_err();
-        assert_eq!(e.kind(), "mfa.unsupported_platform");
+        assert_eq!(koeru_failure::Failure::code(&e), "mfa.unsupported_platform");
+        assert_eq!(
+            koeru_failure::Failure::class(&e),
+            koeru_failure::Class::Unsupported
+        );
     }
 }

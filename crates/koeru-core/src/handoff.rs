@@ -46,15 +46,23 @@ pub enum HandoffError {
     UnsafePath,
 }
 
-impl HandoffError {
-    /// 送信してよい種別文字列。`Display` は送らない。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for HandoffError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Io(_) => "handoff.io",
             Self::Zip(_) => "handoff.zip",
             Self::DestinationNotEmpty => "handoff.destination_not_empty",
             Self::UnsafePath => "handoff.unsafe_path",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        use koeru_failure::Class;
+        match self {
+            Self::Io(e) | Self::Zip(zip::result::ZipError::Io(e)) => koeru_failure::io_class(e),
+            // 読めないアーカイブは、渡されたものの問題。
+            Self::Zip(_) | Self::UnsafePath => Class::InvalidInput,
+            Self::DestinationNotEmpty => Class::Rejected,
         }
     }
 }
@@ -77,7 +85,7 @@ pub struct ExternalExport {
 /// 元のプロジェクトには一切触れない。 複製するだけ。
 ///
 /// 書き出し先が空でなければ拒む。上書きすると、そこにあった他人の作業が消える。
-#[tracing::instrument(skip(project, dest, wavs, oto_ini), fields(count = wavs.len()), err)]
+#[tracing::instrument(skip(project, dest, wavs, oto_ini), fields(count = wavs.len()))]
 pub fn export_for_external_tools(
     project: &ProjectDir,
     dest: &Path,
@@ -116,7 +124,7 @@ pub fn export_for_external_tools(
 ///
 /// 差分を取り込むか捨てるかは [`crate::release::detect_drift`] の結果を
 /// 本人に見せてから決める。自動で取り込まない。
-#[tracing::instrument(skip(folder), err)]
+#[tracing::instrument(skip(folder))]
 pub fn scan_external_folder(folder: &Path) -> Result<Option<Vec<u8>>> {
     let p = folder.join("oto.ini");
     if !p.is_file() {
@@ -130,7 +138,7 @@ pub fn scan_external_folder(folder: &Path) -> Result<Option<Vec<u8>>> {
 /// 拡張子は `.koerulib`。配布パッケージと取り違えられない。
 ///
 /// `renders/`（試唱キャッシュ）は入れない。再生成できるものを運ばない。
-#[tracing::instrument(skip(lib, dest), err)]
+#[tracing::instrument(skip(lib, dest))]
 pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
     let file = fs::File::create(dest)?;
     let mut zip = zip::ZipWriter::new(file);
@@ -178,7 +186,7 @@ pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
 ///
 /// 取り込み先が空でなければ拒む。既にあるライブラリへ混ぜない。
 /// 同じ UUID のプロジェクトが両方にあると、どちらが本物か決められなくなる。
-#[tracing::instrument(skip(archive, dest), err)]
+#[tracing::instrument(skip(archive, dest))]
 pub fn restore_library(archive: &Path, dest: &Path) -> Result<Library> {
     if dest.exists() && fs::read_dir(dest)?.next().is_some() {
         return Err(HandoffError::DestinationNotEmpty);
@@ -216,6 +224,7 @@ pub fn restore_library(archive: &Path, dest: &Path) -> Result<Library> {
 mod tests {
     use super::*;
     use crate::project::{Manifest, Method};
+    use koeru_failure::Failure;
 
     fn tmp(tag: &str) -> PathBuf {
         use std::sync::atomic::{AtomicU32, Ordering};
@@ -280,7 +289,7 @@ mod tests {
         fs::write(dest.join("大事なもの.txt"), b"x").expect("書けること");
 
         let e = export_for_external_tools(&p, &dest, &[], None).expect_err("拒むこと");
-        assert_eq!(e.kind(), "handoff.destination_not_empty");
+        assert_eq!(e.code(), "handoff.destination_not_empty");
         assert!(dest.join("大事なもの.txt").is_file(), "消えないこと");
     }
 
@@ -351,7 +360,7 @@ mod tests {
         let dest = tmp("arc3-restore");
         fs::write(dest.join("既にある"), b"x").expect("書けること");
         let e = restore_library(&archive, &dest).expect_err("拒むこと");
-        assert_eq!(e.kind(), "handoff.destination_not_empty");
+        assert_eq!(e.code(), "handoff.destination_not_empty");
     }
 
     /// アーカイブの中の名前を信用しない。
@@ -368,7 +377,7 @@ mod tests {
         }
         let dest = tmp("evil-dest").join("library");
         let e = restore_library(&archive, &dest).expect_err("拒むこと");
-        assert_eq!(e.kind(), "handoff.unsafe_path");
+        assert_eq!(e.code(), "handoff.unsafe_path");
     }
 
     /// 配布パッケージと拡張子が違う（`TR-PKG-47`）。

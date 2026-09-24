@@ -285,10 +285,21 @@ pub enum ReviewError {
     NotPinned,
 }
 
-impl ReviewError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ReviewError {
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // 指したエントリが無いのは、読んだ確認キューが古い。
+            Self::NoSuchEntry => koeru_failure::Class::Conflict,
+            Self::AlreadyExported
+            | Self::WrongState
+            | Self::NotIndividualMode
+            | Self::BudgetNotExceeded
+            | Self::ReviewPending
+            | Self::NotPinned => koeru_failure::Class::Rejected,
+        }
+    }
+
+    fn code(&self) -> &'static str {
         match self {
             Self::NoSuchEntry => "review.no_such_entry",
             Self::AlreadyExported => "review.already_exported",
@@ -986,7 +997,8 @@ mod tests {
             ReviewError::ReviewPending,
             ReviewError::NotPinned,
         ] {
-            assert!(e.kind().starts_with("review."), "{}", e.kind());
+            let code = koeru_failure::Failure::code(&e);
+            assert!(code.starts_with("review."), "{code}");
         }
     }
 }

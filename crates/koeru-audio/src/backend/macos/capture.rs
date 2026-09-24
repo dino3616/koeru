@@ -29,8 +29,8 @@ pub enum CaptureError {
     #[error("AUHAL のコンポーネントが見つからない")]
     ComponentNotFound,
 
-    /// AudioUnit の呼び出しが失敗した。
-    #[error("AudioUnit の呼び出しが失敗した（{op}, status={status}）")]
+    /// AudioUnit の呼び出しが失敗した。`op` は呼び出しの名前、`status` は OSStatus。
+    #[error("AudioUnit の呼び出しが失敗した")]
     Unit { op: &'static str, status: i32 },
 
     /// 指定した識別子のデバイスが見つからない。
@@ -38,9 +38,7 @@ pub enum CaptureError {
     DeviceNotFound,
 
     /// デバイスが要求したフォーマットを受け付けなかった。
-    #[error(
-        "フォーマットが一致しない（要求 {wanted_hz}Hz/{wanted_ch}ch、実際 {actual_hz}Hz/{actual_ch}ch）"
-    )]
+    #[error("マイクが求めたフォーマットを受け付けなかった")]
     FormatMismatch {
         wanted_hz: u32,
         wanted_ch: u16,
@@ -49,15 +47,23 @@ pub enum CaptureError {
     },
 }
 
-impl CaptureError {
-    /// 送信層へ載せてよい固定文字列。`Display` を送らない。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for CaptureError {
+    fn code(&self) -> &'static str {
         match self {
             Self::ComponentNotFound => "recording.macos.component_not_found",
             Self::Unit { .. } => "recording.macos.unit_failed",
             Self::DeviceNotFound => "recording.macos.device_not_found",
             Self::FormatMismatch { .. } => "recording.macos.format_mismatch",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // AUHAL は OS に含まれる。無いのはこの環境で使えないということ。
+            Self::ComponentNotFound => koeru_failure::Class::Unsupported,
+            Self::Unit { .. } | Self::DeviceNotFound | Self::FormatMismatch { .. } => {
+                koeru_failure::Class::DeviceUnavailable
+            }
         }
     }
 }
@@ -144,7 +150,7 @@ unsafe impl Send for Capture {}
 /// キャプチャを開く（`REQ-REC-102`）。
 ///
 /// 開くだけで、まだ収録は始まらない。 収録の開始は [`Capture::arm`]。
-#[tracing::instrument(skip(device), err)]
+#[tracing::instrument(skip(device))]
 pub fn open(device: &crate::DeviceId, ring_capacity: usize) -> Result<(Capture, ring::Consumer)> {
     let Some(object) = super::object_id_for_public(device) else {
         return Err(CaptureError::DeviceNotFound);

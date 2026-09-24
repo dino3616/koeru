@@ -110,10 +110,9 @@ pub enum MfaError {
     BadPath,
 }
 
-impl MfaError {
-    /// 送信してよい種別文字列。パスも歌詞も載せない（AGENTS.md #3）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// パスも歌詞も code と文言に載せない（`AGENTS.md` #3）。
+impl koeru_failure::Failure for MfaError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Model => "mfa.model",
             Self::Args => "mfa.args",
@@ -124,6 +123,18 @@ impl MfaError {
         }
     }
 
+    fn class(&self) -> koeru_failure::Class {
+        use koeru_failure::Class;
+        match self {
+            Self::Model => Class::Unsupported,
+            Self::TooShort => Class::InvalidInput,
+            Self::Internal => Class::EngineFailed,
+            Self::Args | Self::RateMismatch | Self::BadPath => Class::Internal,
+        }
+    }
+}
+
+impl MfaError {
     const fn from_code(c: c_int) -> Self {
         match c {
             -1 => Self::Model,
@@ -479,7 +490,8 @@ mod tests {
             MfaError::RateMismatch,
             MfaError::BadPath,
         ] {
-            assert!(e.kind().starts_with("mfa."), "{}", e.kind());
+            let code = koeru_failure::Failure::code(&e);
+            assert!(code.starts_with("mfa."), "{code}");
         }
     }
 
@@ -487,7 +499,7 @@ mod tests {
     #[test]
     fn 無いモデルは開けない() {
         let e = MfaAligner::open(Path::new("/nonexistent/koeru/model"), "test").unwrap_err();
-        assert_eq!(e.kind(), "mfa.model");
+        assert_eq!(koeru_failure::Failure::code(&e), "mfa.model");
     }
 
     /// 実モデルを読む。 モデルが見つからなければ戻る。
@@ -511,7 +523,7 @@ mod tests {
         };
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let e = a.features(&[0.0; 16000], 44_100).unwrap_err();
-        assert_eq!(e.kind(), "mfa.rate_mismatch");
+        assert_eq!(koeru_failure::Failure::code(&e), "mfa.rate_mismatch");
     }
 
     /// 実モデルで特徴を作る。次元とフレーム数が理屈に合うこと。
@@ -683,7 +695,7 @@ mod tests {
         let e = a
             .align_raw(&[0.0; 16000], MODEL_SAMPLE_RATE_HZ, &[])
             .unwrap_err();
-        assert_eq!(e.kind(), "mfa.args");
+        assert_eq!(koeru_failure::Failure::code(&e), "mfa.args");
     }
 
     /// 短すぎる音声は拒む。 状態の数だけフレームが要る。
@@ -698,7 +710,7 @@ mod tests {
         let e = a
             .align_raw(&[0.1; 160], MODEL_SAMPLE_RATE_HZ, &[k])
             .unwrap_err();
-        assert_eq!(e.kind(), "mfa.too_short");
+        assert_eq!(koeru_failure::Failure::code(&e), "mfa.too_short");
     }
 
     /// 無音 → 無声子音（雑音）→ 母音（倍音）→ 減衰 という形を作る。

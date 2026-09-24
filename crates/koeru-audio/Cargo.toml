@@ -12,6 +12,7 @@ description = "KOERU の音声入出力。各 OS の API を直接叩き、抽�
 workspace = true
 
 [dependencies]
+koeru-failure = { path = "../koeru-failure" }
 thiserror.workspace = true
 tracing.workspace = true
 

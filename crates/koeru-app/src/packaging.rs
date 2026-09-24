@@ -16,6 +16,7 @@ use koeru_core::presamp::Rules;
 use koeru_core::project::{Manifest, Method, ProjectDir};
 use koeru_core::reclist::Slot;
 use koeru_core::release::{NewRelease, Validation, archive_base_name, content_hash};
+use koeru_failure::Class;
 use koeru_package::archive::{self, Written};
 use koeru_package::bank::{Character, Portrait, Readme, Sample, Subbank, VoiceBank};
 use koeru_package::coverage::Coverage;
@@ -107,7 +108,7 @@ pub struct Exported {
 /// 配布に出す値を読む。無ければ既定値を作る（`DEC-PKG-008`）。
 ///
 /// 既定の配布名は表示名から作る。 空欄から始めさせない。
-#[tracing::instrument(skip(ledger, manifest), err)]
+#[tracing::instrument(skip(ledger, manifest))]
 pub fn settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution> {
     Ok(ledger.distribution()?.unwrap_or_else(|| Distribution {
         distribution_name: names::default_distribution_name(&manifest.display_name),
@@ -141,6 +142,7 @@ fn resolved_profile(d: &Distribution) -> Result<Profile> {
     Profile::parse(&d.profile).ok_or_else(|| {
         AppError::new(
             "package.unknown_profile",
+            Class::Corrupt,
             "保存してある書き出し方が分からない",
         )
     })
@@ -232,7 +234,7 @@ fn methods_in_every_tone(
 }
 
 /// いま書き出せるかを調べる（`TR-PKG-49`）。
-#[tracing::instrument(skip(dir, ledger, rules, manifest), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest))]
 pub fn state(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -339,7 +341,7 @@ pub struct Downgrade {
 /// 版の札は設定から取る（`TR-PKG-44`）。 **書き出しのときに別に打たせない**
 /// ——同じ札が2つあると、配布物の `character.txt` と履歴で違う値になる。
 // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at))]
 pub fn export(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -352,12 +354,14 @@ pub fn export(
     let Some(coverage) = coverage_of(ledger, rules, manifest)? else {
         return Err(AppError::new(
             "package.no_required_table",
+            Class::Rejected,
             "この作り方に必要な音の表をまだ持っていない",
         ));
     };
     if !coverage.is_complete() {
         return Err(AppError::new(
             "package.incomplete_coverage",
+            Class::Rejected,
             format!("まだ録れていない音が {} 件ある", coverage.missing.len()),
         ));
     }
@@ -378,7 +382,7 @@ pub fn export(
 /// # Errors
 ///
 /// 被覆が満ちていない、検証に通らない、包めない、台帳へ書けない。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at))]
 pub fn export_downgrade(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -405,17 +409,19 @@ pub fn export_downgrade(
     {
         return Err(AppError::new(
             "package.incomplete_coverage",
+            Class::Rejected,
             "その作り方では、いまの素材から出せない",
         ));
     }
     let Some(required) = koeru_package::coverage::required(rules, target, set) else {
         return Err(AppError::new(
             "package.no_required_table",
+            Class::Rejected,
             "その作り方に必要な音の表をまだ持っていない",
         ));
     };
     let preset = Preset::default_for(target)
-        .map_err(|e| AppError::new(e.kind(), "規約プリセットを読めない"))?;
+        .map_err(|e| AppError::from_failure(e).saying("規約プリセットを読めない"))?;
     write_package(
         dir,
         ledger,
@@ -434,7 +440,7 @@ pub fn export_downgrade(
 ///
 /// 素の書き出しと下位方式で違うのは、組み立てる中身と音源ルートの名前だけ。
 /// **2本書くと片方だけが直る**——検証・改名・記録の順序は1箇所に置く。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, down), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, down))]
 fn write_package(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -449,6 +455,7 @@ fn write_package(
     if !profile::is_available(profile) {
         return Err(AppError::new(
             "package.profile_unavailable",
+            Class::Unsupported,
             "この書き出し方は、いまの環境では使えない",
         ));
     }
@@ -471,6 +478,7 @@ fn write_package(
         // 中身は載せない——エイリアスもパスも、送信してよい語ではない。
         return Err(AppError::new(
             "package.validation_failed",
+            Class::Rejected,
             format!(
                 "書き出し前の検査に通っていない（指摘 {} 件、書けない文字 {} 件）",
                 report.findings.len(),
@@ -482,7 +490,7 @@ fn write_package(
     // 次に触った人が件数ではなく中身（エイリアスとパス）を載せられる形になる。
     tracing::debug!(count = report.findings.len(), "検査を通った");
 
-    let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
+    let files = tree::build(&bank, profile).map_err(AppError::from_failure)?;
     let exports = dir.exports_dir();
     // 前の書き出しが途中で落ちていたら片付ける。 仮の名前が残っていると、
     // 次の書き出しがそれを上書きするのか作り直すのかが読めない。
@@ -491,7 +499,7 @@ fn write_package(
     }
 
     let written = archive::write_and_verify(&bank, &files, profile, &exports, PENDING)
-        .map_err(|e| AppError::new(e.kind(), e))?;
+        .map_err(AppError::from_failure)?;
 
     // 番号を先に見て、最終名まで作ってから台帳へ書く。
     //
@@ -568,7 +576,7 @@ const PENDING: &str = "pending";
 /// 区画は1つだけ。 音階の軸は録音リストのプリセットが持つもので、
 /// いまあるのは単一音階のプリセットだけ（`PROFILE-M5`）。
 /// `koeru-package` の側は多音階を扱えるので、ここが増えるときに繋ぐ。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, d, down), err)]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, d, down))]
 fn bank_of(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -650,7 +658,7 @@ fn bank_of(
             })
         })
         .collect::<std::result::Result<Vec<_>, koeru_core::frq::FrqError>>()
-        .map_err(|e| AppError::new(e.kind(), e))?;
+        .map_err(AppError::from_failure)?;
 
     Ok(VoiceBank {
         distribution_name: if d.distribution_name.is_empty() {
@@ -964,7 +972,11 @@ const fn project_method(m: koeru_core::alias::Method) -> Method {
 /// 配布名が `TR-PKG-16` の条件を満たさない、書き出し方が3つのどれでもない。
 pub fn check_settings(d: &Distribution) -> Result<()> {
     if let Some(p) = names::check_segment(&d.distribution_name).first() {
-        return Err(AppError::new(p.kind(), "その配布名は使えない"));
+        return Err(AppError::new(
+            p.kind(),
+            Class::InvalidInput,
+            "その配布名は使えない",
+        ));
     }
     resolved_profile(d)?;
     Ok(())
@@ -987,7 +999,7 @@ pub fn preview(
     let d = settings(ledger, manifest)?;
     let profile = resolved_profile(&d)?;
     let bank = bank_of(dir, ledger, rules, manifest, &d, None)?;
-    let files = tree::build(&bank, profile).map_err(|e| AppError::new(e.kind(), e))?;
+    let files = tree::build(&bank, profile).map_err(AppError::from_failure)?;
     Ok(files.iter().map(|f| (f.path.clone(), size_of(f))).collect())
 }
 

@@ -58,7 +58,7 @@ fn 録って聴けるところまで一本で通す() {
     let mut best = 1e-6_f32;
     for d in &devices {
         if let Err(e) = studio.arm_device(&d.id) {
-            println!("  候補 {:?}: 開けない（{}）", d.id, e.kind);
+            println!("  候補 {:?}: 開けない（{}）", d.id, e.code);
             continue;
         }
         let peak = studio.probe_input(250).unwrap_or(0.0);

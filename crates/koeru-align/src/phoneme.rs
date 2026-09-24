@@ -81,13 +81,20 @@ pub enum PhonemeError {
     UnknownReading,
 }
 
-impl PhonemeError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for PhonemeError {
+    fn code(&self) -> &'static str {
         match self {
             Self::UnknownSymbol => "phoneme.unknown_symbol",
             Self::UnknownReading => "phoneme.unknown_reading",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // 辞書は同梱物。
+            Self::UnknownSymbol => koeru_failure::Class::Internal,
+            // 読みは録音リストから来る。綴りの表は本人が差し替えられる（`DEC-SYN-013`）。
+            Self::UnknownReading => koeru_failure::Class::InvalidInput,
         }
     }
 }

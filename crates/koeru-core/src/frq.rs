@@ -51,14 +51,20 @@ pub enum FrqError {
     NotAWavName,
 }
 
-impl FrqError {
-    /// 送信してよい種別文字列。`Display` は送らない。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for FrqError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Io(_) => "frq.io",
             Self::LengthMismatch => "frq.length_mismatch",
             Self::NotAWavName => "frq.not_a_wav_name",
+        }
+    }
+
+    /// 長さも名前も KOERU が作ったもの。揃っていないのは作る側の欠陥。
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::Io(e) => koeru_failure::io_class(e),
+            Self::LengthMismatch | Self::NotAWavName => koeru_failure::Class::Internal,
         }
     }
 }
@@ -153,7 +159,7 @@ impl Frq {
     }
 
     /// ファイルへ書く。fsync してから rename（途中で落ちても半端な表を残さない）。
-    #[tracing::instrument(skip(self, path), err)]
+    #[tracing::instrument(skip(self, path))]
     pub fn write(&self, path: &Path) -> Result<()> {
         let bytes = self.to_bytes()?;
         let tmp = path.with_extension("frq.part");
@@ -211,6 +217,7 @@ fn sample_f0(source: &[f64], period_s: f64, t: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use koeru_failure::Failure;
 
     #[test]
     fn name_replaces_the_extension_dot_with_an_underscore() {
@@ -223,7 +230,7 @@ mod tests {
         assert_eq!(
             frq_path(Path::new("/x/a.aiff"))
                 .expect_err("拒むこと")
-                .kind(),
+                .code(),
             "frq.not_a_wav_name"
         );
     }
@@ -321,7 +328,7 @@ mod tests {
             amp: vec![1.0],
         };
         assert_eq!(
-            f.to_bytes().expect_err("拒むこと").kind(),
+            f.to_bytes().expect_err("拒むこと").code(),
             "frq.length_mismatch"
         );
     }

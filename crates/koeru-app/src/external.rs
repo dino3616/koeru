@@ -39,14 +39,21 @@ pub enum ExternalError {
     NoOutput,
 }
 
-impl ExternalError {
-    /// 送信してよい種別文字列。パスは送らない（利用者名を含む）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// パスは code にも文言にも入れない（利用者名を含む）。
+impl koeru_failure::Failure for ExternalError {
+    fn code(&self) -> &'static str {
         match self {
             Self::NotFound => "external.not_found",
             Self::Spawn(_) => "external.spawn",
             Self::NoOutput => "external.no_output",
+        }
+    }
+
+    /// 外部 resampler は本人が指したもの。直すのは指し先。
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::NotFound => koeru_failure::Class::InvalidInput,
+            Self::Spawn(_) | Self::NoOutput => koeru_failure::Class::EngineFailed,
         }
     }
 }
@@ -130,7 +137,7 @@ pub fn is_usable(path: Option<&Path>) -> bool {
 /// # Errors
 ///
 /// 実行可能ファイルが無い、起動できない、出力が無いとき。
-#[tracing::instrument(skip(exe, args), fields(kind = "external_resampler"), err)]
+#[tracing::instrument(skip(exe, args), fields(kind = "external_resampler"))]
 pub fn run(exe: &Path, args: &ClassicArgs) -> Result<PathBuf, ExternalError> {
     if !exe.is_file() {
         return Err(ExternalError::NotFound);
@@ -209,7 +216,7 @@ mod tests {
         let mut a = args();
         a.input = PathBuf::from("/x/a.wav");
         let e = run(Path::new("/存在しない/resampler"), &a).expect_err("拒むこと");
-        assert_eq!(e.kind(), "external.not_found");
+        assert_eq!(koeru_failure::Failure::code(&e), "external.not_found");
     }
 
     /// 本人が指すまで使わない。 既定は「指されていない」。

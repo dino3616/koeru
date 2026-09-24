@@ -171,13 +171,19 @@ pub enum PumpError {
     Wav(#[from] wav::WavError),
 }
 
-impl PumpError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for PumpError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Gone => "pump.gone",
-            Self::Wav(e) => e.kind(),
+            Self::Wav(e) => e.code(),
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // 排出スレッドは収録の寿命のあいだ生きている前提。
+            Self::Gone => koeru_failure::Class::Internal,
+            Self::Wav(e) => e.class(),
         }
     }
 }
@@ -363,8 +369,9 @@ fn run(
     // （`REQ-REC-102`）、位相を持ち回さないとテイクの継ぎ目に段差が出る。
     let mut conv = match Resampler::to_master(device_rate_hz) {
         Ok(c) => c,
+        // 変換器を作れないので排出を始めない。書きかけも作らない。
         Err(e) => {
-            tracing::error!(kind = e.kind(), "変換器を作れないので排出を始めない");
+            koeru_failure::record_failure(&e, koeru_failure::Outcome::NotStarted, "pump.start");
             return;
         }
     };

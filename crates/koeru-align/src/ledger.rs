@@ -104,16 +104,20 @@ pub enum LedgerError {
     MissingAttribution,
 }
 
-impl LedgerError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// code は `align.model_ledger.*`。 `ledger.*` はプロジェクトの台帳（`koeru-core`）が名乗っている。
+impl koeru_failure::Failure for LedgerError {
+    fn code(&self) -> &'static str {
         match self {
-            Self::Malformed => "ledger.malformed",
-            Self::MissingField => "ledger.missing_field",
-            Self::UnjudgedModel => "ledger.unjudged_model",
-            Self::MissingAttribution => "ledger.missing_attribution",
+            Self::Malformed => "align.model_ledger.malformed",
+            Self::MissingField => "align.model_ledger.missing_field",
+            Self::UnjudgedModel => "align.model_ledger.unjudged_model",
+            Self::MissingAttribution => "align.model_ledger.missing_attribution",
         }
+    }
+
+    /// モデルの台帳は同梱物。読めないのも欄が欠けるのも組み立ての欠陥。
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::Internal
     }
 }
 
@@ -310,7 +314,7 @@ mod tests {
             LedgerError::UnjudgedModel,
             LedgerError::MissingAttribution,
         ] {
-            assert!(e.kind().starts_with("ledger."));
+            assert!(koeru_failure::Failure::code(&e).starts_with("align.model_ledger."));
         }
     }
 }

@@ -127,7 +127,7 @@ fn 使えない配布名は保存させない() {
     d.distribution_name = "こえる".to_owned();
 
     let e = studio.set_package_settings(&d).expect_err("止まること");
-    assert_eq!(e.kind, "name.disallowed_chars");
+    assert_eq!(e.code, "name.disallowed_chars");
 }
 
 /// `TR-PKG-23`、`INV-PKG-102`。部分的なパッケージを出さない。
@@ -142,7 +142,7 @@ fn 録りきっていないと書き出せない() {
         "足りない分を全件出すこと"
     );
     assert_eq!(
-        studio.export_package().expect_err("止まること").kind,
+        studio.export_package().expect_err("止まること").code,
         "package.incomplete_coverage"
     );
 }
@@ -159,7 +159,7 @@ fn 知らない書き出し方は断る() {
         studio
             .set_package_settings(&d)
             .expect_err("止まること")
-            .kind,
+            .code,
         "package.unknown_profile"
     );
 }
@@ -177,7 +177,7 @@ fn cp932_で書けない名前は書き出しを止める() {
     // 代替案を出す。「書けません」だけでは直しようがない。
     assert_eq!(state.unencodable[0].suggestion.as_deref(), Some("こえる"));
     assert_eq!(
-        studio.export_package().expect_err("止まること").kind,
+        studio.export_package().expect_err("止まること").code,
         "package.validation_failed"
     );
 

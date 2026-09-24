@@ -75,15 +75,24 @@ pub enum BuildError {
     Ini(#[from] ini::IniError),
 }
 
-impl BuildError {
-    /// 送信してよい種別文字列。パスも名前も送らない（`AGENTS.md` #3）。
-    #[must_use]
-    pub fn kind(&self) -> &'static str {
+/// パスも名前も code と文言に入れない（`AGENTS.md` #3）。
+impl koeru_failure::Failure for BuildError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Name { .. } => "package.unsafe_name",
-            Self::Text(e) => e.kind(),
-            Self::Icon(e) => e.kind(),
-            Self::Ini(e) => e.kind(),
+            Self::Text(e) => e.code(),
+            Self::Icon(e) => e.code(),
+            Self::Ini(e) => e.code(),
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // 名前は本人が付けたものから作る。
+            Self::Name { .. } => koeru_failure::Class::InvalidInput,
+            Self::Text(e) => e.class(),
+            Self::Icon(e) => e.class(),
+            Self::Ini(e) => e.class(),
         }
     }
 }
@@ -99,7 +108,7 @@ type Result<T> = std::result::Result<T, BuildError>;
 ///
 /// 生成する名前が `TR-PKG-16` を満たさない、選んだ符号化で書けない文字が
 /// ある、アイコンを変換できない。
-#[tracing::instrument(skip(bank), fields(profile = profile.as_str()), err)]
+#[tracing::instrument(skip(bank), fields(profile = profile.as_str()))]
 pub fn build(bank: &VoiceBank, profile: Profile) -> Result<Vec<PackagedFile>> {
     check_names(bank)?;
 
@@ -306,6 +315,7 @@ mod tests {
     use crate::bank::{Character, Readme, Sample};
     use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
+    use koeru_failure::Failure;
 
     fn oto() -> Oto {
         Oto {
@@ -570,7 +580,7 @@ mod tests {
     fn 使えない名前は組み立てで止まる() {
         let b = bank(vec![subbank(None, "", vec![sample("あ.wav", "あ", false)])]);
         let e = build(&b, Profile::Both).expect_err("止まること");
-        assert_eq!(e.kind(), "package.unsafe_name");
+        assert_eq!(e.code(), "package.unsafe_name");
     }
 
     #[test]
@@ -582,7 +592,7 @@ mod tests {
         )]);
         b.distribution_name = "こえる".to_owned();
         assert_eq!(
-            build(&b, Profile::Both).expect_err("止まること").kind(),
+            build(&b, Profile::Both).expect_err("止まること").code(),
             "package.unsafe_name"
         );
     }
@@ -597,7 +607,7 @@ mod tests {
         )]);
         b.character.name = "こえる🎤".to_owned();
         assert_eq!(
-            build(&b, Profile::Classic).expect_err("止まること").kind(),
+            build(&b, Profile::Classic).expect_err("止まること").code(),
             "text.unencodable"
         );
         build(&b, Profile::OpenUtau).expect("UTF-8 なら通ること");

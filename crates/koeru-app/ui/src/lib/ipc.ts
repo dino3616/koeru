@@ -70,12 +70,18 @@ import type {
   SongSelection,
 } from "~/lib/bindings.gen";
 
-/** Rust 側の失敗かどうか。 */
+/**
+ * Rust 側の失敗かどうか。
+ *
+ * 分岐は `class` と `action` で行い、`message` を解析しない（`DEC-PLT-038`）。
+ */
 export const isAppError = (e: unknown): e is AppError =>
   typeof e === "object" &&
   e !== null &&
-  "kind" in e &&
-  typeof (e as { kind: unknown }).kind === "string" &&
+  "code" in e &&
+  typeof (e as { code: unknown }).code === "string" &&
+  "class" in e &&
+  typeof (e as { class: unknown }).class === "string" &&
   "message" in e &&
   typeof (e as { message: unknown }).message === "string";
 

@@ -87,7 +87,7 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 特に次の3つは PR で必ず見ます。
 
 - ドメイン層で `anyhow::Error` を返さない。 `thiserror` の列挙体を返す。境界では分類・code・確定したかどうかを持つ失敗に写し、予期できる結果は値で返す（`meta/decisions/DEC-PLT-038.toml`）
-- 失敗は、結果を決める持ち主が1回だけ型つきの event で記録する。`#[tracing::instrument(err)]` は使わない（同上。既存の箇所は移行中です）
+- 失敗は、結果を決める持ち主が1回だけ型つきの event で記録する。`#[tracing::instrument(err)]` は使わない（同上。`crates/koeru-app/tests/offline.rs` が落とします）
 - `println!` / `eprintln!` / `dbg!` を使わない。 出力は `tracing` に統一する（例外は実機ハーネスだけ。下記）
 
 `clippy::all` はリポジトリ全体で deny です。例外は行単位・ブロック単位の `#[allow(...)]` で入れ、理由をコメントに書いてください。

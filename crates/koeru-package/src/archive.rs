@@ -71,16 +71,24 @@ pub enum ArchiveError {
     Verification { problem: VerifyProblem },
 }
 
-impl ArchiveError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ArchiveError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Io(_) => "archive.io",
             Self::Zip(_) => "archive.zip",
-            Self::Wav(e) => e.kind(),
-            Self::Text(e) => e.kind(),
+            Self::Wav(e) => e.code(),
+            Self::Text(e) => e.code(),
             Self::Verification { problem } => problem.kind(),
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::Io(e) | Self::Zip(zip::result::ZipError::Io(e)) => koeru_failure::io_class(e),
+            // 組み立てているのは KOERU。書いたばかりの ZIP が読み戻せないのも同じ。
+            Self::Zip(_) | Self::Verification { .. } => koeru_failure::Class::Internal,
+            Self::Wav(e) => e.class(),
+            Self::Text(e) => e.class(),
         }
     }
 }
@@ -171,8 +179,7 @@ pub fn install_txt(bank: &VoiceBank, profile: Profile) -> Result<Vec<u8>> {
 // 配布名も版の札も、本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
 #[tracing::instrument(
     skip(bank, files, dest_dir, base_name),
-    fields(profile = profile.as_str(), entries = files.len()),
-    err
+    fields(profile = profile.as_str(), entries = files.len())
 )]
 pub fn write_and_verify(
     bank: &VoiceBank,
@@ -262,8 +269,7 @@ pub fn write(
 // 音源名が入る。** skip し忘れると、そのままスパンに載る（`AGENTS.md` #3）。
 #[tracing::instrument(
     skip(path, files, root, install),
-    fields(entries = files.len()),
-    err
+    fields(entries = files.len())
 )]
 pub fn verify(
     path: &Path,
@@ -526,6 +532,7 @@ mod tests {
     use koeru_align::ini::IniEntry;
     use koeru_core::alias::Method;
     use koeru_core::oto::Oto;
+    use koeru_failure::Failure;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn tmp(tag: &str) -> PathBuf {
@@ -711,7 +718,7 @@ mod tests {
 
         let dest = d.join("exports");
         let e = write_and_verify(&b, &files, Profile::Both, &dest, "x").expect_err("落ちること");
-        assert_eq!(e.kind(), "archive.missing_file");
+        assert_eq!(e.code(), "archive.missing_file");
         assert!(!dest.join("x.zip").exists());
         assert!(!dest.join("x.uar").exists());
     }
@@ -736,7 +743,7 @@ mod tests {
             }
         }
         let e = verify(&dest, &tampered, "koeru", Profile::Both, None).expect_err("落ちること");
-        assert_eq!(e.kind(), "archive.text_mismatch");
+        assert_eq!(e.code(), "archive.text_mismatch");
 
         // 入れたものと突き合わせれば通る。
         verify(&dest, &files, "koeru", Profile::Both, None).expect("通ること");

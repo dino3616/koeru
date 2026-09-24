@@ -148,15 +148,17 @@ pub enum ToneError {
     Duplicate,
 }
 
-impl ToneError {
-    /// 送信層へ載せてよい固定文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ToneError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Empty => "tone.empty",
             Self::OutOfRange { .. } => "tone.out_of_range",
             Self::Duplicate => "tone.duplicate",
         }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::InvalidInput
     }
 }
 
@@ -278,6 +280,7 @@ pub fn assigned_ranges(tones: &[i32]) -> Vec<(i32, Vec<i32>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use koeru_failure::Failure;
 
     /// floor から下へ降りる。 上へは登らない（`TR-RCL-20`, `DEC-SYN-014`）。
     #[test]
@@ -349,17 +352,17 @@ mod tests {
 
     #[test]
     fn 鳴らせない音高は弾く() {
-        assert_eq!(normalize(&[]).expect_err("弾く").kind(), "tone.empty");
+        assert_eq!(normalize(&[]).expect_err("弾く").code(), "tone.empty");
         assert_eq!(
-            normalize(&[PREFIX_MAP_LOW - 1]).expect_err("弾く").kind(),
+            normalize(&[PREFIX_MAP_LOW - 1]).expect_err("弾く").code(),
             "tone.out_of_range"
         );
         assert_eq!(
-            normalize(&[PREFIX_MAP_HIGH + 1]).expect_err("弾く").kind(),
+            normalize(&[PREFIX_MAP_HIGH + 1]).expect_err("弾く").code(),
             "tone.out_of_range"
         );
         assert_eq!(
-            normalize(&[60, 60]).expect_err("弾く").kind(),
+            normalize(&[60, 60]).expect_err("弾く").code(),
             "tone.duplicate"
         );
     }

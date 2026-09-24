@@ -25,8 +25,8 @@ use std::path::{Path, PathBuf};
 /// WAV の読み書きが失敗した理由。
 #[derive(Debug, thiserror::Error)]
 pub enum WavError {
-    /// ファイル操作が失敗した。
-    #[error("ファイル操作が失敗した（{op}）")]
+    /// ファイル操作が失敗した。`op` はどの操作かを示す固定の名前。
+    #[error("WAV のファイル操作が失敗した")]
     Io {
         op: &'static str,
         #[source]
@@ -34,11 +34,11 @@ pub enum WavError {
     },
 
     /// RIFF/WAVE として読めない。
-    #[error("WAV として読めない（{reason}）")]
+    #[error("WAV として読めない")]
     Malformed { reason: &'static str },
 
     /// KOERU が扱わない形式。
-    #[error("扱わない形式（{fmt} 形式、{bits} bit、{channels}ch、{rate}Hz）")]
+    #[error("扱わない形式の WAV")]
     Unsupported {
         fmt: u16,
         bits: u16,
@@ -47,14 +47,21 @@ pub enum WavError {
     },
 }
 
-impl WavError {
-    /// 送信層へ載せてよい固定文字列。`Display` を送らない（パスが入りうる）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for WavError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Io { .. } => "wav.io_failed",
             Self::Malformed { .. } => "wav.malformed",
             Self::Unsupported { .. } => "wav.unsupported_format",
+        }
+    }
+
+    /// 読む WAV は KOERU が書いたマスターだけなので、読めないのは壊れている。
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::Io { source, .. } => koeru_failure::io_class(source),
+            Self::Malformed { .. } => koeru_failure::Class::Corrupt,
+            Self::Unsupported { .. } => koeru_failure::Class::Unsupported,
         }
     }
 }
@@ -97,7 +104,7 @@ impl PartialTake {
     /// `final_path` に対応する `.wav.part` を開く（`TR-REC-28`）。
     ///
     /// マスターの形式（32 bit float / モノラル）で書き始める。
-    #[tracing::instrument(skip(final_path), fields(rate_hz), err)]
+    #[tracing::instrument(skip(final_path), fields(rate_hz))]
     pub fn create(final_path: impl AsRef<Path>, rate_hz: u32) -> Result<Self> {
         let final_path = final_path.as_ref().to_path_buf();
         let mut part_path = final_path.clone().into_os_string();
@@ -138,7 +145,7 @@ impl PartialTake {
     ///
     /// 順序が契約そのもの。サイズを確定 → fsync → アトミックな rename。
     /// ここまでが済んでから DB へコミットする。逆にすると、ファイルの無い行が DB に残る。
-    #[tracing::instrument(skip(self), fields(frames = self.frames), err)]
+    #[tracing::instrument(skip(self), fields(frames = self.frames))]
     pub fn finalize(mut self) -> Result<PathBuf> {
         self.writer.flush().map_err(io("flush"))?;
         let mut file = self.writer.into_inner().map_err(|e| WavError::Io {
@@ -182,7 +189,7 @@ pub struct Wav {
 }
 
 /// マスター（32 bit float / モノラル）または配布用（16 bit / モノラル）を読む。
-#[tracing::instrument(skip(path), err)]
+#[tracing::instrument(skip(path))]
 pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
     let mut file = File::open(path.as_ref()).map_err(io("open"))?;
     let mut header = [0_u8; HEADER_LEN as usize];
@@ -241,7 +248,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
 /// 配布用（44100 Hz / 16 bit / モノラル）として書く（`TR-REC-01`）。
 ///
 /// TPDF ディザのみを適用する（`TR-REC-37`）。音色を変える処理は行わない。
-#[tracing::instrument(skip(path, samples), fields(frames = samples.len()), err)]
+#[tracing::instrument(skip(path, samples), fields(frames = samples.len()))]
 pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool) -> Result<()> {
     let file = File::create(path.as_ref()).map_err(io("create"))?;
     let mut w = BufWriter::new(file);

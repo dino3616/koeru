@@ -26,7 +26,7 @@ pub enum PlaybackError {
     NoOutputUnit,
 
     /// CoreAudio の呼び出しが失敗した。
-    #[error("CoreAudio の呼び出しが失敗した（{op}、status={status}）")]
+    #[error("再生の CoreAudio の呼び出しが失敗した")]
     CoreAudio {
         /// どの呼び出しか。
         op: &'static str,
@@ -35,14 +35,16 @@ pub enum PlaybackError {
     },
 }
 
-impl PlaybackError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for PlaybackError {
+    fn code(&self) -> &'static str {
         match self {
             Self::NoOutputUnit => "playback.no_output_unit",
             Self::CoreAudio { .. } => "playback.coreaudio",
         }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::DeviceUnavailable
     }
 }
 
@@ -197,7 +199,7 @@ impl Drop for Playback {
 /// モノラルの f32 を既定の出力デバイスへ流す。
 ///
 /// 返った `Playback` を落とすと止まる。 最後まで鳴らしたいなら持ち続ける。
-#[tracing::instrument(skip(samples), fields(frames = samples.len(), rate_hz), err)]
+#[tracing::instrument(skip(samples), fields(frames = samples.len(), rate_hz))]
 pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
     start(samples, rate_hz, true)
 }
@@ -210,7 +212,7 @@ pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
 /// # Errors
 ///
 /// 出力ユニットを開けないとき。
-#[tracing::instrument(skip(head), fields(frames = head.len(), rate_hz), err)]
+#[tracing::instrument(skip(head), fields(frames = head.len(), rate_hz))]
 pub fn play_streaming(head: Vec<f32>, rate_hz: u32) -> Result<Playback> {
     start(head, rate_hz, false)
 }

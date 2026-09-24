@@ -29,6 +29,7 @@ use std::path::PathBuf;
 
 use koeru_align::aligner::Aligner;
 use koeru_align::mfa::MfaAligner;
+use koeru_failure::Class;
 
 use crate::error::AppError;
 
@@ -66,6 +67,7 @@ impl Chosen {
         let Some(dir) = model_dir() else {
             return Err(AppError::new(
                 "align.model_not_found",
+                Class::Unsupported,
                 "MFA のモデルが見つからない。submodule を取り込んでいるか確かめてほしい",
             ));
         };
@@ -78,10 +80,9 @@ impl Chosen {
                 Ok(Self { inner: Box::new(a) })
             }
             // パスは載せない（AGENTS.md #3）。種別だけ。
-            Err(e) => Err(AppError::new(
-                e.kind(),
-                "MFA のモデルを読めない。同梱物が壊れている",
-            )),
+            Err(e) => {
+                Err(AppError::from_failure(e).saying("MFA のモデルを読めない。同梱物が壊れている"))
+            }
         }
     }
 
@@ -146,7 +147,7 @@ mod tests {
     #[test]
     fn 組んでいない_os_では名指しで失敗する() {
         let e = Chosen::detect().expect_err("この OS には Kaldi を組んでいない");
-        assert_eq!(e.kind, "mfa.unsupported_platform");
+        assert_eq!(e.code, "mfa.unsupported_platform");
     }
 
     /// submodule を初期化していれば、環境変数なしでモデルが見つかる（`DEC-ALN-012`）。

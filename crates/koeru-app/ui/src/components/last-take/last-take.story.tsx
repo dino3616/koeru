@@ -42,6 +42,7 @@ const take: TakeView = {
   leading_margin_ms: 420,
   trailing_margin_ms: 380,
   has_required_margins: true,
+  followup: null,
 };
 
 const meta = {
