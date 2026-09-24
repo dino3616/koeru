@@ -2,13 +2,13 @@
 
 ジャーニーマップとユースケースを洗い直し、OOUI で情報構造を組み直し、雰囲気をリブランドしたうえで、画面をゼロから作り直す。その順序と分担を決める。
 
-このファイルは作業中だけ存在する。 Phase 6 の差し替えが済んだら消す。ここで決めたことのうち残すべきものは、その時点で `meta/decisions/` と `docs/design/` の常設文書へ移っている。
+このファイルは作業中だけ存在する。 Phase 6 の差し替えが済んだら消す。ここで決めたことのうち残すべきものは、その時点で `meta/decisions/` と `docs/reports/design/` の常設文書へ移っている。
 
 **まだ消していないのは、宿題が残っているから。** シンボルの形（`Q-PLT-005`）と一覧の表示時間の実測（`DEC-RCL-006`）がそれで、どちらも他に置き場所が無い。**それが片付いたら、この文書は消す。**
 
 ## なぜやったか
 
-**この節が書いているのは、作り直す前の姿。** Phase 6 で `ui/src/` を組み直したので、ここに出てくる画面と部品はもう無い（いまの画面は [direction.md](direction.md) と `docs/design/canvas`）。観察そのものは `EVID-UX-001`、読みどころは [inventory.md](inventory.md)。
+**この節が書いているのは、作り直す前の姿。** Phase 6 で `ui/src/` を組み直したので、ここに出てくる画面と部品はもう無い（いまの画面は [direction.md](direction.md) と `docs/reports/design/canvas`）。観察そのものは `EVID-UX-001`、読みどころは [inventory.md](inventory.md)。
 
 画面が2つしかなかった。 `/`（音源一覧）と `/record`（収録）で、収録画面が「マイク」「いま録るところ」「録れたもの」「録れたもの一覧」「歌える曲」の5枚を縦に積んでいた。画面名が動詞で、その下に性質の違うオブジェクトが同居していた。
 
@@ -58,7 +58,7 @@ M4（配布）、M5（方式拡張）、M6（原音設定エディタ）のオ�
 | 選んだこと | `meta/decisions/DEC-PLT-*` |
 | 決まっていないこと | `meta/questions/Q-*` |
 | 満たさないと成立しない条件 | `meta/requirements/platform.toml` の `TR-PLT-*` |
-| 背景・意図・調査の説明 | `docs/design/` |
+| 背景・意図・調査の説明 | `docs/reports/design/` |
 
 番号の取り方と meta の作法は `meta/README.md`。
 
@@ -129,12 +129,12 @@ Phase 4 に残っていた余白とリズム、モーションの規定はここ
 
 ### Phase 6 — 実装と差し替え
 
-画面と部品は作り直した。 `ui/src/` を空にしてから、`docs/design/canvas` のアートボードと
+画面と部品は作り直した。 `ui/src/` を空にしてから、`docs/reports/design/canvas` のアートボードと
 [direction.md](direction.md) に従って組み直してある。部品 36 件、すべてに story がある。
 
 **FSL は据え置いた。** 画面構造の変更は `specs/` の状態機械に触っていない——
 縦切り（録音 → テイク確定 → 完成 → ZIP）の状態も遷移も変えておらず、変わったのは
-それをどの面で見せるかだけ。`fslc chain` と `document check` は通ったまま。
+それをどの面で見せるかだけ。`fslc chain` は通ったまま。
 
 **meta は同じ変更に載せた。** 画面を作るために閉じた論点が5つあり
 （`DEC-PLT-027` `DEC-PLT-028` `DEC-REC-009` `DEC-RCL-006`、`Q-REC-003` `Q-REC-004` `Q-RCL-004`）、

@@ -18,9 +18,8 @@ import { defineConfig, lazyPlugins } from "vite-plus";
  * `koeru-app` はアプリケーション層で、Tauri のコマンドと画面は一体のもの。
  * 別のワークスペースに切ると、コマンドを1つ足すたびに2箇所を行き来することになる。
  *
- * 整形と lint の範囲はこのディレクトリの中だけ。 `docs/generated/` は FSL から
- * 決定論的に生成していて CI が drift を見ているし、`meta/` の TOML は check-meta が読む。
- * ここから外へ出ると、その両方を黙って書き換える。一度やった。
+ * 整形と lint の範囲はこのディレクトリの中だけ。 `meta/` の TOML は check-meta が読む。
+ * ここから外へ出ると、黙って書き換える。一度やった。
  */
 
 // Tauri が繋ぐポート。 ../tauri.conf.json の devUrl と揃える。

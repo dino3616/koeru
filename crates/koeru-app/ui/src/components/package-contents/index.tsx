@@ -22,7 +22,7 @@ const ROOT_FILES = 8;
  * （書けない字の一覧と代替案）へ辿り着けなくなる。**
  * ここが出せなくても、隣の面は成り立つ。
  *
- * 枠を持たない。 置く側の領域が枠になる（`docs/design/direction.md`）。
+ * 枠を持たない。 置く側の領域が枠になる（`docs/reports/design/direction.md`）。
  */
 export const PackageContents = ({ voiceId }: PackageContentsProps) => {
   const { data: files, isPending, isError } = useQuery(packageContentsQuery(voiceId));
@@ -74,7 +74,7 @@ export const PackageContents = ({ voiceId }: PackageContentsProps) => {
 /**
  * 人が読む大きさ。
  *
- * 単位を省かない（`docs/design/direction.md` の言葉の規律）。
+ * 単位を省かない（`docs/reports/design/direction.md` の言葉の規律）。
  * 1024 で割る——ファイルの大きさは OS もそう出す。
  */
 const readableSize = (bytes: number): string => {

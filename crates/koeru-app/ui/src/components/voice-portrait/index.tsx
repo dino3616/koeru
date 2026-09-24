@@ -102,7 +102,7 @@ export const VoicePortrait = ({
       </Button>
 
       {/*
-        待ちを無言にしない（`TR-SYN-33`、`docs/design/direction.md`）。
+        待ちを無言にしない（`TR-SYN-33`、`docs/reports/design/direction.md`）。
         領域は常に置き、中身だけを差し替える——文言と一緒に挿し込むと、
         支援技術が変化として拾えない。
       */}

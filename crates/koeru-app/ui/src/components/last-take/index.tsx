@@ -27,7 +27,7 @@ type LastTakeProps = {
  * 測った値をそのまま出す（`TR-REC-16`、`DEC-REC-008`）。
  * 「小さすぎます」「歪んでいます」「うまくなりました」を書かない。
  *
- * 単位を省かない（`docs/design/direction.md`）。 数字だけを置かない。
+ * 単位を省かない（`docs/reports/design/direction.md`）。 数字だけを置かない。
  *
  * 取りこぼしは事実として出す（`TR-REC-07`）。 勧めるのではなく、
  * もう一度同じ行が出てくることを書く。

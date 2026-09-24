@@ -13,7 +13,7 @@ options = [
 selected = '観測から導く。色相・彩度・明度の3つとも'
 rationale = '''
 `DEC-PLT-025` が「音高帯・共鳴の重心・発声の長さから決定的に作る」と決めていたが、
-**規則そのものは未定のままだった**（`docs/design/direction.md` の「まだ決めていないこと」）。
+**規則そのものは未定のままだった**（`docs/reports/design/direction.md` の「まだ決めていないこと」）。
 画面を作るには具体の式が要るので、ここで決める。
 
 ## 何を測るか
@@ -53,7 +53,7 @@ rationale = '''
 
 ## 色相に禁じられた帯がある
 
-色相を持ってよいのは声・危険（red）・注意（amber）だけ（`docs/design/direction.md`）。
+色相を持ってよいのは声・危険（red）・注意（amber）だけ（`docs/reports/design/direction.md`）。
 声がその帯に入ると状態と見分けがつかないので、**110 度から始めて 250 度ぶんだけ**使う。
 OKLCH で red-11 は 20 度付近、amber-11 は 85 度付近にいる。
 
@@ -111,7 +111,7 @@ OKLCH で red-11 は 20 度付近、amber-11 は 85 度付近にいる。
 ## 声が無ければ色も無い
 
 有声フレームが1つも無ければ色を作らない。 まだ録っていない音源に声は無いので、
-空いた席に色を付けない（`docs/design/direction.md` の「欠け」）。
+空いた席に色を付けない（`docs/reports/design/direction.md` の「欠け」）。
 そのとき環も1本も描かれないので、色を決める必要がそもそも無い。
 '''
 review_triggers = [

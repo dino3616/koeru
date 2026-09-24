@@ -44,7 +44,7 @@ type Story = StoryObj<typeof meta>;
 export const 三つの状態: Story = {
   play: async ({ canvasElement }) => {
     /*
-     * 欠けを不足として書かない（`docs/design/direction.md`）。
+     * 欠けを不足として書かない（`docs/reports/design/direction.md`）。
      * 「未達」「あと〇〇%」は出さない。
      */
     const text = canvasElement.textContent ?? "";

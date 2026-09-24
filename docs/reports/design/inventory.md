@@ -1,12 +1,12 @@
 # 現行実装の棚卸し
 
-リデザインの出発点として、いま画面に何があるかを事実として並べる。`docs/design/redesign-plan.md` の Phase 1 のうち、聞き取り無しでも取れる事実の2つめ。
+リデザインの出発点として、いま画面に何があるかを事実として並べる。`docs/reports/design/redesign-plan.md` の Phase 1 のうち、聞き取り無しでも取れる事実の2つめ。
 
 評価はしない。 食い違いだけを最後にまとめ、どう扱うかは判断記録に送る。
 
 **ここに書いてある画面は、もう無い。** Phase 6 で `ui/src/` を作り直したので、部品も画面も
 名前から違う。この文書は作り直す前の姿を事実として残すもので、いまの画面の説明ではない
-（いまの画面は [direction.md](direction.md) と `docs/design/canvas`）。
+（いまの画面は [direction.md](direction.md) と `docs/reports/design/canvas`）。
 
 観察した事実そのものは `EVID-UX-001` が持つ。 ここは読みどころの説明で、数値と観察の出どころは Evidence 側にある。
 

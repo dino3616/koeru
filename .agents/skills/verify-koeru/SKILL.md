@@ -117,8 +117,7 @@ npm の依存ライセンスも見る。 Rust は `cargo deny check`、npm は
 配色の検査を飛ばさない。 段を選び直したまま出すと、明暗どちらかで WCAG 2.2 AA を割る。
 検査は比だけでなく網羅も見る——`src/` で使っている段が `PAIRS` に無ければ落ちる。
 
-`vp` の範囲を `ui/` の外へ広げない。 外すと `docs/generated/` を整形して
-FSL の drift 検出を落とし、`meta/` の TOML を畳み直して差分を濁らせる。**一度やった。**
+`vp` の範囲を `ui/` の外へ広げない。 外すと `meta/` の TOML を畳み直して差分を濁らせる。**一度やった。**
 
 生成物は整形と lint から外してある（`vite.config.ts` の `GENERATED`）。
 `src/routeTree.gen.ts` は TanStack Router、`src/lib/bindings.gen.ts` は Rust から出る。
@@ -166,7 +165,6 @@ cd crates/koeru-app/ui && bun run tauri dev
 ```bash
 fslc lint specs/ --project specs/fsl-project.toml   # ID 規約
 fslc chain specs/fsl-project.toml                   # 各層の検証と、層の継ぎ目の refine
-fslc document check specs/requirements/project-lifecycle.fsl docs/generated/project-lifecycle.md
 cargo xtask check-meta          # meta の参照先が実在するか
 cargo xtask check-budgets       # 配分の合計が上限を超えていないか
 cargo xtask check-coverage      # 全要件に技術が当たっているか

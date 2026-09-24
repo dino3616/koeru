@@ -22,7 +22,7 @@ import { voiceStyle } from "~/lib/voice-color";
  * 使わないと決めた段の違反を毎回報告することになる。
  *
  * **cyan と jade はもう無い。** 色相を持ってよいのは声・red・amber だけ
- * （`docs/design/direction.md`）。押せるものの塗りもフォーカス環も無彩色。
+ * （`docs/reports/design/direction.md`）。押せるものの塗りもフォーカス環も無彩色。
  */
 const meta = { title: "配色/段" } satisfies Meta;
 export default meta;
