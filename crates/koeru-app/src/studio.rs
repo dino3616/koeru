@@ -2941,13 +2941,32 @@ impl Studio {
             .into_iter()
             .map(|(a, _)| a)
             .collect();
+        // キューは（音高, 綴り）で持つ（`crate::review::load`）。 前の世代は
+        // 同じ行なので同じ音高。引き方は `load` と揃える——行の音高が引けなければ 0。
+        //
+        // **素の綴りで引いていた。** 鍵が合わず一度も当たらないので、
+        // 録り直すたびに人が直した値が自動の値で上書きされていた（`INV-ALN-001`）。
+        let row_id = self
+            .opened_mut()?
+            .ledger
+            .take(take_id)?
+            .map(|t| t.row_id)
+            .unwrap_or_default();
+        let tone = self
+            .opened_mut()?
+            .ledger
+            .row_tones()?
+            .get(&row_id)
+            .copied()
+            .unwrap_or_default();
 
         for alias in &aliases {
             // 前の世代に固定があったものだけ運ぶ。
+            let key = crate::review::EntryKey::new(tone, alias.as_str()).handle();
             let Some((prev, pins)) = self
                 .opened()?
                 .review
-                .get(alias)
+                .get(&key)
                 .filter(|e| e.pins().iter().any(|p| *p))
                 .map(|e| (e.oto, e.pins()))
             else {
@@ -4628,6 +4647,85 @@ mod tests {
             studio.opened().expect("開いている").session_id,
             started,
             "同じ音源を開き直したら、セッションは同じであること"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 録り直しても、人が直した値を引き継ぐ（`REQ-ALN-007`, `INV-ALN-001`）。
+    ///
+    /// **素の綴りで引いていた。** キューは（音高, 綴り）で持つので鍵が合わず、
+    /// 録り直すたびに直した値が自動の値で上書きされていた。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 録り直しても固定した値を引き継ぐ() {
+        let root = std::env::temp_dir().join(format!("koeru-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("固定").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.seed_material_for_test(&row).expect("素材を置ける");
+
+        // 1本目の値を人が直す。
+        let item = studio
+            .review_queue()
+            .expect("キューを引ける")
+            .into_iter()
+            .find(|i| i.row_id == row)
+            .expect("その行のエントリがある");
+        studio
+            .edit_oto_value(&item.key, "offset", 123.0)
+            .expect("直せる");
+
+        // 録り直す。 `finish_take` と同じく、キューが前の世代のまま新しいテイクを入れる。
+        // 素材の置き場所は一意（`takes.rel_path`）なので、2本目は別の名前にする。
+        let session_id = studio.test_session().expect("セッションを始められる");
+        let open = studio.opened_mut().expect("開いている");
+        let take = open
+            .ledger
+            .commit_take(&FinalizedTake {
+                row_id: row.clone(),
+                session_id,
+                rel_path: format!("audio/{row}_2.wav"),
+                frames: 44_100,
+                recorded_at: now_rfc3339(),
+            })
+            .expect("テイクを確定できる");
+        open.ledger.adopt_take(&row, take).expect("採れる");
+        open.ledger
+            .put_oto(
+                take,
+                &item.alias,
+                &koeru_core::db::koeru_oto::Oto {
+                    offset_ms: 50.0,
+                    consonant_ms: 60.0,
+                    cutoff_ms: -300.0,
+                    preutterance_ms: 40.0,
+                    overlap_ms: 20.0,
+                },
+                1.0,
+                None,
+                false,
+            )
+            .expect("自動の値を置ける");
+        studio.enqueue_take(take).expect("キューへ入れられる");
+
+        let got = studio
+            .opened_mut()
+            .expect("開いている")
+            .ledger
+            .oto_of(take, &item.alias)
+            .expect("引ける")
+            .expect("エントリがある");
+        assert!(
+            (got.offset_ms - 123.0).abs() < f64::EPSILON,
+            "直した値を引き継ぐ: {}",
+            got.offset_ms
         );
 
         let _ = std::fs::remove_dir_all(&root);
