@@ -546,6 +546,21 @@ Signal の段階では、報告者に良い問いを要求しない。最初の 
 
 コード差分の行数では分類しない。一行の文言でも「観測」を「評価」に変えれば R1／R2 になりうる。
 
+また R0 / R1 / R2 を、人が直接選ぶラベルにはしない。
+まず次の risk dimension を記述し、lane はその組合せから導く shorthand とする。
+
+```text
+reversibility       すぐ安全に戻せるか
+rights_and_harm     権利・同意・データ損失・accessibility へ影響するか
+evidence_gap        重要な効果がどの程度未検証か
+interaction_novelty 既存 PAT / interaction model の範囲内か
+blast_radius        何人・何画面・何形式へ広がるか
+migration_cost      既存データ・workflow・学習を壊すか
+```
+
+これにより「これは R0 ですよね」という category negotiation ではなく、何が危険だから
+深い経路が必要なのかを説明できる。lane の閾値は policy に置き、経験に応じて変えられる。
+
 新しい問いは、少なくとも次を持つ。
 
 > 何を決める必要があるか。  
