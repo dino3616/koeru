@@ -835,6 +835,49 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 
 **Downstream：** C6。反証が出れば C1・C3へ戻る。
 
+### 10.0 Claim と Evidence の間に Probe を置く
+
+Claim は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
+その間には、**どう観測すれば Claim を区別できるか**という実行計画が必要である。
+これを Probe と呼ぶ。
+
+Probe は新しい巨大な台帳から始めない。初期形では Question または Claim の nested data とし、
+繰り返し参照する必要が生じたときだけ独立 object 化を検討する。
+
+```toml
+[[probe]]
+claim = "CLM-UX-001"
+method = "first-contact-comprehension"
+input = "VoiceList/UnevenCoverage"
+prediction = "外径差を録音量の差として説明する"
+disconfirm_if = [
+  "優劣として説明する",
+  "差に気づかない",
+]
+capability = "semantic-comprehension"
+requires_human = true
+repeat_on = ["voice-ring representation changed"]
+produces = "EVID-*"
+```
+
+Probe が最低限持つのは、対象 Claim、観測条件、予測、反証条件、method capability、
+human requirement、再実行 trigger、生成する Evidence の種類である。
+
+したがって検証の実行系列は次になる。
+
+```text
+Question
+  → Claim
+  → Probe
+  → Observation
+  → Evidence
+  → Claim assessment
+  → Decision
+```
+
+Probe を書いたこと自体は Evidence ではない。実行されていない Probe は planned のまま残す。
+また、同じ Claim に複数の Probe を置ける。単一の測定方法を Claim の意味と同一視しない。
+
 ### 10.1 Evidence capability matrix
 
 | Claim の種類 | Evidence になれるもの | それだけでは Evidence にならないもの | 上げられる確信の範囲 |
