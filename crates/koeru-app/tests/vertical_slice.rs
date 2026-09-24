@@ -3,8 +3,9 @@
 //! プロジェクトを作る → デバイスを開く → 1行録る → 確定 → 解析 → `.frq` →
 //! 境界 → oto → 目標音高で合成 → 鳴らす。
 //!
-//! これは回帰テストではない。 マイクが無い環境では途中で戻る。
-//! 何が起きたかを読むために標準出力を使う。
+//! これは回帰テストではない。 実機が要るものは `#[ignore]` にしてあり、`--ignored` を
+//! 付けて走らせる。 マイクが無ければ落ちる（黙って戻ると「通過」と数えられる。
+//! `DEC-PLT-039`）。 何が起きたかを読むために標準出力を使う。
 
 // 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
 // 走らせた本人が数値を見て判断する。`tracing` へ出すと、
@@ -20,6 +21,7 @@ use koeru_audio::backend::macos as mac;
 const RECORD_MS: u64 = 900;
 
 #[test]
+#[ignore = "マイクと出力が要る実機ハーネス。--ignored を付けて走らせる"]
 fn 録って聴けるところまで一本で通す() {
     let root = std::env::temp_dir().join(format!("koeru-slice-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -70,10 +72,7 @@ fn 録って聴けるところまで一本で通す() {
             chosen = Some(d.id.clone());
         }
     }
-    let Some(device) = chosen else {
-        println!("入力が届くデバイスが無い。ここで戻る");
-        return;
-    };
+    let device = chosen.expect("入力が届くデバイスが無い。マイクとその権限を確かめて走らせる");
     studio.arm_device(&device).expect("開き直せる");
     studio.probe_input(200).expect("生死を判定できる");
 

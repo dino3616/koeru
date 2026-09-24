@@ -1,0 +1,14 @@
+schema = 'test-portfolio'
+
+# UI の試験の登録（`DEC-PLT-039`）。 `package` は ui のディレクトリ、`target` は `bun run` の名前。
+# 件数は vitest の要約行（`Tests  207 passed (207)`）から数える（`cargo xtask test-receipt --runner bun`）。
+
+[[suite]]
+id = 'SUITE-UI-001'
+title = '部品と画面の story を実ブラウザに描き、axe と play を当てる'
+runner = 'bun'
+package = 'crates/koeru-app/ui'
+target = 'test'
+platforms = ['macos', 'linux']
+min_cases = 200
+contracts = ['TR-PLT-25', 'TR-PLT-29', 'DEC-PLT-022']

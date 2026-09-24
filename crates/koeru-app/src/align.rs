@@ -152,13 +152,14 @@ mod tests {
 
     /// submodule を初期化していれば、環境変数なしでモデルが見つかる（`DEC-ALN-012`）。
     ///
-    /// 探す経路の試験で、アライナを組むかどうかとは別。 モデルが無い環境では
-    /// 何も見ずに戻る——そこは [`Chosen::detect`] が名指しで失敗する。
+    /// 探す経路の試験で、アライナを組むかどうかとは別。 モデルが無ければ落とす
+    /// ——戻ると何も見ずに通る（`DEC-PLT-039`）。
     #[test]
     fn リポジトリの中のモデルを見つけられる() {
-        if koeru_align::mfa::repo_model_dir().is_none() {
-            return; // submodule 未初期化
-        }
+        assert!(
+            koeru_align::mfa::repo_model_dir().is_some(),
+            "MFA のモデルが無い。submodule と LFS を取り込む（setup-koeru）"
+        );
         // 環境変数を使わずに見つかること。
         assert!(model_dir().is_some());
     }

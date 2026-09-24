@@ -11,4 +11,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+# `test-receipt` が `cargo test --message-format=json` と `cargo metadata` を読む。
+# workspace で既に使っている版で、新しい crate は入らない。
+serde_json.workspace = true
 toml = "1.1.6"

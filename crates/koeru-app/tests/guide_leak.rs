@@ -2,6 +2,7 @@
 //!
 //! 出力の種別を判定し、ガイドを鳴らしながら録って相関を見る。
 //! スピーカで走らせれば漏れると出るのが正しい。 ヘッドホンなら漏れないと出る。
+//! 実機が要るものは `#[ignore]` にしてあり、`--ignored` を付けて走らせる。
 
 // 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
 // 走らせた本人が数値を見て判断する。`tracing` へ出すと、
@@ -20,6 +21,7 @@ fn 出力の種別を判定できる() {
 }
 
 #[test]
+#[ignore = "マイクと出力が要る実機ハーネス。--ignored を付けて走らせる"]
 fn ガイドを鳴らして回り込みを測る() {
     let root = std::env::temp_dir().join(format!("koeru-leak-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -43,10 +45,7 @@ fn ガイドを鳴らして回り込みを測る() {
             chosen = Some(d.id.clone());
         }
     }
-    let Some(device) = chosen else {
-        println!("入力が届くデバイスが無い。ここで戻る");
-        return;
-    };
+    let device = chosen.expect("入力が届くデバイスが無い。マイクをつないで走らせる");
     studio.arm_device(&device).expect("開き直せる");
     studio.probe_input(250).expect("生死を判定できる");
 
@@ -81,13 +80,9 @@ fn 確かめる前は音高提示を鳴らさない() {
     let id = studio.create_project("未検査").expect("作れる");
     studio.open_project(id).expect("開ける");
 
-    let devices = Studio::devices().expect("列挙できる");
-    let Some(d) = devices.first() else {
-        return;
-    };
-    if studio.arm_device(&d.id).is_err() {
-        return;
-    }
+    // マイクを開かなくても確かめられる。 `play_pitch` はデバイスより先に検査の有無を見る。
+    // **マイクを開いてから確かめていた。** マイクの無い CI では毎回戻り、
+    // この不変条件は一度も検査されないまま「通過」と数えられていた（`DEC-PLT-039`）。
 
     // 確かめる前に鳴らさない。 鳴らしたものが全テイクに混じる。
     let e = studio.play_pitch(60).expect_err("鳴らさないこと");

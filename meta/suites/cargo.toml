@@ -1,0 +1,333 @@
+schema = 'test-portfolio'
+
+# cargo の試験 binary の登録（`DEC-PLT-039`）。 欄の意味は `meta/README.md` の「試験の登録」。
+#
+# `min_cases` は、件数を求めるどの環境でも下回らない数にしてある。 書いていない OS の席では
+# macOS の backend と Kaldi の試験が cfg で外れるので、lib の床はそちらの件数で決まる。
+
+# ## koeru-core
+
+[[suite]]
+id = 'SUITE-CORE-001'
+title = 'koeru-core の unit 試験'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 378
+
+[[suite]]
+id = 'SUITE-CORE-002'
+title = 'phonemizer の綴りを方式ごとに固定する（層 A）'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'phonemizer_parity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 3
+contracts = ['TR-SYN-12', 'TR-SYN-36', 'DEC-SYN-010']
+
+# ## koeru-audio
+
+[[suite]]
+id = 'SUITE-AUDIO-001'
+title = 'koeru-audio の unit 試験（収録セッションの状態機械、リング、WAV）'
+runner = 'cargo'
+package = 'koeru-audio'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 40
+contracts = ['DEC-REC-007']
+
+[[suite]]
+id = 'SUITE-AUDIO-002'
+title = '再生のコールバックが進む（実機）'
+runner = 'cargo'
+package = 'koeru-audio'
+target = 'play_a_tone'
+platforms = ['macos']
+backends = ['native']
+min_cases = 0
+manual = 2
+contracts = ['DEC-REC-001']
+
+[[suite]]
+id = 'SUITE-AUDIO-003'
+title = '録音してテイクのファイルを確定する（実機）'
+runner = 'cargo'
+package = 'koeru-audio'
+target = 'record_to_file'
+platforms = ['macos']
+backends = ['native']
+min_cases = 0
+manual = 1
+contracts = ['DEC-REC-001', 'DEC-REC-004']
+
+# ## koeru-align
+
+[[suite]]
+id = 'SUITE-ALIGN-001'
+title = 'koeru-align の unit 試験'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 155
+
+[[suite]]
+id = 'SUITE-ALIGN-002'
+title = '実音声で発声の位置がパワーと合う（実機・実音声）'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'alignment_on_real_audio'
+platforms = ['macos']
+backends = ['native']
+min_cases = 0
+manual = 1
+contracts = ['EVID-ALN-001', 'DEC-ALN-007']
+
+[[suite]]
+id = 'SUITE-ALIGN-003'
+title = '同梱の Kaldi がモデルを読んで特徴を出す'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'kaldi_build'
+platforms = ['macos']
+backends = ['native']
+min_cases = 1
+contracts = ['DEC-ALN-012', 'EVID-ALN-001']
+
+[[suite]]
+id = 'SUITE-ALIGN-004'
+title = '録音リストが実際に作る行でアライメントが通る'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'multi_mora_row'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['TR-ALN-11', 'TR-RCL-03', 'DEC-ALN-013']
+
+[[suite]]
+id = 'SUITE-ALIGN-005'
+title = '自動原音設定の実行時の境界（Python・外部プロセス・実行時の取得が無い）'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'runtime_boundary'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 5
+contracts = ['TR-ALN-01', 'TR-ALN-05', 'DEC-ALN-008']
+
+# ## koeru-synth
+
+[[suite]]
+id = 'SUITE-SYNTH-001'
+title = 'koeru-synth の unit 試験'
+runner = 'cargo'
+package = 'koeru-synth'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 34
+
+[[suite]]
+id = 'SUITE-SYNTH-002'
+title = '周波数表を素材の切り出しと格子に合わせて渡す'
+runner = 'cargo'
+package = 'koeru-synth'
+target = 'frequency_table_grid'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 2
+contracts = ['TR-PKG-05', 'TR-SYN-08', 'DEC-SYN-008']
+
+[[suite]]
+id = 'SUITE-SYNTH-003'
+title = '実際に録った声を指定した音高で歌わせる（実音声）'
+runner = 'cargo'
+package = 'koeru-synth'
+target = 'preview_on_real_audio'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 0
+manual = 1
+contracts = ['TR-SYN-02', 'DEC-SYN-008']
+
+# ## koeru-package
+
+[[suite]]
+id = 'SUITE-PKG-001'
+title = 'koeru-package の unit 試験（木・検証・ZIP・アイコン）'
+runner = 'cargo'
+package = 'koeru-package'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 88
+
+# ## koeru-failure
+
+[[suite]]
+id = 'SUITE-FAIL-001'
+title = '失敗の語彙'
+runner = 'cargo'
+package = 'koeru-failure'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 3
+contracts = ['DEC-PLT-038']
+
+# ## koeru-app
+
+[[suite]]
+id = 'SUITE-APP-001'
+title = 'koeru-app の unit 試験'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 44
+
+[[suite]]
+id = 'SUITE-APP-002'
+title = '画面へ渡す型と呼び出し口が Rust と一致している'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'bindings'
+platforms = ['macos', 'linux']
+min_cases = 1
+contracts = ['DEC-PLT-035']
+
+[[suite]]
+id = 'SUITE-APP-003'
+title = 'MFA の経路確信度が確信度へ届く'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'confidence_path'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['TR-ALN-24', 'TR-ALN-25', 'TR-ALN-26']
+
+[[suite]]
+id = 'SUITE-APP-004'
+title = '書き出しの縦切り（ZIP / UAR、読み戻し、台帳）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'export_package'
+platforms = ['macos']
+backends = ['native']
+min_cases = 8
+contracts = ['TR-PKG-49', 'TR-PKG-52']
+
+[[suite]]
+id = 'SUITE-APP-005'
+title = '失敗の契約（文言に値を差し込まない、code が一意）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'failures'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 3
+contracts = ['DEC-PLT-038']
+
+[[suite]]
+id = 'SUITE-APP-006'
+title = '入力ゲインの読み書き（実機）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'gain_calibration'
+platforms = ['macos']
+backends = ['native']
+min_cases = 1
+manual = 1
+contracts = ['TR-REC-14', 'TR-REC-15']
+
+[[suite]]
+id = 'SUITE-APP-007'
+title = '回り込みの検査（実機）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'guide_leak'
+platforms = ['macos']
+backends = ['native']
+min_cases = 2
+manual = 1
+contracts = ['TR-REC-24', 'INV-REC-105']
+
+[[suite]]
+id = 'SUITE-APP-008'
+title = 'UST / USTX を取り込んで録音リストを組む'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'import_song'
+platforms = ['macos']
+backends = ['native']
+min_cases = 10
+contracts = ['TR-RCL-12', 'TR-RCL-16']
+
+[[suite]]
+id = 'SUITE-APP-009'
+title = '波形の目盛りが実時間どおりに進む'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'live_envelope'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 5
+contracts = ['TR-REC-43']
+
+[[suite]]
+id = 'SUITE-APP-010'
+title = 'マスターは常に 44100 Hz で書かれる'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'master_is_44100'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 2
+contracts = ['TR-REC-01', 'TR-REC-02', 'DEC-REC-006']
+
+[[suite]]
+id = 'SUITE-APP-011'
+title = '方式プリセットを選んでプロジェクトを作る'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'methods'
+platforms = ['macos']
+backends = ['native']
+min_cases = 17
+contracts = ['TR-RCL-01', 'TR-RCL-26', 'TR-REC-36']
+
+[[suite]]
+id = 'SUITE-APP-012'
+title = '試唱の全経路がオフラインで動く、トレースの欄が許可リストに収まる'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'offline'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 9
+contracts = ['TR-SYN-01', 'TR-SYN-32', 'TR-PLT-20', 'TR-PKG-53']
+
+[[suite]]
+id = 'SUITE-APP-013'
+title = '録って聴けるところまで一本で通す（実機）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'vertical_slice'
+platforms = ['macos']
+backends = ['native']
+min_cases = 2
+manual = 1
+contracts = ['DEC-REC-001']
+
+[[suite]]
+id = 'SUITE-APP-014'
+title = 'アプリの起動口。試験を持たない'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'bin:koeru-app'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 0
+
+# ## xtask
+
+[[suite]]
+id = 'SUITE-XTASK-001'
+title = 'xtask の unit 試験（差分の走査、受領証の読み方）'
+runner = 'cargo'
+package = 'xtask'
+target = 'bin:xtask'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 12
+contracts = ['DEC-PLT-039']

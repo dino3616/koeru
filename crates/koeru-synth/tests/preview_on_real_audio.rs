@@ -1,13 +1,14 @@
 //! 実際に録った声を、指定した音高で歌わせてみる実機ハーネス。
 //!
-//! これは回帰テストではない。 音声が無い環境では静かに戻る
-//! （`koeru-align` の `alignment_on_real_audio.rs` と同じ形）。
+//! これは回帰テストではない。 `#[ignore]` なので既定では走らず、音声を指して
+//! `--ignored` を付けて走らせる。 指していなければ落ちる
+//! （`koeru-align` の `alignment_on_real_audio.rs` と同じ形、`DEC-PLT-039`）。
 //!
 //! ```bash
 //! KOERU_SYNTH_SAMPLE_WAV=/path/to/take.wav \
 //! KOERU_SYNTH_SAMPLE_OFFSET_MS=1235 \
 //! KOERU_SYNTH_SAMPLE_LENGTH_MS=550 \
-//!   cargo test --package koeru-synth --test preview_on_real_audio -- --nocapture
+//!   cargo test --package koeru-synth --test preview_on_real_audio -- --ignored --nocapture
 //! ```
 //!
 //! # 何を見ているか
@@ -87,10 +88,10 @@ fn measure(y: &[f64], rate_hz: u32) -> (f64, f64) {
 
 /// 実際の声が、指定した音高で、雑音にならずに鳴る。
 #[test]
+#[ignore = "実音声が要る。KOERU_SYNTH_SAMPLE_WAV を指して --ignored を付ける"]
 fn 実音声を指定した音高で歌わせられる() {
-    let Ok(path) = std::env::var("KOERU_SYNTH_SAMPLE_WAV") else {
-        return;
-    };
+    let path = std::env::var("KOERU_SYNTH_SAMPLE_WAV")
+        .expect("KOERU_SYNTH_SAMPLE_WAV で録った WAV を指す");
     let w = koeru_audio::wav::read(std::path::Path::new(&path)).expect("wav を読める");
     let s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
 

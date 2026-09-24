@@ -9,9 +9,13 @@
 //! - `check-profile`  未決の Question が塞いでいるリリースプロファイルを落とす
 //! - `dump-requirements`  要件の登録簿を区切り文字形式で書き出す（外部ツール向け）
 //! - `touched`        変更が触れた ID を、レビューに要る本文ごと出す
+//! - `check-portfolio` 試験の target がどれも `meta/suites/` に登録されているか（[`receipt`]）
+//! - `test-receipt`   試験を走らせて件数を登録と突き合わせ、受領証を書く（[`receipt`]）
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
+
+mod receipt;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -201,6 +205,26 @@ const SHAPES: &[Shape] = &[
         collection: None,
         entity_arrays: &[],
     },
+    // 必須の試験の登録（`DEC-PLT-039`）。 件数と前提は `receipt` が突き合わせる。
+    Shape {
+        schema: "test-portfolio",
+        dir: "suites",
+        entity: None,
+        collection: Some((
+            "suite",
+            "SUITE-",
+            &[
+                "id",
+                "title",
+                "runner",
+                "package",
+                "target",
+                "platforms",
+                "min_cases",
+            ],
+        )),
+        entity_arrays: &[],
+    },
 ];
 
 #[derive(Debug)]
@@ -281,6 +305,8 @@ fn main() -> ExitCode {
             }
         },
         Some("index-decisions") => index_decisions(&root, &entries, rep),
+        Some("check-portfolio") => receipt::check_portfolio(&root, &entries, rep),
+        Some("test-receipt") => receipt::test_receipt(&root, &entries, &args[1..], rep),
         // 既定は `main`。PR レビューは main との差分を見るので、引数なしで足りる。
         Some("touched") => touched(
             &root,
@@ -314,7 +340,7 @@ fn main() -> ExitCode {
         }
         _ => {
             println!(
-                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements\n  touched [<base>]>"
+                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements\n  touched [<base>]\n  check-portfolio|test-receipt [--runner cargo|bun]>"
             );
             ExitCode::FAILURE
         }
@@ -1729,6 +1755,22 @@ fn check_meta(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
                 Ok(text) if text.contains("@undecided(") || text.contains("undecided:") => {}
                 Ok(_) => rep.error(format!("{file}: {rel} に未決の印が無い")),
                 Err(_) => rep.error(format!("{file}: {rel} が読めない")),
+            }
+        }
+    }
+
+    // suite が支える契約（`DEC-PLT-039`）。 技術要件・FSL・meta のどれかに実在すること。
+    // 収集ファイルの項目の中の欄なので、上の走査（表の直下だけを見る）には入らない。
+    for e in with_schema(entries, "test-portfolio") {
+        for t in e.items() {
+            let id = str_of(&t, "id").unwrap_or("?");
+            for c in list_of(&t, "contracts") {
+                if !(tr.contains(&c) || fsl.contains(&c) || ids.contains_key(&c)) {
+                    rep.error(format!(
+                        "{}: {id} の contracts の `{c}` は存在しない",
+                        e.path.display()
+                    ));
+                }
             }
         }
     }

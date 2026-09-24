@@ -94,9 +94,11 @@ jobs:
           test -f "$f" || { echo "モデルが無い: $f"; exit 1; }
           n=$(wc -c < "$f")
           test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
-      # 音声デバイスを要るテストは、実機ハーネスとして自分で戻る。
-      # CI のランナーにマイクは無いので、通らないのではなく通り抜ける。
-      - run: cargo test --workspace --all-features
+      # 試験 binary を1本ずつ走らせ、件数を `meta/suites/` の登録と突き合わせる
+      # （`DEC-PLT-039`）。 0 件で通った・登録の無い試験・黙って外した試験で落ちる。
+      # マイクや実音声が要るハーネスは `#[ignore]` で、ここでは無視として数える。
+      # 一度は自分で戻っていて、マイクの無いランナーで「通過」と数えられていた。
+      - run: cargo xtask test-receipt
 
   test-windows:
     name: test (windows)
@@ -125,7 +127,39 @@ jobs:
           n=$(wc -c < "$f")
           test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
       # ツールチェーンはランナーの rustup が `rust-toolchain.toml` を読んで揃える。
-      - run: cargo test --workspace --all-features
+      # 件数の突き合わせは他の OS と同じ（`DEC-PLT-039`）。
+      - run: cargo xtask test-receipt
+
+  macos:
+    name: macOS (clippy + unsupported backend)
+    # lint は ubuntu で回すので、macOS の backend と Kaldi の経路は clippy を通っていなかった。
+    # 「書いていない OS の席」も macOS で強制して組む——Linux では自然に選ばれるが、
+    # macOS で組んだときに cfg の書き忘れがあると、ここでしか分からない。**一度やった。**
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: nix develop --command bash -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          lfs: true
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - name: clippy（native の backend）
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: clippy（書いていない OS の席）
+        env:
+          RUSTFLAGS: -D warnings --cfg koeru_force_unsupported_backend
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # `RUSTDOCFLAGS` を忘れない。 `RUSTFLAGS` は rustdoc に届かないので、
+      # doctest だけが違う設定で組まれる。
+      - name: test-receipt（書いていない OS の席）
+        env:
+          RUSTFLAGS: -D warnings --cfg koeru_force_unsupported_backend
+          RUSTDOCFLAGS: --cfg koeru_force_unsupported_backend
+        run: cargo xtask test-receipt
 
   specs:
     name: specs (FSL + meta)
@@ -135,7 +169,7 @@ jobs:
       run:
         shell: nix develop --command bash -eo pipefail {0}
     steps:
-      # xtask の依存は toml だけで koeru-* を引かない。submodule も LFS も要らない。
+      # xtask の依存は toml と serde_json だけで koeru-* を引かない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
@@ -167,6 +201,9 @@ jobs:
           cargo run --package xtask -- check-references
           # 判断記録の索引は生成物。手で足すと片方だけが古くなる。
           cargo run --package xtask -- index-decisions --check
+          # 試験 binary がどれも `meta/suites/` に登録されているか（`DEC-PLT-039`）。
+          # 組み立てずに `cargo metadata` だけで見る。
+          cargo run --package xtask -- check-portfolio
 
   ui:
     name: ui (format + lint + type + story)
@@ -199,10 +236,14 @@ jobs:
           echo "Playwright $KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON で揃っている"
       - name: Install
         run: bun install --frozen-lockfile
-      # 整形・lint・型 ＋ story の網羅 ＋ story の axe と play。
+      # 整形・lint・型 ＋ story の網羅 ＋ IPC の呼び方。
       # --fix を付けない。CI は直す場所ではない。
       - name: vp check
-        run: bun run check:ci
+        run: bun run check:static
+      # story の axe と play。 件数を `meta/suites/ui.toml` と突き合わせる（`DEC-PLT-039`）。
+      # 手元の `bun run check:ci` は上と合わせて同じものを走らせる。
+      - name: story（受領証つき）
+        run: cargo xtask test-receipt --runner bun
       # ビルドと型と npm のライセンス。
       - name: build
         run: bun run build

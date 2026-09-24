@@ -1,7 +1,8 @@
 //! 再生の実機ハーネス。 レンダーコールバックが実際に呼ばれることを確かめる。
 //!
-//! 出力デバイスが無い環境では途中で戻る。これは回帰テストではない。
-//! 何が起きたかを読むために標準出力を使う。
+//! これは回帰テストではない。 `#[ignore]` なので既定では走らず、実機で `--ignored` を
+//! 付けて走らせる。 出力デバイスが無ければ落ちる（黙って戻ると「通過」と数えられる。
+//! `DEC-PLT-039`）。 何が起きたかを読むために標準出力を使う。
 
 // 実機ハーネスなので `println!` を通す。 ここは人が読む出力で、
 // 走らせた本人が数値を見て判断する。`tracing` へ出すと、
@@ -13,6 +14,7 @@
 use koeru_audio::backend::macos as mac;
 
 #[test]
+#[ignore = "出力デバイスが要る実機ハーネス。--ignored を付けて走らせる"]
 fn 短い音を鳴らしてコールバックが進むことを確かめる() {
     const RATE: u32 = 44_100;
     const MS: usize = 250;
@@ -28,10 +30,7 @@ fn 短い音を鳴らしてコールバックが進むことを確かめる() {
         })
         .collect();
 
-    let Ok(p) = mac::play(samples, RATE) else {
-        println!("出力デバイスが無い。ここで戻る");
-        return;
-    };
+    let p = mac::play(samples, RATE).expect("出力デバイスを開けない。つないで走らせる");
 
     // 鳴り終わるまで待つ。余裕を持たせる（バッファのぶん遅れる）。
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
@@ -53,6 +52,7 @@ fn 短い音を鳴らしてコールバックが進むことを確かめる() {
 ///
 /// 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。
 #[test]
+#[ignore = "出力デバイスが要る実機ハーネス。--ignored を付けて走らせる"]
 fn 鳴らしながら継ぎ足せる() {
     const RATE: u32 = 44_100;
     const CHUNK_MS: usize = 150;
@@ -68,10 +68,8 @@ fn 鳴らしながら継ぎ足せる() {
             .collect()
     };
 
-    let Ok(p) = mac::play_streaming(chunk(440.0), RATE) else {
-        println!("出力デバイスが無い。ここで戻る");
-        return;
-    };
+    let p =
+        mac::play_streaming(chunk(440.0), RATE).expect("出力デバイスを開けない。つないで走らせる");
 
     // 先行を保ちながら足す。 足し終わるまで終わらない。
     for hz in [523.0, 659.0, 784.0] {

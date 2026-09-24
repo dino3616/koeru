@@ -31,6 +31,32 @@ cargo test --workspace --all-features
 cargo deny check
 ```
 
+## 実行した件数を見る
+
+`cargo test` の緑は「実行した」ではない。 CI が判定に使うのは受領証で、試験 binary を
+1本ずつ走らせて件数を `meta/suites/` の登録と突き合わせる（`DEC-PLT-039`）。
+
+```bash
+cargo xtask test-receipt               # 組み立てて走らせ、登録と突き合わせる
+cargo xtask test-receipt --runner bun  # UI の story 試験（ui の中の `bun run test`）
+cargo xtask check-portfolio            # 登録の漏れだけを見る。組み立てない
+```
+
+落ちる形は4つ。 登録の無い試験 binary、`min_cases` を割った実行件数、失敗、
+登録（`manual`）より多い無視。 受領証は `target/receipts/{実行器}-{OS}-{backend}.json`。
+
+試験ファイルを足したら、`meta/suites/` にも1件足す。 `min_cases` は、その試験が
+件数を求められるどの環境でも下回らない数にする（書いていない OS では cfg で外れる
+ものがある）。
+
+**手動のハーネスは `#[ignore]`。** マイク・出力・実音声が要るものは既定では走らない。
+手元の実機で `-- --ignored` を付けて走らせ、前提が無ければ落ちる。
+
+```bash
+cargo test -p koeru-audio --test record_to_file -- --ignored --nocapture
+cargo test -p koeru-app --test vertical_slice -- --ignored --nocapture
+```
+
 ## 書いていない OS 向けの組み立ても手元で通す
 
 音声のバックエンドは macOS しか無く、他 OS では `backend/unsupported.rs` が選ばれる。
@@ -55,13 +81,13 @@ doctest だけが本物と違う設定でコンパイルされ、存在しない
 
 アライメントは実音声で見る。 合成音の試験は構造しか見ておらず、
 **位置が全部ずれていても1つも落ちない**（CMVN の分散正規化で踏んだ。`EVID-ALN-001`）。
-録音を1つ通して、パワーで見た発声区間と重なるかを確かめる。回帰テストではないので、
-環境変数が無ければ静かに戻る。
+録音を1つ通して、パワーで見た発声区間と重なるかを確かめる。回帰テストではないので
+`#[ignore]` にしてあり、環境変数を指して `--ignored` で走らせる。指していなければ落ちる。
 
 ```bash
 KOERU_ALIGN_SAMPLE_WAV=/path/to/take.wav \
 KOERU_ALIGN_SAMPLE_READING='ぎ ぎゃ ぎゅ ぎょ' \
-  cargo test --package koeru-align --test alignment_on_real_audio -- --nocapture
+  cargo test --package koeru-align --test alignment_on_real_audio -- --ignored --nocapture
 ```
 
 **歌わせるところも実音声で見る。** 周波数表の当て方を間違えると、
@@ -71,7 +97,7 @@ KOERU_ALIGN_SAMPLE_READING='ぎ ぎゃ ぎゅ ぎょ' \
 ```bash
 KOERU_SYNTH_SAMPLE_WAV=/path/to/take.wav \
 KOERU_SYNTH_SAMPLE_OFFSET_MS=1235 KOERU_SYNTH_SAMPLE_LENGTH_MS=550 \
-  cargo test --package koeru-synth --test preview_on_real_audio -- --nocapture
+  cargo test --package koeru-synth --test preview_on_real_audio -- --ignored --nocapture
 ```
 
 ## WebView 側
@@ -115,7 +141,9 @@ npm の依存ライセンスも見る。 Rust は `cargo deny check`、npm は
 `check:licenses`。以前は npm 側に検査が無かった。
 
 配色の検査を飛ばさない。 段を選び直したまま出すと、明暗どちらかで WCAG 2.2 AA を割る。
-検査は比だけでなく網羅も見る——`src/` で使っている段が `PAIRS` に無ければ落ちる。
+**網羅は機械で見ていない。** 測られるのは `src/styles/palette.story.tsx` に手で並べた
+組み合わせだけで、`src/` で使いはじめた段をそこへ足し忘れても検査は通る。段を使いはじめたら足す。
+（`PAIRS` という表で網羅を見ていると書いていたが、その表は無かった。）
 
 `vp` の範囲を `ui/` の外へ広げない。 外すと `meta/` の TOML を畳み直して差分を濁らせる。**一度やった。**
 
