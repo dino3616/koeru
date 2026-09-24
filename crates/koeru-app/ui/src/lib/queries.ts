@@ -64,6 +64,15 @@ export const progressQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "progress"], queryFn: () => api.progress() });
 
 /**
+ * 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
+ *
+ * 台帳の鍵の下に置かない。 テイクを録っても変わらず、変わるのは本人が閉じたときだけ。
+ * 開いたあとでなければ読めない（[`openProjectQuery`] の内側に置く）。
+ */
+export const presampNoticeQuery = (id: string) =>
+  queryOptions({ queryKey: ["presamp-notice", id], queryFn: () => api.presampNotice() });
+
+/**
  * 開いている音源の環と色（`DEC-PLT-025`、`DEC-PLT-027`）。
  *
  * 台帳の鍵の下に置く。 テイクが確定すると環が伸び、色も動く——

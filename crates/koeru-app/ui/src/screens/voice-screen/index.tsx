@@ -19,6 +19,7 @@ import { PackageForm } from "~/components/package-form";
 import { PackagePanel } from "~/components/package-panel";
 import { ReviewPanel } from "~/components/review-panel";
 import { PendingWork } from "~/components/pending-work";
+import { PresampNotice } from "~/components/presamp-notice";
 import { ReleaseList } from "~/components/release-list";
 import { SongDetail } from "~/components/song-detail";
 import { RecordingOrder } from "~/components/recording-order";
@@ -382,6 +383,11 @@ const VoiceBody = ({
         onTab={(next) => void navigate({ to: "/voice", search: { id, tab: next } })}
         onBack={() => void navigate({ to: "/" })}
       />
+
+      {/* 知らせが無ければ枠ごと消す。 空の枠が余白だけ取ると、面の頭が下がる。 */}
+      <div className="px-8 pt-4 empty:hidden">
+        <PresampNotice voiceId={id} />
+      </div>
 
       {/* 状態の変化を支援技術へ通知する（`TR-PLT-29`）。 */}
       <p aria-live="polite" aria-atomic="true" className="sr-only">

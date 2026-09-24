@@ -9,12 +9,24 @@ import { methodPresetsQuery } from "~/lib/queries";
 import { cx } from "~/lib/tv";
 
 type NewVoiceProps = {
-  /** 名前・作り方・収録音高を決めて作る。作ったら開く。 */
-  onCreate: (displayName: string, presetId: string, tones: number[]) => void;
+  /**
+   * 名前・作り方・収録音高・綴りの表を決めて作る。作ったら開く。
+   *
+   * `presamp` は選んだ `presamp.ini` の中身。選ばなければ `null`（同梱の既定）。
+   */
+  onCreate: (
+    displayName: string,
+    presetId: string,
+    tones: number[],
+    presamp: number[] | null,
+  ) => void;
   /** 作っている最中か。 */
   creating: boolean;
   onClose: () => void;
 };
+
+/** 綴りの表の上限。 presamp.ini は数 KB で、これを超えるものは別のファイル。 */
+const MAX_PRESAMP_BYTES = 256 * 1024;
 
 /** 秒を「約 N 分」にする。単位を省かない（`docs/reports/ux/direction.md`）。 */
 const minutes = (seconds: number) => `約 ${Math.max(1, Math.round(seconds / 60))} 分`;
@@ -41,10 +53,17 @@ const minutes = (seconds: number) => `約 ${Math.max(1, Math.round(seconds / 60)
  *
  * ラジオで組む。 「どれか1つ」を選ぶ形が役割として伝わり、
  * 矢印キーで行き来できる。
+ *
+ * **綴りの表（presamp.ini）はここでだけ選べる**（`DEC-SYN-013`）。 台帳は作った瞬間に
+ * この表で綴りを書くので、あとから置いた表は噛み合わない。選ばない人がほとんどなので、
+ * 既定のまま通れる形にする。
  */
 export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
   const nameId = useId();
   const groupId = useId();
+  const presampId = useId();
+  const [presamp, setPresamp] = useState<{ name: string; bytes: number[] } | null>(null);
+  const [presampError, setPresampError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [tones, setTones] = useState<number[]>([DEFAULT_TONE_MIDI]);
   const { data: presets } = useSuspenseQuery(methodPresetsQuery(tones.length));
@@ -55,7 +74,17 @@ export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
   const submit = () => {
     const trimmed = name.trim();
     if (trimmed === "" || creating || presetId === "" || tones.length === 0) return;
-    onCreate(trimmed, presetId, tones);
+    onCreate(trimmed, presetId, tones, presamp?.bytes ?? null);
+  };
+
+  const choosePresamp = async (file: File) => {
+    if (file.size > MAX_PRESAMP_BYTES) {
+      setPresamp(null);
+      setPresampError("ファイルが大きすぎます。presamp.ini を選んでください。");
+      return;
+    }
+    setPresampError(null);
+    setPresamp({ name: file.name, bytes: Array.from(new Uint8Array(await file.arrayBuffer())) });
   };
 
   return (
@@ -141,6 +170,44 @@ export const NewVoice = ({ onCreate, creating, onClose }: NewVoiceProps) => {
           あとから作り方は変えられません。読んでいる途中から歌えます。
         </p>
       </fieldset>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-sm font-semibold text-slate-11" htmlFor={presampId}>
+          綴りの表（presamp.ini）
+        </label>
+        <input
+          id={presampId}
+          type="file"
+          accept=".ini"
+          disabled={creating}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // 同じファイルを選び直せるようにする。値を残すと、2回目の change が飛ばない。
+            e.target.value = "";
+            if (file !== undefined) void choosePresamp(file);
+          }}
+          className="min-w-0 select-text text-sm text-slate-12 file:mr-3 file:h-9 file:rounded-lg file:border file:border-slate-7 file:bg-slate-3 file:px-3 file:text-sm file:text-slate-12"
+        />
+        {presamp === null ? (
+          <p className="text-xs text-slate-11">
+            選ばなければ標準の表を使います。作ったあとでは変えられません。
+          </p>
+        ) : (
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-slate-12">
+              <span className="font-mono select-text">{presamp.name}</span> を使います。
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => setPresamp(null)} disabled={creating}>
+              標準に戻す
+            </Button>
+          </div>
+        )}
+        {presampError !== null && (
+          <p role="alert" className="text-xs text-red-11">
+            {presampError}
+          </p>
+        )}
+      </div>
 
       <div className="flex gap-2">
         <Button

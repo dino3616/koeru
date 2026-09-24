@@ -101,7 +101,7 @@ export const 選んで作る: Story = {
     await userEvent.click((await c.findAllByRole("radio"))[2] as HTMLInputElement);
     await userEvent.click(await c.findByRole("button", { name: "作る" }));
     // 既定は1本（A3）。音高は作り方とは別に渡る（`TR-RCL-01`）。
-    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "sequential", [57]);
+    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "sequential", [57], null);
   },
 };
 
@@ -117,7 +117,25 @@ export const 音高を選んで作る: Story = {
     await userEvent.type(await c.findByLabelText("名前"), "ミナ");
     await userEvent.click(await c.findByRole("button", { name: /女声の目安/ }));
     await userEvent.click(await c.findByRole("button", { name: "作る" }));
-    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "single", [55, 62, 69]);
+    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "single", [55, 62, 69], null);
+  },
+};
+
+/**
+ * 綴りの表は作るときにだけ選べる（`DEC-SYN-013`）。 選んだ中身がそのまま渡る。
+ */
+export const 綴りの表を選んで作る: Story = {
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.type(await c.findByLabelText("名前"), "ミナ");
+    await userEvent.upload(
+      await c.findByLabelText("綴りの表（presamp.ini）"),
+      new File(["[BEGINING_CV]"], "presamp.ini"),
+    );
+    await expect(await c.findByText("presamp.ini")).toBeVisible();
+    await userEvent.click(await c.findByRole("button", { name: "作る" }));
+    const bytes = Array.from(new TextEncoder().encode("[BEGINING_CV]"));
+    await expect(args.onCreate).toHaveBeenCalledWith("ミナ", "single", [57], bytes);
   },
 };
 

@@ -123,16 +123,27 @@ export const api = {
   toneOptions: () => commands.toneOptions(),
   /** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
   toneSuggestions: () => commands.toneSuggestions(),
-  /** 方式プリセットを選んで作る（`TR-RCL-01`）。 */
+  /**
+   * 方式プリセットを選んで作る（`TR-RCL-01`）。
+   *
+   * `presamp` は本人が選んだ `presamp.ini` の中身。 選ばなければ同梱の既定。
+   * 作るときに固定し、あとから変える道は無い（`DEC-SYN-013`）。
+   */
   createProject: ({
     displayName,
     presetId,
     tones,
+    presamp,
   }: {
     displayName: string;
     presetId: string;
     tones: number[];
-  }) => unwrap(commands.createProject(displayName, presetId, tones)),
+    presamp: number[] | null;
+  }) => unwrap(commands.createProject(displayName, presetId, tones, presamp)),
+  /** 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。 */
+  presampNotice: () => unwrap(commands.presampNotice()),
+  /** 戻したことを知らせる札を下ろす。 */
+  dismissPresampNotice: () => unwrap(commands.dismissPresampNotice()),
   /** 表示名を変える（`DEC-PKG-007`）。空にはできない。 */
   renameProject: (id: string, displayName: string) =>
     unwrap(commands.renameProject(id, displayName)),
