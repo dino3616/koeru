@@ -1,0 +1,1 @@
+ALTER TABLE rows DROP COLUMN origin;

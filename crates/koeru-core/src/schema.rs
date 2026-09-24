@@ -38,6 +38,7 @@ diesel::table! {
         tone -> Integer,
         state -> Text,
         ordinal -> Integer,
+        origin -> Text,
     }
 }
 

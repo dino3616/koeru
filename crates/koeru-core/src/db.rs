@@ -98,8 +98,130 @@ impl LedgerError {
 
 type Result<T> = std::result::Result<T, LedgerError>;
 
+/// 行を1つの収録音高へ入れる。 [`Ledger::install_rows`] と
+/// [`Ledger::replace_untaken_rows`] が同じトランザクションの中で呼ぶ。
+///
+/// 並び順は台帳の末尾から続ける。 一度は呼ぶたびに 0 から振っていたので、
+/// 詰め直した行がフルリストの行と同じ番号を持ち、並びが同点で決まらなかった。
+fn insert_rows(
+    c: &mut SqliteConnection,
+    list: &[ReclistRow],
+    rules: &crate::presamp::Rules,
+    method: crate::alias::Method,
+    tone: i32,
+    suffixed: bool,
+    origin: RowOrigin,
+) -> QueryResult<usize> {
+    let base = rows::table
+        .select(diesel::dsl::max(rows::ordinal))
+        .first::<Option<i32>>(c)?
+        .map_or(0, |m| m + 1);
+    let mut inserted = 0_usize;
+    for (ordinal, r) in (base..).zip(list) {
+        let id = if suffixed {
+            format!("{}@{}", r.id, crate::tone::name(tone))
+        } else {
+            r.id.clone()
+        };
+        let added = diesel::insert_into(rows::table)
+            .values((
+                rows::id.eq(&id),
+                rows::text.eq(&r.text),
+                rows::file_stem.eq(&r.file_stem),
+                rows::tone.eq(tone),
+                rows::state.eq(RowState::Unrecorded.as_str()),
+                rows::ordinal.eq(ordinal),
+                rows::origin.eq(origin.as_str()),
+            ))
+            .on_conflict(rows::id)
+            .do_nothing()
+            .execute(c)?;
+        // 既にある行は、単位もエイリアスも入っている。
+        if added == 0 {
+            continue;
+        }
+        inserted += 1;
+        // 単位は集合として入れる。 連続音の行は同じ仮名を2度持つが、
+        // 集合としては変わらない。語順は `rows.text` が持っている。
+        let mut seen = std::collections::BTreeSet::new();
+        for u in &r.units {
+            if !seen.insert(u.kana) {
+                continue;
+            }
+            diesel::insert_into(row_units::table)
+                .values((
+                    row_units::row_id.eq(&id),
+                    row_units::kana.eq(u.kana),
+                    row_units::consonant.eq(u.consonant),
+                    row_units::vowel.eq(u.vowel),
+                ))
+                .execute(c)?;
+        }
+        // 行が生むエイリアス（`TR-PKG-22` の判定の正本）。 **全部入れる。**
+        //
+        // 同じ音高の中で同じ綴りを生む行があっても、ここでは潰さない。 誰が
+        // 持つかは録った順で決まり、台帳のテイクから導く（[`Ledger::alias_owners`]、
+        // `DEC-RCL-016`）。**入れる順で先に名乗った行に持たせていた**ので、
+        // フルリストのあとに足した詰め直しの行は綴りを1つも持たず、録っても
+        // 原音設定も被覆も1つも増えなかった。
+        for (n, alias) in crate::reclist::row_aliases(rules, method, &r.units)
+            .into_iter()
+            .enumerate()
+        {
+            diesel::insert_into(row_aliases::table)
+                .values((
+                    row_aliases::row_id.eq(&id),
+                    row_aliases::alias.eq(&alias),
+                    row_aliases::ordinal.eq(i32::try_from(n).unwrap_or(i32::MAX)),
+                ))
+                .on_conflict((row_aliases::row_id, row_aliases::alias))
+                .do_nothing()
+                .execute(c)?;
+        }
+    }
+    Ok(inserted)
+}
+
 fn db(op: &'static str) -> impl FnOnce(diesel::result::Error) -> LedgerError {
     move |source| LedgerError::Db { op, source }
+}
+
+/// 行の出どころ（`TR-RCL-18` (g)）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowOrigin {
+    /// プリセットから生成したフルリスト。
+    Preset,
+    /// 選択から詰め直した行（`TR-RCL-16`, `DEC-RCL-011`）。
+    Repack,
+}
+
+impl RowOrigin {
+    /// 台帳での表記。送信してよい固定語彙。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Preset => "preset",
+            Self::Repack => "repack",
+        }
+    }
+
+    /// 台帳から戻す。 知らない値はフルリストに倒す——列の既定と同じ。
+    fn parse(s: &str) -> Self {
+        if s == "repack" {
+            Self::Repack
+        } else {
+            Self::Preset
+        }
+    }
+
+    /// もう片方の出どころ（`DEC-RCL-016`）。 片方を録ったら、こちらを組み直す。
+    #[must_use]
+    pub const fn other(self) -> Self {
+        match self {
+            Self::Preset => Self::Repack,
+            Self::Repack => Self::Preset,
+        }
+    }
 }
 
 /// 行の状態（`TR-RCL-18`）。
@@ -282,7 +404,7 @@ impl Ledger {
         Self::open(":memory:")
     }
 
-    /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。
+    /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。 出どころはフルリスト。
     ///
     /// 生成が決定的なので、並び順もそのまま持つ（`TR-RCL-27`）。
     /// 単音階なら `tones` は1つ。多音階は同じリストを音高の数だけ入れる
@@ -290,6 +412,29 @@ impl Ledger {
     ///
     /// 行 ID は音高ごとに分ける。 同じ ID を共有すると、どの音高の行を
     /// 録ったのかが台帳から分からなくなる。
+    ///
+    /// 返すのは実際に入った行の数（[`install_rows`](Self::install_rows)）。
+    #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()), err)]
+    pub fn install_reclist_for_tones(
+        &mut self,
+        list: &[ReclistRow],
+        rules: &crate::presamp::Rules,
+        method: crate::alias::Method,
+        tones: &[i32],
+    ) -> Result<usize> {
+        let suffixed = tones.len() > 1;
+        let mut inserted = 0;
+        for tone in tones {
+            inserted +=
+                self.install_rows(list, rules, method, *tone, suffixed, RowOrigin::Preset)?;
+        }
+        Ok(inserted)
+    }
+
+    /// 1つの収録音高へ行を足す（`TR-RCL-18`）。
+    ///
+    /// `suffixed` は行 ID に音高名を付けるか。 多音階では付ける——付けないと、
+    /// 同じ中身の行が音高を跨いで同じ ID になる。
     ///
     /// **既にある行は飛ばす。** 選択から詰め直した行（`TR-RCL-16`）は
     /// 中身の指紋を ID にするので、選び直した範囲が前と重なれば同じ ID で
@@ -301,105 +446,136 @@ impl Ledger {
     /// 返すのは実際に入った行の数。 **渡した数ではない**——既にある行を
     /// 飛ばすので、同じ範囲を2度詰め直すと 0 になる。渡した数を
     /// 「足しました」と出すと、台帳が増えていないのに増えたと言うことになる。
-    #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()), err)]
-    pub fn install_reclist_for_tones(
+    #[tracing::instrument(
+        skip(self, list, rules, suffixed, origin),
+        fields(rows = list.len(), tone),
+        err
+    )]
+    pub fn install_rows(
         &mut self,
         list: &[ReclistRow],
         rules: &crate::presamp::Rules,
         method: crate::alias::Method,
-        tones: &[i32],
+        tone: i32,
+        suffixed: bool,
+        origin: RowOrigin,
     ) -> Result<usize> {
         self.conn
+            .transaction(|c| insert_rows(c, list, rules, method, tone, suffixed, origin))
+            .map_err(db("install_rows"))
+    }
+
+    /// その音高・出どころの、テイクを1本も持たない行（`DEC-RCL-016`）。
+    ///
+    /// 返すのは `(行 ID, その行が生むエイリアス)`。 除外した行は入らない——
+    /// 本人が外したものを組み直しで戻さない。
+    pub fn untaken_rows(
+        &mut self,
+        tone: i32,
+        origin: RowOrigin,
+    ) -> Result<Vec<(String, BTreeSet<String>)>> {
+        let ids: Vec<String> = rows::table
+            .filter(rows::tone.eq(tone))
+            .filter(rows::origin.eq(origin.as_str()))
+            .filter(rows::state.eq(RowState::Unrecorded.as_str()))
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                takes::table.filter(takes::row_id.eq(rows::id)),
+            )))
+            .order(rows::ordinal.asc())
+            .select(rows::id)
+            .load(&mut self.conn)
+            .map_err(db("untaken_rows"))?;
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let aliases = self.aliases_of_row(&id)?;
+            out.push((id, aliases));
+        }
+        Ok(out)
+    }
+
+    /// その音高・出どころの、テイクを1本も持たない行を入れ替える（`DEC-RCL-016`）。
+    ///
+    /// 消すのは [`untaken_rows`](Self::untaken_rows) が返す行だけ。 **録った行は
+    /// 消さない**——テイクを1本でも持つ行は、無効のテイクしか無くても残す
+    /// （`INV-REC-003` の「未収録の項目は、確定したテイクも無効テイクも持たない」）。
+    /// 消す行は何も持っていないので、失われるものが無い。
+    ///
+    /// 消すのと足すのを1つのトランザクションで行う。 途中で落ちると、
+    /// 録る行が消えたまま足されない。返すのは足した行の数。
+    #[tracing::instrument(
+        skip(self, list, rules, suffixed, origin),
+        fields(rows = list.len(), tone),
+        err
+    )]
+    pub fn replace_untaken_rows(
+        &mut self,
+        list: &[ReclistRow],
+        rules: &crate::presamp::Rules,
+        method: crate::alias::Method,
+        tone: i32,
+        suffixed: bool,
+        origin: RowOrigin,
+    ) -> Result<usize> {
+        let gone: Vec<String> = self
+            .untaken_rows(tone, origin)?
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        self.conn
             .transaction(|c| {
-                let mut ordinal = 0_i32;
-                let mut inserted = 0_usize;
-                for tone in tones {
-                    // 1つの綴りを持つ行は、同じ音高の中に1つだけ（`TR-ALN-22`）。
-                    //
-                    // **連続音の第2段は語頭 CV を重複して生む。** 始点の母音を作る
-                    // 単位を行頭に置くしかなく、その単位の語頭は第1段で既に出ている
-                    // （`crate::reclist::generate_sequential`）。`Core` では
-                    // `- い` `- え` `- ん` の3つが、159 行から重ねて名乗る。
-                    //
-                    // 先に名乗った行が持つ。 `ordinal` の順に見るので、持つのは
-                    // 第1段の行——あちらはその単位を歌うためだけに置かれた行で、
-                    // 第2段の行頭は辺へ入るための運び役でしかない。
-                    //
-                    // 名乗らせると確認キューが片方を落とす。 鍵が（音高, 綴り）
-                    // なので、あとに読んだ行が前の行を置き換え、落ちたほうは
-                    // 確認もされず `oto.ini` にも出ない（`INV-ALN-003`）。
-                    let mut claimed: std::collections::BTreeSet<String> = row_aliases::table
-                        .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
-                        .filter(rows::tone.eq(tone))
-                        .select(row_aliases::alias)
-                        .load::<String>(c)?
-                        .into_iter()
-                        .collect();
-                    for r in list {
-                        let id = if tones.len() > 1 {
-                            format!("{}@{}", r.id, crate::tone::name(*tone))
-                        } else {
-                            r.id.clone()
-                        };
-                        let added = diesel::insert_into(rows::table)
-                            .values((
-                                rows::id.eq(&id),
-                                rows::text.eq(&r.text),
-                                rows::file_stem.eq(&r.file_stem),
-                                rows::tone.eq(tone),
-                                rows::state.eq(RowState::Unrecorded.as_str()),
-                                rows::ordinal.eq(ordinal),
-                            ))
-                            .on_conflict(rows::id)
-                            .do_nothing()
-                            .execute(c)?;
-                        ordinal += 1;
-                        // 既にある行は、単位もエイリアスも入っている。
-                        if added == 0 {
-                            continue;
-                        }
-                        inserted += 1;
-                        // 単位は集合として入れる。 連続音の行は同じ仮名を2度持つが、
-                        // 集合としては変わらない。語順は `rows.text` が持っている。
-                        let mut seen = std::collections::BTreeSet::new();
-                        for u in &r.units {
-                            if !seen.insert(u.kana) {
-                                continue;
-                            }
-                            diesel::insert_into(row_units::table)
-                                .values((
-                                    row_units::row_id.eq(&id),
-                                    row_units::kana.eq(u.kana),
-                                    row_units::consonant.eq(u.consonant),
-                                    row_units::vowel.eq(u.vowel),
-                                ))
-                                .execute(c)?;
-                        }
-                        // 行が生むエイリアス（`TR-PKG-22` の判定の正本）。
-                        //
-                        // `ordinal` は飛ぶことがある。 既に名乗られた綴りを
-                        // 飛ばすので、残った番号は行の中での初出位置のまま
-                        // ——詰め直すと、同じ行の綴りが名乗りの有無で動く。
-                        for (n, alias) in crate::reclist::row_aliases(rules, method, &r.units)
-                            .into_iter()
-                            .enumerate()
-                        {
-                            if !claimed.insert(alias.clone()) {
-                                continue;
-                            }
-                            diesel::insert_into(row_aliases::table)
-                                .values((
-                                    row_aliases::row_id.eq(&id),
-                                    row_aliases::alias.eq(&alias),
-                                    row_aliases::ordinal.eq(i32::try_from(n).unwrap_or(i32::MAX)),
-                                ))
-                                .execute(c)?;
-                        }
-                    }
-                }
-                Ok(inserted)
+                diesel::delete(row_aliases::table.filter(row_aliases::row_id.eq_any(&gone)))
+                    .execute(c)?;
+                diesel::delete(row_units::table.filter(row_units::row_id.eq_any(&gone)))
+                    .execute(c)?;
+                diesel::delete(rows::table.filter(rows::id.eq_any(&gone))).execute(c)?;
+                insert_rows(c, list, rules, method, tone, suffixed, origin)
             })
-            .map_err(db("install_reclist_for_tones"))
+            .map_err(db("replace_untaken_rows"))
+    }
+
+    /// 台帳の行を、録音リストの行の形で（`TR-SYN-19`, `DEC-RCL-016`）。 返すのは
+    /// `(収録音高, 行)` で、並びは正準順。除外した行は入らない。
+    ///
+    /// 提示順はこれを並べる。 **プリセットから生成し直したリストを並べていた**ので、
+    /// 詰め直した行も組み直した行も一度も並ばなかった。
+    ///
+    /// 単位は読み上げる文字列から引く（[`row_units_of`](Self::row_units_of) と同じ）。
+    /// 行ごとに問い合わせない——提示順はテイクのたびに作り直す。
+    pub fn listed_rows(&mut self, set: UnitSet) -> Result<Vec<(i32, ReclistRow)>> {
+        let table = units(set);
+        Ok(rows::table
+            .filter(rows::state.ne(RowState::Excluded.as_str()))
+            .order(rows::ordinal.asc())
+            .select((rows::id, rows::text, rows::file_stem, rows::tone))
+            .load::<(String, String, String, i32)>(&mut self.conn)
+            .map_err(db("listed_rows"))?
+            .into_iter()
+            .map(|(id, text, file_stem, tone)| {
+                let units = text
+                    .split_whitespace()
+                    .filter_map(|k| table.iter().find(|u| u.kana == k).cloned())
+                    .collect();
+                (
+                    tone,
+                    ReclistRow {
+                        id,
+                        text,
+                        units,
+                        file_stem,
+                    },
+                )
+            })
+            .collect())
+    }
+
+    /// 行の出どころ（`TR-RCL-18` (g)）。
+    pub fn row_origin(&mut self, row_id: &str) -> Result<RowOrigin> {
+        rows::table
+            .find(row_id)
+            .select(rows::origin)
+            .first::<String>(&mut self.conn)
+            .map(|s| RowOrigin::parse(&s))
+            .map_err(db("row_origin"))
     }
 
     /// 単独音・単音階の入口。 既存の呼び出しを壊さないために残す。
@@ -637,13 +813,9 @@ impl Ledger {
             .map_err(db("covered_aliases"))
     }
 
-    /// その行が持つエイリアス（`TR-RCL-18`）。
+    /// その行を歌うと録れるエイリアス（`TR-RCL-18`）。 持ち主かどうかは見ない。
     ///
-    /// **綴りから作り直さない。** 同じ綴りを2つの行が生むとき、持つのは
-    /// 先に名乗った1つだけで（[`install_reclist_for_tones`]）、その取り決めは
-    /// 台帳にしか無い。作り直すと、名乗らなかった行にも5値が生える。
-    ///
-    /// [`install_reclist_for_tones`]: Self::install_reclist_for_tones
+    /// 5値を置くのは [`owned_aliases_of_row`](Self::owned_aliases_of_row) のほう。
     pub fn aliases_of_row(&mut self, row_id: &str) -> Result<BTreeSet<String>> {
         row_aliases::table
             .filter(row_aliases::row_id.eq(row_id))
@@ -651,6 +823,72 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map(|v| v.into_iter().collect())
             .map_err(db("aliases_of_row"))
+    }
+
+    /// その行が持ち主になっているエイリアス（`DEC-RCL-016`）。 5値を置くのはこれだけ。
+    ///
+    /// **綴りから作り直さない。** 同じ音高で同じ綴りを2つの行が生むとき、
+    /// 持つのは先に録った1つだけ（[`alias_owners`](Self::alias_owners)）。
+    /// 作り直すと、持たない行にも5値が生え、確認キューが片方を落とす。
+    pub fn owned_aliases_of_row(&mut self, row_id: &str) -> Result<BTreeSet<String>> {
+        Ok(self
+            .alias_owners()?
+            .into_iter()
+            .filter_map(|((_, alias), owner)| (owner == row_id).then_some(alias))
+            .collect())
+    }
+
+    /// （収録音高, 綴り）ごとの持ち主の行（`DEC-RCL-016`）。
+    ///
+    /// 同じ音高で同じ綴りを生む行のうち、有効な採用テイクを持ち、最初の有効な
+    /// テイクがいちばん早いもの。**先に録った行が持ち、あとから別の行を録っても
+    /// 入れ替わらない**——確認済みの5値と手で直した値が、本人の知らないうちに
+    /// 別の素材へ移らない。持ち主の採用テイクが無効になれば、次に録った行へ移る。
+    ///
+    /// 欄に持たず、テイクから導く。 欄に持つとテイクを無効にするたびに
+    /// 書き換えることになり、書き換え忘れた欄が別の行を指す。
+    ///
+    /// **入れる順で先に名乗った行に持たせていた**（`DEC-ALN-017`）。 フルリストの
+    /// あとに足した詰め直しの行は綴りを1つも持たず、録っても何も増えなかった。
+    pub fn alias_owners(&mut self) -> Result<BTreeMap<(i32, String), String>> {
+        let valid: BTreeSet<String> = adopted_takes::table
+            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+            .filter(takes::invalid.eq(0))
+            .select(adopted_takes::row_id)
+            .load::<String>(&mut self.conn)
+            .map_err(db("alias_owners.valid"))?
+            .into_iter()
+            .collect();
+        let mut first: BTreeMap<String, i32> = BTreeMap::new();
+        for (row, id) in takes::table
+            .filter(takes::invalid.eq(0))
+            .select((takes::row_id, takes::id))
+            .load::<(String, i32)>(&mut self.conn)
+            .map_err(db("alias_owners.first"))?
+        {
+            let e = first.entry(row).or_insert(id);
+            *e = (*e).min(id);
+        }
+        let produced: Vec<(String, i32, String)> = row_aliases::table
+            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+            .select((rows::id, rows::tone, row_aliases::alias))
+            .load(&mut self.conn)
+            .map_err(db("alias_owners.aliases"))?;
+        let mut best: BTreeMap<(i32, String), (i32, String)> = BTreeMap::new();
+        for (row, tone, alias) in produced {
+            if !valid.contains(&row) {
+                continue;
+            }
+            let Some(at) = first.get(&row).copied() else {
+                continue;
+            };
+            let e = best.entry((tone, alias)).or_insert((at, row.clone()));
+            // 同じテイクの番号は2行に付かないが、並びを決定的にしておく。
+            if (at, &row) < (e.0, &e.1) {
+                *e = (at, row);
+            }
+        }
+        Ok(best.into_iter().map(|(k, (_, row))| (k, row)).collect())
     }
 
     /// 録音リストが要求するエイリアスの全体（`TR-RCL-18`）。
@@ -2208,13 +2446,16 @@ impl Ledger {
             .select((adopted_takes::row_id, adopted_takes::take_id))
             .load(&mut self.conn)
             .map_err(db("adopted_rows_without_oto.adopted"))?;
+        // 数えるのは持ち主になっている綴りだけ（`DEC-RCL-016`）。 持たない綴りには
+        // 5値を置かないので、行が生む綴りで数えると、重なりを持つ行が全部
+        // 「足りない」ことになる。
+        let mut owned: BTreeMap<String, i64> = BTreeMap::new();
+        for owner in self.alias_owners()?.into_values() {
+            *owned.entry(owner).or_default() += 1;
+        }
         let mut out = Vec::new();
         for (row_id, take_id) in adopted {
-            let want: i64 = row_aliases::table
-                .filter(row_aliases::row_id.eq(&row_id))
-                .count()
-                .get_result(&mut self.conn)
-                .map_err(db("adopted_rows_without_oto.aliases"))?;
+            let want = owned.get(&row_id).copied().unwrap_or(0);
             let otos: i64 = oto_values::table
                 .filter(oto_values::take_id.eq(take_id))
                 .count()
@@ -2242,16 +2483,16 @@ impl Ledger {
     /// `TR-ALN-20` (6) の同一 WAV 内の重複とは別。 あちらは1つの WAV の中の話で、
     /// [`validate`] 側が WAV ごとに見る。ここが見るのは WAV をまたぐ重なり。
     ///
-    /// **発火しないのが正常。** 綴りの持ち主は録音リストを入れる時点で1つに
-    /// 決まる（[`install_reclist_for_tones`]）。ここはその取り決めが破れた
-    /// ときに気づくための後備で、破れた状態で配らないことだけを保証する。
+    /// **発火しないのが正常。** 綴りの持ち主は録った順で1つに決まり
+    /// （[`alias_owners`](Self::alias_owners)）、5値は持ち主にしか置かない。
+    /// ここはその取り決めが破れたときに気づくための後備で、破れた状態で
+    /// 配らないことだけを保証する。
     ///
     /// # Errors
     ///
     /// SQLite の操作が失敗した。
     ///
     /// [`validate`]: https://docs.rs/koeru-align
-    /// [`install_reclist_for_tones`]: Self::install_reclist_for_tones
     pub fn adopted_conflicting_aliases(&mut self) -> Result<Vec<String>> {
         let rows: Vec<(i32, String, i32)> = oto_values::table
             .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
@@ -3405,35 +3646,56 @@ mod m5_tests {
         );
     }
 
-    /// 同じ音高の中では、1つの綴りを持つ行は1つ（`TR-ALN-22`）。
+    /// 同じ音高で同じ綴りを生む行は、先に録ったほうが持つ（`DEC-RCL-016`）。
     ///
-    /// **連続音の第2段が語頭 CV を重複して生んでいた。** `Core` では
-    /// `- い` `- え` `- ん` の3つを 159 行が重ねて名乗り、確認キューが
-    /// 片方を落とし、書き出しの関門が `review.conflicting_alias` で閉じていた。
+    /// **入れる順で先に名乗った行に持たせていた**（`DEC-ALN-017`）。 連続音の
+    /// 第2段の行頭は語頭 CV を重ねて生む（`Core` で `- い` `- え` `- ん`）ので、
+    /// 第2段の行を先に録ると、その `- い` は持ち主のいないまま捨てられていた。
     #[test]
-    fn 連続音の語頭cvを持つ行は音高ごとに一つ() {
+    fn 重なった綴りは先に録った行が持つ() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
         l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
             .expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
 
-        // 生成器は重複を出したままでよい。 名乗りを1つに決めるのは台帳。
-        let rules = builtin_rules();
-        let generated = list
-            .iter()
-            .flat_map(|r| crate::reclist::row_aliases(&rules, AliasMethod::Sequential, &r.units))
-            .filter(|a| a == "- い")
-            .count();
-        assert!(generated > 1, "第2段が語頭 CV を重ねて生む前提が崩れている");
-
-        let owners: Vec<String> = row_aliases::table
+        // 生成器は重複を出したままでよい。 誰が持つかは録った順で決まる。
+        let producers: Vec<String> = row_aliases::table
             .filter(row_aliases::alias.eq("- い"))
             .select(row_aliases::row_id)
             .load(&mut l.conn)
             .expect("引ける");
-        assert_eq!(owners.len(), 1, "持ち主は1行だけ: {owners:?}");
-        // 持つのは第1段の行。 第2段の行頭は辺へ入るための運び役でしかない。
-        assert_eq!(owners[0], list[1].id, "第1段の行が持つ");
+        assert!(
+            producers.len() > 1,
+            "第2段が語頭 CV を重ねて生む前提が崩れている"
+        );
+        let (early, late) = (&producers[producers.len() - 1], &producers[0]);
+
+        // 録っていなければ誰も持たない。
+        assert!(l.owned_aliases_of_row(early).expect("引ける").is_empty());
+
+        // 並びの後ろの行を先に録る。 持つのはそちら。
+        let first = adopt(&mut l, sid, early);
+        adopt(&mut l, sid, late);
+        assert!(
+            l.owned_aliases_of_row(early)
+                .expect("引ける")
+                .contains("- い")
+        );
+        assert!(
+            !l.owned_aliases_of_row(late)
+                .expect("引ける")
+                .contains("- い"),
+            "あとから録った行へ移らない"
+        );
+
+        // 先に録った行のテイクが無効になれば、録ってある次の行へ移る。
+        l.invalidate_take(first).expect("無効にできる");
+        assert!(
+            l.owned_aliases_of_row(late)
+                .expect("引ける")
+                .contains("- い")
+        );
     }
 
     /// 連続音の行が生むのは仮名ではなくエイリアス（`TR-PKG-22`）。
