@@ -40,6 +40,13 @@ pub enum UstError {
     #[error("UST として読めない")]
     Malformed,
 
+    /// ノートの節に `Lyric`・`NoteNum`・`Length` のどれかが欠けている。
+    ///
+    /// `index` は何番目のノート節か（1 始まり）。 歌詞は載せない——
+    /// この表示は画面にもトレースにも出る（`AGENTS.md` #3）。
+    #[error("{index} 番目のノートに、歌詞・音高・長さのどれかが欠けている")]
+    IncompleteNote { index: usize },
+
     /// USTX（YAML）として読めない。
     #[error("USTX として読めない")]
     MalformedUstx,
@@ -53,6 +60,7 @@ impl UstError {
             Self::Encoding(e) => e.kind(),
             Self::NoNotes => "ust.no_notes",
             Self::Malformed => "ust.malformed",
+            Self::IncompleteNote { .. } => "ust.incomplete_note",
             Self::MalformedUstx => "ust.malformed_ustx",
         }
     }
@@ -103,27 +111,36 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
     // 休符の長さは次の音符へ持ち越す（`TR-RCL-12`）。
     // **捨てない。** 捨てると曲が詰まって、元と違うリズムで鳴る。
     let mut pending_rest = 0_u32;
+    // 何番目のノート節か（1 始まり）。 欠けた節を名指すのに使う。
+    let mut section = 0_usize;
 
     let flush = |notes: &mut Vec<Note>,
                  pending_rest: &mut u32,
                  lyric: &mut Option<String>,
                  midi: &mut Option<i32>,
-                 ticks: &mut Option<u32>| {
-        if let (Some(l), Some(m), Some(t)) = (lyric.take(), midi.take(), ticks.take()) {
-            if REST_LYRICS.contains(&l.as_str()) {
-                *pending_rest = pending_rest.saturating_add(t);
-            } else {
-                notes.push(Note {
-                    lyric: l,
-                    midi: m,
-                    ticks: t,
-                    rest_ticks: std::mem::take(pending_rest),
-                });
-            }
+                 ticks: &mut Option<u32>,
+                 section: usize|
+     -> Result<(), UstError> {
+        let (l, m, t) = (lyric.take(), midi.take(), ticks.take());
+        // 休符は長さだけ使う。 鳴らないので、音高が欠けていても曲は変わらない。
+        if let (Some(rest), Some(t)) = (&l, t)
+            && REST_LYRICS.contains(&rest.as_str())
+        {
+            *pending_rest = pending_rest.saturating_add(t);
+            return Ok(());
         }
-        *lyric = None;
-        *midi = None;
-        *ticks = None;
+        // **黙って捨てていた。** 1つでも欠けた節を飛ばすと、歌う音符が消えるか、
+        // 休符が消えてリズムが詰まる——読めたふりをして、別の曲を取り込む。
+        let (Some(l), Some(m), Some(t)) = (l, m, t) else {
+            return Err(UstError::IncompleteNote { index: section });
+        };
+        notes.push(Note {
+            lyric: l,
+            midi: m,
+            ticks: t,
+            rest_ticks: std::mem::take(pending_rest),
+        });
+        Ok(())
     };
 
     for line in body.lines() {
@@ -136,7 +153,8 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
                     &mut lyric,
                     &mut midi,
                     &mut ticks,
-                );
+                    section,
+                )?;
             }
             // `[#0000]` のような節がノート。 `[#SETTING]` などは飛ばす。
             in_note = line
@@ -145,6 +163,9 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
                 .chars()
                 .all(|c| c.is_ascii_digit())
                 && line.len() > 3;
+            if in_note {
+                section += 1;
+            }
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
@@ -173,7 +194,8 @@ pub fn parse_ust(bytes: &[u8], title: &str) -> Result<Song, UstError> {
             &mut lyric,
             &mut midi,
             &mut ticks,
-        );
+            section,
+        )?;
     }
 
     if notes.is_empty() {
@@ -557,6 +579,38 @@ mod tests {
         assert_eq!(s.notes[0].midi, 60);
         assert_eq!(s.notes[0].ticks, 480);
         assert_eq!(s.notes[1].lyric, "く");
+    }
+
+    /// 欠けたノート節を黙って捨てない（`TR-RCL-12`）。
+    ///
+    /// **黙って捨てていた。** 1つ欠けた節を飛ばすと、歌う音符が消えるか休符が
+    /// 消えてリズムが詰まる——読めたふりをして別の曲を取り込む。
+    #[test]
+    fn 欠けたノート節は取り込まない() {
+        let missing_pitch = "[#0000]\nLength=480\nLyric=さ\nNoteNum=60\n[#0001]\nLength=480\nLyric=く\n[#TRACKEND]\n";
+        let e = parse_ust(missing_pitch.as_bytes(), "x").expect_err("断る");
+        assert!(
+            matches!(e, UstError::IncompleteNote { index: 2 }),
+            "2 番目の節を名指す: {e:?}"
+        );
+        assert_eq!(e.kind(), "ust.incomplete_note");
+        assert!(!e.to_string().contains('く'), "歌詞は載せない");
+
+        // 読めない長さも欠けたのと同じ。
+        let bad_length = "[#0000]\nLength=abc\nLyric=さ\nNoteNum=60\n[#TRACKEND]\n";
+        assert!(matches!(
+            parse_ust(bad_length.as_bytes(), "x"),
+            Err(UstError::IncompleteNote { index: 1 })
+        ));
+    }
+
+    /// 休符は長さだけ要る。 鳴らないので、音高が無くても曲は変わらない。
+    #[test]
+    fn 音高の無い休符は通す() {
+        let rest = "[#0000]\nLength=480\nLyric=さ\nNoteNum=60\n[#0001]\nLength=240\nLyric=R\n[#0002]\nLength=480\nLyric=く\nNoteNum=62\n[#TRACKEND]\n";
+        let s = parse_ust(rest.as_bytes(), "x").expect("読める");
+        assert_eq!(s.notes.len(), 2);
+        assert_eq!(s.notes[1].rest_ticks, 240, "休符の長さは次の音符へ持ち越す");
     }
 
     /// UST は CP932 が既定（UTAU 本体がそう書く）。
