@@ -1529,6 +1529,25 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 
 セッション記録の整理は `design-review` の下位操作として扱い、別の自律 Agent を増やさない。録音・記録の扱いは本人の同意と公開範囲に従う。
 
+### 14.1.1 review から検証と Context audit を分離する
+
+`design-review` に critique と verification を詰め込むと、AI の解釈と tool の観測が
+同じ出力に混ざりやすい。runner には次の capability も独立 mode として持たせる。
+
+| Mode／Skill | 主な仕事 | 出力の authority |
+|---|---|---|
+| **design-context-audit** | DEC / CLM / EVID / PAT の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
+| **design-verify** | Claim class から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only claim は未解決のまま返す |
+
+`design-context-audit` は Context の意味を勝手に統合せず、「この二つは矛盾している可能性」
+という candidate を source locator 付きで返す。
+
+`design-verify` は Evidence capability registry を参照する。
+Human observation が必要な Claim に対して synthetic answer を生成せず、Human Verification Debt に送る。
+
+これにより `review` は artifact critique、`verify` は検証手段、
+`context-audit` は知識構造の健全性という別の epistemic role を持つ。
+
 ### 14.2 Agent ができないこと
 
 本仕様の Design Agent は、次を実行できない。
