@@ -1880,6 +1880,23 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 | pruning 後に「なぜ採らなかったか」が分からない | 費用削減が継承能力を破壊した | 最小保持条件を変更 |
 | Contributor が作るより AI 案の承認に時間を使っている | 人間が approval workforce に退化している | Agent の担当を探索・下処理へ戻すか停止 |
 
+### 15.3.1 Contributor learning を System Health として観測する
+
+学習を個人の competence score にしない一方、System が人を単に従わせていないかは観測する。
+見るのは individual ranking ではなく、**判断参加が可能になった事例**である。
+
+たとえば次を case-based に確認する。
+
+- 元作者なしで Decision rationale と overturn condition を再構成できたか。
+- newcomer が既存 PAT の `must_not_apply_when` や新しい反例を見つけられたか。
+- Critique から、作者が最初に想定していなかった Question が生まれたか。
+- 現 Canon に反する proposal が実際に提出され、Context mastery 不足だけを理由に退けられなかったか。
+- role rotation により、Author 以外の参加方法から実際の変更へ寄与できたか。
+- re-entry した Contributor が以前と違う見方を新しい Signal として持ち込めたか。
+
+これらを達成率や maturity score にしない。事例が全く現れず、Contributor が既存語彙を
+再生産するだけなら、learning mechanism が conformity mechanism になっている可能性を C10 で扱う。
+
 Health は一つの score にしない。
 
 見るのは、実際の創作で困難が減ったか、判断が再構成できるか、異議が扱われたか、再参加できるか、process が重すぎないかである。利用者観察がない項目は、良好ではなく**未観測**と表示する。
