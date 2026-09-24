@@ -128,7 +128,7 @@
           # hash は `.github/scripts/update-hashes.sh` が上流の `.sha256` から作り直す。
           # 手で書き換えない（`DEC-PLT-033`）。
           # ---------------------------------------------------------------
-          fslcVersion = "v4.6.0";
+          fslcVersion = "v4.7.0";
           fslcAssets = {
             aarch64-darwin = {
               name = "fslc-macos-arm64";
