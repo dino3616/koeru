@@ -56,8 +56,11 @@ contract_surface = '''
 
 errors = '''
 [Fact] `thiserror` のエラー型は 31 個。すべて `kind()` で種別文字列を返す。
-`Display` に値を差し込んでいるのは `ProjectError::UnknownMethod{found}` だけで、
-値は manifest から来る。
+
+[Fact] `#[error("…")]` の文言に値を差し込んでいる変種は 21 ある。 多くは件数・段・
+状態の列挙・OSStatus・内部の操作名で、`SessionError` の6つは状態の列挙を `{:?}` の
+英字のまま利用者に見せる。利用者のデータになりうるのは manifest から来る値
+（`ProjectError::UnknownMethod{found}`）だけ。
 
 [Fact] 同じ種別文字列を複数の型が名乗っている。`ledger.*`（core と align）、`preset.*`、
 `resample.zero_rate`（audio と align）、`recording.not_enough_space`（audio と app）。
