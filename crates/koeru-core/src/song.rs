@@ -136,32 +136,67 @@ impl Song {
         mora::parse(&text, set).ok()
     }
 
+    /// 音符ごとのモーラ数。 読めなくなった最初の音符（0 始まり）を `Err` で返す。
+    ///
+    /// 前から繋げて読み、1つ前との差で数える。 **音符ごとに切って読むと
+    /// 数えられない**——長音（`ー`）は直前のモーラに付くので、単独では
+    /// `DanglingModifier` になる。同梱の「さくらさくら」も `ー` の音符を持つ。
+    ///
+    /// 前の音符と字が結びつくと差が 0 になる（`き` + `ゃ` → `きゃ`）。
+    /// 音符の切れ目がモーラの途中にあるということなので、そのまま 0 と数える。
+    fn note_moras(&self, set: UnitSet) -> Result<Vec<usize>, usize> {
+        let mut text = String::new();
+        let mut before = 0_usize;
+        let mut out = Vec::with_capacity(self.notes.len());
+        for (i, n) in self.notes.iter().enumerate() {
+            text.push_str(&n.lyric);
+            let now = mora::parse(&text, set).map_err(|_| i)?.len();
+            out.push(now.saturating_sub(before));
+            before = now;
+        }
+        Ok(out)
+    }
+
+    /// 1モーラでない最初の音符（0 始まり）。 どれも1モーラなら `None`。
+    ///
+    /// 解決は音符とモーラが1対1で並ぶ前提で進む（`alias::resolve_phrase` は
+    /// モーラの添字で音符を引く、`DEC-SYN-009`）。 **全体を繋げて読めるかしか
+    /// 見ていなかった**ので、`さく` のような音符が取り込めてしまい、そこから
+    /// 後ろの音高と長さが1つずつずれ、末尾は既定値で鳴っていた。
+    ///
+    /// 読めない音符もここで拾う。 0 モーラも2モーラも、並びを崩す点で同じ。
+    #[must_use]
+    pub fn note_not_one_mora(&self, set: UnitSet) -> Option<usize> {
+        match self.note_moras(set) {
+            Ok(counts) => counts.iter().position(|c| *c != 1),
+            Err(i) => Some(i),
+        }
+    }
+
     /// フレーズの切れ目（`TR-RCL-12` の休符）。 モーラの添字で返す。
     ///
     /// 休符の手前で綴りの文脈が切れる。 **繋げて解決していた**ので、
     /// 休符のあとの音符が語頭形（`- か`）ではなく継続（`a か`）に
     /// 解決され、試唱は別の立ち上がりで鳴り、被覆も別の綴りを要求していた。
     ///
-    /// 音符ごとに読み直して数える。 総数が全体の解析と合わなければ空を返す
-    /// ——**誤った位置で切るより、切らないほうがよい。**
+    /// 数え方は [`note_moras`](Self::note_moras) と同じ。 **音符ごとに切って
+    /// 読んでいた**ので、`ー` の音符を1つでも持つ曲では数えられず、黙って
+    /// 切れ目なしに倒れていた。読めない曲も切れ目なしに倒す——
+    /// **誤った位置で切るより、切らないほうがよい。**
     #[must_use]
     pub fn phrase_breaks(&self, set: UnitSet) -> BTreeSet<usize> {
+        let Ok(counts) = self.note_moras(set) else {
+            return BTreeSet::new();
+        };
         let mut breaks = BTreeSet::new();
         let mut at = 0_usize;
-        for n in &self.notes {
+        for (n, c) in self.notes.iter().zip(counts) {
             if n.rest_ticks > 0 && at > 0 {
                 breaks.insert(at);
             }
-            let Ok(m) = mora::parse(&n.lyric, set) else {
-                return BTreeSet::new();
-            };
-            at += m.len();
+            at += c;
         }
-        if self.moras(set).is_some_and(|m| m.len() == at) {
-            breaks
-        } else {
-            BTreeSet::new()
-        }
+        breaks
     }
 
     /// 方式ごとの必要エイリアス集合（`TR-RCL-12` (e), `TR-RCL-15`, `TR-SYN-17`）。
@@ -584,6 +619,48 @@ mod tests {
             tempo_bpm: crate::guide::DEFAULT_TEMPO_BPM,
             default_portamento_ms: 0.0,
             transpose: 0,
+        }
+    }
+
+    /// 1音符に2モーラ入った曲を見つける（`DEC-SYN-009`）。
+    ///
+    /// **全体を繋げて読めるかしか見ていなかった。** `さく` の音符が通り、
+    /// そこから後ろの音高と長さが1つずつずれていた。
+    #[test]
+    fn 一音符に二モーラある曲を見つける() {
+        assert_eq!(
+            song("さくら", &["さく", "ら"]).note_not_one_mora(UnitSet::Core),
+            Some(0)
+        );
+        assert_eq!(
+            song("読めない", &["さ", "abc"]).note_not_one_mora(UnitSet::Core),
+            Some(1),
+            "読めない音符も並びを崩す"
+        );
+        // 拗音・長音・促音・撥音は、字が2つでも音符1つで1モーラ。
+        assert_eq!(
+            song("いろいろ", &["きゃ", "ー", "っ", "ん"]).note_not_one_mora(UnitSet::Core),
+            None
+        );
+    }
+
+    /// 長音を持つ曲でも休符の切れ目を数えられる（`TR-RCL-12`）。
+    ///
+    /// **音符ごとに切って読んでいた。** `ー` は単独では読めないので、
+    /// `ー` を1つでも持つ曲では切れ目が1つも出ず、休符のあとも継続形で
+    /// 解決されていた。
+    #[test]
+    fn 長音のある曲でも休符の切れ目を数える() {
+        let mut s = song("はーか", &["は", "ー", "か"]);
+        s.notes[2].rest_ticks = 480;
+        assert_eq!(s.phrase_breaks(UnitSet::Core), BTreeSet::from([2]));
+    }
+
+    /// 同梱曲はどれも1音符1モーラ。 取り込みの検査で同梱曲が落ちないこと。
+    #[test]
+    fn 同梱曲は一音符一モーラ() {
+        for s in crate::ust::bundled_songs() {
+            assert_eq!(s.note_not_one_mora(UnitSet::Core), None, "{}", s.title);
         }
     }
 
