@@ -150,7 +150,7 @@ pub fn exportable(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) -> V
 /// 5値の再導出は `koeru-align` が持つ（`TR-ALN-34`）。
 #[must_use]
 pub fn downgradable(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) -> Vec<Method> {
-    if missing_head_cv(set, provided).is_empty()
+    if missing_head_cv(rules, set, provided).is_empty()
         && !exportable(rules, set, provided).contains(&Method::Single)
     {
         vec![Method::Single]
@@ -162,12 +162,22 @@ pub fn downgradable(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) ->
 /// 足りない語頭 CV（`TR-RCL-21`）。
 ///
 /// 連続音のリストが「単独音を出せる構成」になっているかは、これが空かどうか。
+///
+/// 綴りは `rules` から引く（`TR-SYN-36`）。 **`- か` と書き込んでいた。**
+/// `presamp.ini` で語頭形を `-%CV%` のように差し替えると、全部録った連続音でも
+/// 語頭 CV が1つも無いことになり、単独音へ降りる道が出なかった——被覆も
+/// 再導出も差し替えた綴りで動くのに、ここだけ既定の綴りを見ていた。
 #[must_use]
-pub fn missing_head_cv(set: UnitSet, provided: &BTreeSet<String>) -> Vec<String> {
+pub fn missing_head_cv(rules: &Rules, set: UnitSet, provided: &BTreeSet<String>) -> Vec<String> {
     units(set)
         .iter()
         .filter_map(|u| {
-            let head = format!("- {}", u.kana);
+            // 直前の母音が無い連続音の第一候補が語頭形（`BEGINING_CV`）。
+            // 録音リストの行頭と同じ引き方（`reclist` の `head_cv`）。
+            let head = rules
+                .candidates(Method::Sequential, u.kana, None)
+                .into_iter()
+                .next()?;
             (!provided.contains(&head)).then_some(head)
         })
         .collect()
@@ -307,7 +317,7 @@ mod tests {
     fn 連続音の素材は単独音へ降りられる() {
         let p = sequential_full();
         assert_eq!(exportable(&core(), UnitSet::Core, &p), [Method::Sequential]);
-        assert!(missing_head_cv(UnitSet::Core, &p).is_empty());
+        assert!(missing_head_cv(&core(), UnitSet::Core, &p).is_empty());
         assert_eq!(downgradable(&core(), UnitSet::Core, &p), [Method::Single]);
     }
 
@@ -315,8 +325,24 @@ mod tests {
     fn 語頭_cv_が欠けていたら降りられない() {
         let mut p = sequential_full();
         p.remove("- あ");
-        assert_eq!(missing_head_cv(UnitSet::Core, &p), ["- あ"]);
+        assert_eq!(missing_head_cv(&core(), UnitSet::Core, &p), ["- あ"]);
         assert!(downgradable(&core(), UnitSet::Core, &p).is_empty());
+    }
+
+    /// 語頭形を差し替えた音源でも降りられる（`TR-SYN-36`）。
+    ///
+    /// **`- か` と書き込んでいた。** `-%CV%` に差し替えると、全部録っても
+    /// 語頭 CV が1つも無いことになり、降りる道が出なかった。
+    #[test]
+    fn 差し替えた語頭形でも降りられる() {
+        let mut rules = core();
+        rules
+            .templates
+            .insert("BEGINING_CV".to_owned(), "-%CV%".to_owned());
+        let p = required(&rules, Method::Sequential, UnitSet::Core).expect("表がある");
+        assert!(p.contains("-か"), "差し替えた綴りで要求する");
+        assert!(missing_head_cv(&rules, UnitSet::Core, &p).is_empty());
+        assert_eq!(downgradable(&rules, UnitSet::Core, &p), [Method::Single]);
     }
 
     #[test]

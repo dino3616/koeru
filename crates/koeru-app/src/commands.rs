@@ -2157,7 +2157,11 @@ pub struct DowngradeView {
     /// 複製される WAV の概算バイト数。
     ///
     /// **「oto.ini 1ファイル分」ではない。** 元とほぼ同等の容量がもう1本できる。
-    pub bytes: u32,
+    ///
+    /// `u32` に畳まない。 **畳んでいた**ので 4 GiB で頭打ちになり、多音階の
+    /// 大きな音源ほど「増える容量」が小さく出ていた——警告のための数が、
+    /// いちばん警告したい場面で嘘をつく。小数なら 2^53 バイトまで正確に届く。
+    pub bytes: Finite,
 }
 
 /// 配布物に入るファイル1つ。
@@ -2317,7 +2321,11 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
             .iter()
             .map(|d| DowngradeView {
                 method: d.method.as_str().to_owned(),
-                bytes: count64(d.bytes),
+                #[allow(
+                    clippy::cast_precision_loss,
+                    reason = "2^53 バイト（約 9 PB）までは正確。音源の容量はそこに届かない"
+                )]
+                bytes: Finite(d.bytes as f64),
             })
             .collect(),
         required_table_known: st.required_table_known,
@@ -2347,6 +2355,7 @@ pub fn package_state(state: State<'_, AppState>) -> Result<PackageStateView> {
                         ("readme_section", Some((*title).to_owned()), None)
                     }
                     Place::Alias { file, alias } => ("alias", Some(alias.clone()), row_of(file)),
+                    Place::Presamp => ("presamp", None, None),
                 };
                 UnencodableView {
                     place: place.to_owned(),

@@ -157,6 +157,17 @@ impl Song {
         Ok(out)
     }
 
+    /// MIDI の範囲（0〜127）を外れた最初の音符（0 始まり）。 どれも収まれば `None`。
+    ///
+    /// UST も USTX も音高を `i32` のまま受け取る。 **範囲を見ていなかった**ので、
+    /// `-2147483648` のような値を持つ曲が取り込めてしまい、音域の計算
+    /// （`tone::shift_for`、`midi + transpose`）で桁あふれしていた——
+    /// 検査つきの組み立てでは panic、リリースでは回り込んだ別の音高になる。
+    #[must_use]
+    pub fn note_out_of_midi_range(&self) -> Option<usize> {
+        self.notes.iter().position(|n| !(0..=127).contains(&n.midi))
+    }
+
     /// 1モーラでない最初の音符（0 始まり）。 どれも1モーラなら `None`。
     ///
     /// 解決は音符とモーラが1対1で並ぶ前提で進む（`alias::resolve_phrase` は

@@ -199,12 +199,14 @@ fn 規約は未記入でも書き出せる() {
     studio.export_package().expect("規約が無くても書き出せる");
 }
 
-/// 下位方式の可否は、画面が出す一覧と同じ判定で見る（`TR-PKG-22`, `TR-PKG-23`）。
+/// 連続音で録った音源から、単独音の配布物が出る（`TR-PKG-22`〜`24`）。
 ///
-/// **変換後の綴りで見ていた。** 画面が「出せます」と言う音源が、
-/// 押すと必ず `package.incomplete_coverage` で落ちていた。
+/// **可否を変換後の綴りで見ていた。** 連続音の素材が持つのは `- か` で、
+/// 単独音が要求するのは素の `か`。それを作り出すのが再導出なのに、
+/// その手前で「持っていない」と断っていた——画面が「出せます」と
+/// 言う音源が、押すと必ず `package.incomplete_coverage` で落ちる。
 #[test]
-fn 下位方式の可否を変換前の綴りで見る() {
+fn 連続音から単独音へ降りて書き出せる() {
     use koeru_core::project::Method;
 
     // 連続音で全行録る。 語頭 CV が全部揃うので、単独音へ降りられる。
@@ -231,31 +233,27 @@ fn 下位方式の可否を変換前の綴りで見る() {
         state.downgrades
     );
 
-    // 可否は変換前の綴りで見る（`TR-PKG-22`）。
-    //
-    // **変換後の綴りで見ていた。** 連続音の素材が持つのは `- か` で、
-    // 単独音が要求するのは素の `か`。それを作り出すのが再導出なのに、
-    // その手前で「持っていない」と断っていた——画面が「出せます」と
-    // 言う音源が、押すと必ず落ちる。
-    let err = studio
+    // **2つの関門で止まっていた。** 語頭 CV の重複で `review.conflicting_alias`、
+    // 越えたあとは綴りの重なりで `package.duplicate_alias`。
+    // 前者は綴りの持ち主を音高ごとに1行へ決めて（`DEC-ALN-017`）、
+    // 後者は配る素材を綴りごとに1つ選んで（`DEC-PKG-014`）解いた。
+    let out = studio
         .export_downgrade(Method::Single)
-        .expect_err("いまは確認の関門で止まる");
-    assert_ne!(
-        err.kind, "package.incomplete_coverage",
-        "被覆では断らない（`- か` から `か` を作るのがこの経路）"
+        .expect("単独音へ降りて書き出せる");
+
+    // **綴りごとに1つ**（`TR-PKG-19`, `DEC-PKG-014`）。 同じ綴りを出せる素材は
+    // 30 以上あるので、選ばなければエイリアス数がその倍数に膨らむ。
+    // 単独音の要求表と同じ数なら、1綴り1件で収まっている。
+    let want = koeru_package::coverage::required(
+        &koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+        koeru_core::alias::Method::Single,
+        koeru_core::inventory::UnitSet::Core,
+    )
+    .expect("単独音は要求表を持つ");
+    assert_eq!(
+        usize::try_from(out.release.alias_count).expect("負にならない"),
+        want.len(),
+        "配るのは綴りごとに1つ"
     );
-    /*
-      ここから先はまだ通らない。
-
-      連続音の生成器は第2段で語頭 CV を重複して生む（`reclist` の
-      「重複は書き出し側が1つに畳む」）。 一方 `ensure_otos_ready` は
-      WAV をまたぐエイリアスの重なりを `review.conflicting_alias` で
-      止める。**どちらを正とするかが決まっていない**ので、
-      連続音の音源はいま書き出しの関門を越えられない。
-
-      畳む側に寄せるなら確認キューの鍵を変えることになり（`ooui-model`
-      の「エイリアス（音源全体で一意）」に触れる）、止める側に寄せるなら
-      生成器が重複を出さないようにすることになる。判断が要る。
-    */
-    assert_eq!(err.kind, "review.conflicting_alias");
+    assert_eq!(out.release.method, Method::Single);
 }

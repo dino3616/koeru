@@ -23,13 +23,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use koeru_align::aligner::{Alignment, Segment};
+use koeru_align::aligner::Alignment;
 use koeru_align::confidence::Confidence;
 use koeru_align::consistency::{self, Measure};
 use koeru_align::phoneme::Phoneme;
 use koeru_align::preset::Preset;
 use koeru_align::review::{EntryState, ReviewError, ReviewMode, ReviewQueue, Slot};
-use koeru_align::segment::{Boundaries, SegmentConfig, confidence, detect_single, per_mora};
+use koeru_align::segment::{Boundaries, SegmentConfig, confidence, per_mora};
 use koeru_align::{ini, ledger, reach, validate};
 use koeru_audio::backend::current as mac;
 use koeru_audio::wav::MASTER_RATE_HZ;
@@ -109,18 +109,28 @@ fn last_phoneme(reading: &str) -> Option<Phoneme> {
         .and_then(|p| p.last().copied())
 }
 
-/// 取り込む曲の歌詞を確かめる（`TR-RCL-12`）。 取り込みと下見が同じものを通る。
+/// 取り込む曲を確かめる（`TR-RCL-12`）。 取り込みと下見が同じものを通る。
 ///
 /// 同梱プリセットはすべて Core（`preset::builtin`）。曲を読む側も
 /// Core で読む（`sing_song`、`song_plan`）ので、ここも Core で見る。
 ///
 /// **1音符1モーラも見る。** 全体を繋げて読めるかだけ見ていたので、`さく` の
 /// 音符が取り込めてしまい、そこから後ろの音高と長さが1つずつずれて鳴った
-/// （`Song::note_not_one_mora`）。
+/// （`Song::note_not_one_mora`）。 **音高の範囲も見る**
+/// （`Song::note_out_of_midi_range`）——範囲外の音高は音域の計算で桁あふれする。
 ///
 /// 伝えるのは何番目の音符かだけ。 歌詞そのものは載せない——この失敗は
 /// トレースにも残る（`AGENTS.md` #3）。
-fn check_lyrics(song: &Song) -> Result<()> {
+fn check_song(song: &Song) -> Result<()> {
+    if let Some(i) = song.note_out_of_midi_range() {
+        return Err(AppError::new(
+            "song.note_out_of_range",
+            format!(
+                "{} 番目のノートの音高が、MIDI の範囲（0〜127）の外にある",
+                i + 1
+            ),
+        ));
+    }
     if song.moras(UnitSet::Core).is_none() {
         return Err(AppError::new(
             "app.unreadable_lyrics",
@@ -580,44 +590,6 @@ impl Sink for StreamSink {
     }
 }
 
-/// 退避経路の境界を、アライナと同じ形（`Alignment`）に包む。
-///
-/// 事後確率は持たない。 音響モデルを通していないので、
-/// `TR-ALN-24` の成分 (1) 経路確信度が出せない（`None` のまま）。
-fn fallback_alignment(samples: &[f64], rate: u32) -> Option<Alignment> {
-    let cfg = SegmentConfig::default();
-    let b = detect_single(samples, rate, &cfg)?;
-    #[allow(clippy::cast_precision_loss)]
-    let total_ms = samples.len() as f64 / f64::from(rate) * 1000.0;
-    let sil = koeru_align::phoneme::Phoneme::new(koeru_align::phoneme::SILENCE)?;
-    Some(Alignment {
-        segments: vec![
-            Segment {
-                phoneme: sil,
-                start_ms: 0.0,
-                end_ms: b.voice_start_ms,
-            },
-            Segment {
-                phoneme: sil,
-                start_ms: b.voice_start_ms,
-                end_ms: b.vowel_start_ms,
-            },
-            Segment {
-                phoneme: sil,
-                start_ms: b.vowel_start_ms,
-                end_ms: b.vowel_end_ms,
-            },
-            Segment {
-                phoneme: sil,
-                start_ms: b.vowel_end_ms,
-                end_ms: total_ms.max(b.vowel_end_ms),
-            },
-        ],
-        posteriors: None,
-        log_likelihood: None,
-        grid_divergence: None,
-    })
-}
 
 impl Studio {
     /// ライブラリを開く。無ければ作る。
@@ -1122,7 +1094,7 @@ impl Studio {
         }
 
         for song in &songs {
-            check_lyrics(song)?;
+            check_song(song)?;
         }
 
         let at = now_rfc3339();
@@ -1150,7 +1122,7 @@ impl Studio {
         self.opened()?;
         let songs = ust::parse_file(bytes, file_name).map_err(|e| AppError::new(e.kind(), e))?;
         for song in &songs {
-            check_lyrics(song)?;
+            check_song(song)?;
         }
         Ok(songs)
     }
@@ -1236,8 +1208,10 @@ impl Studio {
         let rows = preset
             .reclist_for(&rules, &required)
             .map_err(|e| AppError::new(e.kind(), e))?;
-        let added = rows.len();
-        self.opened_mut()?.ledger.install_reclist_for_tones(
+        // 返すのは台帳に実際に入った行の数。 **作った数を返していた**ので、
+        // 同じ範囲を2度詰め直しても「N 行を足しました」と出ていた
+        // ——既にある行は飛ばすので、台帳は増えていない。
+        let added = self.opened_mut()?.ledger.install_reclist_for_tones(
             &rows,
             &rules,
             preset.method,
@@ -1843,23 +1817,11 @@ impl Studio {
     /// 除外や再生成で空になっても、録れる行が残っていれば録れる。
     fn next_presented_row(&mut self) -> Result<Option<(String, String)>> {
         let (_, order) = self.recording_order()?;
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
         let open = self.opened_mut()?;
         for id in order {
-            // 提示順は録音リストの素の行 ID で来る。 多音階の台帳は
-            // `s001@G3` の形で持つので、**素のまま引くと1つも当たらず、
-            // 常に正準順へ落ちていた**——モードが効かないままだった。
-            //
-            // 音高の順に見る。 同じ行の未収録が複数の音高に残っていても、
-            // 低いほうから埋める（`recording_tones` は昇順）。
-            if tones.len() > 1 {
-                for t in &tones {
-                    let at = format!("{id}@{}", koeru_core::tone::name(*t));
-                    if let Some(text) = open.ledger.unrecorded_row_text(&at)? {
-                        return Ok(Some((at, text)));
-                    }
-                }
-            } else if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
+            // 提示順は台帳の行 ID で来る（多音階なら `s001@G3`）。 音高を
+            // 跨いだ並びは `recording_order` が決めるので、ここは先頭から引くだけ。
+            if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
                 return Ok(Some((id, text)));
             }
         }
@@ -1921,10 +1883,12 @@ impl Studio {
         let (stored, pinned) = self.opened_mut()?.ledger.recording_order()?;
         let status = song_status_of(&mut self.opened_mut()?.ledger, &rules, preset)?;
         let empty = status.is_empty();
-        let complete = !empty
-            && status
-                .iter()
-                .all(|s| s.singability == koeru_core::song::Singability::Complete);
+        // 「完全」は必要単位がすべて収録済みのこと（`TR-SYN-19` の (a)）。
+        //
+        // **歌えるかで見ていた。** 歌えるかは音域も含むので、収録音高から遠い曲が
+        // 1つでもバンクにあると決して満たされず、自動の切り替えが起きなかった
+        // ——その曲の音域は、どの行を録っても変わらない。
+        let complete = !empty && status.iter().all(|s| s.missing_units == 0);
 
         let mode = if pinned || !koeru_core::order::auto_switches(empty, complete) {
             stored
@@ -1942,7 +1906,6 @@ impl Studio {
             .filter(|r| r.adopted.is_some())
             .map(|r| r.row_id.clone())
             .collect();
-        let covered = self.opened_mut()?.ledger.covered_aliases()?;
         let song_required: std::collections::BTreeSet<String> = self
             .opened_mut()?
             .ledger
@@ -1954,18 +1917,56 @@ impl Studio {
             .reclist(&rules)
             .map_err(|e| AppError::new(e.kind(), e))?;
 
-        Ok((
-            mode,
-            koeru_core::order::present(
-                &rules,
+        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        if tones.len() <= 1 {
+            let covered = self.opened_mut()?.ledger.covered_aliases()?;
+            return Ok((
                 mode,
-                preset.method,
-                &list,
-                &recorded,
-                &covered,
-                &song_required,
-            ),
-        ))
+                koeru_core::order::present(
+                    &rules,
+                    mode,
+                    preset.method,
+                    &list,
+                    &recorded,
+                    &covered,
+                    &song_required,
+                ),
+            ));
+        }
+
+        // 多音階は音高ごとに並べ、低い音高から順に繋ぐ（`TR-RCL-26`）。
+        //
+        // **音高を跨いで1本で並べていた。** 被覆を和集合で渡したので、1音高を
+        // 録り終えると全部の綴りが揃ったことになり、残りの音高ではどの行も
+        // 点が 0——モードに関係なく正準順へ戻っていた。行 ID も素のまま返して
+        // いたので、台帳の `s001@G3` とは一度も一致しなかった。
+        //
+        // 音高の向きは台帳の正準順（`install_reclist_for_tones` の `ordinal`）と同じ。
+        // 並べ直すのは、各音高の中だけ。
+        let by_tone = self.opened_mut()?.ledger.covered_aliases_by_tone()?;
+        let empty = std::collections::BTreeSet::new();
+        let mut order = Vec::new();
+        for t in &tones {
+            let suffix = format!("@{}", koeru_core::tone::name(*t));
+            let recorded_here: std::collections::BTreeSet<String> = recorded
+                .iter()
+                .filter_map(|id| id.strip_suffix(&suffix).map(str::to_owned))
+                .collect();
+            order.extend(
+                koeru_core::order::present(
+                    &rules,
+                    mode,
+                    preset.method,
+                    &list,
+                    &recorded_here,
+                    by_tone.get(t).unwrap_or(&empty),
+                    &song_required,
+                )
+                .into_iter()
+                .map(|id| format!("{id}{suffix}")),
+            );
+        }
+        Ok((mode, order))
     }
 
     /// 録る順を本人の操作で切り替える（`TR-SYN-19` の (b)）。
@@ -3397,6 +3398,9 @@ impl Studio {
 
         let mut fixed = 0;
         let mut blocked = Vec::new();
+        // キューの鍵は（音高, 綴り）（`crate::review::load`）。 止めるときは同じ鍵で引く。
+        let tones = self.opened_mut()?.ledger.row_tones()?;
+        let mut blocked_keys = Vec::new();
         for e in &entries {
             // 長さは台帳が一緒に返す。1件ずつ引き直さない。
             #[allow(
@@ -3433,6 +3437,8 @@ impl Studio {
             // 通すと、`TR-ALN-20` が塞いだはずの形のまま書き出される。
             if !r.may_export() || touches_pinned {
                 blocked.push(e.alias.clone());
+                let tone = tones.get(&e.row_id).copied().unwrap_or_default();
+                blocked_keys.push(crate::review::EntryKey::new(tone, e.alias.as_str()).handle());
             }
         }
         self.refresh_review()?;
@@ -3444,8 +3450,12 @@ impl Studio {
         // `WrongState` は失敗として扱わない——**それ以外は握り潰さない。**
         // 台帳が書けなかったのを「遷移できなかった」と同じ顔で通すと、
         // 直せない違反が黙って消える。
-        for alias in &blocked {
-            match self.with_entry(alias, |q, id| q.validation_unrepairable(id)) {
+        //
+        // **素の綴りで引いていた。** 鍵が合わず `review.no_such_entry` になり、
+        // それを失敗として返すので、直せない違反が1件でもあると検証そのものが
+        // 落ちていた——止めるべきエントリはキューに現れない。
+        for key in &blocked_keys {
+            match self.with_entry(key, |q, id| q.validation_unrepairable(id)) {
                 Ok(()) => {}
                 Err(e) if e.kind == "review.wrong_state" => {}
                 Err(e) => return Err(e),
@@ -3860,7 +3870,11 @@ impl Studio {
             // 移調を当てた音高で鳴らす（`TR-SYN-15`）。
             let midi = song.notes.get(i).map_or(DEFAULT_TONE_MIDI, |n| n.midi) + fit.transpose;
             let ticks = song.notes.get(i).map_or(480, |n| n.ticks);
-            let duration_ms = f64::from(ticks) / 480.0 * beat_ms;
+            // 合成器は長さから出力の標本数を決めて確保する。 取り込んだ曲の
+            // 長さを信じると、極端な BPM や `Length` で確保が落ちる
+            // （`preview::MAX_SEGMENT_MS`。休みの無音と同じ上限）。
+            let duration_ms =
+                (f64::from(ticks) / 480.0 * beat_ms).min(crate::preview::MAX_SEGMENT_MS);
 
             /*
               休符（`TR-RCL-12`）。
@@ -4340,9 +4354,14 @@ impl Studio {
     /// 事後確率が捨てられて `TR-ALN-24` の成分 (1) 経路確信度が永久に出せない
     /// （一度そう書いた）。呼び出し側が確信度を組み立てるのに要る。
     ///
-    /// アライナが答えられなかったときだけ、発声区間の検出（[`detect_single`]）で
-    /// 境界を出す。その場合は事後確率を持たない `Alignment` になる。
-    /// 黙って諦めない——落ちた理由はトレースに種別で出す。
+    /// アライナが答えられなければ `None`。 oto は付かず、エントリは未推定のまま
+    /// 確認キューへ回る。黙って諦めない——落ちた理由はトレースに種別で出す。
+    ///
+    /// **発声区間の検出で境界を作っていた。** `Chosen::detect` から退避経路を
+    /// 消したあとも、ここに2本残っていた——読みを音素へ写せないときと、
+    /// テキスト逸脱以外で MFA が落ちたとき。どちらも無音だけの区間を作り、
+    /// そこから5値を導いて、アライナを通していない値を推定済みとして
+    /// 出していた（`DEC-ALN-016`）。
     fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Option<Alignment> {
         use koeru_align::aligner::AlignRequest;
 
@@ -4352,11 +4371,8 @@ impl Studio {
         let phonemes = match koeru_align::phoneme::phonemes_for_all(&readings) {
             Ok(p) => p,
             Err(e) => {
-                tracing::warn!(
-                    reason = e.kind(),
-                    "読みを音素へ写せない。発声区間の検出で境界を出す"
-                );
-                return fallback_alignment(samples, rate);
+                tracing::warn!(reason = e.kind(), "読みを音素へ写せない");
+                return None;
             }
         };
 
@@ -4369,14 +4385,9 @@ impl Studio {
         match self.aligner.as_aligner().align(&req) {
             Ok(a) => Some(a),
             Err(e) => {
-                // テキスト逸脱はここで潰さない（`TR-ALN-09`）。
-                // 境界が出ないまま返せば、oto が付かず確認キューへ回る。
+                // テキスト逸脱も、それ以外も同じ扱い（`TR-ALN-09`）。
                 tracing::info!(reason = e.kind(), "アライメントが通らなかった");
-                if matches!(e, koeru_align::aligner::AlignError::TextDeviation) {
-                    None
-                } else {
-                    fallback_alignment(samples, rate)
-                }
+                None
             }
         }
     }
@@ -4745,6 +4756,52 @@ mod tests {
             "直した値を引き継ぐ: {}",
             got.offset_ms
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 直せない違反は、そのエントリを書き出し阻止へ回す（`REQ-ALN-004`, `TR-ALN-20`）。
+    ///
+    /// **素の綴りで引いていた。** キューの鍵は（音高, 綴り）なので当たらず、
+    /// `review.no_such_entry` を失敗として返していた——直せない違反が1件でも
+    /// あると検証そのものが落ち、止めるべきエントリはキューに現れなかった。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 直せない違反はエントリを止める() {
+        let root = std::env::temp_dir().join(format!("koeru-block-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("阻止").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.seed_material_for_test(&row).expect("素材を置ける");
+        let item = studio
+            .review_queue()
+            .expect("キューを引ける")
+            .into_iter()
+            .find(|i| i.row_id == row)
+            .expect("その行のエントリがある");
+
+        // ファイルの外を指すオフセットを人が固定する。 修復はオフセットを
+        // 動かしたいが、固定があるので動かせない——直せない違反になる。
+        studio
+            .edit_oto_value(&item.key, "offset", 999_999.0)
+            .expect("固定できる");
+
+        let (_, blocked) = studio.validate_otos().expect("検証は落ちない");
+        assert!(blocked.contains(&item.alias), "止めた綴りを返す: {blocked:?}");
+        let state = studio
+            .review_queue()
+            .expect("キューを引ける")
+            .into_iter()
+            .find(|i| i.key == item.key)
+            .map(|i| i.state)
+            .expect("エントリが残っている");
+        assert_eq!(state, "blocked", "書き出し阻止へ回る");
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -73,8 +73,11 @@ pub fn rows_to_cover(
             .max_by_key(|(gain, _)| *gain);
 
         let Some((_, row)) = best else { break };
-        for u in &row.units {
-            left.remove(u.kana);
+        // 選んだ行が埋めた綴りを外す。 **仮名を外していた**——点数は綴りで
+        // 数えるよう直したのに、ここだけ仮名のままだった。連続音や CVVC では
+        // 何も外れないので、`left` に触れる行を全部選び、行数も時間も膨らんだ。
+        for a in aliases_of(row) {
+            left.remove(&a);
         }
         chosen.push(row.clone());
     }
@@ -111,6 +114,25 @@ mod tests {
 
     fn set(xs: &[&str]) -> BTreeSet<String> {
         xs.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// 連続音でも、埋めた綴りを外してから次を選ぶ（`TR-RCL-16`）。
+    ///
+    /// **仮名を外していた。** 連続音の綴り（`- か`、`a か`）は仮名と一致しないので
+    /// 何も外れず、`left` に触れる行を全部選んでいた。単独音は綴りが仮名
+    /// そのものなので、単独音の試験では見えなかった。
+    #[test]
+    fn 連続音でも一行で足りるなら一行だけ選ぶ() {
+        let rules = builtin_rules();
+        let list = crate::reclist::generate_sequential(UnitSet::Core, 8).expect("生成できる");
+        let row = &list[0];
+        let missing: BTreeSet<String> =
+            crate::reclist::row_aliases(&rules, Method::Sequential, &row.units)
+                .into_iter()
+                .collect();
+        let plan = rows_to_cover(&rules, Method::Sequential, &missing, &list);
+        assert_eq!(plan.rows.len(), 1, "1行で足りる: {:?}", plan.rows.len());
+        assert_eq!(plan.covers, missing.len(), "全部埋まる");
     }
 
     /// 選ぶのはフルリストの行そのもの（`TR-RCL-16`）。詰め直さない。

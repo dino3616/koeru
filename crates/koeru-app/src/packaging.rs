@@ -201,6 +201,36 @@ fn coverage_of(
     }))
 }
 
+/// 設定した音高のすべてで成り立つ方式（`TR-RCL-26`）。
+///
+/// 書き出せる方式の一覧、下位方式の一覧、下位方式の関門が、同じこれを通る。
+/// **一覧と関門で別の見方をすると、出せると言ったものが押すと落ちる。**
+///
+/// **音高を跨いだ和集合で見ていた。** 多音階で1音高だけ録り終えても、
+/// 必要な綴りが音高ごとにばらけていても「出せる」に入り、下位方式の関門も
+/// 通った——`bank_of` は設定した音高の数だけ区画を作るので、録っていない
+/// 音高の区画が空のまま配られる。素の書き出しの関門（`coverage_of`）は
+/// 音高ごとに見ていたので、見方が2つに割れていた。
+///
+/// 1テイクも録っていない音高は空集合として判定する（台帳に現れないため）。
+fn methods_in_every_tone(
+    ledger: &mut Ledger,
+    judge: impl Fn(&BTreeSet<String>) -> Vec<koeru_core::alias::Method>,
+) -> Result<Vec<koeru_core::alias::Method>> {
+    let by_tone = ledger.covered_aliases_by_tone()?;
+    let empty = BTreeSet::new();
+    let mut tones = ledger.recording_tones()?.into_iter();
+    let Some(first) = tones.next() else {
+        return Ok(Vec::new());
+    };
+    let mut out = judge(by_tone.get(&first).unwrap_or(&empty));
+    for t in tones {
+        let here = judge(by_tone.get(&t).unwrap_or(&empty));
+        out.retain(|m| here.contains(m));
+    }
+    Ok(out)
+}
+
 /// いま書き出せるかを調べる（`TR-PKG-49`）。
 #[tracing::instrument(skip(dir, ledger, rules, manifest), err)]
 pub fn state(
@@ -236,12 +266,13 @@ pub fn state(
     let report = validate::validate(&bank, profile);
     // 要求表は方式ごとの綴り（`coverage::required`）。 仮名で突き合わせると、
     // 単独音以外はどの方式も「出せる」に入らない。
-    let covered = ledger.covered_aliases()?;
-    let exportable =
-        koeru_package::coverage::exportable(rules, koeru_core::inventory::UnitSet::Core, &covered)
-            .into_iter()
-            .map(project_method)
-            .collect();
+    let set = koeru_core::inventory::UnitSet::Core;
+    let exportable = methods_in_every_tone(ledger, |c| {
+        koeru_package::coverage::exportable(rules, set, c)
+    })?
+    .into_iter()
+    .map(project_method)
+    .collect();
 
     // 下位方式への書き出し（`TR-PKG-24`）。
     //
@@ -250,11 +281,10 @@ pub fn state(
     //
     // **全素材を数えていた。** 実際に複製するのは対象方式が参照するものだけ
     // （`TR-PKG-24` の性能上の最適化）なので、出す数と作る量が食い違う。
-    let aliases = ledger.covered_aliases()?;
     let mut downgrades = Vec::new();
-    for m in
-        koeru_package::coverage::downgradable(rules, koeru_core::inventory::UnitSet::Core, &aliases)
-    {
+    for m in methods_in_every_tone(ledger, |c| {
+        koeru_package::coverage::downgradable(rules, set, c)
+    })? {
         let sources = downgrade_sources(dir, ledger, rules, m)?;
         downgrades.push(Downgrade {
             method: project_method(m),
@@ -365,8 +395,14 @@ pub fn export_downgrade(
     // 単独音が要求するのは素の `か`。それを作り出すのがこの下の再導出
     // なのに、その手前で「`か` を持っていない」と断っていた——
     // **画面が「出せます」と言う音源が、押すと必ず落ちる。**
-    let provided = ledger.covered_aliases()?;
-    if !koeru_package::coverage::downgradable(rules, set, &provided).contains(&target) {
+    //
+    // 音高ごとに見る（`methods_in_every_tone`）。 一覧と同じものを通すので、
+    // 出せると言ったものは出せ、出せないと言ったものは出ない。
+    if !methods_in_every_tone(ledger, |c| {
+        koeru_package::coverage::downgradable(rules, set, c)
+    })?
+    .contains(&target)
+    {
         return Err(AppError::new(
             "package.incomplete_coverage",
             "その作り方では、いまの素材から出せない",
@@ -548,28 +584,45 @@ fn bank_of(
 
     // 下位方式では、素材ごとにエントリを作り直す（`TR-PKG-24`）。
     // 素の書き出しは、確認を通った5値（`TR-ALN-25`）をそのまま出す。
-    let mut entries_of: Vec<Vec<koeru_align::ini::IniEntry>> = Vec::with_capacity(raw.len());
-    for sample in &raw {
-        let file = format!("{}.wav", sample.file_stem);
-        entries_of.push(match down {
-            None => sample
-                .otos
-                .iter()
-                .map(|(alias, o)| koeru_align::ini::IniEntry {
-                    file: file.clone(),
-                    alias: alias.clone(),
-                    oto: koeru_core::oto::Oto {
-                        offset_ms: o.offset_ms,
-                        consonant_ms: o.consonant_ms,
-                        cutoff_ms: o.cutoff_ms,
-                        preutterance_ms: o.preutterance_ms,
-                        overlap_ms: o.overlap_ms,
-                    },
-                })
-                .collect(),
-            Some(t) => rederived_entries(ledger, rules, manifest, sample, &file, t)?,
-        });
-    }
+    //
+    // **素の書き出しに選び直しは要らない。** そちらの綴りは録音リストが
+    // 行ごとに1つへ決めている（`DEC-ALN-017`）。作り直す側だけが、
+    // 同じ綴りを複数の素材から出せる。
+    let entries_of: Vec<Vec<koeru_align::ini::IniEntry>> = match down {
+        None => raw
+            .iter()
+            .map(|sample| {
+                let file = format!("{}.wav", sample.file_stem);
+                sample
+                    .otos
+                    .iter()
+                    .map(|(alias, o)| koeru_align::ini::IniEntry {
+                        file: file.clone(),
+                        alias: alias.clone(),
+                        oto: koeru_core::oto::Oto {
+                            offset_ms: o.offset_ms,
+                            consonant_ms: o.consonant_ms,
+                            cutoff_ms: o.cutoff_ms,
+                            preutterance_ms: o.preutterance_ms,
+                            overlap_ms: o.overlap_ms,
+                        },
+                    })
+                    .collect()
+            })
+            .collect(),
+        Some(t) => {
+            let mut with_depth = Vec::with_capacity(raw.len());
+            for sample in &raw {
+                let file = format!("{}.wav", sample.file_stem);
+                with_depth.push(rederived_entries(
+                    ledger, rules, manifest, sample, &file, t,
+                )?);
+            }
+            let tones: Vec<i32> = raw.iter().map(|s| s.tone).collect();
+            let names: Vec<String> = raw.iter().map(|s| s.file_stem.clone()).collect();
+            pick_sources(&tones, &with_depth, &names)
+        }
+    };
 
     // 出す素材だけの音高。 エントリを1つも持たない素材は落ちるので
     // （下位方式が参照しない WAV を複製しない、`TR-PKG-24`）、
@@ -733,6 +786,10 @@ struct Downgraded {
 ///
 /// 境界は行の CV エイリアスで引く。 保存側も同じ名前で置いている
 /// （`Studio::finish_take`）ので、元の方式の綴りから並べ直せる。
+///
+/// 返るのは `(エントリ, 何モーラ目から取ったか)`。 **同じ綴りを複数の素材が
+/// 出せる**ので（連続音の行はどれも複数のモーラを含む）、どれを配るかは
+/// 呼び出し側が全体を見て決める（[`pick_sources`]）。
 fn rederived_entries(
     ledger: &mut Ledger,
     rules: &Rules,
@@ -740,7 +797,7 @@ fn rederived_entries(
     sample: &koeru_core::db::DistributionSample,
     file: &str,
     target: &Downgraded,
-) -> Result<Vec<koeru_align::ini::IniEntry>> {
+) -> Result<Vec<(koeru_align::ini::IniEntry, usize)>> {
     let set = koeru_core::inventory::UnitSet::Core;
     let line = ledger.row_units_of(&sample.row_id, set)?;
     let saved: BTreeMap<String, koeru_core::oto::Boundary> = ledger
@@ -772,17 +829,88 @@ fn rederived_entries(
     let file_len_ms = sample.frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
 
     let entries = koeru_core::reclist::row_entries(rules, target.method, &line);
+    // その綴りが何モーラ目から出るか。 渡りは入っていく側ではなく、
+    // 乗っている直前のモーラで数える（`derive_row` と同じ見方）。
+    let depth = |alias: &str| {
+        entries.iter().find_map(|(a, slot)| {
+            (a == alias).then(|| match *slot {
+                Slot::Cv { mora } | Slot::Ending { mora } => mora,
+                Slot::Vc { prev, .. } => prev,
+            })
+        })
+    };
     Ok(
         koeru_align::derive::derive_row(&entries, &boundaries, &line, file_len_ms, &target.preset)
             .into_iter()
             .filter(|(alias, _)| target.required.contains(alias))
-            .map(|(alias, oto)| koeru_align::ini::IniEntry {
-                file: file.to_owned(),
-                alias,
-                oto,
+            .filter_map(|(alias, oto)| {
+                let d = depth(&alias)?;
+                Some((
+                    koeru_align::ini::IniEntry {
+                        file: file.to_owned(),
+                        alias,
+                        oto,
+                    },
+                    d,
+                ))
             })
             .collect(),
     )
+}
+
+/// 綴りごとに、配る素材を1つ選ぶ（`TR-PKG-19`, `TR-PKG-24`）。
+///
+/// **下位方式では、同じ綴りを複数の素材が出せる。** 連続音の行はどれも
+/// 複数のモーラを含むので、単独音へ降りると `い` を出せる行が 30 以上並ぶ。
+/// 全部出すと `oto.ini` 横断でエイリアスが重なり、`TR-PKG-19` に反する。
+/// **書き出しの検査が `DuplicateAlias` で止める。**
+///
+/// **行頭のモーラから採る**（`DEC-PKG-014`）。 行頭は無音に続くので、
+/// 単独音の録り方にいちばん近い。途中のモーラは先行母音から渡ってくるので、
+/// 子音の立ち上がりが前の母音に埋もれる。
+///
+/// 同じ深さなら素材の名前で決める。 並びが実行ごとに変わると、
+/// 同じ台帳から違う配布物が出る（`TR-RCL-27` と同じ向き）。
+///
+/// **音高ごとに選ぶ。** 多音階は音高ごとに区画と `oto.ini` を分けるので
+/// （`TR-ALN-22`）、音高を跨いで1つに絞ると、残りの区画からその綴りが消える。
+fn pick_sources(
+    tones: &[i32],
+    entries_of: &[Vec<(koeru_align::ini::IniEntry, usize)>],
+    names: &[String],
+) -> Vec<Vec<koeru_align::ini::IniEntry>> {
+    // (音高, 綴り) → (深さ, 素材の名前, 素材の添字)。
+    // 小さいほうを採るので、深さが先、同じなら名前で決まる。
+    let mut best: BTreeMap<(i32, &str), (usize, &str, usize)> = BTreeMap::new();
+    for (i, entries) in entries_of.iter().enumerate() {
+        for (e, depth) in entries {
+            let here = (*depth, names[i].as_str(), i);
+            best.entry((tones[i], e.alias.as_str()))
+                .and_modify(|cur| {
+                    if (here.0, here.1) < (cur.0, cur.1) {
+                        *cur = here;
+                    }
+                })
+                .or_insert(here);
+        }
+    }
+    let chosen: BTreeSet<(usize, &str)> = best
+        .into_iter()
+        .map(|((_, alias), (_, _, i))| (i, alias))
+        .collect();
+
+    // 選ばれたものだけを、素材ごとの並びに戻す。
+    entries_of
+        .iter()
+        .enumerate()
+        .map(|(i, entries)| {
+            entries
+                .iter()
+                .filter(|(e, _)| chosen.contains(&(i, e.alias.as_str())))
+                .map(|(e, _)| e.clone())
+                .collect()
+        })
+        .collect()
 }
 
 /// 生成した `oto.ini` を1つに繋いだバイト列（`TR-PKG-44`）。

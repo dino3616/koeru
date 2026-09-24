@@ -95,6 +95,39 @@ fn 多音階は音高ごとに分かれる() {
     );
 }
 
+/// 多音階の提示順は台帳の行 ID で、低い音高から並ぶ（`TR-SYN-19`, `TR-RCL-26`）。
+///
+/// 素の行 ID で返していた。 台帳の `s001@G3` と一致せず、録る順が常に
+/// 正準順へ落ちていた。
+#[test]
+fn 多音階の提示順は音高ごとに並ぶ() {
+    let (mut s, _root) = studio("multi-order");
+    let id = s
+        .create_project_with("多音階の順", "sequential", &[55, 62])
+        .expect("作れる");
+    s.open_project(id).expect("開ける");
+    let (_, order) = s.recording_order().expect("引ける");
+    let mut l = Ledger::open(s.project_dir().expect("開いている").db_path()).expect("開ける");
+    let rows = l.rows_with_takes().expect("引ける");
+    assert_eq!(order.len(), rows.len(), "未収録の行は全部並ぶ");
+    assert!(
+        order.iter().all(|o| rows.iter().any(|r| &r.row_id == o)),
+        "台帳に無い ID を返さない"
+    );
+    let first_d4 = order
+        .iter()
+        .position(|o| o.ends_with("@D4"))
+        .expect("D4 がある");
+    assert!(
+        order[..first_d4].iter().all(|o| o.ends_with("@G3")),
+        "G3 を先に並べる"
+    );
+    assert!(
+        order[first_d4..].iter().all(|o| o.ends_with("@D4")),
+        "音高を行き来しない"
+    );
+}
+
 /// 知らないプリセットは黙って単独音にしない。
 #[test]
 fn 知らないプリセットは断る() {

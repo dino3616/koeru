@@ -157,6 +157,8 @@ const PLACES: Record<string, string> = {
   character_field: "音源の情報",
   alias: "呼び名",
   readme_section: "説明文",
+  // 音源に置いた `presamp.ini` から来る（`TR-SYN-36`）。 直す先がそのファイルなので名前も出す。
+  presamp: "呼び名の決まり（presamp.ini）",
 };
 
 /** 書けない文字が出ている場所の言い方。 */

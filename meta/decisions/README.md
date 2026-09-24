@@ -50,6 +50,7 @@
 | [DEC-PKG-011](DEC-PKG-011.toml) | 利用規約 | 利用規約の設問を持たず、自由記述にする | accepted |
 | [DEC-PKG-012](DEC-PKG-012.toml) | 音源アイコン | 音源アイコンは本人の画像から作る | accepted |
 | [DEC-PKG-013](DEC-PKG-013.toml) | 配り物への到達 | 配り物の置き場所を、OS のファイルマネージャで見せる | accepted |
+| [DEC-PKG-014](DEC-PKG-014.toml) | 下位方式の出どころ | 下位方式へ降りるとき、綴りごとに行頭のモーラを持つ素材から採る | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -121,4 +122,4 @@
 | [DEC-SYN-012](DEC-SYN-012.toml) | 曲のキーを誰が決めるか | 自動移調をやめる。キーは本人が決め、KOERU は勧めるだけにする | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-111 件。
+112 件。

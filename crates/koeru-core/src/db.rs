@@ -297,6 +297,10 @@ impl Ledger {
     ///
     /// 上書きもしない。 同じ ID は同じ中身で、既にテイクが付いているかも
     /// しれない。`ordinal` を書き換えると、録った行の並びが動く。
+    ///
+    /// 返すのは実際に入った行の数。 **渡した数ではない**——既にある行を
+    /// 飛ばすので、同じ範囲を2度詰め直すと 0 になる。渡した数を
+    /// 「足しました」と出すと、台帳が増えていないのに増えたと言うことになる。
     #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()), err)]
     pub fn install_reclist_for_tones(
         &mut self,
@@ -304,10 +308,11 @@ impl Ledger {
         rules: &crate::presamp::Rules,
         method: crate::alias::Method,
         tones: &[i32],
-    ) -> Result<()> {
+    ) -> Result<usize> {
         self.conn
             .transaction(|c| {
                 let mut ordinal = 0_i32;
+                let mut inserted = 0_usize;
                 for tone in tones {
                     // 1つの綴りを持つ行は、同じ音高の中に1つだけ（`TR-ALN-22`）。
                     //
@@ -353,6 +358,7 @@ impl Ledger {
                         if added == 0 {
                             continue;
                         }
+                        inserted += 1;
                         // 単位は集合として入れる。 連続音の行は同じ仮名を2度持つが、
                         // 集合としては変わらない。語順は `rows.text` が持っている。
                         let mut seen = std::collections::BTreeSet::new();
@@ -391,7 +397,7 @@ impl Ledger {
                         }
                     }
                 }
-                Ok(())
+                Ok(inserted)
             })
             .map_err(db("install_reclist_for_tones"))
     }
@@ -405,6 +411,7 @@ impl Ledger {
             crate::alias::Method::Single,
             &[tone],
         )
+        .map(|_| ())
     }
 
     /// 収録セッションを始める。
