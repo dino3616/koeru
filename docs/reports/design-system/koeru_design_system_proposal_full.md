@@ -690,6 +690,51 @@ PR では、採用済みの base と提案中の head を並べる。head で制
 
 ただし、三つ作ることが要件なのではない。現状維持と一つの新案で十分に問いを区別できるなら、それでよい。逆に十案あっても action trace と前提が同じなら、探索したとは扱わない。
 
+### 8.1.1 Moodboard を Visual / Interaction Corpus へ拡張する
+
+Design Space の質は、生成 operator だけでなく、何を材料として見たかに強く依存する。
+現行 moodboard の価値は残しつつ、将来は製品単位の「好きな画面集」ではなく、
+**状態と interaction pattern を比較できる corpus** として育てる。
+
+収集単位の例:
+
+```text
+first run
+empty
+creation
+recording
+waiting
+partial completion
+error
+recovery
+completion
+detail editing
+return after interruption
+```
+
+各 reference には必要に応じて次の観察軸を付ける。
+
+```text
+primary actor / primary object
+information density
+chroma allocation
+hierarchy
+missing-state representation
+progress model
+tool / artifact separation
+vocabulary exposure
+motion semantics
+recovery model
+```
+
+Corpus の目的は「多数派 UI」を決めることではない。
+Agent は共通点だけでなく、**現在の KOERU の design boundary を壊す counterexample** を優先的に探す。
+同じ reference は複数 Question から再利用できるが、「他製品がそうしている」は
+KOERU の UX validity の Evidence にはならない。
+
+第三者 artifact は license / terms を尊重し、repository に screenshot を再配布することを
+Corpus の必須条件にしない。URL、観察メモ、取得日時、必要なら自作の構造スケッチで参照可能にする。
+
 ### 8.2 AI は「別案の数」より「前提の差」を作る
 
 Agent への依頼は、次のように分ける。
