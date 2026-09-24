@@ -659,13 +659,26 @@ PR では、採用済みの base と提案中の head を並べる。head で制
 **Output：** 比較できる試作、予測する違い、未探索領域、次の検証方法。  
 **Persistence：** Q の探索欄、`design/work/<Q>/`、実験用 story。大量の生成案は原則 ephemeral。
 
-**Actor：** Human が制作する。Agent は類推・反転・反例・試作を補助できる。  
+**Actor：** Human、Agent、または両者の共同制作。作者性と Evidence authority は分離する。Agent が Concept prototype 全体を生成してもよいが、その生成物は利用者の支持や意味理解の証拠にはならない。  
 **Interaction model：** ローカル制作と非同期共有。必要なら短い共同制作。
 
 **Exit condition：** 次の検証で区別できる対照ができた、または予算到達により未探索を明記して終了する。  
 **Failure mode：** 見た目だけ違う案、同じモデルの疑似的多様性、早すぎる順位付け、試作の完成度競争。
 
 **Downstream：** C4・C5。問いが変わったら C1／Q の更新へ戻る。
+
+### 8.0.1 作者性と証拠能力を分ける
+
+Human が描いた案だから人間中心であり、Agent が描いた案だから弱い、とは扱わない。
+Design Space で問うのは **誰が描いたかではなく、どの前提を変えた案か** である。
+
+一方で artifact の作者性と、その artifact が持つ epistemic authority は別である。
+Agent が高品質な prototype を作ることはできるが、その prototype が「利用者は理解する」
+「愛着を持つ」と証言することはできない。Human が作った prototype も同様である。
+
+したがって provenance は残すが、Human / AI を quality ranking には使わない。
+共同制作では「AI が作った箇所」を逐行 attribution するより、どの入力・constraint・revision に
+基づく artifact かを再構成できることを優先する。
 
 ### 8.1 何を変えれば「別の可能世界」になるか
 
