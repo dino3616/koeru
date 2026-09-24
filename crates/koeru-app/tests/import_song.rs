@@ -132,6 +132,39 @@ fn 歌詞を読めない曲は取り込まない() {
     );
 }
 
+/// 1ノートに2音入った曲を取り込まない（`DEC-SYN-009`）。
+///
+/// **全体を繋げて読めるかだけ見ていた。** `さく` のノートが通り、そこから後ろの
+/// 音高と長さが1つずつずれて鳴っていた。下見の段で止めるので、題を打つ前に分かる。
+#[test]
+fn 一ノートに二音ある曲は取り込まない() {
+    let (mut s, _root) = opened("two-moras");
+    let two = USTX.replace("lyric: く", "lyric: くら");
+
+    let e = s
+        .song_file_preview(two.as_bytes(), "二音.ustx")
+        .expect_err("下見で止まる");
+    assert_eq!(e.kind, "song.note_not_one_mora");
+    assert!(
+        e.message.contains("2 番目"),
+        "何番目かを伝える: {}",
+        e.message
+    );
+    assert!(!e.message.contains("くら"), "歌詞そのものは載せない");
+
+    let e = s
+        .import_songs(two.as_bytes(), "二音.ustx", &[t("主"), t("ハモ")])
+        .expect_err("取り込みでも止まる");
+    assert_eq!(e.kind, "song.note_not_one_mora");
+
+    // 長音・拗音・促音は1ノート1音として通る。
+    let ok = USTX
+        .replace("lyric: く", "lyric: きゃ")
+        .replace("lyric: ら", "lyric: ー");
+    s.song_file_preview(ok.as_bytes(), "通る.ustx")
+        .expect("1ノート1音なら通る");
+}
+
 /// 題はファイル名から採るので、そのままでは並べられないことがある。
 #[test]
 fn 題を後から変えられる() {

@@ -109,6 +109,36 @@ fn last_phoneme(reading: &str) -> Option<Phoneme> {
         .and_then(|p| p.last().copied())
 }
 
+/// 取り込む曲の歌詞を確かめる（`TR-RCL-12`）。 取り込みと下見が同じものを通る。
+///
+/// 同梱プリセットはすべて Core（`preset::builtin`）。曲を読む側も
+/// Core で読む（`sing_song`、`song_plan`）ので、ここも Core で見る。
+///
+/// **1音符1モーラも見る。** 全体を繋げて読めるかだけ見ていたので、`さく` の
+/// 音符が取り込めてしまい、そこから後ろの音高と長さが1つずつずれて鳴った
+/// （`Song::note_not_one_mora`）。
+///
+/// 伝えるのは何番目の音符かだけ。 歌詞そのものは載せない——この失敗は
+/// トレースにも残る（`AGENTS.md` #3）。
+fn check_lyrics(song: &Song) -> Result<()> {
+    if song.moras(UnitSet::Core).is_none() {
+        return Err(AppError::new(
+            "app.unreadable_lyrics",
+            "歌詞を読めないノートがある。仮名で書かれた UST / USTX を取り込む",
+        ));
+    }
+    if let Some(i) = song.note_not_one_mora(UnitSet::Core) {
+        return Err(AppError::new(
+            "song.note_not_one_mora",
+            format!(
+                "{} 番目のノートに、1音ぶんではない歌詞が入っている。1ノートに1音（「きゃ」「ー」「っ」は1音）で書かれた UST / USTX を取り込む",
+                i + 1
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// 話者内一貫性（`TR-ALN-12`）の集団を引く読み。 CV の枠だけ返す。
 ///
 /// 集団の鍵は音素で、音素は仮名から引く（`phoneme::phonemes_for` は仮名の辞書）。
@@ -1092,14 +1122,7 @@ impl Studio {
         }
 
         for song in &songs {
-            // 同梱プリセットはすべて Core（`preset::builtin`）。曲を読む側も
-            // Core で読む（`sing_song`、`song_plan`）ので、ここも Core で見る。
-            if song.moras(UnitSet::Core).is_none() {
-                return Err(AppError::new(
-                    "app.unreadable_lyrics",
-                    "歌詞を読めないノートがある。仮名で書かれた UST / USTX を取り込む",
-                ));
-            }
+            check_lyrics(song)?;
         }
 
         let at = now_rfc3339();
@@ -1127,12 +1150,7 @@ impl Studio {
         self.opened()?;
         let songs = ust::parse_file(bytes, file_name).map_err(|e| AppError::new(e.kind(), e))?;
         for song in &songs {
-            if song.moras(UnitSet::Core).is_none() {
-                return Err(AppError::new(
-                    "app.unreadable_lyrics",
-                    "歌詞を読めないノートがある。仮名で書かれた UST / USTX を取り込む",
-                ));
-            }
+            check_lyrics(song)?;
         }
         Ok(songs)
     }
