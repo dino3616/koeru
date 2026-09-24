@@ -1,0 +1,118 @@
+schema = 'evidence'
+id = 'EVID-PLT-004'
+title = 'アーキテクチャ刷新の基準点。検査の実行結果、consumer 契約の面、確かめ直した欠陥'
+kind = 'implementation_survey'
+source = 'main 4b28e5a（PR #16 のマージ後）の全ソース、手元の検査の実行（macOS 26 arm64、Nix devShell）、.github/workflows、docs/reports/architecture の調査'
+provenance = '''
+`docs/reports/architecture/` は PR #16 の head（`af9a808`）を GitHub 越しに読んだ調査で、
+検査は実行していない。 ここでは同じ観察を **マージ後の main で読み直し**、
+手元で検査を走らせた。調査の結論と食い違ったものは、その旨を書いてある。
+
+実行したもの: `cargo clippy --workspace --all-targets --all-features -- -D warnings`、
+`cargo test --workspace --all-features`、UI の `bun run check:ci`。
+いずれも devShell の中で、既定の cfg（macOS の native backend）。
+`koeru_force_unsupported_backend` の組み立てでも clippy と test を走らせた。
+実行していないもの: 実機の録音と再生、実音声のハーネス（環境変数が要る）、
+Windows / Linux の native、移行、電源断。
+
+件数は `rg` と、試験の実行結果の要約行から数えた。
+'''
+confidence = 'Fact'
+
+executed = '''
+| 検査 | 結果 |
+|---|---|
+| clippy（macOS、全 target、全 feature） | 通過。警告 0 |
+| cargo test（macOS、全 feature） | 通過。試験 binary 34 個で成功 863・失敗 0・無視 0。うち 7 個は 0 件（doctest と、試験を持たない target） |
+| clippy（`--cfg koeru_force_unsupported_backend`） | 通過。警告 0 |
+| cargo test（同じ cfg、`RUSTDOCFLAGS` にも同じ cfg） | 通過。試験 binary 34 個で成功 789・失敗 0・無視 0。native の経路の 74 件ぶんが cfg で外れる |
+| UI `check:ci`（story 55 ファイル・207 件、stories・ipc の検査） | 通過 |
+
+[Fact] 通過した試験には、前提を欠いて `return` したものが含まれる。 実行結果の要約は
+それを「通過」と数えるので、上の件数は「実行して確かめた件数」ではない。
+'''
+
+contract_surface = '''
+[Fact] Tauri コマンドは 78 本。すべて `crates/koeru-app/src/commands.rs` にあり、
+`tauri_specta::Builder` で登録している。8 本は主スレッドで走る同期コマンド。
+
+[Fact] ほとんどのコマンドは project を引数に取らない。 Rust 側に「今開いている
+プロジェクト」が1つあり、画面は鍵に project ID を入れて取り繕っている。
+
+[Fact] 自由な文字列で受ける引数が6つある（録音順・確認モード・oto の欄・符号化・
+降りる先の方式）。画面が手で絞っている。 `Vec<u8>` を JSON の数値配列で運ぶコマンドが7本。
+
+[Fact] Channel は1本（`stream_envelope`、50ms 刻みの包絡）。待ち数は、返ってから
+400ms 後に次を予約する問い合わせで回している。
+
+[Fact] 画面側は `bindings.gen.ts`（1202 行、型 49 個）、`queries.ts` の取得口 28 個、
+部品に散った `useMutation` 38 箇所。
+
+[Fact] `Studio` は 5037 行、pub メソッド 85 個。`AppState` の1つの `Mutex<Studio>` が
+全コマンドを直列にする。包絡と待ち数だけがロックの外にある。
+バックグラウンドの仕事は、上限の無い `BinaryHeap` を1本のスレッドが取り出す形で、
+取消は全体で1つのフラグ。
+'''
+
+errors = '''
+[Fact] `thiserror` のエラー型は 31 個。すべて `kind()` で種別文字列を返す。
+`Display` に値を差し込んでいるのは `ProjectError::UnknownMethod{found}` だけで、
+値は manifest から来る。
+
+[Fact] 同じ種別文字列を複数の型が名乗っている。`ledger.*`（core と align）、`preset.*`、
+`resample.zero_rate`（audio と align）、`recording.not_enough_space`（audio と app）。
+
+[Fact] 境界の `AppError` は `{kind, message}`。畳むときに source の連鎖を捨てている。
+`AppError::new` を直接呼ぶ箇所は約 95。うち2箇所は画面から来た文字列を表示文に差し込む。
+
+[Fact] 画面は `kind` で一度も分岐していない。表示文を出すだけ。
+
+[Fact] `#[instrument(... err)]` は約 150 箇所。失敗を呼び出しの段ごとに `Display` つきで記録する。
+
+[Fact] 保存が済んだあとの失敗を、操作全体の失敗として返す箇所がある。
+`finish_take` は DB にテイクを確定したあと、解析・周波数表・アライメント・oto の
+十数か所の `?` で失敗を返す。 `open_project`（開いたあとの進捗の読み）、
+`create_project_with_presamp`（ディレクトリを作ったあと、片付けない）、
+`import_songs`（途中まで取り込んだあと）、`validate_otos`、`export_otos`、`re_estimate_take` も同じ形。
+`packaging::write_package` だけは、書いたファイルを失敗時に片付けている。
+
+[Fact] `align_take` は失敗を `Option` の `None` に潰し、呼び出し側は「声が無い」を返す。
+モデルが無いこととアライメントが失敗したことを区別できない。
+
+[Fact] `anyhow` は依存に宣言してあるが、どの `.rs` も使っていない。
+'''
+
+tests = '''
+[Fact] Rust の `#[test]` は約 865 本（unit 約 782、integration 約 83）。
+property・fuzz・loom・miri・障害注入は無い。 SQLite は in-memory と、PID で名付けた一時ファイル。
+
+[Fact] 前提を欠くと `return` して通る試験。
+実音声の2本（`alignment_on_real_audio`、`preview_on_real_audio`）は環境変数が無ければ return し、CI で毎回素通りする。
+マイクが無ければ return するもの（`record_to_file`、`play_a_tone`、`vertical_slice`、`guide_leak`、`gain_calibration`）。
+モデルが無ければ return するもの（`kaldi_build`、`mfa/kaldi.rs` の unit 14 本中 12 本、`align.rs`）。CI は LFS の大きさで守っている。
+fixture を書く mode（`bindings`、`phonemizer_parity`）は比較せずに return する。
+
+[Fact] `offline.rs` のトレース許可リスト検査は、マクロの1行目しか読まない。
+複数行にまたがる event と、`#[instrument]` の `fields(...)` と `err` を見ていない。
+許可リストに無い欄名を持つ event が少なくとも8箇所ある。
+
+[Fact] CI は `koeru_force_unsupported_backend` を一度も走らせない。 clippy は Linux でしか
+走らず、macOS の backend と Kaldi の経路は CI で clippy を通っていない。
+
+[Fact] `release-gate.yml` の「profile はまだ無い」という注記は古い（`PROFILE-M1`〜`M7` がある）。
+'''
+
+reexamined_findings = '''
+調査（`docs/reports/architecture/06-evidence.md`）の finding をマージ後の main で読み直した結果。
+
+| finding | main での状態 |
+|---|---|
+| tone 内の綴りを先に入った行が持つ（R05） | **直っている。** 持ち主は録った順にテイクから導く（`DEC-RCL-016`）。候補と採用を分ける設計はまだ無い |
+| SPSC の端点が `Sync` で、`push` / `pop` が `&self`（R11） | 残っている。 `Shared` に `unsafe impl Sync` があり、端点は `Arc<Shared>` を持つので自動で `Sync` になる |
+| 再生が `RwLock<Vec<f32>>` を callback から `try_read` する（R13） | 残っている（`playback.rs:372`） |
+| 控えが DB を `fs::copy` する（R09） | 残っている。WAL を写さない。 ただし `take_snapshot` と `derive` は **製品の経路から呼ばれていない**（試験だけ）。潜在的な欠陥 |
+| 複製が音声ディレクトリの直下しか写さない（R09） | 残っている。多音階は `audio/<音高>/` に置く（`studio.rs:756`）ので、`derive` は音高ごとの音声を写さない。これも製品の経路からは呼ばれていない |
+| take の確定後の解析失敗を失敗と返す（R06） | 残っている（上の errors） |
+| 外部の rules の書き換えをどう解釈するか（R25） | **決まっている。** 作成時に固定し、書き換えは戻して別名で残す（`DEC-SYN-013`） |
+| 録り直したテイクへ固定した値を残す規則 | 残す規則は FSL（`REQ-ALN-007`）にある。 新しいテイクへ位置をどう写すかは決まっていない |
+'''
