@@ -112,6 +112,40 @@ KOERU には、利用者の音声制作行動・意味理解・感情につい�
 
 人間と AI の組合せについてのメタ分析では、人間単独に対する改善と、人間・AI のうち優れた方を上回る相乗効果は区別される。平均的に後者が成立するわけではなく、課題によって結果が異なる。したがって、Human approval gate を付けたこと自体を品質保証とみなさない。([doi.org](https://doi.org/10.1038/s41562-024-02024-1))
 
+### 2.5 Research evidence matrix
+
+外部研究は「引用したから正しい」という authority として使わない。
+設計へ転用するとき、研究が実際に観察した対象と KOERU へ持ち込めない範囲を同時に残す。
+
+| Source | 種類 / 対象 | この Architecture が借りるもの | KOERU への転用限界 | Status |
+|---|---|---|---|---|
+| MacLean et al., QOC / Design Space Analysis | design rationale / software design | Question・Option・Criteria を分け、問いと案が相互に変化する見方 | KOERU の創作 UX を実証した研究ではない | academic / foundational |
+| Shipman & McCall, Incremental Formalization | HCI / design information management | informal な材料を必要時だけ形式化する原則 | GitHub OSS での運用コストは KOERU で観測が必要 | peer-reviewed HCI |
+| Collins, Brown & Newman / Cognitive Apprenticeship | learning / apprenticeship | modeling、coaching、articulation、reflection、exploration | volunteer OSS の長期在籍を前提にしてはいけない | academic / educational theory |
+| Star & Griesemer, Boundary Objects | sociology of science | 同じ artifact を異なる立場が異なる解釈で共有できる見方 | schema があるだけで協働が成立するとは言えない | peer-reviewed |
+| Dow et al., Parallel Prototyping | experimental HCI / design task | 早期収束を避け、対照を並行して作る価値 | 広告制作課題から KOERU UX 全体へ効果量を一般化しない | peer-reviewed experiment |
+| Doshi & Hauser, generative AI and creativity | creative writing experiment | 個人品質と集団 diversity を分けて考える | UI / 音声制作で同じ効果を仮定しない | peer-reviewed experiment |
+| CHI 2024 visual ideation study | visual ideation experiment | AI 例による fixation を exploration risk として扱う | task / model / participant 条件に依存 | peer-reviewed conference |
+| Park et al., generative agents | interview-grounded agent simulation | grounding の種類によって simulation capability が変わる | KOERU の利用者代理として校正されていない | preprint / empirical |
+| Human-AI combination meta-analysis | multiple task families | human approval を synergy と同一視しない | task heterogeneity が大きく、KOERU 固有効果は未測定 | peer-reviewed meta-analysis |
+| GOV.UK contribution criteria | production design-system practice | reuse scope と contribution boundary を明示する | multi-team government service と単一 creative tool は目的が違う | practitioner / official |
+| Rust RFC / FCP operations | OSS governance practice | silence、rough consensus、async governance の運用失敗から学ぶ | Rust community の規模・権限構造をそのまま移植しない | practitioner / primary record |
+| W3C evaluation guidance | accessibility standards practice | automation と human evaluation の能力を区別する | conformance だけで creative experience は評価できない | standards / official |
+
+各研究を `EVID-*` に移すのは、その研究が実際の KOERU Decision の根拠として参照されるときだけでよい。
+この表は research map であり、外部論文を KOERU の user evidence に昇格させるものではない。
+
+主要参照先:
+
+- MacLean et al., *Questions, Options, and Criteria: Elements of Design Space Analysis*: https://projects.buckinghamshum.net/docs/SBS-DSA-1993.pdf
+- Shipman & McCall, *Supporting Knowledge-Base Evolution with Incremental Formalization*: https://people.engr.tamu.edu/shipman/chi94-hos/chi94hos_abstract.html
+- Dow et al., *Parallel Prototyping Leads to Better Design Results*: https://doi.org/10.1145/1879831.1879836
+- Doshi & Hauser, *Generative AI enhances individual creativity but reduces the collective diversity of novel content*: https://doi.org/10.1126/sciadv.adn5290
+- Human-AI meta-analysis: https://doi.org/10.1038/s41562-024-02024-1
+- Star & Griesemer, Boundary Objects: https://doi.org/10.1177/030631289019003001
+- GOV.UK Design System contribution criteria: https://design-system.service.gov.uk/community/contribution-criteria/
+- W3C accessibility evaluation overview: https://www.w3.org/WAI/test-evaluate/
+
 ---
 
 ## 3. 採用する Design System 観
