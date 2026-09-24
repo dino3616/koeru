@@ -896,6 +896,39 @@ Probe を書いたこと自体は Evidence ではない。実行されていな�
 
 音声処理については、KOERU 自身の `verify-koeru` が、構造的な試験が通っても実音声では境界がずれたり雑音になったりしうることを記録している。この知識は、新しい仕組みの出発点にする。
 
+### 10.1.1 Evidence capability は機械可読な registry にする
+
+前表は説明用 projection である。実装では Claim class と observation method の組を
+machine-readable な capability registry として持つ。目的は Evidence の存在確認ではなく、
+**その観測方法が、その Claim について証言する資格を持つか**を検査することである。
+
+概念例:
+
+```toml
+[[capability]]
+claim_class = "semantic-comprehension"
+method = "agent-review"
+support = "cannot-support"
+
+[[capability]]
+claim_class = "accessibility-conformance"
+method = "browser-measurement"
+support = "can-support"
+
+[[capability]]
+claim_class = "emotional-response"
+method = "competitive-corpus"
+support = "hypothesis-generation-only"
+```
+
+少なくとも `can-support`、`cannot-support`、`hypothesis-generation-only`、
+`context-dependent` を区別する。`context-dependent` は必要条件を明示できない限り
+自動昇格させない。
+
+`check-design` は Claim と Evidence の relation をこの registry に照らす。
+ただし registry は観察内容の真偽を認定しない。正しい method label を付けた誤観察は依然として
+誤観察であり、provenance と元 artifact を追える必要がある。
+
 ### 10.2 Evidence Laundering を防ぐ
 
 五つの規則を置く。
