@@ -48,19 +48,21 @@ pub enum ReclistError {
     /// その方式には行が短すぎる。
     ///
     /// 連続音と CVVC は隣接から遷移を作るので、1モーラの行では1つも覆えない。
-    #[error("{method} には1行あたり2単位以上が要る")]
+    #[error("この方式には1行あたり2単位以上が要る")]
     RowTooShort { method: &'static str },
 }
 
-impl ReclistError {
-    /// 送信層へ載せてよい固定文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ReclistError {
+    fn code(&self) -> &'static str {
         match self {
             Self::UnitsPerRow { .. } => "reclist.units_per_row_out_of_range",
             Self::UnsafeFileName => "reclist.unsafe_file_name",
             Self::RowTooShort { .. } => "reclist.row_too_short",
         }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::InvalidInput
     }
 }
 

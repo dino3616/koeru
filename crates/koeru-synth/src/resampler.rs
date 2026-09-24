@@ -98,15 +98,24 @@ pub enum RenderError {
     SampleRateMismatch,
 }
 
-impl RenderError {
-    /// 送信層へ載せてよい固定文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for RenderError {
+    fn code(&self) -> &'static str {
         match self {
             Self::RegionOutOfRange => "synth.region_out_of_range",
             Self::EmptyOutput => "synth.empty_output",
             Self::SourceUnavailable => "synth.source_unavailable",
             Self::SampleRateMismatch => "synth.sample_rate_mismatch",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        use koeru_failure::Class;
+        match self {
+            // oto の5値は本人が直せる。
+            Self::RegionOutOfRange => Class::InvalidInput,
+            Self::EmptyOutput => Class::Internal,
+            // マスターが無い、またはマスターの形式でないのは、保存されたものが欠けている。
+            Self::SourceUnavailable | Self::SampleRateMismatch => Class::Corrupt,
         }
     }
 }
@@ -154,7 +163,7 @@ pub fn midi_to_hz(note: i32) -> f64 {
 }
 
 /// 1音を合成する。
-#[tracing::instrument(skip(req), fields(tone = req.tone, len_ms = req.required_length_ms), err)]
+#[tracing::instrument(skip(req), fields(tone = req.tone, len_ms = req.required_length_ms))]
 pub fn render(req: &RenderRequest<'_>) -> Result<Vec<f64>> {
     if req.required_length_ms <= 0.0 {
         return Err(RenderError::EmptyOutput);

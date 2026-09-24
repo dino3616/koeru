@@ -17,7 +17,12 @@ KOERU は回復が必要な失敗を多く抱えるアプリケーションで�
 
 ## エラー型の設計
 
-分類・code・確定の状態・次の手の決め方は `DEC-PLT-038` が持つ。ここにあるのは、それを Rust で書くときの手順だけ。**移行中**で、既存のコードには古い形（境界の `AppError {kind, message}`、`#[instrument(err)]`）が残っている。
+分類・code・確定の状態・次の手の決め方は `DEC-PLT-038` が持つ。ここにあるのは、それを Rust で書くときの手順だけ。
+
+- 語彙（`Class` / `Outcome` / `Action` と trait `Failure`）は葉の crate `koeru-failure`。エラー型はそれぞれ `impl koeru_failure::Failure` を持ち、変種ごとに `code()` と `class()` を返す。入出力の失敗は `koeru_failure::io_class` で分ける
+- 境界は `koeru-app` の `AppError`。下の層は `AppError::from_failure`（`?` で畳めるものは `From`）、境界で初めて分かる失敗は `AppError::new(code, class, 文言)`。確定したあとで起きた失敗は `with_outcome(Outcome::Committed)` で上書きする。**移行中の形**で、GraphQL の payload（`DEC-PLT-035`）に置き換わる
+- 画面へ渡す失敗は、直列化のときに1回だけ記録される。 画面へ渡さずにその場で縮退するときは、持ち主が `koeru_failure::record_failure` か `AppError::record` を呼ぶ
+- 文言に値を差し込まないこと、code が型をまたいで一意なこと、`instrument` に `err` が無いことは `crates/koeru-app/tests/failures.rs` と `offline.rs` が source を読んで見る
 
 ### 層ごとの責務
 

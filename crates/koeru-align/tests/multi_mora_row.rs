@@ -49,8 +49,12 @@ fn 生成した行の読みが全て辞書にある() {
             assert!(!rows.is_empty());
             for row in &rows {
                 let readings: Vec<&str> = row.units.iter().map(|u| u.kana).collect();
-                phoneme::phonemes_for_all(&readings)
-                    .unwrap_or_else(|e| panic!("{readings:?} が引けない: {}", e.kind()));
+                phoneme::phonemes_for_all(&readings).unwrap_or_else(|e| {
+                    panic!(
+                        "{readings:?} が引けない: {}",
+                        koeru_failure::Failure::code(&e)
+                    )
+                });
             }
         }
     }

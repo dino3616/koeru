@@ -56,15 +56,23 @@ pub enum IniError {
     Text(#[from] text::TextError),
 }
 
-impl IniError {
-    /// 送信してよい種別文字列。行の中身は送らない（AGENTS.md #3）。
-    #[must_use]
-    pub fn kind(&self) -> &'static str {
+/// 行の中身は code にも文言にも入れない（`AGENTS.md` #3）。
+impl koeru_failure::Failure for IniError {
+    fn code(&self) -> &'static str {
         match self {
             Self::MalformedLine => "ini.malformed_line",
             Self::MissingFields => "ini.missing_fields",
             Self::NotANumber => "ini.not_a_number",
-            Self::Text(e) => e.kind(),
+            Self::Text(e) => e.code(),
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::MalformedLine | Self::MissingFields | Self::NotANumber => {
+                koeru_failure::Class::InvalidInput
+            }
+            Self::Text(e) => e.class(),
         }
     }
 }
@@ -280,7 +288,8 @@ mod tests {
             IniError::MissingFields,
             IniError::NotANumber,
         ] {
-            assert!(e.kind().starts_with("ini."), "{}", e.kind());
+            let code = koeru_failure::Failure::code(&e);
+            assert!(code.starts_with("ini."), "{code}");
         }
     }
 }

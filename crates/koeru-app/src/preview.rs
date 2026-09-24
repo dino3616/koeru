@@ -226,7 +226,7 @@ pub trait Sink: Send {
 /// # Errors
 ///
 /// 先頭フレーズを合成できないとき。
-#[tracing::instrument(skip(phrases, samples, cache, sink), fields(count = phrases.len()), err)]
+#[tracing::instrument(skip(phrases, samples, cache, sink), fields(count = phrases.len()))]
 pub fn start(
     phrases: Vec<(Phrase, f64)>,
     samples: Arc<dyn Samples + Send + Sync>,
@@ -268,8 +268,13 @@ pub fn start(
                 }
                 match render_cached(&p, samples.as_ref(), &cache, rate_hz) {
                     Ok(pcm) => sink.push(&pcm),
+                    // 鳴らすのをやめるだけで、何も確定していない。
                     Err(e) => {
-                        tracing::warn!(kind = e.kind(), "フレーズを合成できなかった");
+                        koeru_failure::record_failure(
+                            &e,
+                            koeru_failure::Outcome::NotCommitted,
+                            "preview.render",
+                        );
                         break;
                     }
                 }

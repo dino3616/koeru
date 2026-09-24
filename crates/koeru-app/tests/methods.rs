@@ -135,7 +135,7 @@ fn 知らないプリセットは断る() {
     let e = s
         .create_project_with("なに", "なにこれ", &[57])
         .expect_err("断る");
-    assert_eq!(e.kind, "preset.unknown");
+    assert_eq!(e.code, "preset.unknown");
 }
 
 /// 本数も音高も本人が決める（`TR-RCL-01`）。間隔で咎めない。
@@ -158,19 +158,19 @@ fn 鳴らせない音高は断る() {
     assert_eq!(
         s.create_project_with("から", "single", &[])
             .expect_err("断る")
-            .kind,
+            .code,
         "tone.empty"
     );
     assert_eq!(
         s.create_project_with("そと", "single", &[0])
             .expect_err("断る")
-            .kind,
+            .code,
         "tone.out_of_range"
     );
     assert_eq!(
         s.create_project_with("だぶり", "single", &[60, 60])
             .expect_err("断る")
-            .kind,
+            .code,
         "tone.duplicate"
     );
 }

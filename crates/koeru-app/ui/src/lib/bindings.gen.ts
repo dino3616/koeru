@@ -372,9 +372,11 @@ export const commands = {
 /* Types */
 /**  画面へ返す失敗。 */
 export type AppError = {
-	/**  送信してよい種別文字列。 */
-	kind: string,
-	/**  画面に出す説明。送信層へ載せない。 */
+	code: string,
+	class: FailureClass,
+	/**  操作が確定したかどうか。 分類からの既定を、確定した工程を知る持ち主が上書きする。 */
+	outcome: FailureOutcome,
+	action: FailureAction,
 	message: string,
 };
 
@@ -485,6 +487,15 @@ export type ExportedView = {
 	alias_count: number,
 	released_at: string,
 };
+
+/**  [`Action`] の写し。 */
+export type FailureAction = "fix_input" | "meet_condition" | "refresh" | "nothing" | "show_receipt" | "wait" | "reconnect" | "grant" | "retry_same" | "free_space" | "recover" | "use_available" | "rebuild" | "report";
+
+/**  [`Class`] の写し。 */
+export type FailureClass = "invalid_input" | "rejected" | "conflict" | "cancelled" | "already_committed" | "busy" | "device_unavailable" | "transient_io" | "storage" | "corrupt" | "unsupported" | "engine_failed" | "internal";
+
+/**  [`Outcome`] の写し。 */
+export type FailureOutcome = "not_started" | "not_committed" | "committed" | "unknown";
 
 /**
  *  検証で見つかった1件（`TR-PKG-49`, `TR-PKG-51`）。
@@ -1110,6 +1121,8 @@ export type TakeView = {
 	 *  足りなくてもテイクは有効。 事実を伝えるだけ。
 	 */
 	has_required_margins: boolean,
+	/**  確定のあとで落ちた工程（[`TakeResult::followup`]）。 テイクは保存済み。 */
+	followup: AppError | null,
 };
 
 /**  選べる音高1つ（`TR-REC-25`）。 */

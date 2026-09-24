@@ -54,8 +54,8 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 /// 台帳の操作が失敗した理由。
 #[derive(Debug, thiserror::Error)]
 pub enum LedgerError {
-    /// SQLite の操作が失敗した。
-    #[error("データベースの操作が失敗した（{op}）")]
+    /// SQLite の操作が失敗した。`op` はどの問い合わせかを示す固定の名前。
+    #[error("データベースの操作が失敗した")]
     Db {
         op: &'static str,
         #[source]
@@ -82,10 +82,8 @@ pub enum LedgerError {
     UnknownTake,
 }
 
-impl LedgerError {
-    /// 送信層へ載せてよい固定文字列。`Display` を送らない（パスが入りうる）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for LedgerError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Db { .. } => "ledger.db_failed",
             Self::Open { .. } => "ledger.open_failed",
@@ -94,9 +92,82 @@ impl LedgerError {
             Self::UnknownTake => "ledger.unknown_take",
         }
     }
+
+    fn class(&self) -> koeru_failure::Class {
+        use diesel::result::{DatabaseErrorKind as K, Error as E};
+        use koeru_failure::Class;
+        match self {
+            // 制約違反は、台帳へ書く側が不変条件を破ったということ。
+            Self::Db {
+                source:
+                    E::DatabaseError(
+                        K::UniqueViolation
+                        | K::ForeignKeyViolation
+                        | K::NotNullViolation
+                        | K::CheckViolation,
+                        _,
+                    ),
+                ..
+            } => Class::Internal,
+            Self::Db {
+                source: E::DatabaseError(..) | E::RollbackErrorOnCommit { .. },
+                ..
+            } => Class::TransientIo,
+            Self::Db { .. } => Class::Internal,
+            // 開けない台帳・適用できないスキーマは、そのプロジェクトを開けないということ。
+            Self::Open { .. } | Self::Migration => Class::Corrupt,
+            // 指した行やテイクが無いのは、読んだものが古い。
+            Self::UnknownRow | Self::UnknownTake => Class::Conflict,
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, LedgerError>;
+
+/// 曲を1つ入れる。同じ id なら差し替える。 [`Ledger::put_song`] と
+/// [`Ledger::put_songs`] が同じトランザクションの中で呼ぶ。
+fn insert_song(
+    conn: &mut SqliteConnection,
+    id: &str,
+    song: &Song,
+    bundled: bool,
+    added_at: &str,
+) -> QueryResult<()> {
+    let values = (
+        songs::title.eq(&song.title),
+        songs::source.eq(&song.provenance.source),
+        songs::license.eq(&song.provenance.license),
+        songs::bundled.eq(i32::from(bundled)),
+        songs::in_bank.eq(1),
+        songs::added_at.eq(added_at),
+        // 内部形式の一部（`TR-SYN-30`）。読み込んだ UST の
+        // テンポを落とすと、試唱の速さが復元できない。
+        songs::tempo_bpm.eq(song.tempo_bpm),
+        songs::default_portamento_ms.eq(song.default_portamento_ms),
+        songs::transpose.eq(song.transpose),
+    );
+    diesel::insert_into(songs::table)
+        .values((songs::id.eq(id), values))
+        .on_conflict(songs::id)
+        .do_update()
+        .set(values)
+        .execute(conn)?;
+
+    diesel::delete(song_notes::table.filter(song_notes::song_id.eq(id))).execute(conn)?;
+    for (i, n) in song.notes.iter().enumerate() {
+        diesel::insert_into(song_notes::table)
+            .values((
+                song_notes::song_id.eq(id),
+                song_notes::ordinal.eq(i32::try_from(i).unwrap_or(i32::MAX)),
+                song_notes::lyric.eq(&n.lyric),
+                song_notes::midi.eq(n.midi),
+                song_notes::ticks.eq(i32::try_from(n.ticks).unwrap_or(i32::MAX)),
+                song_notes::rest_ticks.eq(i32::try_from(n.rest_ticks).unwrap_or(i32::MAX)),
+            ))
+            .execute(conn)?;
+    }
+    Ok(())
+}
 
 /// 行を1つの収録音高へ入れる。 [`Ledger::install_rows`] と
 /// [`Ledger::replace_untaken_rows`] が同じトランザクションの中で呼ぶ。
@@ -382,7 +453,7 @@ impl Ledger {
     ///
     /// WAL モードにする（`TR-REC-27`）。書き込み中に読めるようにして、
     /// 収録とバックグラウンドの解析が互いを待たないようにする。
-    #[tracing::instrument(skip(path), err)]
+    #[tracing::instrument(skip(path))]
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let url = path.as_ref().to_string_lossy().into_owned();
         let mut conn =
@@ -414,7 +485,7 @@ impl Ledger {
     /// 録ったのかが台帳から分からなくなる。
     ///
     /// 返すのは実際に入った行の数（[`install_rows`](Self::install_rows)）。
-    #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()), err)]
+    #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()))]
     pub fn install_reclist_for_tones(
         &mut self,
         list: &[ReclistRow],
@@ -448,8 +519,7 @@ impl Ledger {
     /// 「足しました」と出すと、台帳が増えていないのに増えたと言うことになる。
     #[tracing::instrument(
         skip(self, list, rules, suffixed, origin),
-        fields(rows = list.len(), tone),
-        err
+        fields(rows = list.len(), tone)
     )]
     pub fn install_rows(
         &mut self,
@@ -504,8 +574,7 @@ impl Ledger {
     /// 録る行が消えたまま足されない。返すのは足した行の数。
     #[tracing::instrument(
         skip(self, list, rules, suffixed, origin),
-        fields(rows = list.len(), tone),
-        err
+        fields(rows = list.len(), tone)
     )]
     pub fn replace_untaken_rows(
         &mut self,
@@ -579,7 +648,7 @@ impl Ledger {
     }
 
     /// 単独音・単音階の入口。 既存の呼び出しを壊さないために残す。
-    #[tracing::instrument(skip(self, list), fields(rows = list.len(), tone), err)]
+    #[tracing::instrument(skip(self, list), fields(rows = list.len(), tone))]
     pub fn install_reclist(&mut self, list: &[ReclistRow], tone: i32) -> Result<()> {
         self.install_reclist_for_tones(
             list,
@@ -635,8 +704,25 @@ impl Ledger {
     ///
     /// 呼べるのは fsync と rename が済んだあとだけ（`DEC-REC-004`）。
     /// 世代は行ごとに単調に増える。採用テイクを新しい方へ切り替える（`TR-REC-21`）。
-    #[tracing::instrument(skip(self, t), fields(row = %t.row_id, frames = t.frames), err)]
+    #[tracing::instrument(skip(self, t), fields(row = %t.row_id, frames = t.frames))]
     pub fn commit_take(&mut self, t: &FinalizedTake) -> Result<i32> {
+        self.insert_take(t, true)
+    }
+
+    /// 取りこぼしたテイクを、無効として台帳へ載せる（`TR-REC-07`）。
+    ///
+    /// 採用は動かさない。 FSL の `discard_invalid_take` は、そのテイクを数えず、
+    /// 前に採用していたテイクをそのまま残す。
+    ///
+    /// **確定して採用に切り替えてから、別の手で無効にしていた。** 無効にする手が
+    /// 落ちると無効なテイクが採用のまま残り、落ちなくても、録り直しで取りこぼすと
+    /// それまで採用していた良いテイクが外れた。
+    #[tracing::instrument(skip(self, t), fields(row = %t.row_id, frames = t.frames))]
+    pub fn commit_invalid_take(&mut self, t: &FinalizedTake) -> Result<i32> {
+        self.insert_take(t, false)
+    }
+
+    fn insert_take(&mut self, t: &FinalizedTake, valid: bool) -> Result<i32> {
         let exists: i64 = rows::table
             .filter(rows::id.eq(&t.row_id))
             .count()
@@ -661,7 +747,7 @@ impl Ledger {
                         takes::rel_path.eq(&t.rel_path),
                         takes::frames.eq(t.frames),
                         takes::recorded_at.eq(&t.recorded_at),
-                        takes::invalid.eq(0),
+                        takes::invalid.eq(i32::from(!valid)),
                         takes::generation.eq(generation),
                     ))
                     .execute(c)?;
@@ -669,6 +755,9 @@ impl Ledger {
                     .select(takes::id)
                     .order(takes::id.desc())
                     .first(c)?;
+                if !valid {
+                    return Ok(id);
+                }
 
                 // 採用を新しい方へ切り替える。過去のテイクは残る（`TR-REC-21`）。
                 diesel::insert_into(adopted_takes::table)
@@ -1131,7 +1220,7 @@ impl Ledger {
     /// # Errors
     ///
     /// 台帳を読めないとき。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
         let all = row_units::table
             .select((row_units::consonant, row_units::kana))
@@ -1186,7 +1275,7 @@ impl Ledger {
     /// # Errors
     ///
     /// 台帳を読めないとき。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
         let rows = take_analysis::table
             .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(take_analysis::take_id)))
@@ -1247,7 +1336,7 @@ impl Ledger {
     /// # Errors
     ///
     /// 台帳を読めないとき。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
         // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
         let rows = rows::table
@@ -1313,7 +1402,7 @@ impl Ledger {
     ///
     /// 提示するだけ。DB へ自動で書き戻さない（`TR-REC-31` の「自動修復しない」）。
     /// 本人が採るか捨てるまで消えない。
-    #[tracing::instrument(skip(self, on_disk), fields(files = on_disk.len()), err)]
+    #[tracing::instrument(skip(self, on_disk), fields(files = on_disk.len()))]
     pub fn find_orphans(&mut self, on_disk: &[String]) -> Result<Vec<String>> {
         let known: BTreeSet<String> = takes::table
             .select(takes::rel_path)
@@ -1386,7 +1475,7 @@ impl Ledger {
     /// 録音停止時の解析値を保存する（`TR-PKG-05`, `TR-PKG-42`）。
     ///
     /// ここで入れたものを書き出し時に使う。WAV を読み直さない。
-    #[tracing::instrument(skip(self, a), fields(take_id), err)]
+    #[tracing::instrument(skip(self, a), fields(take_id))]
     pub fn put_analysis(&mut self, take_id: i32, a: &TakeAnalysis) -> Result<()> {
         let f0 = f64s_to_bytes(&a.frq.f0);
         let amp = f64s_to_bytes(&a.frq.amp);
@@ -1419,7 +1508,7 @@ impl Ledger {
 
     /// 解析値を引く。無ければ `None`。 解析が無いことは失敗ではない
     /// （古いプロジェクトや、まだ解析が終わっていないテイク）。
-    #[tracing::instrument(skip(self), fields(take_id), err)]
+    #[tracing::instrument(skip(self), fields(take_id))]
     pub fn analysis_of(&mut self, take_id: i32) -> Result<Option<TakeAnalysis>> {
         let row = take_analysis::table
             .filter(take_analysis::take_id.eq(take_id))
@@ -1457,7 +1546,7 @@ impl Ledger {
     /// 同じ番号のリリースが2つできる。返るのは確定したレコード。
     ///
     /// 書き出し先の名前は過去のものと衝突しない（連番が先頭に付く）。
-    #[tracing::instrument(skip(self, r), err)]
+    #[tracing::instrument(skip(self, r))]
     pub fn record_release(&mut self, r: &NewRelease, ext: &str) -> Result<Release> {
         let next = releases::table
             .select(diesel::dsl::max(releases::seq))
@@ -1500,7 +1589,7 @@ impl Ledger {
     /// 台帳を変えない。 名前を先に決めてから包み、包み終えてから
     /// [`Self::record_release`] で確定させるために要る——逆にすると、
     /// 包むのに失敗した回の記録だけが残る。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn next_release_seq(&mut self) -> Result<i32> {
         Ok(releases::table
             .select(diesel::dsl::max(releases::seq))
@@ -1513,7 +1602,7 @@ impl Ledger {
     /// 書き出しの履歴を古い順に引く（`TR-PKG-44`）。
     ///
     /// 過去のリリースはここからだけ取り出せる（`TR-PKG-46`）。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn releases(&mut self) -> Result<Vec<Release>> {
         let rows = releases::table
             .order(releases::seq.asc())
@@ -1572,7 +1661,7 @@ impl Ledger {
     }
 
     /// 一番新しい書き出し。外部編集の検出はここと突き合わせる（`TR-PKG-48`）。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn latest_release(&mut self) -> Result<Option<Release>> {
         Ok(self.releases()?.pop())
     }
@@ -1580,7 +1669,7 @@ impl Ledger {
     /// 書き出し履歴があるか（`TR-PKG-33` の `handoff_state`）。
     ///
     /// 完成判定はこれを参照しない。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn has_been_exported(&mut self) -> Result<bool> {
         let n: i64 = releases::table
             .count()
@@ -1590,7 +1679,7 @@ impl Ledger {
     }
 
     /// まだ採用テイクが無い行の数。残量の見積もりに使う（`REQ-REC-110`）。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn remaining_rows(&mut self) -> Result<u64> {
         let n: i64 = rows::table
             .filter(rows::id.ne_all(adopted_takes::table.select(adopted_takes::row_id)))
@@ -1605,7 +1694,7 @@ impl Ledger {
     /// 測った値で自動的に無効化しない。 自動無効化は取りこぼし（`TR-REC-07`）と
     /// デバイス消失（`TR-REC-04`）の2つだけで、それは呼び出し側が
     /// [`Ledger::invalidate_take`] を明示的に呼ぶ。
-    #[tracing::instrument(skip(self, m), fields(take_id), err)]
+    #[tracing::instrument(skip(self, m), fields(take_id))]
     pub fn put_metrics(
         &mut self,
         take_id: i32,
@@ -1644,7 +1733,7 @@ impl Ledger {
     }
 
     /// テイクの計測値を引く。
-    #[tracing::instrument(skip(self), fields(take_id), err)]
+    #[tracing::instrument(skip(self), fields(take_id))]
     pub fn metrics_of(&mut self, take_id: i32) -> Result<Option<TakeMetrics>> {
         let row = take_metrics::table
             .filter(take_metrics::take_id.eq(take_id))
@@ -1683,7 +1772,7 @@ impl Ledger {
     /// 書き出しの直前に一度だけ呼ぶ。 収録中には呼ばない
     /// ——リアルタイムの判定はスコープ外で、ここは「壊れた成果物が完成に
     /// 到達する経路を塞ぐ」ためだけの関門。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn clipped_adopted_takes(&mut self) -> Result<Vec<(String, i32, u32)>> {
         let rows = adopted_takes::table
             .inner_join(take_metrics::table.on(take_metrics::take_id.eq(adopted_takes::take_id)))
@@ -1706,7 +1795,7 @@ impl Ledger {
     ///
     /// デバイスごとに1つ。 同じプロジェクトを別のマイクで続けることがあり、
     /// そのときに前のマイクの値を当てはめても意味が無い。
-    #[tracing::instrument(skip(self, c), err)]
+    #[tracing::instrument(skip(self, c))]
     pub fn put_calibration(&mut self, c: &Calibration, measured_at: &str) -> Result<()> {
         let values = (
             calibrations::gain.eq(c.gain),
@@ -1731,7 +1820,7 @@ impl Ledger {
     }
 
     /// そのデバイスの校正結果を引く。まだ校正していなければ `None`。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn calibration_of(&mut self, device_id: &str) -> Result<Option<Calibration>> {
         let row = calibrations::table
             .filter(calibrations::device_id.eq(device_id))
@@ -1765,55 +1854,33 @@ impl Ledger {
     /// 課題曲を入れる（`TR-RCL-12`）。
     ///
     /// 同じ id なら差し替える。 同梱曲を毎回入れ直せるようにしておく。
-    #[tracing::instrument(skip(self, song), fields(id, notes = song.notes.len()), err)]
+    #[tracing::instrument(skip(self, song), fields(id, notes = song.notes.len()))]
     pub fn put_song(&mut self, id: &str, song: &Song, bundled: bool, added_at: &str) -> Result<()> {
         self.conn
-            .transaction::<_, diesel::result::Error, _>(|conn| {
-                let values = (
-                    songs::title.eq(&song.title),
-                    songs::source.eq(&song.provenance.source),
-                    songs::license.eq(&song.provenance.license),
-                    songs::bundled.eq(i32::from(bundled)),
-                    songs::in_bank.eq(1),
-                    songs::added_at.eq(added_at),
-                    // 内部形式の一部（`TR-SYN-30`）。読み込んだ UST の
-                    // テンポを落とすと、試唱の速さが復元できない。
-                    songs::tempo_bpm.eq(song.tempo_bpm),
-                    songs::default_portamento_ms.eq(song.default_portamento_ms),
-                    songs::transpose.eq(song.transpose),
-                );
-                diesel::insert_into(songs::table)
-                    .values((songs::id.eq(id), values))
-                    .on_conflict(songs::id)
-                    .do_update()
-                    .set(values)
-                    .execute(conn)?;
+            .transaction(|conn| insert_song(conn, id, song, bundled, added_at))
+            .map_err(db("put_song"))
+    }
 
-                diesel::delete(song_notes::table.filter(song_notes::song_id.eq(id)))
-                    .execute(conn)?;
-                for (i, n) in song.notes.iter().enumerate() {
-                    diesel::insert_into(song_notes::table)
-                        .values((
-                            song_notes::song_id.eq(id),
-                            song_notes::ordinal.eq(i32::try_from(i).unwrap_or(i32::MAX)),
-                            song_notes::lyric.eq(&n.lyric),
-                            song_notes::midi.eq(n.midi),
-                            song_notes::ticks.eq(i32::try_from(n.ticks).unwrap_or(i32::MAX)),
-                            song_notes::rest_ticks
-                                .eq(i32::try_from(n.rest_ticks).unwrap_or(i32::MAX)),
-                        ))
-                        .execute(conn)?;
+    /// 取り込んだ曲をまとめて入れる。 全部入るか、1曲も入らないか。
+    ///
+    /// **1曲ずつ入れていた。** 途中で落ちると、それまでの曲が入ったまま
+    /// 取り込みは失敗と返り、やり直すと同じ曲が2つずつ並んだ。
+    #[tracing::instrument(skip(self, songs), fields(count = songs.len()))]
+    pub fn put_songs(&mut self, songs: &[(String, Song)], added_at: &str) -> Result<()> {
+        self.conn
+            .transaction(|conn| {
+                for (id, song) in songs {
+                    insert_song(conn, id, song, false, added_at)?;
                 }
                 Ok(())
             })
-            .map_err(db("put_song"))?;
-        Ok(())
+            .map_err(db("put_songs"))
     }
 
     /// 曲バンクの中身（`TR-RCL-12`）。
     ///
     /// バンクが空でも成立する。 そのとき進捗はカバレッジだけで読む。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
         Ok(self
             .songs(true)?
@@ -1826,7 +1893,7 @@ impl Ledger {
     ///
     /// **外した曲も返す。** バンクの中だけを返すと、一度外した曲が
     /// どこからも見えなくなり、戻す道が無くなる。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn all_songs(&mut self) -> Result<Vec<(String, Song, bool)>> {
         self.songs(false)
     }
@@ -1894,7 +1961,7 @@ impl Ledger {
     /// 曲をバンクから外す／戻す（`TR-RCL-12`）。
     ///
     /// 曲そのものは消さない。 同梱分も本人が外せる。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
         diesel::update(songs::table.filter(songs::id.eq(id)))
             .set(songs::in_bank.eq(i32::from(in_bank)))
@@ -1911,7 +1978,7 @@ impl Ledger {
     /// **題をトレースに載せない。** 持ち込んだファイルの名前がそのまま題になる
     /// ので、ここを流すとファイル名が外へ出る（`TR-PKG-56` の「音源名・ファイルパス・
     /// 歌詞・プロジェクト名・波形を送らない」）。
-    #[tracing::instrument(skip(self, id, title), err)]
+    #[tracing::instrument(skip(self, id, title))]
     pub fn rename_song(&mut self, id: &str, title: &str) -> Result<()> {
         diesel::update(songs::table.filter(songs::id.eq(id)))
             .set(songs::title.eq(title))
@@ -1924,7 +1991,7 @@ impl Ledger {
     ///
     /// 曲そのものは触らない。 ノートの音高は元のまま持ち、
     /// 鳴らすときに一律で足す——戻せなくなる形で書き換えない。
-    #[tracing::instrument(skip(self, id), err)]
+    #[tracing::instrument(skip(self, id))]
     pub fn set_song_transpose(&mut self, id: &str, semitones: i32) -> Result<()> {
         diesel::update(songs::table.filter(songs::id.eq(id)))
             .set(songs::transpose.eq(semitones))
@@ -1937,7 +2004,7 @@ impl Ledger {
     ///
     /// 採用テイクだけ。 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
     /// 同じ綴りを複数の行が生むときは、先に来る行のものを使う（決定的にする）。
-    #[tracing::instrument(skip(self, alias), err)]
+    #[tracing::instrument(skip(self, alias))]
     pub fn take_for_alias(&mut self, alias: &str) -> Result<Option<Take>> {
         self.take_for_alias_at(alias, None)
     }
@@ -1955,7 +2022,7 @@ impl Ledger {
     /// # Errors
     ///
     /// SQLite の操作が失敗した。
-    #[tracing::instrument(skip(self, alias), err)]
+    #[tracing::instrument(skip(self, alias))]
     pub fn take_for_alias_at(&mut self, alias: &str, tone: Option<i32>) -> Result<Option<Take>> {
         let mut q = row_aliases::table
             .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
@@ -1988,7 +2055,7 @@ impl Ledger {
     }
 
     /// テイクを1件引く。無ければ `None`。
-    #[tracing::instrument(skip(self), fields(take_id), err)]
+    #[tracing::instrument(skip(self), fields(take_id))]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
         takes::table
             .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
@@ -2010,7 +2077,7 @@ impl Ledger {
     }
 
     /// テイクに紐づく oto の5値を引く。まだ無ければ `None`。
-    #[tracing::instrument(skip(self, alias), fields(take_id), err)]
+    #[tracing::instrument(skip(self, alias), fields(take_id))]
     /// そのテイクのエイリアスに対する oto（`DEC-ALN-013`）。
     pub fn oto_of(&mut self, take_id: i32, alias: &str) -> Result<Option<koeru_oto::Oto>> {
         oto_values::table
@@ -2115,7 +2182,7 @@ impl Ledger {
     }
 
     /// 配布に出す値を読む（`PROFILE-M4`）。まだ決めていなければ `None`。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn distribution(&mut self) -> Result<Option<Distribution>> {
         distribution::table
             .find(1)
@@ -2147,7 +2214,7 @@ impl Ledger {
     /// 配布に出す値を保存する（`PROFILE-M4`）。
     ///
     /// 1行しか無いので、常に差し替える。
-    #[tracing::instrument(skip(self, d), fields(profile = %d.profile), err)]
+    #[tracing::instrument(skip(self, d), fields(profile = %d.profile))]
     pub fn set_distribution(&mut self, d: &Distribution) -> Result<()> {
         let values = (
             distribution::distribution_name.eq(&d.distribution_name),
@@ -2185,7 +2252,7 @@ impl Ledger {
     /// 配布物の名前に出ない。
     ///
     /// エイリアスの並びは決めておく。 同じ音源からは同じ `oto.ini` が出る。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn distribution_samples(&mut self) -> Result<Vec<DistributionSample>> {
         let takes: Vec<(String, String, String, i32, i32, i64)> = rows::table
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
@@ -3312,6 +3379,60 @@ mod tests {
             1,
             "ファイルの記録は残る"
         );
+    }
+
+    /// 取りこぼしたテイクは確定と同じ一手で無効として載り、採用を動かさない（`TR-REC-07`）。
+    #[test]
+    fn 取りこぼしたテイクは採用を動かさない() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let adopted_of = |l: &mut Ledger| {
+            l.rows_with_takes()
+                .expect("引ける")
+                .into_iter()
+                .find(|r| &r.row_id == row)
+                .and_then(|r| r.adopted)
+        };
+
+        // 初めてのテイクで取りこぼした。 行は録っていないまま残り、もう一度出てくる。
+        l.commit_invalid_take(&take(row, sid, 1))
+            .expect("確定できる");
+        assert_eq!(l.row_state(row).expect("引ける"), RowState::Unrecorded);
+        assert_eq!(adopted_of(&mut l), None);
+        assert!(l.covered_units().expect("引ける").is_empty());
+
+        // 録り直せた。採用はこちらへ移る。
+        let good = l.commit_take(&take(row, sid, 2)).expect("確定できる");
+        assert_eq!(adopted_of(&mut l), Some(good));
+
+        // 録り直しで取りこぼしても、採用していた良いテイクは外れない。
+        // **外れていた。** 確定で採用へ切り替えてから、別の手で無効にしていた。
+        l.commit_invalid_take(&take(row, sid, 3))
+            .expect("確定できる");
+        assert_eq!(adopted_of(&mut l), Some(good));
+        assert!(!l.covered_units().expect("引ける").is_empty());
+        let takes = l.takes_of(row).expect("引ける");
+        assert_eq!(takes.len(), 3, "ファイルの記録は全部残る");
+        assert_eq!(takes.iter().filter(|t| t.invalid).count(), 2);
+    }
+
+    /// 取り込んだ曲はまとめて入る。 途中で落ちたら1曲も残らない。
+    #[test]
+    fn 曲はまとめて入る() {
+        let (mut l, _, _) = ready();
+        let song = crate::ust::bundled_songs()
+            .into_iter()
+            .next()
+            .expect("同梱曲がある");
+        let songs = vec![("a".to_owned(), song.clone()), ("b".to_owned(), song)];
+        l.put_songs(&songs, "2026-08-30T12:00:00Z").expect("入る");
+        let ids: BTreeSet<String> = l
+            .songs_in_bank()
+            .expect("引ける")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert!(ids.contains("a") && ids.contains("b"));
     }
 
     /// 孤児を見つけて提示する。消さない（`DEC-REC-004`）。

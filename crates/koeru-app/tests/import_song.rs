@@ -117,7 +117,7 @@ fn 歌詞を読めない曲は取り込まない() {
     let e = s
         .import_songs(romaji.as_bytes(), "ローマ字.ustx", &[t("主"), t("ハモ")])
         .expect_err("拒むこと");
-    assert_eq!(e.kind, "app.unreadable_lyrics");
+    assert_eq!(e.code, "app.unreadable_lyrics");
 
     // 途中まで入れて止めない。 1曲目で拒むので、2曲目も台帳に無い。
     let titles: Vec<String> = s
@@ -144,7 +144,7 @@ fn 一ノートに二音ある曲は取り込まない() {
     let e = s
         .song_file_preview(two.as_bytes(), "二音.ustx")
         .expect_err("下見で止まる");
-    assert_eq!(e.kind, "song.note_not_one_mora");
+    assert_eq!(e.code, "song.note_not_one_mora");
     assert!(
         e.message.contains("2 番目"),
         "何番目かを伝える: {}",
@@ -155,7 +155,7 @@ fn 一ノートに二音ある曲は取り込まない() {
     let e = s
         .import_songs(two.as_bytes(), "二音.ustx", &[t("主"), t("ハモ")])
         .expect_err("取り込みでも止まる");
-    assert_eq!(e.kind, "song.note_not_one_mora");
+    assert_eq!(e.code, "song.note_not_one_mora");
 
     // 長音・拗音・促音は1ノート1音として通る。
     let ok = USTX
@@ -176,7 +176,7 @@ fn 範囲外の音高の曲は取り込まない() {
     let e = s
         .song_file_preview(wild.as_bytes(), "範囲外.ustx")
         .expect_err("下見で止まる");
-    assert_eq!(e.kind, "song.note_out_of_range");
+    assert_eq!(e.code, "song.note_out_of_range");
     assert!(
         e.message.contains("2 番目"),
         "何番目かを伝える: {}",
@@ -207,7 +207,7 @@ fn 題を後から変えられる() {
 
     // 空の題にはしない。 一覧に押す的が見えない行ができる。
     assert_eq!(
-        s.rename_song(&id, "   ").expect_err("拒むこと").kind,
+        s.rename_song(&id, "   ").expect_err("拒むこと").code,
         "app.empty_title"
     );
 }
@@ -237,14 +237,14 @@ fn 題を決めてから取り込む() {
     assert_eq!(
         s.import_songs(USTX.as_bytes(), "x.ustx", &[t("主"), t("  ")])
             .expect_err("断る")
-            .kind,
+            .code,
         "app.empty_title"
     );
     // 数が合わなければ受け取らない。
     assert_eq!(
         s.import_songs(USTX.as_bytes(), "x.ustx", &[t("主")])
             .expect_err("断る")
-            .kind,
+            .code,
         "song.title_count"
     );
 }

@@ -19,6 +19,7 @@ workspace = true
 
 [dependencies]
 koeru-core = { path = "../koeru-core" }
+koeru-failure = { path = "../koeru-failure" }
 # 同梱モデルの `meta.json` から版を読む（TR-ALN-29 の指紋）。
 serde_json.workspace = true
 sha2.workspace = true

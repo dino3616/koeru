@@ -2177,6 +2177,7 @@ dependencies = [
  "cc",
  "koeru-audio",
  "koeru-core",
+ "koeru-failure",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
@@ -2188,10 +2189,10 @@ dependencies = [
 name = "koeru-app"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "koeru-align",
  "koeru-audio",
  "koeru-core",
+ "koeru-failure",
  "koeru-package",
  "koeru-synth",
  "libc",
@@ -2214,6 +2215,7 @@ name = "koeru-audio"
 version = "0.0.0"
 dependencies = [
  "block2",
+ "koeru-failure",
  "objc2",
  "objc2-av-foundation",
  "thiserror 2.0.21",
@@ -2227,6 +2229,7 @@ dependencies = [
  "diesel",
  "diesel_migrations",
  "encoding_rs",
+ "koeru-failure",
  "libsqlite3-sys",
  "sha2 0.11.0",
  "thiserror 2.0.21",
@@ -2239,6 +2242,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "koeru-failure"
+version = "0.0.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "koeru-package"
 version = "0.0.0"
 dependencies = [
@@ -2246,6 +2256,7 @@ dependencies = [
  "koeru-align",
  "koeru-audio",
  "koeru-core",
+ "koeru-failure",
  "thiserror 2.0.21",
  "tracing",
  "zip",
@@ -2258,6 +2269,7 @@ dependencies = [
  "cc",
  "koeru-audio",
  "koeru-core",
+ "koeru-failure",
  "thiserror 2.0.21",
  "tracing",
 ]

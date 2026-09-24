@@ -23,11 +23,13 @@ use crate::{DeviceId, DeviceInfo, ring};
 #[error("この OS の音声入出力はまだ書いていない")]
 pub struct UnsupportedError;
 
-impl UnsupportedError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for UnsupportedError {
+    fn code(&self) -> &'static str {
         "audio.unsupported_platform"
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::Unsupported
     }
 }
 

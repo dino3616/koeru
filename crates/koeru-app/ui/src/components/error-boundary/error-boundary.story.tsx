@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect } from "storybook/test";
 
 import { ErrorBoundary } from ".";
+import type { AppError } from "~/lib/ipc";
 
 const meta = {
   title: "部品/ErrorBoundary",
@@ -13,7 +14,13 @@ type Story = StoryObj<typeof meta>;
 
 /** 例外を投げる子。描画のたびに落ちる。 */
 const Broken = (): never => {
-  throw { kind: "app.poisoned", message: "内部状態が壊れている。開き直してほしい" };
+  throw {
+    code: "app.poisoned",
+    class: "internal",
+    outcome: "unknown",
+    action: "report",
+    message: "内部状態が壊れている。開き直してほしい",
+  } satisfies AppError;
 };
 
 export const 受け止めたところ: Story = {

@@ -33,6 +33,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::Channel;
 
+use koeru_failure::Class;
+
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 
@@ -92,10 +94,19 @@ const ENVELOPE_FRAME_MS: u64 = 50;
 /// 毒されたら握り潰さない。 どこかのコマンドが panic した証拠で、
 /// そのまま続けると壊れた状態の上で操作を重ねる。
 fn lock(state: &AppState) -> Result<std::sync::MutexGuard<'_, Studio>> {
-    state
-        .studio
-        .lock()
-        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))
+    state.studio.lock().map_err(|_| poisoned())
+}
+
+fn poisoned() -> AppError {
+    AppError::new(
+        "app.poisoned",
+        Class::Internal,
+        "内部状態が壊れている。開き直してほしい",
+    )
+}
+
+fn bad_id() -> AppError {
+    AppError::new("app.bad_id", Class::InvalidInput, "その識別子は読めない")
 }
 
 /// 画面へ返すデバイス。
@@ -453,6 +464,8 @@ pub struct TakeView {
     /// 前後 300ms の無音マージンを確保できたか（`TR-REC-38`）。
     /// 足りなくてもテイクは有効。 事実を伝えるだけ。
     pub has_required_margins: bool,
+    /// 確定のあとで落ちた工程（[`TakeResult::followup`]）。 テイクは保存済み。
+    pub followup: Option<AppError>,
 }
 
 impl From<TakeResult> for TakeView {
@@ -476,6 +489,7 @@ impl From<TakeResult> for TakeView {
             leading_margin_ms: t.metrics.leading_margin_ms,
             trailing_margin_ms: t.metrics.trailing_margin_ms,
             has_required_margins: t.metrics.has_required_margins(),
+            followup: t.followup,
         }
     }
 }
@@ -519,9 +533,7 @@ pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<ProjectView>> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn rename_project(state: State<'_, AppState>, id: String, display_name: String) -> Result<()> {
-    let uuid = id
-        .parse()
-        .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
+    let uuid = id.parse().map_err(|_| bad_id())?;
     lock(&state)?.rename_project(uuid, &display_name)
 }
 
@@ -576,7 +588,7 @@ pub fn method_presets(tones: u32) -> Result<Vec<MethodPresetView>> {
         // まだプロジェクトが無いので、綴りは同梱の既定（`TR-SYN-36`）。
         // 差し替えは音源に置いた `presamp.ini` で効く。
         let rules = koeru_core::presamp::Rules::builtin(p.set);
-        let rows = p.reclist(&rules).map_err(|e| AppError::new(e.kind(), e))?;
+        let rows = p.reclist(&rules).map_err(AppError::from_failure)?;
         offers.push((p, koeru_core::pace::offer_of(&rows), rows));
     }
     let kept = koeru_core::pace::distinct_offers(
@@ -752,11 +764,13 @@ pub fn dismiss_presamp_notice(state: State<'_, AppState>) -> Result<()> {
 pub fn open_project(state: State<'_, AppState>, id: String) -> Result<ProgressView> {
     let (view, pending) = {
         let mut s = lock(&state)?;
-        let uuid = id
-            .parse()
-            .map_err(|_| AppError::new("app.bad_id", "その識別子は読めない"))?;
+        let uuid = id.parse().map_err(|_| bad_id())?;
         s.open_project(uuid)?;
-        (ProgressView::from(s.progress()?), s.pending_handle())
+        // ここまでで開けている。進み具合を読めなくても、開いたことは取り消さない。
+        let progress = s
+            .progress()
+            .map_err(|e| e.with_outcome(koeru_failure::Outcome::Committed))?;
+        (ProgressView::from(progress), s.pending_handle())
     };
     // 待ち数の持ち手を、状態ロックの外へ出しておく（`TR-SYN-33`）。
     if let Ok(mut g) = state.pending.lock() {
@@ -1047,11 +1061,7 @@ impl From<Preflight> for PreflightView {
 pub fn pending_work(state: State<'_, AppState>) -> Result<u32> {
     // `studio` のロックを取らない（`TR-SYN-33`）。
     // 待ち数がいちばん動くのはテイクの確定中で、そこが `studio` を握っている。
-    let handle = state
-        .pending
-        .lock()
-        .map_err(|_| AppError::new("app.poisoned", "内部状態が壊れている。開き直してほしい"))?
-        .clone();
+    let handle = state.pending.lock().map_err(|_| poisoned())?.clone();
     Ok(count(handle.map_or(0, |q| crate::workers::pending_of(&q))))
 }
 
@@ -1835,10 +1845,12 @@ pub fn set_recording_order(state: State<'_, AppState>, mode: String) -> Result<(
     let m = match mode.as_str() {
         "CoverageEfficiency" => koeru_core::order::Mode::CoverageEfficiency,
         "SongBankFirst" => koeru_core::order::Mode::SongBankFirst,
-        other => {
+        // 画面から来た文字列を文言へ差し込まない（`DEC-PLT-038`）。
+        _ => {
             return Err(AppError::new(
                 "order.unknown_mode",
-                format_args!("録る順 {other} を知らない"),
+                Class::InvalidInput,
+                "知らない録る順",
             ));
         }
     };
@@ -2267,7 +2279,7 @@ pub fn set_package_settings(state: State<'_, AppState>, input: PackageSettingsVi
 #[specta::specta]
 pub fn set_package_icon(state: State<'_, AppState>, bytes: Option<Vec<u8>>) -> Result<()> {
     if let Some(b) = &bytes {
-        koeru_package::icon::to_bmp(b).map_err(|e| AppError::new(e.kind(), e))?;
+        koeru_package::icon::to_bmp(b).map_err(AppError::from_failure)?;
     }
     let mut s = lock(&state)?;
     let mut d = s.package_settings()?;
@@ -2287,7 +2299,7 @@ pub fn set_package_portrait(state: State<'_, AppState>, bytes: Option<Vec<u8>>) 
         .as_deref()
         .map(koeru_package::icon::to_portrait)
         .transpose()
-        .map_err(|e| AppError::new(e.kind(), e))?;
+        .map_err(AppError::from_failure)?;
     let mut s = lock(&state)?;
     let mut d = s.package_settings()?;
     // 高さは絵そのものから決める（`TR-PKG-07`）。画面に欄を置いていないので、
@@ -2440,8 +2452,14 @@ pub fn export_package(state: State<'_, AppState>) -> Result<ExportedView> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn export_downgrade(state: State<'_, AppState>, method: String) -> Result<ExportedView> {
-    let m = koeru_core::project::Method::parse(&method)
-        .map_err(|e| AppError::new(e.kind(), "知らない作り方"))?;
+    // 画面から来た識別子なので、manifest が壊れているときの `project.unknown_method` とは分ける。
+    let m = koeru_core::project::Method::parse(&method).map_err(|_| {
+        AppError::new(
+            "package.unknown_method",
+            Class::InvalidInput,
+            "知らない作り方",
+        )
+    })?;
     let e = lock(&state)?.export_downgrade(m)?;
     Ok(ExportedView {
         seq: e.release.seq,

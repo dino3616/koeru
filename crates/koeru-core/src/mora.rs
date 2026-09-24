@@ -55,14 +55,17 @@ pub enum MoraError {
     DanglingModifier { ch: char },
 }
 
-impl MoraError {
-    /// 送信してよい種別文字列。中身の文字は送らない（歌詞の一部）。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// 中身の文字は code にも文言にも入れない（歌詞の一部）。
+impl koeru_failure::Failure for MoraError {
+    fn code(&self) -> &'static str {
         match self {
             Self::UnknownSyllable { .. } => "mora.unknown_syllable",
             Self::DanglingModifier { .. } => "mora.dangling_modifier",
         }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::InvalidInput
     }
 }
 
@@ -98,7 +101,7 @@ pub fn to_hiragana(s: &str) -> String {
 /// 仮名列をモーラ列にする。
 ///
 /// 空白は区切りとして落とす。 録音リストの行は空白で単位を区切っている。
-#[tracing::instrument(skip(kana), err)]
+#[tracing::instrument(skip(kana))]
 pub fn parse(kana: &str, set: UnitSet) -> Result<Vec<Mora>, MoraError> {
     let table = units(set);
     let normalized = to_hiragana(&crate::text::to_nfc(kana));
@@ -202,6 +205,7 @@ fn find<'a>(table: &'a [Unit], kana: &str) -> Option<&'a Unit> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use koeru_failure::Failure;
 
     fn texts(ms: &[Mora]) -> Vec<&str> {
         ms.iter().map(|m| m.text.as_str()).collect()
@@ -276,7 +280,7 @@ mod tests {
             assert_eq!(m[0].unit, Some("ヴぁ"), "{s}");
         }
         let e = parse("ゔぁ", UnitSet::Core).expect_err("中核には無いこと");
-        assert_eq!(e.kind(), "mora.unknown_syllable");
+        assert_eq!(e.code(), "mora.unknown_syllable");
     }
 
     #[test]
@@ -300,7 +304,7 @@ mod tests {
     #[test]
     fn 知らない文字を拒む() {
         let e = parse("あXう", UnitSet::Core).expect_err("拒むこと");
-        assert_eq!(e.kind(), "mora.unknown_syllable");
+        assert_eq!(e.code(), "mora.unknown_syllable");
     }
 
     /// 録音リストの行も同じ実装で読める（`TR-RCL-13` の「同一の実装」）。

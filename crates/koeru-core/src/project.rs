@@ -43,12 +43,12 @@ pub enum ProjectError {
     #[error("manifest を解析できない")]
     ManifestSyntax(#[source] toml_edit::TomlError),
 
-    /// manifest に要る鍵が無い、または型が違う。
-    #[error("manifest の {field} が読めない")]
+    /// manifest に要る鍵が無い、または型が違う。`field` は鍵の名前。
+    #[error("manifest の欄が読めない")]
     ManifestField { field: &'static str },
 
     /// 知らない版の manifest。推測で読まない。
-    #[error("manifest の版 {found} は扱えない（このビルドは {MANIFEST_VERSION}）")]
+    #[error("このビルドでは扱えない版の manifest")]
     ManifestVersion { found: i64 },
 
     /// ディレクトリ名が UUID でない。
@@ -56,16 +56,15 @@ pub enum ProjectError {
     NotAProjectDir,
 
     /// 知らない方式名。
-    #[error("方式 {found} を知らない")]
+    ///
+    /// **名前を文言に入れない。** manifest は利用者が手で書き換えられるファイルで、
+    /// 入っていた文字列がそのまま画面とトレースに出ていた。
+    #[error("manifest の方式を知らない")]
     UnknownMethod { found: String },
 }
 
-impl ProjectError {
-    /// 送信してよい種別文字列（`rust-conventions`）。
-    ///
-    /// `Display` は送らない。 表示名やパスが混じる。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ProjectError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Io(_) => "project.io",
             Self::ManifestSyntax(_) => "project.manifest_syntax",
@@ -73,6 +72,20 @@ impl ProjectError {
             Self::ManifestVersion { .. } => "project.manifest_version",
             Self::NotAProjectDir => "project.not_a_project_dir",
             Self::UnknownMethod { .. } => "project.unknown_method",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        use koeru_failure::Class;
+        match self {
+            Self::Io(e) => koeru_failure::io_class(e),
+            // 新しいビルドが書いたものは壊れていない。このビルドが読めないだけ。
+            Self::ManifestVersion { found } if *found > MANIFEST_VERSION => Class::Unsupported,
+            Self::ManifestSyntax(_)
+            | Self::ManifestField { .. }
+            | Self::ManifestVersion { .. }
+            | Self::NotAProjectDir
+            | Self::UnknownMethod { .. } => Class::Corrupt,
         }
     }
 }
@@ -377,7 +390,7 @@ impl ProjectDir {
     /// # Errors
     ///
     /// 書けないとき。
-    #[tracing::instrument(skip(self, text), err)]
+    #[tracing::instrument(skip(self, text))]
     pub fn write_presamp(&self, text: &str) -> Result<()> {
         write_atomically(&self.presamp_path(), text.as_bytes())
     }
@@ -397,7 +410,7 @@ impl ProjectDir {
     /// # Errors
     ///
     /// 読めない（無いのは除く）、書けないとき。
-    #[tracing::instrument(skip(self, snapshot), err)]
+    #[tracing::instrument(skip(self, snapshot))]
     pub fn restore_presamp(&self, snapshot: &str) -> Result<Option<String>> {
         use sha2::{Digest as _, Sha256};
 
@@ -463,7 +476,7 @@ impl ProjectDir {
     }
 
     /// manifest を読む。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn read_manifest(&self) -> Result<Manifest> {
         let mut m = Manifest::from_toml(&fs::read_to_string(self.manifest_path())?)?;
         // ファイル読み込みも外から文字列が入る境界（`TR-PKG-11`）。
@@ -478,7 +491,7 @@ impl ProjectDir {
     /// manifest を書く。一時ファイル → fsync → rename（`TR-PKG-41`）。
     ///
     /// 途中で落ちても、部分的に書かれた manifest は残らない。
-    #[tracing::instrument(skip(self, m), err)]
+    #[tracing::instrument(skip(self, m))]
     pub fn write_manifest(&self, m: &Manifest) -> Result<()> {
         write_atomically(&self.manifest_path(), m.to_toml().as_bytes())
     }
@@ -490,7 +503,7 @@ impl ProjectDir {
     ///
     /// `seq` は呼び出し側が単調増加で与える。`label` は操作の名前
     /// （`realign` / `downgrade_export` / `bulk_alias` / `delete_items` / `change_method`）。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn take_snapshot(&self, seq: u32, label: &str) -> Result<PathBuf> {
         let dir = self.snapshots_dir().join(format!("{seq:06}-{label}"));
         fs::create_dir_all(&dir)?;
@@ -503,7 +516,7 @@ impl ProjectDir {
     }
 
     /// 取ってある控えを古い順に挙げる。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn snapshots(&self) -> Result<Vec<PathBuf>> {
         let dir = self.snapshots_dir();
         if !dir.is_dir() {
@@ -530,7 +543,7 @@ pub struct Library {
 
 impl Library {
     /// ライブラリを開く。無ければ作る。
-    #[tracing::instrument(skip(root), err)]
+    #[tracing::instrument(skip(root))]
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(&root)?;
@@ -544,7 +557,7 @@ impl Library {
     }
 
     /// プロジェクトを作る。ディレクトリ名は UUID で、以後変えない。
-    #[tracing::instrument(skip(self, m), err)]
+    #[tracing::instrument(skip(self, m))]
     pub fn create(&self, m: &Manifest) -> Result<ProjectDir> {
         let id = Uuid::new_v4();
         let dir = ProjectDir {
@@ -572,7 +585,7 @@ impl Library {
     ///
     /// WAV は複製する。元は不変資産なので参照でも足りるが、片方を消したときに
     /// もう片方の音が消えるのは説明がつかない（`TR-PKG-39`）。
-    #[tracing::instrument(skip(self, parent, display_name), err)]
+    #[tracing::instrument(skip(self, parent, display_name))]
     pub fn derive(&self, parent: &ProjectDir, display_name: &str) -> Result<ProjectDir> {
         let mut m = parent.read_manifest()?;
         m.display_name = display_name.to_owned();
@@ -597,7 +610,7 @@ impl Library {
     }
 
     /// 既にあるプロジェクトを開く。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn open_project(&self, id: Uuid) -> Result<ProjectDir> {
         let root = self.root.join(id.to_string());
         if !root.is_dir() {
@@ -610,7 +623,7 @@ impl Library {
     ///
     /// manifest が読めないものは飛ばさず、失敗として返す。 一覧から静かに
     /// 消えると、利用者は「プロジェクトが無くなった」と受け取る。
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self))]
     pub fn list(&self) -> Result<Vec<(ProjectDir, std::result::Result<Manifest, ProjectError>)>> {
         let mut out = Vec::new();
         for entry in fs::read_dir(&self.root)? {
@@ -844,6 +857,11 @@ mod tests {
         )
         .expect_err("拒むこと");
         assert!(matches!(e, ProjectError::ManifestVersion { found: 99 }));
+        // 新しいビルドが書いたものを、壊れていると見せない。
+        assert_eq!(
+            koeru_failure::Failure::class(&e),
+            koeru_failure::Class::Unsupported
+        );
     }
 
     #[test]
@@ -852,7 +870,11 @@ mod tests {
             "version = 1\ndisplay_name = 'x'\nmethod = 'vcv-ish'\nitem_count = 1",
         )
         .expect_err("拒むこと");
-        assert_eq!(e.kind(), "project.unknown_method");
+        assert_eq!(koeru_failure::Failure::code(&e), "project.unknown_method");
+        assert!(
+            !e.to_string().contains("vcv-ish"),
+            "manifest の文字列を文言に入れない"
+        );
     }
 
     #[test]

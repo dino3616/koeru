@@ -178,12 +178,16 @@ export const useRecorder = ({
     try {
       const t = await api.finishTake();
       setTake(t);
+      // 確定のあとで落ちた工程があっても、テイクは保存されている（`DEC-PLT-038`）。
+      // 録り直しを促さない。
       onStatus(
         t.invalidated
           ? "取りこぼしがあったので、もう一度録ります"
-          : t.has_oto
-            ? "録れました。音高を選ぶと歌います"
-            : "録れましたが、発声を見つけられませんでした",
+          : t.followup
+            ? `録れました。保存はできています。${t.followup.message}`
+            : t.has_oto
+              ? "録れました。音高を選ぶと歌います"
+              : "録れましたが、発声を見つけられませんでした",
       );
       onSettled({ take: t, progress: await api.progress() });
       return t;

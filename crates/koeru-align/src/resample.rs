@@ -43,14 +43,18 @@ pub enum ResampleError {
     Empty,
 }
 
-impl ResampleError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for ResampleError {
+    fn code(&self) -> &'static str {
         match self {
-            Self::ZeroRate => "resample.zero_rate",
-            Self::Empty => "resample.empty",
+            Self::ZeroRate => "align.resample.zero_rate",
+            Self::Empty => "align.resample.empty",
         }
+    }
+
+    /// 短すぎる録音は [`crate::aligner::AlignError::TooShort`] が先に弾く。
+    /// ここまで来た 0 と空は呼び出し側の欠陥。
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::Internal
     }
 }
 
@@ -248,7 +252,7 @@ mod tests {
     #[test]
     fn 失敗の種別は固定文字列() {
         for e in [ResampleError::ZeroRate, ResampleError::Empty] {
-            assert!(e.kind().starts_with("resample."));
+            assert!(koeru_failure::Failure::code(&e).starts_with("align.resample."));
         }
     }
 }

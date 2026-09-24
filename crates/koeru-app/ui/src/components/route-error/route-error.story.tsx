@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { RouteError } from ".";
+import type { AppError } from "~/lib/ipc";
 import { withRouter } from "~/lib/story-router";
 
 const meta = {
@@ -13,7 +14,15 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Rustからの失敗: Story = {
-  args: { error: { kind: "app.no_project", message: "その音源が見つからなかった" } },
+  args: {
+    error: {
+      code: "app.no_project",
+      class: "rejected",
+      outcome: "not_committed",
+      action: "meet_condition",
+      message: "その音源が見つからなかった",
+    } satisfies AppError,
+  },
   render: (args) => withRouter(<RouteError {...args} />),
 };
 

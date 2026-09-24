@@ -268,11 +268,23 @@ mod contract_tests {
     /// 送信層へ載せる語彙は固定文字列で、Display を含まない
     #[test]
     fn 失敗の種別は固定文字列になる() {
+        use koeru_failure::{Class, Failure};
         let e = SessionError::DeviceState {
             expected: Device::Selected,
             actual: Device::Lost,
         };
-        assert_eq!(e.kind(), "recording.device_state");
-        assert!(!e.kind().contains("Lost"), "kind に状態の中身を混ぜない");
+        assert_eq!(e.code(), "recording.device_state");
+        assert!(!e.code().contains("Lost"), "code に状態の中身を混ぜない");
+        assert!(
+            !e.to_string().contains("Lost"),
+            "文言に状態の中身を混ぜない"
+        );
+        // 失われたマイクは手順の誤りではない。選び直すまで同じ結果になる。
+        assert_eq!(e.class(), Class::DeviceUnavailable);
+        let wrong_step = SessionError::DeviceState {
+            expected: Device::Selected,
+            actual: Device::NotSelected,
+        };
+        assert_eq!(wrong_step.class(), Class::Rejected);
     }
 }

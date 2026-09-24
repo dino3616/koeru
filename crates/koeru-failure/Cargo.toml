@@ -1,0 +1,16 @@
+[package]
+name = "koeru-failure"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の失敗の語彙。分類・確定の状態・次の手と、エラー型が実装する trait"
+
+[lints]
+workspace = true
+
+# どの crate からも引ける葉に置く（DEC-PLT-034）。依存を足さない。
+[dependencies]
+tracing.workspace = true

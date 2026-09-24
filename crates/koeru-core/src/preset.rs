@@ -71,13 +71,18 @@ pub enum PresetError {
     Reclist(#[from] ReclistError),
 }
 
-impl PresetError {
-    /// 送信層へ載せてよい固定文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for PresetError {
+    fn code(&self) -> &'static str {
         match self {
             Self::HeadCvRequired => "preset.head_cv_required",
-            Self::Reclist(e) => e.kind(),
+            Self::Reclist(e) => e.code(),
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::HeadCvRequired => koeru_failure::Class::InvalidInput,
+            Self::Reclist(e) => e.class(),
         }
     }
 }

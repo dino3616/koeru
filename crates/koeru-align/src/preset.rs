@@ -151,14 +151,22 @@ pub enum PresetError {
     MissingField,
 }
 
-impl PresetError {
-    /// 送信してよい種別文字列。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// code は `align.preset.*`。 `preset.*` は収録方式のプリセット（`koeru-core`）が名乗っている。
+impl koeru_failure::Failure for PresetError {
+    fn code(&self) -> &'static str {
         match self {
-            Self::Malformed => "preset.malformed",
-            Self::NoDefaultForMethod => "preset.no_default_for_method",
-            Self::MissingField => "preset.missing_field",
+            Self::Malformed => "align.preset.malformed",
+            Self::NoDefaultForMethod => "align.preset.no_default_for_method",
+            Self::MissingField => "align.preset.missing_field",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            // 規約プリセットは本人が編集できる（`TR-ALN-23`）。読めないのは渡されたもの。
+            Self::Malformed | Self::MissingField => koeru_failure::Class::InvalidInput,
+            // 方式ごとの既定は同梱している。無いのは組み立ての欠陥。
+            Self::NoDefaultForMethod => koeru_failure::Class::Internal,
         }
     }
 }
@@ -392,7 +400,7 @@ mod tests {
             PresetError::NoDefaultForMethod,
             PresetError::MissingField,
         ] {
-            assert!(e.kind().starts_with("preset."));
+            assert!(koeru_failure::Failure::code(&e).starts_with("align.preset."));
         }
     }
 }

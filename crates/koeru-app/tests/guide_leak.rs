@@ -60,7 +60,7 @@ fn ガイドを鳴らして回り込みを測る() {
     let played = studio.play_pitch(60);
     if got.leaking {
         let e = played.expect_err("鳴らさないこと");
-        assert_eq!(e.kind, "recording.guide_leaks");
+        assert_eq!(e.code, "recording.guide_leaks");
         println!("  漏れているので音高提示を鳴らさない");
     } else {
         played.expect("鳴らせること");
@@ -91,7 +91,8 @@ fn 確かめる前は音高提示を鳴らさない() {
 
     // 確かめる前に鳴らさない。 鳴らしたものが全テイクに混じる。
     let e = studio.play_pitch(60).expect_err("鳴らさないこと");
-    assert_eq!(e.kind, "recording.leak_unchecked");
+    // 収録セッションの前提と同じ code（`INV-REC-105`）。
+    assert_eq!(e.code, "recording.leak_not_checked");
 
     drop(studio);
     let _ = std::fs::remove_dir_all(&root);

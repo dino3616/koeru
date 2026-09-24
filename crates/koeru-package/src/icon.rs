@@ -45,16 +45,21 @@ pub enum IconError {
     },
 }
 
-impl IconError {
-    /// 送信してよい種別文字列。
-    ///
-    /// 画像そのものも、`Display` も送らない。画像は本人の創作物。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// 画像そのものは code にも文言にも入れない。画像は本人の創作物。
+impl koeru_failure::Failure for IconError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Undecodable { .. } => "icon.undecodable",
             Self::TooLarge { .. } => "icon.too_large",
             Self::Unencodable { .. } => "icon.unencodable",
+        }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::Undecodable { .. } | Self::TooLarge { .. } => koeru_failure::Class::InvalidInput,
+            // 読めた画像を縮めて書くのは KOERU の側。
+            Self::Unencodable { .. } => koeru_failure::Class::Internal,
         }
     }
 }
@@ -69,7 +74,7 @@ type Result<T> = std::result::Result<T, IconError>;
 /// # Errors
 ///
 /// PNG / JPEG として読めない、または BMP として書けない。
-#[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
+#[tracing::instrument(skip(source), fields(bytes = source.len()))]
 pub fn to_bmp(source: &[u8]) -> Result<Vec<u8>> {
     let img = decode(source)?;
     let square = img.resize_to_fill(SIZE, SIZE, FilterType::Lanczos3);
@@ -103,7 +108,7 @@ pub struct Portrait {
 /// # Errors
 ///
 /// PNG / JPEG として読めない、または PNG として書けない。
-#[tracing::instrument(skip(source), fields(bytes = source.len()), err)]
+#[tracing::instrument(skip(source), fields(bytes = source.len()))]
 pub fn to_portrait(source: &[u8]) -> Result<Portrait> {
     let img = decode(source)?;
     let height = img.height();
@@ -175,6 +180,7 @@ fn flatten(img: &DynamicImage) -> RgbImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use koeru_failure::Failure;
 
     /// 試験用の PNG を作る。
     fn png(width: u32, height: u32) -> Vec<u8> {
@@ -264,15 +270,15 @@ mod tests {
         src[29..33].copy_from_slice(&crc);
 
         let e = to_bmp(&src).expect_err("止まること");
-        assert_eq!(e.kind(), "icon.too_large");
+        assert_eq!(e.code(), "icon.too_large");
         let e = to_portrait(&src).expect_err("止まること");
-        assert_eq!(e.kind(), "icon.too_large");
+        assert_eq!(e.code(), "icon.too_large");
     }
 
     #[test]
     fn 読めない画像は失敗として返る() {
         let e = to_bmp("これは画像ではない".as_bytes()).expect_err("失敗すること");
-        assert_eq!(e.kind(), "icon.undecodable");
+        assert_eq!(e.code(), "icon.undecodable");
     }
 
     /// 透過は白へ畳む。黒く出る実装に当たらないようにする。

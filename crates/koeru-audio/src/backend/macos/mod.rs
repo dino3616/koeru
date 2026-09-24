@@ -31,21 +31,27 @@ use std::os::raw::c_void;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CoreAudioError {
     /// プロパティの取得に失敗した。`status` は OSStatus。
-    #[error("CoreAudio のプロパティ取得に失敗した（selector={selector}, status={status}）")]
+    #[error("CoreAudio のプロパティを取得できなかった")]
     Property { selector: &'static str, status: i32 },
 
     /// CFString を UTF-8 へ取り出せなかった。
-    #[error("文字列を UTF-8 として取り出せなかった（{selector}）")]
+    #[error("CoreAudio の文字列を UTF-8 として取り出せなかった")]
     NotUtf8 { selector: &'static str },
 }
 
-impl CoreAudioError {
-    /// 送信層へ載せてよい固定文字列。`Display` を送らない。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+impl koeru_failure::Failure for CoreAudioError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Property { .. } => "recording.macos.property_failed",
             Self::NotUtf8 { .. } => "recording.macos.not_utf8",
+        }
+    }
+
+    /// プロパティが取れなくなるのは、たいていデバイスが抜けたとき。
+    fn class(&self) -> koeru_failure::Class {
+        match self {
+            Self::Property { .. } => koeru_failure::Class::DeviceUnavailable,
+            Self::NotUtf8 { .. } => koeru_failure::Class::Internal,
         }
     }
 }
@@ -183,7 +189,7 @@ unsafe fn input_channels(device: sys::AudioObjectID) -> Result<u16> {
 /// 入力デバイスを列挙する（`TR-REC-03`）。
 ///
 /// 表示名は同一性に使わない。 返す `DeviceId` は `kAudioDevicePropertyDeviceUID`。
-#[tracing::instrument(err)]
+#[tracing::instrument]
 pub fn enumerate_input_devices() -> Result<Vec<DeviceInfo>> {
     let addr = sys::AudioObjectPropertyAddress::global(sys::kAudioHardwarePropertyDevices);
     // SAFETY: システムオブジェクトは常に存在する。
@@ -247,7 +253,7 @@ pub fn enumerate_input_devices() -> Result<Vec<DeviceInfo>> {
 }
 
 /// デバイスが生きているか（`TR-REC-04` の消失検知）。
-#[tracing::instrument(skip(id), err)]
+#[tracing::instrument(skip(id))]
 pub fn is_alive(id: &DeviceId) -> Result<bool> {
     let Some(object) = object_id_for(id)? else {
         return Ok(false);

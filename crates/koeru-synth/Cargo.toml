@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 koeru-core = { path = "../koeru-core" }
+koeru-failure = { path = "../koeru-failure" }
 thiserror.workspace = true
 tracing.workspace = true
 

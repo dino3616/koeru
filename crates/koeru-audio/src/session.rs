@@ -311,7 +311,7 @@ impl Session {
 
     /// `REQ-REC-108` / `REQ-REC-110` 収録は、デバイスが生きていて入力が届き、
     /// 校正済みで、残量が足りているときだけ始められる。
-    #[tracing::instrument(skip(self), fields(takes = self.takes), err)]
+    #[tracing::instrument(skip(self), fields(takes = self.takes))]
     pub fn start_take(&mut self) -> Result<()> {
         self.alive()?;
         self.expect_device(Device::Selected)?;
@@ -333,7 +333,7 @@ impl Session {
     }
 
     /// `REQ-REC-108` テイクが確定してもストリームは開いたままにする。
-    #[tracing::instrument(skip(self), fields(takes = self.takes), err)]
+    #[tracing::instrument(skip(self), fields(takes = self.takes))]
     pub fn finish_take(&mut self) -> Result<()> {
         self.alive()?;
         if !self.recording {

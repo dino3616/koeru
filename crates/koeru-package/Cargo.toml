@@ -16,6 +16,7 @@ image.workspace = true
 koeru-align = { path = "../koeru-align" }
 koeru-audio = { path = "../koeru-audio" }
 koeru-core = { path = "../koeru-core" }
+koeru-failure = { path = "../koeru-failure" }
 thiserror.workspace = true
 tracing.workspace = true
 zip.workspace = true

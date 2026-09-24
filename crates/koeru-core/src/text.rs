@@ -69,17 +69,17 @@ pub enum TextError {
     Undecodable { tried: TextEncoding },
 }
 
-impl TextError {
-    /// 送信してよい種別文字列。
-    ///
-    /// `Display` も、書けなかった文字そのものも送らない。
-    /// 文字は音源名や歌詞の一部でありうる。
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
+/// 書けなかった文字そのものは code にも文言にも入れない。 文字は音源名や歌詞の一部でありうる。
+impl koeru_failure::Failure for TextError {
+    fn code(&self) -> &'static str {
         match self {
             Self::Unencodable { .. } => "text.unencodable",
             Self::Undecodable { .. } => "text.undecodable",
         }
+    }
+
+    fn class(&self) -> koeru_failure::Class {
+        koeru_failure::Class::InvalidInput
     }
 }
 
@@ -96,7 +96,7 @@ type Result<T> = std::result::Result<T, TextError>;
 /// **踏むのは書き出したあと**——読み戻し検証は符号化済みのバイト列と
 /// 突き合わせるので、この取り違えを見つけられない（`TR-PKG-13` の
 /// 「不可逆な変換が起きた位置を呼び出し側へ返し」）。
-#[tracing::instrument(skip(s), fields(enc = enc.as_str()), err)]
+#[tracing::instrument(skip(s), fields(enc = enc.as_str()))]
 pub fn encode(s: &str, enc: TextEncoding) -> Result<Vec<u8>> {
     match enc {
         TextEncoding::Utf8 => Ok(s.as_bytes().to_vec()),
@@ -117,7 +117,7 @@ pub fn encode(s: &str, enc: TextEncoding) -> Result<Vec<u8>> {
 ///
 /// 置換文字が出たら失敗として返す（`TR-PLT-08`）。読めたことにして進むと、
 /// 化けたまま書き出しへ流れる。
-#[tracing::instrument(skip(bytes), fields(enc = enc.as_str(), len = bytes.len()), err)]
+#[tracing::instrument(skip(bytes), fields(enc = enc.as_str(), len = bytes.len()))]
 pub fn decode(bytes: &[u8], enc: TextEncoding) -> Result<String> {
     let encoding = match enc {
         TextEncoding::Cp932 => SHIFT_JIS,
@@ -251,7 +251,7 @@ pub fn to_nfc(s: &str) -> String {
 /// # Errors
 ///
 /// ディレクトリを読めない、またはリネームできないとき。
-#[tracing::instrument(skip(dir), err)]
+#[tracing::instrument(skip(dir))]
 pub fn normalize_names_to_nfc(dir: &std::path::Path) -> std::io::Result<usize> {
     if !dir.is_dir() {
         return Ok(0);
@@ -309,7 +309,7 @@ fn is_same_file(a: &std::path::Path, b: &std::path::Path) -> std::io::Result<boo
 /// # Errors
 ///
 /// ディレクトリを読めないとき。
-#[tracing::instrument(skip(dir), err)]
+#[tracing::instrument(skip(dir))]
 pub fn find_non_nfc_names(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
     if !dir.is_dir() {
         return Ok(Vec::new());
@@ -419,7 +419,7 @@ mod tests {
         // UTF-8 の「あ」を CP932 として読むと壊れる。
         let utf8 = "あ".as_bytes();
         let e = decode(utf8, TextEncoding::Cp932).expect_err("拒むこと");
-        assert_eq!(e.kind(), "text.undecodable");
+        assert_eq!(koeru_failure::Failure::code(&e), "text.undecodable");
 
         // 逆向きも。CP932 の「あ」を UTF-8 として読む。
         let sjis = encode("あ", TextEncoding::Cp932).expect("書ける");
