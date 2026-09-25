@@ -49,7 +49,8 @@ type ReviewPage {
 type ReviewItem {
   entry: SettingEntry!
   state: ReviewState!
-  confidence: Float!
+  "4成分を合成した確信度。 0〜1。 推定していなければ null（0 は「確信が無い」であって「推定していない」ではない）。"
+  confidence: Float
   "確信度の4成分（`TR-ALN-26` (3)）。 推定していなければ null。"
   components: ConfidenceComponents
   """
