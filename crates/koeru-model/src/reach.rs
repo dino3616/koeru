@@ -26,7 +26,7 @@
 //! `INV-ALN-003` は確認が残ったままの書き出しを禁じている。
 //! 飛ばすというのは「1件ずつ見る代わりにまとめて引き受ける」こと。
 
-use koeru_core::alias::Method;
+use crate::alias::Method;
 
 /// 方式ごとの到達水準（`TR-ALN-28`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

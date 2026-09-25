@@ -607,13 +607,7 @@ fn bank_of(
                     .map(|(alias, o)| koeru_align::ini::IniEntry {
                         file: file.clone(),
                         alias: alias.clone(),
-                        oto: koeru_core::oto::Oto {
-                            offset_ms: o.offset_ms,
-                            consonant_ms: o.consonant_ms,
-                            cutoff_ms: o.cutoff_ms,
-                            preutterance_ms: o.preutterance_ms,
-                            overlap_ms: o.overlap_ms,
-                        },
+                        oto: *o,
                     })
                     .collect()
             })

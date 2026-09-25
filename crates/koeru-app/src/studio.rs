@@ -2619,7 +2619,9 @@ impl Studio {
                     let part = &f64s[a0.min(a1)..a1.max(a0)];
                     alignment
                         .as_ref()
-                        .and_then(|a| Confidence::from_alignment_span(a, part, from_ms, to_ms))
+                        .and_then(|a| {
+                            koeru_align::confidence::from_alignment_span(a, part, from_ms, to_ms)
+                        })
                         .or_else(|| {
                             // 退避経路もモーラの範囲で測る（`TR-ALN-26`）。
                             // **ファイル全体の境界で測っていた。** MFA が無い環境
@@ -2728,13 +2730,7 @@ impl Studio {
                     self.opened_mut()?.ledger.put_oto(
                         take_id,
                         reading,
-                        &koeru_oto::Oto {
-                            offset_ms: o.offset_ms,
-                            consonant_ms: o.consonant_ms,
-                            cutoff_ms: o.cutoff_ms,
-                            preutterance_ms: o.preutterance_ms,
-                            overlap_ms: o.overlap_ms,
-                        },
+                        &o,
                         c.map_or(0.0, |x| x.score()),
                         // 成分も残す（`TR-ALN-24`）。合成からは作り直せない。
                         c.map(|x| koeru_core::db::ConfidenceParts {
@@ -3050,13 +3046,7 @@ impl Studio {
             // `tone` は鳴らしたい音高。収録音高ではない（resampler の doc を参照）。
             // ここに収録音高を渡すと、どの音高を選んでも同じ高さで鳴る。
             tone: midi,
-            oto: Oto {
-                offset_ms: oto.offset_ms,
-                consonant_ms: oto.consonant_ms,
-                cutoff_ms: oto.cutoff_ms,
-                preutterance_ms: oto.preutterance_ms,
-                overlap_ms: oto.overlap_ms,
-            },
+            oto,
             required_length_ms: length_ms,
             consonant_velocity: 100.0,
             volume: 100.0,
@@ -3367,15 +3357,8 @@ impl Studio {
             else {
                 continue;
             };
-            let Some(row) = self.opened_mut()?.ledger.oto_of(take_id, alias)? else {
+            let Some(fresh) = self.opened_mut()?.ledger.oto_of(take_id, alias)? else {
                 continue;
-            };
-            let fresh = Oto {
-                offset_ms: row.offset_ms,
-                consonant_ms: row.consonant_ms,
-                cutoff_ms: row.cutoff_ms,
-                preutterance_ms: row.preutterance_ms,
-                overlap_ms: row.overlap_ms,
             };
             let prev_take = self.opened()?.review_takes.get(&key).copied();
             let mut onset_in = |take: Option<i32>| -> Result<Option<f64>> {
@@ -3769,7 +3752,12 @@ impl Studio {
             let c = alignment
                 .as_ref()
                 .and_then(|a| {
-                    Confidence::from_alignment_span(a, part, b.voice_start_ms, b.vowel_end_ms)
+                    koeru_align::confidence::from_alignment_span(
+                        a,
+                        part,
+                        b.voice_start_ms,
+                        b.vowel_end_ms,
+                    )
                 })
                 .or_else(|| Some(confidence(part, w.rate_hz, &shifted, &cfg)))
                 .map(|mut c| {
@@ -4617,16 +4605,7 @@ impl Studio {
             if let Some(a) = self.opened_mut()?.ledger.analysis_of(take.id)? {
                 tables.insert(unit.clone(), a.frq.f0);
             }
-            otos.insert(
-                unit,
-                koeru_core::oto::Oto {
-                    offset_ms: oto.offset_ms,
-                    consonant_ms: oto.consonant_ms,
-                    cutoff_ms: oto.cutoff_ms,
-                    preutterance_ms: oto.preutterance_ms,
-                    overlap_ms: oto.overlap_ms,
-                },
-            );
+            otos.insert(unit, oto);
         }
         Ok(Materials {
             paths,

@@ -17,11 +17,13 @@
 //! 配布の場も署名も持たない（`DEC-PKG-003`）。ここが作るのは
 //! 「渡せる状態のファイル」まで。
 
+/// 被覆と下位方式への書き出しの計画は、書き出しの可否を決める規則なので
+/// `koeru-model` へ移した（`DEC-PLT-034`）。 既存の経路を通すための再輸出。 **移行中。**
+pub use koeru_model::{coverage, downgrade};
+
 pub mod archive;
 pub mod bank;
 pub mod character;
-pub mod coverage;
-pub mod downgrade;
 pub mod icon;
 pub mod profile;
 pub mod readme;

@@ -14,7 +14,7 @@ runner = 'cargo'
 package = 'koeru-model'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 246
+min_cases = 307
 
 [[suite]]
 id = 'SUITE-MODEL-002'
@@ -92,7 +92,7 @@ runner = 'cargo'
 package = 'koeru-align'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 155
+min_cases = 114
 
 [[suite]]
 id = 'SUITE-ALIGN-002'
@@ -178,7 +178,7 @@ runner = 'cargo'
 package = 'koeru-package'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 88
+min_cases = 73
 
 # ## koeru-failure
 

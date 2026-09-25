@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use koeru_core::oto::Oto;
+use crate::oto::Oto;
 
 use crate::confidence::{Cause, Confidence};
 

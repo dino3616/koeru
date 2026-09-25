@@ -13,7 +13,7 @@
 //! ここが見ているのは「器が埋まること」。
 
 use koeru_align::aligner::{Alignment, Posteriors, Segment};
-use koeru_align::confidence::{Cause, Confidence};
+use koeru_align::confidence::{Cause, from_alignment};
 use koeru_align::phoneme::{self, Phoneme};
 
 /// 音素3つ分の事後確率を持つアライメントを組む。
@@ -50,7 +50,7 @@ fn 経路確信度が確信度へ届く() {
         [0.0, 0.0, 1.0],
     ];
     let a = alignment(&rows, [0.0, 20.0, 40.0, 60.0]);
-    let c = Confidence::from_alignment(&a, &[0.5; 1000]).expect("組み立てられる");
+    let c = from_alignment(&a, &[0.5; 1000]).expect("組み立てられる");
 
     assert!(c.is_complete(), "経路確信度が欠けている: {c:?}");
     assert!(c.path.expect("ある") > 0.9);
@@ -64,7 +64,7 @@ fn 競っているときは主因が経路になる() {
     // どのフレームでも3つが競っていて、境界もはっきりしない。
     let rows = [[0.4, 0.35, 0.25]; 6];
     let a = alignment(&rows, [0.0, 20.0, 40.0, 60.0]);
-    let c = Confidence::from_alignment(&a, &[0.5; 1000]).expect("組み立てられる");
+    let c = from_alignment(&a, &[0.5; 1000]).expect("組み立てられる");
 
     assert!(c.path.expect("ある") < 0.5, "path {:?}", c.path);
     // 音響は問題ないので、主因は経路か境界のどちらか。
@@ -97,8 +97,8 @@ fn 確信度の差が確認キューの並びに出る() {
     );
     let murky = alignment(&[[0.4, 0.35, 0.25]; 6], [0.0, 20.0, 40.0, 60.0]);
 
-    let c_clear = Confidence::from_alignment(&clear, &[0.5; 1000]).expect("組み立てられる");
-    let c_murky = Confidence::from_alignment(&murky, &[0.5; 1000]).expect("組み立てられる");
+    let c_clear = from_alignment(&clear, &[0.5; 1000]).expect("組み立てられる");
+    let c_murky = from_alignment(&murky, &[0.5; 1000]).expect("組み立てられる");
     assert!(
         c_clear.score() > c_murky.score(),
         "はっきりした解 {} が曖昧な解 {} より低い",
@@ -130,7 +130,7 @@ fn 退避経路では経路確信度が欠ける() {
     let mut a = alignment(&[[1.0, 0.0, 0.0]; 3], [0.0, 10.0, 20.0, 30.0]);
     a.posteriors = None;
     assert!(
-        Confidence::from_alignment(&a, &[0.5; 100]).is_none(),
+        from_alignment(&a, &[0.5; 100]).is_none(),
         "事後確率が無いのに組み立てている"
     );
 }
