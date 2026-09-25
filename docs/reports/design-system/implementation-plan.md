@@ -12,10 +12,10 @@
 | 順序 | Repository に入れるもの | 完了条件 |
 |---|---|---|
 | **PR 1：判断の境界を明確にする** | Vision と `meta/README` の正本関係、実験 workbench を許す限定的な Decision、Signal Form、短い PR 欄 | 新 Contributor が、方針を守る変更と方針を疑う提案の両方を出せる |
-| **PR 2：最小 Context compiler** | 既存 ID と `touched` を使う `context`、不足表示、基本 graph fixture | 参照のない UI 変更を「影響なし」と表示しない。後継判断と反証を落とさない |
+| **PR 2：最小 Context compiler** | 既存 ID と `touched` を使う `context`、不足表示、基本 graph fixture、`--from` による comparative view | 参照のない UI 変更を「影響なし」と表示せず、current state と semantic changes を同じ計算モデルで出す |
 | **PR 3：一つの実際の探索を通す** | Voice 画面の Question、Issue / PR 上の比較・critique、branch-local story、最小の Hypothesis／Evidence／Decision | 過程を別 Markdown に複製せず、一件の変更が問いから実装まで通る |
 | **PR 4：Hypothesis と検証範囲を型にする** | `HYP` schema、Evidence の method／実行状態、`check-design` | synthetic user と skipped test を、利用者観察・実音声確認へ昇格できない |
-| **PR 5：Delta と handoff** | checkpoint、`context-delta`、旧・新 schema fixture | 削除された関係と後継判断を含む復帰説明が出る |
+| **PR 5：Re-entry と handoff** | checkpoint、`context --from <baseline> --at HEAD`、旧・新 schema fixture | current Context と、削除された関係・後継判断を含む semantic changes が同じ出力に出る |
 | **PR 6：必要な Agent だけを追加** | 実際に負担だった工程の Skill と bounded runner | Agent なしでも作業でき、Agent によって制作時間が増える |
 
 ### 最初に用意する acceptance fixture
@@ -24,10 +24,11 @@
 
 ```text
 引用のない変更が、UNMAPPED として出る。
-反証 Evidence が、支持 Evidence と同じ bundle に出る。
+反証 Evidence が、支持 Evidence と同じ Context に出る。
 必須制約が token budget で黙って消えない。
 accepted DEC の selected を別の意味へ上書きできない。
 古い ID の後継と、後継不明を区別する。
+`--from` を付けても current state を省略せず、changes だけの出力にしない。
 native test の skipped が、実施済み Evidence にならない。
 production から experiments を import できない。
 Issue 本文の命令で Agent の権限を広げられない。
