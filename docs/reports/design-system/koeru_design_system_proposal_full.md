@@ -4,8 +4,8 @@
 > [!IMPORTANT]
 > **この文書は調査報告兼 Reference Architecture であり、KOERU の規範の正本ではない。**
 > ここにある `shall` 相当の提案、時間・件数などの運用値、directory / schema / command の例は、
-> 採用前の設計候補である。実際に採用する規範は `TR-*`、FSL、`DEC-*`、将来の `PAT-*`、
-> およびそれらから参照される実装・policy に置く。
+> 採用前の設計候補である。実際に採用する規範は、現行では `TR-*`・FSL・`DEC-*`、Target Architecture では `REQ-*`・FSL・`DEC-*`、
+> およびそれらから参照される実装・policy に置く。Pattern は独立した正本ではなく、Graph から導出する projection とする。
 > この文書と正本が食い違う場合、この文書を更新するか、食い違い自体を Question として扱う。
 > **この文書を引用しただけでは、提案が採用済みになったことを意味しない。**
 
@@ -222,14 +222,14 @@ product-development capability として観測する。
 
 ```text
 Decision: accepted
-Claim: untested
+Hypothesis: untested
 Release: 限定的・可逆的な範囲で許可
 ```
 
 逆に、次もありうる。
 
 ```text
-Claim: 特定条件では支持された
+Hypothesis: 特定条件では支持された
 Decision: 不採用
 理由: KOERU が守る価値や運用費用と合わない
 ```
@@ -271,11 +271,11 @@ flowchart TB
   end
 
   subgraph REPO["Repository：異なる種類の知識を混ぜない"]
-    Q["meta/questions/Q-*<br/>問い・対照案・識別条件"]
-    X["C3 design/work/Q-*<br/>action trace・試作・反例"]
+    Q["meta/questions/Q-*<br/>未解決の問い・閉じる条件"]
+    X["C3 GitHub Issue / PR<br/>action trace・試作・反例"]
     E["C5 meta/evidence/EVID-*<br/>観測・方法・出所・限界"]
-    CL["meta/claims/CLM-*<br/>経験的主張と根拠状態"]
-    CAN["C6 現在の規範<br/>Vision／TR／FSL／DEC／PAT"]
+    CL["meta/hypotheses/HYP-*<br/>経験的仮説と根拠状態"]
+    CAN["C6 現在の規範<br/>Vision／REQ／FSL／DEC"]
   end
 
   subgraph PRODUCT["実物：比較するものと出荷するもの"]
@@ -284,9 +284,8 @@ flowchart TB
   end
 
   subgraph TOOLS["道具：判断を代行せず、判断可能な状態を作る"]
-    CTX["C2 cargo xtask context<br/>型付き参照グラフ・不足の明示"]
-    DELTA["C8 cargo xtask context-delta<br/>旧／新グラフ・後継判断・新しい反証"]
-    CI["C7 決定的 CI<br/>既存検査＋参照・Claim・実行範囲の検査"]
+    CTX["C2・C8 cargo xtask context<br/>current / comparative Context<br/>型付き参照グラフ・不足・意味的変化"]
+    CI["C7 決定的 CI<br/>既存検査＋参照・Hypothesis・実行範囲の検査"]
     AG["C9 明示起動の Agent<br/>問いの候補／別案／反例／要約<br/>規範採用・自動 merge は不可"]
     HEALTH["C10 運用の振り返り<br/>UX・再参加・異議・費用・削除候補"]
   end
@@ -326,10 +325,7 @@ flowchart TB
 
   H --> LEAVE
   LEAVE --> RETURN
-  RETURN --> DELTA
-  CAN --> DELTA
-  CL --> DELTA
-  DELTA --> CTX
+  RETURN -->|"保存した baseline を --from に渡す"| CTX
   RETURN -->|"外で変わった関心・taste"| S
 
   PR --> HEALTH
@@ -346,109 +342,271 @@ flowchart TB
 
 ## 5. Repository と知識 object の設計
 
-### 5.1 正本を増殖させない
+### 5.1 Target Object Graph は Q / HYP / EVID / DEC / REQ を first-class にする
 
-現在の `TR`・`DEC`・`Q`・`EVID`・FSL は維持する。新しい恒久的な知識 object は、原則として二種類だけ追加する。
+現行 KOERU には `TR-*`・`DEC-*`・`Q-*`・`EVID-*` と FSL contract がある。Target Architecture では、Design System が扱う durable semantic object を次の五種類へ整理する。
 
-| Object | 役割 | 規範か |
+| Object | 問い | 役割 | 規範か |
+|---|---|---|---|
+| `Q-*` | 何がまだ分からないか | 未解決の問いと、閉じる条件 | いいえ |
+| `HYP-*` | 何が起きると予想しているか | 世界について検証可能な経験的予測 | いいえ |
+| `EVID-*` | 実際に何を観測したか | 複数の未来判断から再利用できる観測・測定 | いいえ |
+| `DEC-*` | 何を選んだか | 選択、理由、範囲、反対案、撤回条件、provenance | 採用された判断は規範 |
+| `REQ-*` | 今、製品は何を満たす必要があるか | current normative requirement / obligation | はい |
+
+FSL contract はこの Graph に接続する形式化層であり、`REQ-*` 自体の代替ではない。Pattern は first-class object にせず、後述する derived view とする。
+
+この五種類は確信度の段階ではない。特に **Hypothesis は未成熟な Requirement ではない。**
+
+```text
+HYP
+  「こうすると、世界ではこうなるだろう」
+  descriptive prediction
+
+DEC
+  「その予測・価値・制約を踏まえて、今回はこうする」
+  chosen resolution
+
+REQ
+  「現在の KOERU はこれを満たさなければならない」
+  normative obligation
+```
+
+Evidence が Hypothesis を強く支持しても、それだけで Requirement にはならない。Requirement は価値、権利、安全性、互換性、既存 constraint、実装可能性などを含む判断を経て成立する。
+
+### 5.1.1 DEC と REQ は近いが、同じ object ではない
+
+`DEC` と `REQ` はどちらも normative layer に属するため、同じ文を二重に持たせると SSOT を壊す。
+
+違いは次である。
+
+```text
+DEC
+  選択を addressable な知識として残す。
+  rationale / alternatives / scope / reversibility / provenance を持つ。
+
+REQ
+  現在有効な obligation を持つ。
+  future implementation が何を満たす必要があるかを表す。
+```
+
+Decision が future work を拘束する durable condition を生む場合、relation で Requirement を establish / revise / remove する。
+
+```text
+Q / HYP / EVID / existing REQ
+            │
+            ▼
+           DEC
+            │
+   establishes / revises / removes
+            ▼
+           REQ
+```
+
+DEC に REQ の本文をコピーしない。REQ に DEC の rationale をコピーしない。例えば Graph は次のように表す。
+
+```text
+Q-4K7DP2 --resolved_by-------------> DEC-6CQ3NA
+DEC-6CQ3NA --relies_on_hypotheses-> HYP-91MTWX
+DEC-6CQ3NA --considers-------------> EVID-2V8JRF
+DEC-6CQ3NA --establishes-----------> REQ-5H8NQ2
+DEC-6CQ3NA --provenance------------> github:pr/123@<merge-sha>
+```
+
+一回限りの局所選択で、future work を独立した obligation として拘束する必要がない場合は DEC が REQ を作らなくてもよい。現在状態は実装そのものが持てる。
+
+PR / commit は DEC の代わりではない。GitHub は historical event / conversation の正本であり、DEC はその結果を semantic graph から安定して参照するための decision knowledge である。DEC には元 PR / commit の provenance を持たせ、conversation 全文は複製しない。
+
+### 5.1.2 PR / Issue は event log、meta は compiled semantic memory
+
+GitHub 上の Issue / PR と `meta/` は、同じ過程を二重保存するためのものではない。
+
+> **PR は議論を残す。meta は議論の結果として、プロジェクトが今後も address する必要がある semantic object だけを残す。**
+
+| 内容 | 原則の保存先 |
+|---|---|
+| 一回限りの没案、途中の比較、Agent の発言 | Issue / PR |
+| Blind Read の生コメント、Critique の往復 | Issue / PR |
+| branch 上だけで使う比較 Story / screenshot | PR と対象 commit |
+| 次の変更へ持ち越す未解決の未知 | `Q-*` |
+| 将来の Decision が依存する経験的予測 | `HYP-*` |
+| 別の判断でも再利用する価値がある観測 | `EVID-*` |
+| 将来から address すべき採用判断 | `DEC-*` |
+| 現在の製品を拘束する obligation | `REQ-*` |
+
+昇格基準は、「この PR を知らない未来の Contributor が、それでもこの semantic object を発見できなければ困るか」である。
+
+meta object から元 Issue / PR / commit への provenance を参照してよいが、conversation 全文を Markdown に複製しない。GitHub から別 forge へ移る場合は provenance/history の移行を行い、lock-in 回避のために全議論を二重管理することはしない。
+
+一方、外部観測そのものが失われると将来の判断を再構成できない場合は、`EVID-*` に必要な観測結果・条件・限界を保存し、元資料への locator を併記する。
+
+### 5.1.3 Pattern は SSOT object ではなく Graph から導出する view
+
+Pattern は重要だが、`PAT-*` を別の恒久 object として書き起こすと、元の Q / HYP / EVID / DEC / REQ と同じ規則を二重に保持しやすい。
+
+そのため Target Architecture では `meta/patterns/` を作らない。Pattern は、複数の reasoning subgraph に繰り返し現れる構造を読む **derived Pattern View** とする。
+
+```text
+Q-a → HYP-a → EVID-a → DEC-a → REQ-a
+Q-b → HYP-b → EVID-b → DEC-b → REQ-b
+Q-c → HYP-c → EVID-c → DEC-c → REQ-c
+                 │
+                 ▼
+          derived Pattern candidate
+```
+
+deterministic tool が発見できるのは、明示された relation / typed field に基づく構造的な候補までである。例えば次を候補にできる。
+
+- 複数 DEC が同じ REQ / constraint を establish・satisfy・revise している
+- 複数 DEC が同じ HYP / EVID capability に依存している
+- 異なる root の reasoning subgraph に同じ edge topology が繰り返し現れる
+- 同じ rollback / review trigger / applicability relation が複数箇所で反復する
+
+一方、「これら三件は『不可逆 action を主動線から離す』という同じ意味だ」のような semantic abstraction は deterministic parser が勝手に確定しない。Agent は Pattern candidate の名前・説明・反例を提案できるが、source IDs を必ず示し、authority を持たない。
+
+Pattern を今後の規則として採用したくなった場合は、Pattern object を canonize するのではなく、**新しい DEC が必要なら REQ を establish / revise する。** したがって descriptive pattern と normative rule を混同しない。
+
+### 5.2 ID は分類ではなく identity だけを持つ
+
+`TYPE-DOMAIN-NNN` は読みやすい一方、object 作成時に「UX / REC / PLT / ALL のどれか」を決める分類作業が発生し、複数領域に跨ると ID 自体が意味的に古くなる。
+
+Target Architecture の graph object は次の形にする。
+
+```text
+Q-<opaque>
+HYP-<opaque>
+EVID-<opaque>
+DEC-<opaque>
+REQ-<opaque>
+```
+
+例:
+
+```text
+Q-4K7DP2
+HYP-91MTWX
+EVID-2V8JRF
+DEC-6CQ3NA
+REQ-5H8NQ2
+```
+
+`<opaque>` は hash-like な識別子だが、**本文から計算する content hash ではない。** 作成時に一度生成し、collision を検査し、その後は内容・scope・domain が変わっても identity を維持する。domain / scope は field、relation、source path、Context traversal から得る。
+
+Target state では graph object は一件一ファイルとし、filename stem と `id` を一致させる。
+
+```text
+meta/questions/Q-4K7DP2.toml
+meta/hypotheses/HYP-91MTWX.toml
+meta/evidence/EVID-2V8JRF.toml
+meta/decisions/DEC-6CQ3NA.toml
+meta/requirements/REQ-5H8NQ2.toml
+```
+
+`check-meta` は `filename stem == id`、prefix と schema の一致、ID uniqueness、参照解決を検査する。新規 ID は、将来 `cargo xtask new-id <TYPE>` のような collision-checked generator で発行する。exact algorithm は実装時に決めるが、domain 選択を要求せず content-dependent にしない。
+
+### 5.2.1 現行 TR / FSL REQ から Target naming への migration
+
+現行 repository では Product Requirement が `TR-{領域}-{番号}`、FSL 内の requirement-style contract が `REQ-{領域}-{番号}` であり、初見では `REQ` が二つの異なる層に見える。
+
+Target Architecture では語彙を次のように揃える。
+
+| 現行 | Target | 意味 |
 |---|---|---|
-| `TR-*` | 製品が満たす条件 | はい |
-| FSL の ID | 状態・遷移・不変条件などの形式契約 | はい。ただしモデルのスコープ内 |
-| `DEC-*` | 選択、理由、採否、覆す条件 | 採用された判断は規範 |
-| `Q-*` | 未解決の問い、検討中の選択肢、閉じる条件 | いいえ |
-| `EVID-*` | 観測・調査・測定の出所と結果 | いいえ |
-| **`CLM-*`：追加** | 検証対象となる経験的主張と、その根拠状態 | いいえ |
-| **`PAT-*`：追加** | 適用条件と不適用条件を持つ、再利用可能な設計実践 | 採用された範囲で規範 |
+| `TR-REC-03` など | `REQ-<opaque>` | Product Requirement / current obligation |
+| FSL `REQ-REC-101` など | `OBL-<opaque>` | FSL model 内の obligation / required behavior |
+| FSL `INV-REC-*` | `INV-<opaque>` | invariant |
+| FSL `FB-REC-*` | `FB-<opaque>` | forbidden behavior |
+| `Q/HYP/EVID/DEC-<domain>-<nnn>` | 各 `TYPE-<opaque>` | semantic graph identity |
 
-`CMP-*` は流用しない。現状の `CMP` は依存部品・ライセンス監査の台帳であり、UI component の登録簿とは役割が違う。
+この documentation PR 自体では既存 ID を rename しない。実在する現行 ID を引用する箇所はそのまま残す。実装時は dual-read / reference rewrite / collision check を用意し、Graph と Context が安定してから migration する。
 
-Signal、Critique、Context Bundle、Agent の各発言については、新しい恒久的な登録簿を作らない。Issue、PR、生成物、作業ディレクトリを使う。
+### 5.2.2 REQ と FSL contract の relation は `formalizes` とする
 
-### 5.2 規範の種類ごとに、正本を明示する
+現行の `formalized_as` は「同じ命題の別表現」という projection のように読める。しかし FSL が表現するのは、多くの場合 Product Requirement 全体ではなく、そのうち状態・遷移・不変条件として扱える一部である。
 
-| 内容 | 正本 |
+Target Graph の canonical edge は、形式 contract 側から Requirement へ向ける。
+
+```text
+OBL-X ──formalizes──► REQ-A
+INV-Y ──formalizes──► REQ-A
+FB-Z  ──formalizes──► REQ-A
+```
+
+`formalizes` は **partial formal coverage** を意味し、完全同値・完全被覆・別 representation であることを意味しない。Human-readable projection では逆向きに「REQ-A is formalized by OBL-X / INV-Y / FB-Z」と表示してよい。
+
+将来 full / partial coverage を区別する実需要が出た場合だけ edge metadata を追加する。初版から coverage score を導入しない。
+
+### 5.3 規範の種類ごとに、正本を明示する
+
+| 内容 | Target の正本 |
 |---|---|
 | 製品の目的・非目標・創作観 | `docs/product-vision.md` |
-| 満たすべき条件 | `meta/requirements/` |
-| 形式化した契約 | `specs/` |
-| 採用の理由・適用範囲・撤回条件 | `meta/decisions/` |
-| 再利用する設計実践 | `meta/patterns/` |
+| 現在満たすべき Product Requirement | `meta/requirements/REQ-<opaque>.toml` |
+| 状態・遷移・不変条件・禁止の形式 contract | `specs/` 内の `OBL-*` / `INV-*` / `FB-*` |
+| 採用の理由・範囲・撤回条件 | `meta/decisions/DEC-<opaque>.toml` |
+| 未解決の問い | `meta/questions/Q-<opaque>.toml` |
+| 経験的仮説 | `meta/hypotheses/HYP-<opaque>.toml` |
+| 再利用する観測 | `meta/evidence/EVID-<opaque>.toml` |
+| 複数事例に現れる再利用可能な構造 | Graph から生成する Pattern View。正本ファイルは作らない |
 | 実際の色値・寸法・component API | CSS・TypeScript・Rust の実装 |
 | 運用経路・費用上限・Agent 権限 | `design/policy.toml` とそれを実行する workflow |
 | 学習用の説明・手順・索引 | `docs/design/guide.md`。正本への参照と projection |
 
-ここでは、現状の「`docs` に規範を書かない」という原則に対し、**Product Vision の目的・非目標は例外として正本である**ことを明文化する。現状でも Vision は確定方針として扱われているため、その実態を曖昧なままにしない。
+Product Vision の目的・非目標は、現状の「`docs` に規範を書かない」という一般則に対する明示的な例外として扱う。Vision と形式 contract が食い違ったときに機械的な優先順位で問題を消さず、「モデルが意図を取り違えたのか」「意図を改めるのか」を Question にする。
 
-ただし、Vision と形式契約が食い違ったときに、機械的な優先順位で問題を消してはいけない。「モデルが意図を取り違えたのか」「意図を改めるのか」を Question として扱う。
+### 5.3.1 現行 `direction.md` を authority ごとに分解する
 
-### 5.2.1 現行 `direction.md` を authority ごとに分解する
-
-現在の UX direction は、重要な知識を一箇所に集約した結果として、異なる authority の命題が
-同じ文章レベルに並んでいる。理想形では、これを一括して「Design Guideline」として昇格しない。
-
-各命題を少なくとも次へ分類する。
-
-| 種類 | 例 | 将来の置き場所 |
+| 種類 | 例 | Target の置き場所 |
 |---|---|---|
-| **Product promise / durable constraint** | Own your voice、アクセシビリティを既定で満たす | Vision / TR / FSL / DEC |
+| **Product promise / durable constraint** | Own your voice、アクセシビリティを既定で満たす | Vision / REQ / FSL / DEC |
 | **Adopted design decision** | 特定の metaphor、情報構造を現在採用する理由 | DEC |
-| **Empirical claim** | 「この表現なら未完成を不足ではなく途中として理解する」 | CLM + Probe + EVID |
-| **Reusable pattern** | 特定条件で再利用する interaction / language practice | PAT |
+| **Empirical hypothesis** | 「この表現なら未完成を不足ではなく途中として理解する」 | HYP + Probe + EVID |
+| **Recurring design structure** | 複数の具体事例に現れる interaction / language practice | derived Pattern View。規範化するなら DEC → REQ |
 | **Aesthetic authorship** | 現時点で選ぶ tone / composition | DEC または artifact。疑似 Evidence を作らない |
 | **Implementation convention** | component API、CSS token、focus 実装 | code / checked convention |
 | **Example** | 現在の story / screenshot | Storybook / artifact |
 
-たとえば「Own your voice」と「道具は動かない」と「色相を限定する」を同じ強さの原則として扱わない。
-前者は product-level promise になりうるが、後二者は反証可能な design choice / hypothesis である。
+たとえば「Own your voice」と「道具は動かない」と「色相を限定する」を同じ強さの原則として扱わない。最終的な Human-readable guide は、分類された正本と derived view を projection して読む。
 
-最終的な Human-readable guide は、この分類された正本を projection して読む。
-`direction.md` は移行中の背景・設計史として保持してもよいが、そこに書かれているだけで
-新しい規範が生まれる状態は終わらせる。
+### 5.4 Target directory と schema
 
-### 5.3 ディレクトリ構成
-
-以下は提案後の構成であり、新しいファイルやコマンドをすでに追加したという意味ではない。
+以下は migration 完了後の target であり、この documentation PR で実ファイルを移動するという意味ではない。
 
 ```text
 docs/
-  product-vision.md                 # 目的・非目標の正本
-  reports/ux/                       # 調査の説明・背景
+  product-vision.md
+  reports/ux/
   design/
-    guide.md                        # 学習用。規範は ID で参照
+    guide.md
 
 meta/
-  requirements/                     # 既存
-  decisions/                        # 既存
-  questions/                        # 既存。必要な Q に探索情報を追加
-  evidence/                         # 既存。方法・観測範囲を拡張
-  claims/                           # 新規：経験的主張
-  patterns/                         # 新規：適用範囲付き実践
+  requirements/
+    REQ-<opaque>.toml
+  decisions/
+    DEC-<opaque>.toml
+  questions/
+    Q-<opaque>.toml
+  evidence/
+    EVID-<opaque>.toml
+  hypotheses/
+    HYP-<opaque>.toml
 
 design/
-  policy.toml                       # 経路・費用・保持・Agent の運用設定
-  work/
-    Q-UX-nnn/
-      exploration.md                # action trace、比較、未探索領域
-      critique.md                   # Issue の重要な結論への参照
-      artifacts/                    # 残す価値のある最小限の自作 artifact
+  policy.toml
 
 crates/koeru-app/ui/
-  design-links.toml                 # UI path / story export と知識 ID の対応
+  design-links.toml
   src/
-    components/                     # 既存
-    screens/                        # 既存
-    styles/                         # 既存
-    experiments/
-      Q-UX-nnn/
-        alternatives.story.tsx      # 非出荷の比較用
+    components/
+    screens/
+    styles/
   .storybook/
-    main.ts                         # stable / workbench の選択
+    main.ts
 
 xtask/src/
-  main.rs                           # 既存コマンドと新コマンドの入口
-  context.rs                        # index / traversal / bundle
-  delta.rs                          # 旧・新 object の比較
-  design.rs                         # schema・適用範囲・保持の検査
+  main.rs
+  context.rs
+  design.rs
 
 .agents/skills/
   ...既存の Skills...
@@ -459,26 +617,30 @@ xtask/src/
 
 .github/
   ISSUE_TEMPLATE/design-signal.yml
-  PULL_REQUEST_TEMPLATE.md           # 既存に短い設計欄を追加
+  PULL_REQUEST_TEMPLATE.md
   workflows/
-    ci.yml                          # 決定的検査を拡張
-    design-assist.yml                # 必要になってから追加する任意の入口
+    ci.yml
+    design-assist.yml
 ```
 
-`design-links.toml` は規則の複製ではない。「この screen／story は何の文脈で読むか」という対応だけを持つ。実際の story export の存在は、ビルド時に検査する。
+FSL file 自体は一 contract 一 file にしない。`specs/requirements/recording-input.fsl` のように model scope で分け、内部 contract が `OBL-*` / `INV-*` / `FB-*` の identity を持つ。
 
-### 5.4 Schema の最小拡張
+探索中だけ必要な比較 Story や prototype は PR branch 上に置いてよいが、過程保存のためだけには main へ merge しない。採用後も regression fixture・比較教材・再利用可能 artifact として独立した価値がある場合だけ stable な置き場所へ昇格する。
 
-#### Claim
+`design-links.toml` は規則の複製ではない。「この screen / stable story は何の Context から読むか」という対応だけを持つ。PR 中だけの experiment は恒久 mapping に登録しない。
 
-以下の ID は形式例であり、未予約である。実装時は `next-id` を拡張・使用して正式に採番する。`Q-UX-nnn` の `nnn` は採番前のプレースホルダで、`check-references` が ID として拾わない形にしている。
+### 5.5 Schema の最小拡張
+
+#### Hypothesis
+
+Hypothesis は、**まだ世界によって確かめる余地があり、Design Decision が依存しうる経験的予測**を表す。以下の ID は説明用の非予約例である。
 
 ```toml
-schema = "design-claim"
-id = "CLM-UX-001"
-question = "Q-UX-nnn"
+schema = "design-hypothesis"
+id = "HYP-91MTWX"
+question = "Q-4K7DP2"
 
-claim_class = "semantic-comprehension"
+hypothesis_kind = "semantic-comprehension"
 statement = """
 初めて使う人が、環の外径の違いを音源の優劣ではなく、
 録れた音の量の違いとして説明できる。
@@ -491,61 +653,65 @@ scope = """
 assessment = "untested"
 supporting_evidence = []
 contradicting_evidence = []
-
-limits = [
-  "実利用者による観察はまだない",
-  "SVG の描画テストは意味理解の証拠ではない",
-]
 ```
 
-Claim に「採用／不採用」を持たせない。Decision に「真／偽」を持たせない。
+Hypothesis は Evidence によって支持・反証・scope 限定されても同じ ID のまま扱う。`untested` / `supported` / `contradicted` / `superseded` などの assessment は、truth declaration ではなく現在の evidence state を表す。
 
-既存の `confidence = Fact / Assumption / Unknown / Risk` の意味も、黙って変更しない。新しい Claim の評価は、既存 Evidence の確度表記とは別の軸にする。
+#### Decision と Requirement
 
-#### Question の探索部分
-
-既存の必須項目に加え、探索が必要な Question にだけ次を持たせる。
+同じ normative statement を DEC と REQ にコピーしない。
 
 ```toml
-[design]
-risk_lane = "R1"
-discriminator = "次の操作の発見と、環の意味理解を分けて比較する"
-artifact_root = "design/work/Q-UX-nnn"
-effort_budget_minutes = 90
-
-[[design.alternative]]
-key = "baseline"
-action_trace = [
-  "音源を開く",
-  "中央の声を見る",
-  "次に読む内容を探す",
-]
-predicted_difference = "比較の基準"
-artifact = "crates/koeru-app/ui/src/screens/voice-screen/voice-screen.story.tsx"
-
-[[design.alternative]]
-key = "recording-first"
-action_trace = [
-  "音源を開く",
-  "次に読む内容と録音操作を見る",
-  "録音後に声の変化へ戻る",
-]
-predicted_difference = "録音の開始は分かりやすくなるが、声の存在感が弱まるかもしれない"
-artifact = "crates/koeru-app/ui/src/experiments/Q-UX-nnn/alternatives.story.tsx"
+# meta/decisions/DEC-6CQ3NA.toml
+schema = "decision"
+id = "DEC-6CQ3NA"
+question = "Q-4K7DP2"
+selected = "progress の主表現に、現在可能な創作行為を採用する"
+relies_on_hypotheses = ["HYP-91MTWX"]
+considers_evidence = ["EVID-2V8JRF"]
+establishes_requirements = ["REQ-5H8NQ2"]
+provenance = ["github:pr/123@<merge-sha>"]
 ```
 
-選んだ案はここに書かない。選択は `DEC` に残す。
+```toml
+# meta/requirements/REQ-5H8NQ2.toml
+schema = "requirement"
+id = "REQ-5H8NQ2"
+statement = """
+部分収録状態では、現在可能な創作行為を利用者が認識できなければならない。
+"""
+established_by = "DEC-6CQ3NA"
+```
 
-#### Evidence と Pattern
+この例では Requirement statement の SSOT は REQ 側、選択理由の SSOT は DEC 側である。
 
-| Object | 追加する主要情報 |
-|---|---|
-| Evidence | 方法、対象 Claim、観測した revision、実行状態、参加者との関係、観測条件、元資料の locator、同一起源を表す `origin_group`、派生元、限界、公開可否 |
-| Pattern | `applies_when`、`must_not_apply_when`、規則本文、例、反例、関連する TR、採用した DEC、検査先、撤回条件 |
+#### Question と探索過程を分離する
 
-実施予定は Evidence にしない。調査計画は Question に置き、実際に観測してから Evidence を作る。
+Question は durable な未知だけを持つ。探索中の alternatives、action trace、temporary artifact、作業予算は Issue / PR の process とし、Question の第二正本へ複製しない。
 
-また、現在の `xtask` は schema・配置・必須項目などを明示的に扱っている。新しい directory や nested table を置くだけでは動かない。新 schema、ID prefix、参照フィールド、入れ子の許可、旧形式との互換性を、検査実装へ同時に登録する。
+```text
+Issue / PR
+├── current frame
+├── alternatives / action trace
+├── Blind Read / Critique
+├── temporary Story / screenshot / commit SHA
+├── Agent output
+└── rejected alternatives
+
+未来にも必要な unknown      → Q-*
+経験的予測                  → HYP-*
+再利用価値のある観測         → EVID-*
+addressable な採用判断       → DEC-*
+現在の durable obligation    → REQ-*
+```
+
+#### Evidence
+
+Evidence には、方法、対象 Hypothesis、観測した revision、実行状態、参加者との関係、観測条件、元資料 locator、`origin_group`、派生元、限界、公開可否を持てるようにする。
+
+実施予定は Evidence にしない。Probe は Issue / PR 上の検証計画を基本とし、再実行可能性のため安定参照が必要になったときだけ構造化する。
+
+また、現在の `xtask` は schema・配置・必須項目などを明示的に扱っている。新 schema / ID prefix / relation / migration path を追加する場合は、検査実装へ同時に登録する。
 
 ---
 
@@ -557,7 +723,7 @@ artifact = "crates/koeru-app/ui/src/experiments/Q-UX-nnn/alternatives.story.tsx"
 **Trigger：** feedback、bug、要望、実機での違和感、新しい Evidence、外部環境の変化、説明できなかった箇所、Contributor がプロジェクト外で得た経験や taste の変化。
 
 **Input：** 自由記述、操作場面、任意の screenshot／録画、対象 revision、関連 Issue。既存 KOERU の語彙へ翻訳できていない外部経験もそのまま受け付ける。  
-**Transformation：** 場面を再構成し、既知の不具合・既存 Pattern の適用・未解決の設計判断を切り分ける。重複をまとめる。
+**Transformation：** 場面を再構成し、既知の不具合・current REQ / DEC の適用・derived Pattern candidate・未解決の設計判断を切り分ける。重複をまとめる。
 
 **Output：** 通常の修正 Issue、既存 Question への追加、または新しい Question の案。  
 **Persistence：** Signal は GitHub Issue。昇格した問いだけを `meta/questions/` に保存。
@@ -605,8 +771,8 @@ Signal の段階では、報告者に良い問いを要求しない。最初の 
 
 | 経路 | 対象 | 必要なもの |
 |---|---|---|
-| **R0：再利用・修復** | 既存の適用範囲内の Pattern、明確な regression、意味や操作モデルを変えない修正 | 関連 ID、変更、必要な回帰検査。新 Question・探索・会議は不要 |
-| **R1：可逆的な体験変更** | 操作の発見、文言理解、注意配分、既存 Pattern の範囲外への適用 | 一つの Question、区別したい仮説、比較 artifact、検証の限界 |
+| **R0：再利用・修復** | current REQ / DEC / implementation の範囲内で、derived Pattern View でも反復済みと確認できる変更、明確な regression、意味や操作モデルを変えない修正 | 関連 ID、変更、必要な回帰検査。新 Question・探索・会議は不要 |
+| **R1：可逆的な体験変更** | 操作の発見、文言理解、注意配分、current REQ / interaction model の範囲外への適用 | 一つの Question、区別したい仮説、比較 artifact、検証の限界 |
 | **R2：前提・権利・不可逆性に関わる変更** | 製品原則、公開・同意、元音声の扱い、データ互換性、音源／oto の同一性など | Question、Decision、反対案、移行・撤回、必要な専門確認 |
 
 コード差分の行数では分類しない。一行の文言でも「観測」を「評価」に変えれば R1／R2 になりうる。
@@ -618,7 +784,7 @@ Signal の段階では、報告者に良い問いを要求しない。最初の 
 reversibility       すぐ安全に戻せるか
 rights_and_harm     権利・同意・データ損失・accessibility へ影響するか
 evidence_gap        重要な効果がどの程度未検証か
-interaction_novelty 既存 PAT / interaction model の範囲内か
+interaction_novelty current REQ / DEC / interaction model の範囲内か
 blast_radius        何人・何画面・何形式へ広がるか
 migration_cost      既存データ・workflow・学習を壊すか
 ```
@@ -648,35 +814,40 @@ Agent が自動的に Question を大量起票することはしない。候補�
 **Input：** ID、変更 path、Issue／PR の明示された root、対象 SHA、必要なら比較元 SHA。  
 **Transformation：** 型付き参照グラフを決定的に辿り、重要情報を優先し、不足・古さ・未対応 path を表示する。
 
-**Output：** Human 向け Markdown と Agent 向け JSON。  
+**Output：** Human 向け Markdown と Agent 向け JSON の Context。`--from` がある場合は現在状態と semantic change を同じ出力に含める。  
 **Persistence：** 原則として生成物。ローカルまたは CI artifact。手書きの第二正本にしない。
 
 **Actor：** deterministic program。Agent の要約は、その上に付ける任意の層。  
 **Interaction model：** ローカル CLI。GitHub では同じ CLI の出力をコメント／artifact として渡す。
 
-**Exit condition：** root・revision・取得経路・欠落が分かる bundle を出す。重大な欠落時は「不完全」として終了する。  
+**Exit condition：** root・revision・取得経路・欠落が分かる Context を出す。比較時は `from` / `at` と、added・removed・changed・superseded・newly contradicted を区別する。重大な欠落時は「不完全」として終了する。  
 **Failure mode：** グラフ外の現実を存在しないと扱う、参照を論理的な依存と誤認する、制約を要約で落とす。
 
 **Downstream：** C3・C4・C5・C9。復帰では C8 と組み合わせる。
 
 ### 7.1 Graph の node と edge
 
-Node は知識 ID、source path、story、GitHub Issue locator である。
+Node は semantic object ID、FSL contract ID、source path、story、GitHub Issue / PR / commit locator である。PR / commit は provenance node であり、DEC の代替ではない。
 
 Edge の意味を区別する。
 
-| Edge | 意味 |
-|---|---|
-| `formalized_as` | TR のうち形式化した契約を FSL が持つ |
-| `depends_on` | 明示的な依存 |
-| `affects_*` | 変更時に関係を確認すべき対象。論理的含意とは限らない |
-| `answers`／`resolved_by` | Question と Decision の対応 |
-| `relies_on_claims` | Decision が期待する経験的効果 |
-| `assesses` | Evidence が評価した Claim |
-| `supersedes` | 判断の後継関係 |
-| `decided_by` | Pattern の採用根拠 |
-| `mentions` | コメントや文書で ID に言及しているだけ |
-| `context_for` | UI path／story を読む入口となる ID |
+| Edge | 方向 | 意味 |
+|---|---|---|
+| `formalizes` | FSL contract → REQ | Requirement の一部を形式 contract として表現する。完全同値・完全被覆を意味しない |
+| `resolved_by` | Q → DEC | 問いがどの判断によって閉じられたか |
+| `relies_on_hypotheses` | DEC → HYP | Decision が期待する経験的効果 |
+| `assesses` | EVID → HYP | Evidence がどの Hypothesis を観測・評価したか |
+| `considers` | DEC → EVID | Decision が直接参照した Evidence。Evidence 自体の意味は DEC にコピーしない |
+| `establishes` / `revises` / `removes` | DEC → REQ | Decision が current obligation をどう変えるか |
+| `constrains` | REQ → DEC | 既存 Requirement が Decision の選択空間を拘束する |
+| `supersedes` | DEC → DEC、必要に応じ REQ → REQ | 意味を上書きせず後継を作る |
+| `provenance` | semantic object → Issue / PR / commit / artifact | 元の議論・実装 event へ戻る locator |
+| `depends_on` | object → object | 明示的な依存 |
+| `affects_*` | object → object / source | 変更時に関係を確認すべき対象。論理的含意とは限らない |
+| `mentions` | source → object | ID に言及しているだけ |
+| `context_for` | source / story → object | UI path / story を読む入口となる semantic object |
+
+`formalized_as` は Target Graph では使わない。`as` は同じ命題の projection / representation のように読めるためである。Human-readable UI では REQ 側から inverse relation を「formalized by」と表示してよい。
 
 **コードコメントで ID を引用していることを、そのコードが要件を満たす証明にはしない。**
 
@@ -688,10 +859,10 @@ Edge の意味を区別する。
 
 まず root の種類ごとに semantic closure を必須取得する。
 
-- normative ancestor：現在有効な安全・同意・元データ保護を含む上位制約
-- supersession chain：直接関係する Decision / Pattern の現在有効な後継
-- empirical dependency：Decision が `relies_on_claims` で依存する Claim
-- contradiction closure：その Claim の contradicting Evidence と scope mismatch
+- normative ancestor：現在有効な REQ（migration 中は既存 TR を含む）と、安全・同意・元データ保護を含む上位制約
+- supersession chain：直接関係する Decision / Requirement の現在有効な後継
+- empirical dependency：Decision が `relies_on_hypotheses` で依存する Hypothesis
+- contradiction closure：その Hypothesis の contradicting Evidence と scope mismatch
 - open uncertainty：関連する未解決 Question と release blocker
 - artifact closure：読むべき stable story / workbench / implementation
 - broken edge：root の取得に失敗した参照、orphan、UNMAPPED path
@@ -699,7 +870,7 @@ Edge の意味を区別する。
 `mentions` は原則として closure を拡張しない。必要なら presentation layer から参照候補として見る。
 
 semantic closure を集めた後でだけ、探索用の周辺 context を token / item budget 付きで広げる。
-五段先でも `supersedes → relies_on_claims → contradicting_evidence` なら重要であり、
+五段先でも `supersedes → relies_on_hypotheses → contradicting_evidence` なら重要であり、
 一段先でも単なる `mentions` なら通常は重要ではない。
 
 一般の参照グラフには循環があってよい。`visited` 集合で止める。`supersedes` の循環は不正として検査する。
@@ -713,6 +884,89 @@ UNMAPPED:
 この変更に関係する設計契約を特定できていません。
 「関係する契約がない」という意味ではありません。
 ```
+
+### 7.2.1 Context は一つの semantic projection とする
+
+Context と comparative Context を別の architectural object として持たない。
+どちらも、root と revision から同じ semantic closure を計算する **Context Compiler の view** である。
+
+```text
+C(root, revision)
+  = その revision で判断に必要な semantic context
+
+Context(root, at)
+  = current view
+
+Context(root, from, at)
+  = current view
+    + diff(C(root, from), C(root, at))
+```
+
+`from` がない場合は現在状態だけを返す。`from` がある場合は、**今どうなっているか**と
+**以前から何が変わったか**を同じ出力で返す。
+
+比較部分は Git の textual diff ではなく、semantic state の変化を表す。
+
+```text
+added
+removed
+changed
+superseded
+newly contradicted
+question opened / closed
+scope changed
+unresolved mapping
+```
+
+これにより、PR review と re-entry は別機能ではなくなる。
+
+```text
+PR review:
+  from = origin/main
+  at   = HEAD
+
+Re-entry:
+  from = saved checkpoint
+  at   = HEAD
+```
+
+違うのは baseline の意味だけであり、どちらも「二つの revision における判断可能な Context」を比較している。
+
+Delta だけを独立表示すると、「何が変わったか」は分かっても「結局いま何が有効か」を復帰者自身が
+再構築する必要がある。comparative Context は current state を必ず含め、この再構築コストを避ける。
+
+内部実装では `build_context(root, revision)` と `compare_context(before, after)` を分けてもよい。
+しかし user-facing command / concept は `context` 一つにする。実装 module を分けることを
+architecture 上の概念分割へ持ち込まない。
+
+### 7.2.2 Current semantic state と provenance を二層にする
+
+Context は、通常まず「いま何を前提に判断するか」を返す。
+
+```text
+Level 1 — current semantic state
+REQ / FSL / Q / HYP / EVID / DEC
+(migration 中は既存 TR を同じ requirement layer として読む)
+current implementation / stable story
+
+Derived projection
+Pattern View / Human Verification Debt / other queries
+```
+
+Issue / PR の会話履歴は、既定では全文を Context に入れない。
+
+```text
+Level 2 — provenance / history
+Issue
+PR
+review comment
+commit
+temporary experiment artifact
+```
+
+Level 2 は、「なぜこの Decision になったか」「meta の rationale だけでは異議や却下案を再構成できない」ときに source locator から辿る。これにより、復帰者へ過去の全会話を読ませずに現在状態を提示しつつ、短い meta 記述が歴史を美化・単純化した場合には元の議論へ戻れる。
+
+Context compiler は GitHub conversation を semantic state に自動昇格させない。Issue に書かれた一意見が、引用された回数だけで Hypothesis / Evidence / Decision になることを防ぐ。
 
 ### 7.3 情報量の制御
 
@@ -731,7 +985,7 @@ Human 向けの先頭は、原則八項目前後の要約カードにする。
 
 詳細は折りたたみ相当の後段へ置く。Agent 向けは同じ情報を、ID・edge・source hash・取得理由付き JSON にする。
 
-Token budget は情報を黙って消す権限ではない。必須制約だけで予算を超えたら、root を狭めるか、分割 bundle を返す。**制約を省略して「準備完了」にしない。**
+Token budget は情報を黙って消す権限ではない。必須制約だけで予算を超えたら、root を狭めるか、分割 Context を返す。**制約を省略して「準備完了」にしない。**
 
 ### 7.4 CLI
 
@@ -739,20 +993,47 @@ Token budget は情報を黙って消す権限ではない。必須制約だけ�
 # 既存
 cargo xtask touched origin/main
 
-# 以下は追加するコマンド
+# current Context
 cargo xtask context \
   --root DEC-PLT-025 \
   --at HEAD \
-  --base origin/main \
   --format md
 
+# comparative Context: current state + semantic changes
 cargo xtask context \
   --root DEC-PLT-025 \
+  --from origin/main \
+  --at HEAD \
+  --format md
+
+# Agent / tooling 向けも同じ計算モデル
+cargo xtask context \
+  --root DEC-PLT-025 \
+  --from "$BASELINE_SHA" \
   --at HEAD \
   --format json
 ```
 
-PR では、採用済みの base と提案中の head を並べる。head で制約を削除しただけで「現在の制約はなくなった」と扱わない。
+引数の意味は次に限定する。
+
+```text
+--at <revision>
+  読みたい現在地点。
+
+--from <revision>
+  比較したい以前の地点。optional。
+  指定した場合も current state を省略しない。
+```
+
+`--base` と `--to` は導入しない。比較の起点は `--from`、現在地点は常に `--at` とする。
+PR では `--from origin/main --at HEAD`、再参加では保存 checkpoint を `--from` に渡す。
+
+初版では `--view current|changes|both` のような mode も不要である。`--from` なしなら current、
+`--from` ありなら current + changes を default とする。CI などで changes-only が本当に必要になった時点で
+projection option を追加する。
+
+head で制約を削除しただけで「現在の制約はなくなった」と扱わない。比較時は旧・新両方の
+semantic closure の和集合を使い、削除・supersession・新しい反証を見失わない。
 
 コア CLI はオフラインで動かす。Issue の取得は薄い adapter が行い、本文を source data として渡す。Issue 内の命令文を実行指示として扱わない。
 
@@ -765,11 +1046,11 @@ PR では、採用済みの base と提案中の head を並べる。head で制
 **Purpose：** 現在案の局所調整ではなく、異なる前提に立つ体験を比較可能にする。  
 **Trigger：** R1／R2 の問い、既存案では説明できない反例、前提を覆す Evidence。
 
-**Input：** Question、Context bundle、守る制約、疑ってよい前提、利用場面、探索予算。  
+**Input：** Question、Context、守る制約、疑ってよい前提、利用場面、探索予算。  
 **Transformation：** 前提と設計軸を分解し、異なる action trace を作り、識別可能な対照へ具体化する。
 
 **Output：** 比較できる試作、予測する違い、未探索領域、次の検証方法。  
-**Persistence：** Q の探索欄、`design/work/<Q>/`、実験用 story。大量の生成案は原則 ephemeral。
+**Persistence：** 主な探索過程は Question の Issue / PR。比較 Story や prototype は branch-local でよく、過程を保存するためには merge しない。未来の判断が依存する Hypothesis、再利用する Evidence、addressable な Decision、current obligation となる Requirement だけを meta へ昇格する。Pattern は Graph から導出する。
 
 **Actor：** Human、Agent、または両者の共同制作。作者性と Evidence authority は分離する。Agent が Concept prototype 全体を生成してもよいが、その生成物は利用者の支持や意味理解の証拠にはならない。  
 **Interaction model：** ローカル制作と非同期共有。必要なら短い共同制作。
@@ -895,7 +1176,7 @@ Agent への依頼は、次のように分ける。
 | Lane | 与える Context | 役割 |
 |---|---|---|
 | **Canon-aware** | Product Context + 現 Canon + Evidence | 現在の学習を最大限使って改善する |
-| **Constraint-only** | Promise / TR / hard constraint。現 direction / PAT は隠す | 既存解へ引かれず、同じ制約から別の構造を作る |
+| **Constraint-only** | Promise / current REQ / hard constraint。現 direction / derived Pattern View は隠す | 既存解へ引かれず、同じ制約から別の構造を作る |
 | **Contrarian** | 現 Canon + 「一つを反転せよ」 | Canon が成立しない条件と逆側の価値を探す |
 | **Analogy Scout** | Question と構造だけ | 隣接領域・別 craft・反例から design move を輸入する |
 | **Human seed** | AI の候補を見る前の短い初期案 | 先行生成物による fixation を避けるための独立 seed |
@@ -963,7 +1244,7 @@ DESIGN SPACE WARNING:
 **Transformation：** 観察と解釈を分離し、基準・反例・次の変更を特定する。必要なら一緒に直してみる。
 
 **Output：** 検証すべき論点、変更案、異議への応答、実演で分かった操作。  
-**Persistence：** 主な対話は Question の Issue。重要な帰結だけを Q／EVID／DEC に移す。
+**Persistence：** 主な対話は Question の Issue。重要な帰結だけを Q／HYP／EVID／DEC／REQ に昇格する。Pattern は derived view とし、Blind Read や Critique の transcript を別 Markdown へ複製しない。
 
 **Actor：** 作者、他の Contributor、必要な専門家。Agent は補助的な批評案を出す。  
 **Interaction model：** 非同期が標準。同期は任意の実演・共同制作に限定する。
@@ -1037,7 +1318,7 @@ Gap があること自体を失敗とはしない。作者の Intent が利用�
   何を意味すると考えたか。別解釈はあるか
 
 関係するもの：
-  Claim / Requirement / 作者の狙い / 利用場面
+  Hypothesis / Requirement / 作者の狙い / 利用場面
 
 次に試すこと：
   変更、反例、比較、観察方法
@@ -1110,12 +1391,12 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 ### Execution Contract
 
 **Purpose：** 主張の種類に合う方法で不確実性を減らし、答えられないことを答えた扱いにしない。  
-**Trigger：** Question の識別条件、重要 Claim の未検証、矛盾する観察、専門的な危険が見つかったとき。
+**Trigger：** Question の識別条件、重要 Hypothesis の未検証、矛盾する観察、専門的な危険が見つかったとき。
 
-**Input：** Claim、対象 artifact、方法、対象条件、同意・公開範囲、必要な専門性。  
-**Transformation：** 検査・観察・相談を実施し、観測と解釈を分け、Claim の適用範囲内で結果を整理する。
+**Input：** Hypothesis、対象 artifact、方法、対象条件、同意・公開範囲、必要な専門性。  
+**Transformation：** 検査・観察・相談を実施し、観測と解釈を分け、Hypothesis の適用範囲内で結果を整理する。
 
-**Output：** Evidence、Claim の評価案、未解決事項、専門家の判断条件。  
+**Output：** Evidence、Hypothesis の評価案、未解決事項、専門家の判断条件。  
 **Persistence：** 公開可能な最小記録は `meta/evidence/`。個人情報や研究用音声は同意された別の保管先。
 
 **Actor：** deterministic tool、Human observer、参加者、external specialist。Agent は計画案と整理を補助する。  
@@ -1126,18 +1407,17 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 
 **Downstream：** C6。反証が出れば C1・C3へ戻る。
 
-### 10.0 Claim と Evidence の間に Probe を置く
+### 10.0 Hypothesis と Evidence の間に Probe を置く
 
-Claim は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
-その間には、**どう観測すれば Claim を区別できるか**という実行計画が必要である。
+Hypothesis は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
+その間には、**どう観測すれば Hypothesis を区別できるか**という実行計画が必要である。
 これを Probe と呼ぶ。
 
-Probe は新しい巨大な台帳から始めない。初期形では Question または Claim の nested data とし、
-繰り返し参照する必要が生じたときだけ独立 object 化を検討する。
+Probe は新しい巨大な台帳から始めない。初期形では Issue / PR 上の検証計画として置き、実行結果は Evidence に残す。複数の Decision から再実行する必要が生じた Probe だけ、Hypothesis や検査コードから安定して参照できる形へ昇格する。
 
 ```toml
 [[probe]]
-claim = "CLM-UX-001"
+hypothesis = "HYP-91MTWX"
 method = "first-contact-comprehension"
 input = "VoiceList/UnevenCoverage"
 prediction = "外径差を録音量の差として説明する"
@@ -1151,27 +1431,27 @@ repeat_on = ["voice-ring representation changed"]
 produces = "EVID-*"
 ```
 
-Probe が最低限持つのは、対象 Claim、観測条件、予測、反証条件、method capability、
+Probe が最低限持つのは、対象 Hypothesis、観測条件、予測、反証条件、method capability、
 human requirement、再実行 trigger、生成する Evidence の種類である。
 
 したがって検証の実行系列は次になる。
 
 ```text
 Question
-  → Claim
+  → Hypothesis
   → Probe
   → Observation
   → Evidence
-  → Claim assessment
+  → Hypothesis assessment
   → Decision
 ```
 
 Probe を書いたこと自体は Evidence ではない。実行されていない Probe は planned のまま残す。
-また、同じ Claim に複数の Probe を置ける。単一の測定方法を Claim の意味と同一視しない。
+また、同じ Hypothesis に複数の Probe を置ける。単一の測定方法を Hypothesis の意味と同一視しない。
 
 ### 10.1 Evidence capability matrix
 
-| Claim の種類 | Evidence になれるもの | それだけでは Evidence にならないもの | 上げられる確信の範囲 |
+| Hypothesis の種類 | Evidence になれるもの | それだけでは Evidence にならないもの | 上げられる確信の範囲 |
 |---|---|---|---|
 | **機械的・形式的性質** | 実行された test、FSL 検査、型検査、再現可能な計測 | Agent の「問題ありません」、未実行 test | 検査したモデル・実装・条件の範囲 |
 | **視認性・知覚的区別** | 実際の描画、contrast 計測、サイズ・距離を含む人間の確認 | design token の整合、静的コードの印象だけ | 測定条件と確認者の範囲 |
@@ -1189,25 +1469,25 @@ Probe を書いたこと自体は Evidence ではない。実行されていな�
 
 ### 10.1.1 Evidence capability は機械可読な registry にする
 
-前表は説明用 projection である。実装では Claim class と observation method の組を
+前表は説明用 projection である。実装では Hypothesis kind と observation method の組を
 machine-readable な capability registry として持つ。目的は Evidence の存在確認ではなく、
-**その観測方法が、その Claim について証言する資格を持つか**を検査することである。
+**その観測方法が、その Hypothesis について証言する資格を持つか**を検査することである。
 
 概念例:
 
 ```toml
 [[capability]]
-claim_class = "semantic-comprehension"
+hypothesis_kind = "semantic-comprehension"
 method = "agent-review"
 support = "cannot-support"
 
 [[capability]]
-claim_class = "accessibility-conformance"
+hypothesis_kind = "accessibility-conformance"
 method = "browser-measurement"
 support = "can-support"
 
 [[capability]]
-claim_class = "emotional-response"
+hypothesis_kind = "emotional-response"
 method = "competitive-corpus"
 support = "hypothesis-generation-only"
 ```
@@ -1216,7 +1496,7 @@ support = "hypothesis-generation-only"
 `context-dependent` を区別する。`context-dependent` は必要条件を明示できない限り
 自動昇格させない。
 
-`check-design` は Claim と Evidence の relation をこの registry に照らす。
+`check-design` は Hypothesis と Evidence の relation をこの registry に照らす。
 ただし registry は観察内容の真偽を認定しない。正しい method label を付けた誤観察は依然として
 誤観察であり、provenance と元 artifact を追える必要がある。
 
@@ -1233,7 +1513,7 @@ support = "hypothesis-generation-only"
 同じ原研究の紹介記事十本は、十個の独立した Evidence ではない。`origin_group` と `derived_from` を持ち、同一起源を表示する。
 
 **三つ目は、方法の capability を超える結論を出さないこと。**  
-`claim_class = emotional-response` に対して、唯一の Evidence が `method = agent-review` なら、検査で止める。ただし型が正しくても内容が誤っている可能性は残る。CI は真実を認定しない。
+`hypothesis_kind = emotional-response` に対して、唯一の Evidence が `method = agent-review` なら、検査で止める。ただし型が正しくても内容が誤っている可能性は残る。CI は真実を認定しない。
 
 **四つ目は、反証を同じ表示面に出すこと。**  
 Context の要約では supporting evidence だけでなく、contradicting evidence と scope mismatch を必須表示する。
@@ -1261,10 +1541,10 @@ not-applicable
 
 ### 10.3.1 Human Verification Debt を derived queue として扱う
 
-「人間に会えないので untested のまま残す」だけでは、human-only な Claim が静かに積み上がる。
+「人間に会えないので untested のまま残す」だけでは、human-only な Hypothesis が静かに積み上がる。
 一方、それらをすべて blocking にすると KOERU は進まない。
 
-そこで、人間の観察でしか十分に扱えない未解決 Claim を正本とは別の **derived queue** として
+そこで、人間の観察でしか十分に扱えない未解決 Hypothesis を正本とは別の **derived queue** として
 いつでも取り出せるようにする。
 
 ```bash
@@ -1273,19 +1553,19 @@ cargo xtask design-debt --human
 
 出力には少なくとも次を含める。
 
-- Claim と claim class
+- Hypothesis と hypothesis kind
 - なぜ human evidence が必要か
-- その Claim に依存している Decision / Pattern
+- その Hypothesis に依存している Decision / Requirement
 - blast radius と reversibility
 - 現在持っている Evidence と不足
-- 一回の session で同時に観察できる他の Claim
+- 一回の session で同時に観察できる他の Hypothesis
 - 有効な Probe があるか
 
 優先度を単一 score にしない。人との接触機会が得られたときに、
 **その一回を最も情報価値の高い観察へ変換するための planning surface** とする。
 
-Queue から消えるのは、Claim が解決した場合だけではない。
-Decision がその Claim に依存しなくなった場合、Claim 自体が不要になった場合も含む。
+Queue から消えるのは、Hypothesis が解決した場合だけではない。
+Decision がその Hypothesis に依存しなくなった場合、Hypothesis 自体が不要になった場合も含む。
 「未検証数を減らすこと」を目的化しない。
 
 ### 10.4 専門家の位置づけ
@@ -1295,7 +1575,7 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 相談時には、次を渡す。
 
 ```text
-判断してほしい Claim
+判断してほしい Hypothesis
 対象 artifact と条件
 すでに分かっていること
 専門外も含め、答えられないことを明示してほしい旨
@@ -1314,11 +1594,11 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 **Purpose：** 不確実性が残っていても行動を選び、選択を後から変更できる形で残す。  
 **Trigger：** 比較・検証が次の行動を選べる段階に達した、または予算・期限により判断が必要になったとき。
 
-**Input：** Q、候補、Evidence、Claim の状態、異議、費用、移行・撤回方法。  
+**Input：** Q、候補、Evidence、Hypothesis の状態、異議、費用、移行・撤回方法。  
 **Transformation：** 価値判断と経験的予測を分け、採用範囲と残存リスクを決める。
 
-**Output：** DEC、必要な TR／FSL／Vision の変更、条件を満たす場合だけ PAT。  
-**Persistence：** Repository の PR と採用記録。議論は Issue に残す。
+**Output：** DEC、必要な REQ／FSL／Vision の変更。複数事例に共通する構造は Pattern View の候補として導出する。  
+**Persistence：** addressable な Decision / Requirement は semantic graph に残し、元の議論・review・diff は Issue / PR / commit provenance に残す。
 
 **Actor：** 人間の maintainer が統合判断する。専門家は担当範囲の判断を提供する。Agent に採用権限はない。  
 **Interaction model：** 非同期。R2 は公開された検討期間を設ける。会議でしか決めない運用にしない。
@@ -1327,6 +1607,34 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 **Failure mode：** 合意と真実の混同、古参による veto、沈黙の同意化、accepted DEC の意味の上書き。
 
 **Downstream：** C7、C2、C8。新たな異議は C1 へ戻れる。
+
+### 11.0 Canonization は event stream から durable knowledge を compile すること
+
+Canonization は、Issue / PR の会話をきれいな議事録へ書き直す作業ではない。
+
+```text
+Issue / PR event stream
+  ├─ exploration
+  ├─ critique
+  ├─ rejected alternative
+  ├─ observation
+  └─ implementation discussion
+          │
+          ▼
+durable semantic state
+  Q / HYP / EVID / DEC / REQ / FSL
+
+derived views
+  Pattern / Human Verification Debt / Context projections
+```
+
+昇格条件は「その発言が重要そうだったか」ではなく、**元 PR を知らない未来の Contributor が、現在または将来の判断をするために発見できる必要があるか**である。
+
+PR に百件のコメントがあっても、残る durable object が一つの HYP と一つの DEC だけでよい場合がある。逆に、一つの短い観測でも複数の将来判断から参照されるなら EVID に昇格しうる。
+
+DEC は PR の transcript ではない。PR が historical event を保持し、DEC はその event から得られた選択を Q / HYP / EVID / REQ と同じ Graph 上で address する。両者は `provenance` で接続する。
+
+この compile は lossless な transcript 化ではない。失われたニュアンスが必要になったときに元 Issue / PR / commit へ戻れる provenance を保つことで、**current state の可読性と history の再検証可能性を両立する。**
 
 ### 11.1 採用するのは「範囲付きの選択」
 
@@ -1369,7 +1677,7 @@ Decision には、従来の項目に加え、次を読み取れるようにす�
 
 誰でも異議を出せる。
 
-十分な Context を理解してからでなければ疑問を出せない仕組みにすると、Context に書かれていない問題が入れなくなる。知識が不足した異議には、関連する bundle と具体例を返し、必要なら一緒に問いを作る。
+十分な Context を理解してからでなければ疑問を出せない仕組みにすると、Context に書かれていない問題が入れなくなる。知識が不足した異議には、関連する Context と具体例を返し、必要なら一緒に問いを作る。
 
 採用側は、異議に対して次のいずれかを返す。
 
@@ -1387,19 +1695,25 @@ R2 の review window は `design/policy.toml` の `r2_review_window_days` で設
 
 単独 maintainer の判断は認めるが、複数人の合意があったかのようには記録しない。
 
-### 11.4 Canonization の threshold
+### 11.4 Pattern は canonize する object ではなく、反復から導出する
 
-すべての成功案を Pattern にしない。
+すべての成功案を Pattern file にしない。Pattern View は複数の Q / HYP / EVID / DEC / REQ subgraph から生成する。
 
-Pattern にする条件は、次の三つである。
+deterministic layer は、明示 relation の共通部分・反復 topology・同じ Requirement / Hypothesis / Evidence capability への依存などから candidate cluster を作る。semantic abstraction が必要な場合、Agent は candidate title / explanation / counterexample を提案できるが、元 source IDs を消して一つの「原則」に置き換えない。
+
+Pattern candidate が別の具体文脈でも繰り返し有効で、今後の変更を拘束したいと人間が判断した場合は、
 
 ```text
-別の具体的な文脈でも使う見込みがある。
-適用しないほうがよい条件を説明できる。
-例・反例・実装または検査への接続を残せる。
+derived Pattern candidate
+        │
+        │ normative にしたい
+        ▼
+       DEC
+        │
+        └── establishes / revises ──► REQ
 ```
 
-一回の画面修正でしか必要のないことは、Decision とコードに留める。
+とする。Pattern そのものを normative SSOT に昇格しない。
 
 採用済み DEC の `selected` や判断の同一性を変える場合は、新しい DEC を作り `supersedes` で接続する。誤字修正と意味の変更を区別する。
 
@@ -1414,7 +1728,7 @@ Pattern にする条件は、次の三つである。
 **Purpose：** 判断を実物へ移し、検査した範囲を明示して出荷し、その後の経験を戻す。  
 **Trigger：** R0 修正、採用された DEC、実験版の公開、release profile の確認。
 
-**Input：** 適用する規範、artifact、変更差分、必要な検証、未検証 Claim、rollback 条件。  
+**Input：** 適用する規範、artifact、変更差分、必要な検証、未検証 Hypothesis、rollback 条件。  
 **Transformation：** 実装し、機械検査・実機確認を適切に分担し、リリース範囲を決める。
 
 **Output：** コード、story、検査結果、release の制約、再観測する項目。  
@@ -1475,8 +1789,8 @@ Pattern にする条件は、次の三つである。
 | Check | 失敗させるもの | 判定しないもの |
 |---|---|---|
 | `check-design` | 新 schema の不正、未解決参照、accepted DEC の禁止された意味変更、必要な risk 情報の欠落 | UX が良いか |
-| Claim capability check | 観測方法と Claim 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
-| Context check | root の欠落、後継関係の循環、重大な不足を隠した bundle | Context が世界全体を表しているか |
+| Hypothesis capability check | 観測方法と Hypothesis 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
+| Context check | root の欠落、後継関係の循環、重大な不足を隠した Context | Context が世界全体を表しているか |
 | UI boundary check | production から experiments への import | 試作の芸術的価値 |
 | Artifact provenance check | 検査対象 SHA と提示 artifact の不一致 | screenshot が望ましい体験を示すか |
 | Native verification gate | 必須の実音声確認が `skipped` のままの対象変更 | browser mock が実機を代替すること |
@@ -1524,7 +1838,7 @@ voice hue A → B
 これらは Human UX research の代替ではない。
 **利用者がいなくても大量に攻撃できる invariance / resilience を増やす**ための Probe である。
 
-relation は PAT / TR / Claim から導出し、どの relation を何が守っているか追跡できるようにする。
+relation は current REQ / DEC / Hypothesis と derived Pattern candidate の source graph から導出し、どの relation を何が守っているか追跡できるようにする。
 「全 UI に同じ metamorphic test を課す」ことはしない。
 
 ### 12.4.2 Design Mutation Testing で Probe の感度を検査する
@@ -1549,7 +1863,7 @@ error recovery action を隠す
 FSL mutation と同様に、生き残った mutation は即 failure とは限らない。
 「Probe がその差に感度を持たない」「そもそも守る性質ではなかった」のどちらかを review する。
 
-Aesthetic / emotional Claim に mutation score を持ち込まない。適用するのは、明確な observable relation を
+Aesthetic / emotional Hypothesis に mutation score を持ち込まない。適用するのは、明確な observable relation を
 持つ Probe に限る。
 
 ### 12.5 PR template の追加欄
@@ -1559,7 +1873,7 @@ Aesthetic / emotional Claim に mutation score を持ち込まない。適用す
 ```markdown
 ## 設計上の変更
 経路: R0 / R1 / R2
-関連する Q / DEC / PAT:
+関連する Q / HYP / DEC / REQ:
 
 ## 体験の差
 何ができる／分かる／見えるようになるか:
@@ -1567,7 +1881,7 @@ Aesthetic / emotional Claim に mutation score を持ち込まない。適用す
 
 ## 確認範囲
 実行した検査・観察:
-まだ確かめていない Claim:
+まだ確かめていない Hypothesis:
 
 ## 戻し方
 rollback / migration / 再検討条件:
@@ -1591,10 +1905,10 @@ rollback / migration / 再検討条件:
 **Trigger：** 作業を中断する、担当を渡す、明示的に再参加する、古い branch を再開する。
 
 **Input：** 保存した SHA、関心 root、途中の artifact、次に試すこと。復帰時は現在の revision。  
-**Transformation：** 旧・新 object と周辺グラフを比較し、重要な変更と不足を取り出す。
+**Transformation：** 保存した baseline があれば `context --from <baseline> --at <current>` を使い、旧・新 semantic closure を比較する。baseline がなければ current Context を生成する。
 
-**Output：** checkpoint、handoff、Context Delta、再開可能な小さい作業。  
-**Persistence：** 個人の baseline は原則ローカル。共有 handoff は Issue。Delta は生成物。
+**Output：** checkpoint、handoff、現在 Context、baseline がある場合はそこからの semantic changes、再開可能な小さい作業。  
+**Persistence：** 個人の baseline は原則ローカル。共有 handoff は Issue。Context は生成物であり、第二正本として保存しない。
 
 **Actor：** deterministic program と本人。Agent の説明は任意。  
 **Interaction model：** ローカル CLI と非同期の引き継ぎ。面談を必須にしない。
@@ -1612,14 +1926,14 @@ rollback / migration / 再検討条件:
 {
   "baseline_commit": "<full-sha>",
   "roots": ["DEC-PLT-025", "TR-RCL-19"],
-  "work_item": "Q-UX-nnn",
-  "artifact": "design/work/Q-UX-nnn/exploration.md"
+  "work_item": "Q-4K7DP2",
+  "artifact": "github:pr/201#voice-workbench@<full-sha>"
 }
 ```
 
 保存先は Git の管理ディレクトリ配下など、誤って commit されないローカル領域にする。チームが本人の離席期間を追跡するプロフィール DB は作らない。
 
-Baseline がない場合は、「以前あなたが理解していたこと」を推測しない。関心領域を指定して fresh bundle を出す。
+Baseline がない場合は、「以前あなたが理解していたこと」を推測しない。関心領域を指定して current Context を出す。
 
 ### 13.2 意味的な変化を、どう検出するか
 
@@ -1629,9 +1943,9 @@ Baseline がない場合は、「以前あなたが理解していたこと」�
 |---|---|
 | Decision の後継追加 | 「以前の判断は、現在この判断に置き換わった」 |
 | TR の対象・条件変更 | 「守る条件が変わった」 |
-| Claim への反証追加 | 「この前提への信頼が弱まった／見解が混在した」 |
+| Hypothesis への反証追加 | 「この前提への信頼が弱まった／見解が混在した」 |
 | Question の解決 | 「不明だったことに、こういう選択がされた」 |
-| Pattern の適用範囲変更 | 「以前の使い方が、今は範囲外になった」 |
+| REQ の scope / applicability 変更 | 「以前の obligation の適用範囲が変わった」 |
 | free text の変更 | 「意味確認が必要」。差分と根拠箇所を示す |
 
 自然言語の意味の変化を、deterministic parser が完全に理解するとは主張しない。LLM が要約する場合も、「確認できた field change」と「要約上の解釈」を分ける。
@@ -1639,11 +1953,11 @@ Baseline がない場合は、「以前あなたが理解していたこと」�
 比較は、旧グラフと新グラフの**両方の近傍の和集合**で行う。新グラフだけを見ると、削除された関係や置き換えられた判断を見失う。
 
 ```bash
-# 新規
-cargo xtask context-delta \
-  --from "$BASELINE_SHA" \
-  --to HEAD \
+# C2 と同じ command を comparative view として使う
+cargo xtask context \
   --root DEC-PLT-025 \
+  --from "$BASELINE_SHA" \
+  --at HEAD \
   --format md
 ```
 
@@ -1651,10 +1965,10 @@ cargo xtask context-delta \
 
 ### 13.2.1 Re-entry は Context の再インストールではなく衝突点を作る
 
-Context Delta が示すのは KOERU 側の変化だけである。復帰した人自身も、離れている間に
+`context --from` の comparative view が示す semantic changes は KOERU 側の変化だけである。復帰した人自身も、離れている間に
 別の道具、作品、共同制作、生活条件、taste によって変わっている。
 
-そのため Delta 提示後には、任意で次の問いを置く。
+そのため comparative Context の提示後には、任意で次の問いを置く。
 
 > 以前この領域を見ていたときと比べ、今のあなたには違って見えることがあるか。
 
@@ -1663,8 +1977,7 @@ Context Delta が示すのは KOERU 側の変化だけである。復帰した�
 
 Architecture 上、人間は Context Graph の consumer だけではない。
 **Graph の外にある世界で変化し、その変化を graph の境界へ持ち帰る source** でもある。
-この経路があることで、Context Bundle / Delta は社会化装置ではなく、既存文脈と新しい経験を
-比較可能にする boundary surface になる。
+この経路があることで、Context は社会化装置ではなく、既存文脈と新しい経験を比較可能にする boundary surface になる。
 
 ### 13.3 Handoff は三点でよい
 
@@ -1676,7 +1989,7 @@ Architecture 上、人間は Context Graph の consumer だけではない。
 
 長い離脱報告は要求しない。突然いなくなることも想定し、Issue と artifact に途中状態が残るようにする。
 
-復帰時には、Delta を読むだけでなく、任意で次を尋ねる。
+復帰時には、current + changes を含む Context を読むだけでなく、任意で次を尋ねる。
 
 > 今のあなたから見ると、以前とは違って見えることはあるか。
 
@@ -1691,10 +2004,10 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 **Purpose：** Context 取得後の整理・探索・反例・記録を補助し、人間の制作時間を増やす。  
 **Trigger：** 権限のある人による明示的な依頼。Issue 作成や PR 更新だけでは自動起動しない。
 
-**Input：** mode、対象 SHA、Context bundle、依頼内容、許可 tool、出力上限。  
+**Input：** mode、対象 SHA、Context、依頼内容、許可 tool、出力上限。  
 **Transformation：** mode ごとの作業を実施し、source と推論を分離した構造化出力を作る。
 
-**Output：** 問い・別案・批評・Delta 説明の候補。  
+**Output：** 問い・別案・批評・comparative Context の説明候補。  
 **Persistence：** 原則 scratch／CI artifact／提案コメント。人間が採用した部分だけを正本へ移す。
 
 **Actor：** AI worker、deterministic broker、依頼した人間。  
@@ -1711,8 +2024,8 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 |---|---|---|---|
 | **design-frame** | `/design frame` を人間が依頼 | Signal、関連 root、既存 Question | read-only 検索。問いの候補・重複・不足を出す | 問題設定の提案 |
 | **design-explore** | Question の探索開始を依頼 | 制約、変更可能な前提、場面、比較方法 | 許可した外部資料、scratch への試作。前提の異なる案を出す | 設計提案。利用者の支持ではない |
-| **design-review** | artifact review を依頼 | SHA 固定 artifact、Claim、既存 Evidence | 必要に応じ browser／test runner。観測と予測を分けた批評 | tool で観測した事実と、AI の推論を区別 |
-| **design-reentry** | baseline を指定して復帰説明を依頼 | deterministic Delta と参照元 | read-only。変化の説明と確認箇所を出す | Delta の説明。本人の記憶の推定ではない |
+| **design-review** | artifact review を依頼 | SHA 固定 artifact、Hypothesis、既存 Evidence | 必要に応じ browser／test runner。観測と予測を分けた批評 | tool で観測した事実と、AI の推論を区別 |
+| **design-reentry** | baseline を指定して復帰説明を依頼 | `context --from <baseline> --at <current>` の deterministic output と参照元 | read-only。current state と変化の説明、確認箇所を出す | Context の説明。本人の記憶の推定ではない |
 
 セッション記録の整理は `design-review` の下位操作として扱い、別の自律 Agent を増やさない。録音・記録の扱いは本人の同意と公開範囲に従う。
 
@@ -1723,14 +2036,14 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 
 | Mode／Skill | 主な仕事 | 出力の authority |
 |---|---|---|
-| **design-context-audit** | DEC / CLM / EVID / PAT の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
-| **design-verify** | Claim class から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only claim は未解決のまま返す |
+| **design-context-audit** | Q / HYP / EVID / DEC / REQ と FSL relation の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
+| **design-verify** | Hypothesis kind から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only hypothesis は未解決のまま返す |
 
 `design-context-audit` は Context の意味を勝手に統合せず、「この二つは矛盾している可能性」
 という candidate を source locator 付きで返す。
 
 `design-verify` は Evidence capability registry を参照する。
-Human observation が必要な Claim に対して synthetic answer を生成せず、Human Verification Debt に送る。
+Human observation が必要な Hypothesis に対して synthetic answer を生成せず、Human Verification Debt に送る。
 
 これにより `review` は artifact critique、`verify` は検証手段、
 `context-audit` は知識構造の健全性という別の epistemic role を持つ。
@@ -1741,7 +2054,7 @@ Human observation が必要な Claim に対して synthetic answer を生成せ�
 
 ```text
 DEC を accepted にする。
-Claim を「利用者によって検証済み」にする。
+Hypothesis を「利用者によって検証済み」にする。
 自分の生成した persona を参加者として記録する。
 main を更新する。
 PR を承認・merge する。
@@ -1780,10 +2093,10 @@ Issue 作成や PR 更新だけで LLM Agent を自動起動しない方針は�
 
 CI / `xtask` は自動で少なくとも次を表面化できる。
 
-- Decision が依存する Claim に contradicting Evidence が追加された
+- Decision が依存する Hypothesis に contradicting Evidence が追加された
 - `review_triggers` に関連する Evidence / requirement change が生じた
-- PAT が参照する DEC が superseded された
-- Human-only Claim が release-critical な Decision の前提になった
+- derived Pattern candidate の source DEC / REQ が superseded・revised された
+- Human-only Hypothesis が release-critical な Decision の前提になった
 - active Question の discriminator を無効にする constraint change が入った
 - Context root が orphan / unmapped になった
 
@@ -1801,7 +2114,7 @@ description: KOERU の Question に対し、前提の異なる体験案と比較
 ---
 
 対象 Q と commit SHA を確認する。
-cargo xtask context が生成した bundle を読む。
+cargo xtask context が生成した Context を読む。
 制約と、疑ってよい前提を分ける。
 案ごとに action trace・予測する差・反例・必要な観察を書く。
 利用者の反応を観測したかのように記述しない。
@@ -1809,7 +2122,7 @@ cargo xtask context が生成した bundle を読む。
 Decision の採用状態を変更しない。
 ```
 
-Vision 全文や全 Pattern を各 Skill にコピーしない。既存の `.agents/skills` を正本とする構成を維持する。
+Vision 全文や Pattern View の結果を各 Skill にコピーして第二正本にしない。既存の `.agents/skills` を正本とする構成を維持する。
 
 **Agent が停止しても、CLI・Issue・Storybook・人間の review だけで作業は続けられる。** Agent の利用を必須 CI gate にしない。
 
@@ -1870,7 +2183,7 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 
 | 保存対象 | 方針 |
 |---|---|
-| DEC、TR、FSL、採用 PAT、重要な Q／EVID | 長期保持 |
+| DEC、REQ、FSL、重要な Q／HYP／EVID | 長期保持。migration 中の TR も同等に扱う |
 | 採らなかった案 | 不採用理由と、判断を再構成できる最小の artifact |
 | 大量の AI 候補、途中の全文 transcript | 原則 ephemeral |
 | 実験用 CI artifact | 初期値14日。必要な結果は Evidence に抜き出す |
@@ -1886,10 +2199,10 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 
 | 観測できる失敗条件 | 何が壊れているか | 取る対応 |
 |---|---|---|
-| Context bundle が、root に関係する反証や必須制約を落とした | 選択的な記憶装置になっている | traversal と fixture を修正。欠落を隠した要約を停止 |
+| Context が、root に関係する反証や必須制約を落とした | 選択的な記憶装置になっている | traversal と fixture を修正。欠落を隠した要約を停止 |
 | 四件程度の R1 を通して、準備作業のほうが試作より重く、判断が変わった事例もない | 記録費用が便益を超えている | 必須欄・新規 object・Agent 起動を減らす |
 | 複数案の action trace が毎回ほぼ同じ | 探索が形式化している | 案数要求を外し、異なる経験・参照領域・共同制作へ戻す |
-| Claim の method は正しく書かれているが、元観察を確認できない | Schema を使った新しい Evidence Laundering | 出所と公開範囲を監査。「型が正しいから信頼」をやめる |
+| Hypothesis の method は正しく書かれているが、元観察を確認できない | Schema を使った新しい Evidence Laundering | 出所と公開範囲を監査。「型が正しいから信頼」をやめる |
 | 復帰者が元作者なしでは、判断の差と撤回条件を見つけられない | Context が索引として機能していない | root mapping、後継関係、反例 artifact を改善 |
 | 既存 Canon に反する案だけ、事前の説明負担が大きい | 文脈が参入障壁・同質化装置になっている | challenge の入口と採用側の応答責任を見直す |
 | 専門家の回答が、条件抜きの禁止事項へ変わった | 専門性を cargo-cult 化した | 専門判断の適用範囲と例外を復元 |
@@ -1905,7 +2218,7 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 たとえば次を case-based に確認する。
 
 - 元作者なしで Decision rationale と overturn condition を再構成できたか。
-- newcomer が既存 PAT の `must_not_apply_when` や新しい反例を見つけられたか。
+- newcomer が derived Pattern View の反例や適用不能条件を見つけ、元 DEC / REQ まで辿れたか。
 - Critique から、作者が最初に想定していなかった Question が生まれたか。
 - 現 Canon に反する proposal が実際に提出され、Context mastery 不足だけを理由に退けられなかったか。
 - role rotation により、Author 以外の参加方法から実際の変更へ寄与できたか。
@@ -1941,10 +2254,10 @@ Contributor が Voice 画面を使い、次の感覚を Issue `#101` に書く�
 C1 で、二つの問いを混ぜないよう整理する。
 
 ```text
-Q-UX-nnn：
+Q-4K7DP2：
   次の創作行為へ移りにくい原因は、操作の発見か、注意配分か。
 
-関連 Claim：
+関連 Hypothesis：
   環は音源への関係を助ける。
   環の大きさは優劣ではなく収録量として理解される。
 ```
@@ -1957,11 +2270,11 @@ Q-UX-nnn：
 cargo xtask context --root DEC-PLT-025 --at HEAD --format md
 ```
 
-`TR-RCL-19`、`TR-SYN-20`、関連 story、Claim、残存リスクを取得する。
+`TR-RCL-19`、`TR-SYN-20`、関連 story、Hypothesis、残存リスクを取得する。
 
 ### Exploration
 
-`design/work/Q-UX-nnn/exploration.md` と実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。
+Issue `#101` と PR branch 上の実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。探索メモと比較の履歴は Issue / PR に残し、`exploration.md` を別途 merge しない。
 
 同じ fixture、同じ録音量、同じ待ち時間で比較する。配色まで同時に変えて、差の原因を曖昧にしない。
 
@@ -1975,23 +2288,23 @@ Issue `#101` に workbench と SHA を提示する。
 
 機械検査では、keyboard、焦点、描画、状態遷移を確認する。
 
-協力者が得られれば、説明を先にせず録音を再開してもらい、操作と本人の説明を観察する。得られなければ、初回理解の Claim は未検証のまま残す。
+協力者が得られれば、説明を先にせず録音を再開してもらい、操作と本人の説明を観察する。得られなければ、初回理解の Hypothesis は未検証のまま残す。
 
 ### Decision
 
 仮に操作発見が改善し、声への反応も残せそうなら、限定的に新案を採用する。ただし「環が愛着を生む」まで確認できたとは書かない。
 
-新 DEC に、比較した artifact、分かったこと、未検証 Claim、戻す条件を記録する。
+新 DEC に、比較した artifact、分かったこと、未検証 Hypothesis、戻す条件を記録する。
 
 ### Implementation
 
-PR `#201` で `voice-screen`／`voice-portrait` を変更し、採用した状態を stable story に移す。実験の比較物は最小限だけ残す。
+PR `#201` で `voice-screen`／`voice-portrait` を変更し、採用した状態を stable story に移す。branch-local の比較物は、regression fixture や再利用教材として独立した価値がない限り merge せず、比較の履歴は PR に残す。
 
 ### Learning
 
 Contributor は「中央の対象を小さくすればよい」ではなく、**創作行為と対象への反応を、どの時点で往復させるか**という設計の手を得る。
 
-別画面へ同じ layout を無条件にコピーする Pattern は作らない。
+別画面へ同じ layout を無条件にコピーする normative Pattern は作らない。反復が生じれば Pattern View が source graph から候補として示す。
 
 ---
 
@@ -2061,7 +2374,7 @@ C：本人が選んだ条件に達したときだけ、非評価的に知らせ�
 
 > 観測値、本人の目的、製品が下す評価を分離して設計する。
 
-これが別の場面にも必要になった時点で、適用条件付きの Pattern にする。
+これが別の場面にも現れたら Pattern View の candidate として扱う。今後守る規則にするなら、新しい DEC で REQ を establish / revise する。
 
 ---
 
@@ -2090,14 +2403,14 @@ C：本人が選んだ条件に達したときだけ、非評価的に知らせ�
 ### Context acquisition
 
 ```bash
-cargo xtask context-delta \
-  --from "$SAVED_SHA" \
-  --to HEAD \
+cargo xtask context \
   --root DEC-ALN-017 \
+  --from "$SAVED_SHA" \
+  --at HEAD \
   --format md
 ```
 
-実際の baseline にその ID がなければ、関連 path や旧 ID を root にする。旧・新グラフを辿り、後継関係と不足を表示する。
+実際の baseline にその ID がなければ、関連 path や旧 ID を root にする。旧・新 semantic closure を辿り、現在状態と後継関係・不足・変化を同じ Context に表示する。
 
 ### Exploration
 
@@ -2115,7 +2428,7 @@ cargo xtask context-delta \
 
 異なる音高の対象を取り違えないこと、編集済み値を保持すること、確認状態の意味が正しいことを検査する。
 
-表示の理解に関する Claim は、機械検査とは分ける。
+表示の理解に関する Hypothesis は、機械検査とは分ける。
 
 ### Decision
 
@@ -2179,7 +2492,7 @@ Contributor は KOERU の Context だけでできているのではない。
 Contributor が行うのは候補の採点だけではない。録る、聴く、配置を動かす、別案を一緒に作る活動を残す。
 
 **記録しない自由。**  
-すべての試みを Claim や Evidence にしない。遊びや途中の感触まで、正当化の義務に変えない。
+すべての試みを Hypothesis や Evidence にしない。遊びや途中の感触まで、正当化の義務に変えない。
 
 **離れて変わる自由。**  
 復帰を「正しい Context の再インストール」にしない。以前と違う見方を新しい Signal として扱う。
@@ -2203,3 +2516,5 @@ KOERU に必要なのは、現在の visual direction を永久に正当化す�
 一つの曖昧な Signal を受け入れ、必要な Context を出し、異なる体験を実物で比べ、答えられる範囲だけを Evidence にし、未検証を残したまま採用範囲を選び、後から覆せる記録を残す。その一周を、まず KOERU の一画面で成立させる。
 
 Design System の価値は、その一周を毎回重くすることではなく、**必要なときには深く疑え、必要のないときには軽く作れ、誰かが離れても創作の続きを手渡せること**にある。
+
+そのために KOERU は、制作中の思考をすべて meta へ保存しない。**制作と議論は Issue / PR で起こり、未来の判断に必要なものだけを Q / HYP / EVID / DEC / REQ へ compile する。Pattern はそこから導出する。**
