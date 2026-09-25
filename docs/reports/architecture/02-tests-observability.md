@@ -91,15 +91,17 @@ full E2Eは「新project→録音→保存→試唱→export→再open」と「�
 
 ## 5. False green を機械的に防ぐ
 
-新しいportfolio manifestには、suite ID、contract IDs、backend、platform、fixture/model fingerprints、minimum cases、mandatory assertions/actual-work counters、runner command、expected skip policyを持たせる。すべてのtest binaryが0以上という単純規則ではなく、**required suiteごと**にexpected discoveryと実workを照合する。unsupportedでは0が正しいbinaryもあるが、同じreleaseのnative-positive obligationは別に残る。
+Target tooling では、現在の `SUITE-*` registry を **reusable Probe registry** へ移す。Probe は contract / Hypothesis / Requirement に対して「何を、どの条件・runner・fixture・backend で観測するか」を定義し、特定 run の結果とは分ける。
 
-GraphQL contract suiteは追加で schema hash、runtime schema hash、operations/fragments discovered/validated、subscriptions actually observed、persisted manifest entriesをreceiptに含める。0 operations/fragmentsや、subscriptionが1eventも流れていないのにgreenになることを防ぐ。
+Probe definition には、target IDs、backend、platform、fixture/model prerequisites、minimum discovery、mandatory assertions / actual-work counters、runner command、expected skip policyを持たせる。すべてのtest binaryが0以上という単純規則ではなく、**required Probeごと**にexpected discoveryと実workを照合する。unsupportedでは0が正しいbinaryもあるが、同じreleaseのnative-positive obligationは別に残る。
 
-run receipt例（提案）:
+GraphQL contract Probeは追加で schema hash、runtime schema hash、operations/fragments discovered/validated、subscriptions actually observed、persisted manifest entriesを Receipt に含める。0 operations/fragmentsや、subscriptionが1eventも流れていないのにgreenになることを防ぐ。
+
+run Receipt例（提案）:
 
 ```json
 {
-  "suite": "alignment-real-audio",
+  "probe": "alignment-real-audio",
   "git": "tested-sha",
   "backend": "mfa-native",
   "platform": "macos-arm64",
@@ -114,11 +116,15 @@ run receipt例（提案）:
 
 required fixture/modelが無ければexit failure。任意の手動harnessは明示 `not-run: missing fixture` を出し、CI aggregatorがpassに変換しない。LFS pointerだけで本体なしも検知する。envを設定したという事実だけでaudio読込済みとしない。source line coverageだけでは「意味ある実音声経路」を証明しない。
 
+Receipt は generated execution artifact であり、毎回の CI result を durable `EVID-*` にしない。複数の将来判断から再利用する価値がある観測だけ、条件・限界・provenance を抜き出して Evidence に canonize する。
+
 negative canaryは、canonical SDL/runtime schemaを1fieldずらす、GraphQL document globを空にする、persisted operationをmanifestから外す、application-specific Channel importを入れる、story globを空にする、CSSを外す、awaitを消す、traceにpath/GraphQL variablesを入れる、requiredモデルを外す、unsupported flagを注入する、migration assetを消す、という代表破壊をisolated copy上で行う。常に全mutation testingを回す必要はない。guard自体が赤くなる証拠を初回と定期的に保存する。
 
 ## 6. Performance を契約として扱う
 
-既存budgetは[R18]。1500MBはprocess全体のpeakで、WebViewを含む。記録済みallocationsの多くは未実測である。編集chartのmode allocationは416MB、undo200MB、編集中synth128MB。TRの個別上限と同時使用時allocationを混同しない。初回試唱30s枠・TR-SYN-33 median1.5sをcold/warm/8phrase条件と一緒に測る。古いminiaudioや旧alignの数値はcurrent engineの実測に転用しない。
+現行 `BUDGET-*` / `TGT-*` は migration source として扱う。Target model では「破ったら product regression になる数値」は quantitative REQ、「この程度になるはず」という予測は HYP、実測値は EVID、代表 workload の選択は DEC / operational WORKLOAD に分ける。Budget の subtotal / mode peak / margin は Graph から計算する derived View であり、手書きの第二正本にしない。
+
+現在記録されている 1500MB はprocess全体のpeakで、WebViewを含む。既存allocationsの多くは未実測である。編集chartのmode allocationは416MB、undo200MB、編集中synth128MB。Requirement の個別上限と同時使用時allocationを混同しない。初回試唱30s枠・TR-SYN-33 median1.5sをcold/warm/8phrase条件と一緒に測る。古いminiaudioや旧alignの数値はcurrent engineの実測に転用しない。
 
 | 判断したいこと | 測定点 / workload | gateの方法 |
 |---|---|---|
@@ -134,7 +140,7 @@ negative canaryは、canonical SDL/runtime schemaを1fieldずらす、GraphQL do
 | GraphQL execution overheadがuser-visible budgetを侵食しないか | fixed persisted operationsでApplication直呼びとの差、serialization bytes | operation latency/response bytes/snapshot latency。microbenchだけでなくroute実測 |
 | Subscriptionがmemory/backpressureを壊さないか | durable/job/transient各streamのslow consumer | active subscriptions、queue bytes、coalesced/dropped、resync latency |
 
-未登録の新しい数値は「proposal」またはbaselineとしてEVIDに置き、human reviewでbudgetへ昇格させる。shared hosted runnerのmicrosecond差を絶対gateにしない。通常CIは大きな退行とallocation invariantを、isolated/nightly/releaseは絶対budgetとdistributionを判定する。性能testの比較にはcommit、compiler flags、modelhash、fixture、CPU/OS、サンプル数、warmup、ばらつきを含める。
+未登録の新しい数値は、その意味に応じて HYP / EVID として扱い、human review で hard constraint に採る場合は DEC が quantitative REQ を establish / revise する。shared hosted runnerのmicrosecond差を絶対gateにしない。通常CIは大きな退行とallocation invariantを、isolated/nightly/releaseは絶対budgetとdistributionを判定する。性能testの比較にはcommit、compiler flags、modelhash、fixture、CPU/OS、サンプル数、warmup、ばらつきを含める。
 
 GUIが前面かどうかをmemory admissionの根拠にしない。追加consumerがrecordingとchartを同時に要求しても、runtimeがactivity/resource reservationを管理して予算を守る。必要なspec上の排他modeを明示し、view mountを排他の代わりに使わない。
 
