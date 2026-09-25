@@ -284,8 +284,7 @@ flowchart TB
   end
 
   subgraph TOOLS["道具：判断を代行せず、判断可能な状態を作る"]
-    CTX["C2 cargo xtask context<br/>型付き参照グラフ・不足の明示"]
-    DELTA["C8 cargo xtask context-delta<br/>旧／新グラフ・後継判断・新しい反証"]
+    CTX["C2・C8 cargo xtask context<br/>current / comparative Context<br/>型付き参照グラフ・不足・意味的変化"]
     CI["C7 決定的 CI<br/>既存検査＋参照・Hypothesis・実行範囲の検査"]
     AG["C9 明示起動の Agent<br/>問いの候補／別案／反例／要約<br/>規範採用・自動 merge は不可"]
     HEALTH["C10 運用の振り返り<br/>UX・再参加・異議・費用・削除候補"]
@@ -326,10 +325,7 @@ flowchart TB
 
   H --> LEAVE
   LEAVE --> RETURN
-  RETURN --> DELTA
-  CAN --> DELTA
-  CL --> DELTA
-  DELTA --> CTX
+  RETURN -->|"保存した baseline を --from に渡す"| CTX
   RETURN -->|"外で変わった関心・taste"| S
 
   PR --> HEALTH
@@ -362,7 +358,7 @@ flowchart TB
 
 `CMP-*` は流用しない。現状の `CMP` は依存部品・ライセンス監査の台帳であり、UI component の登録簿とは役割が違う。
 
-Signal、探索案、Blind Read、Critique、Context Bundle、Agent の各発言については、新しい恒久的な登録簿を作らない。これらは Issue、PR、commit、CI artifact、branch 上の一時 artifact に残す。
+Signal、探索案、Blind Read、Critique、生成した Context、Agent の各発言については、新しい恒久的な登録簿を作らない。これらは Issue、PR、commit、CI artifact、branch 上の一時 artifact に残す。
 
 ### 5.1.1 PR / Issue は event log、meta は compiled memory
 
@@ -464,8 +460,7 @@ crates/koeru-app/ui/
 
 xtask/src/
   main.rs                           # 既存コマンドと新コマンドの入口
-  context.rs                        # index / traversal / bundle
-  delta.rs                          # 旧・新 object の比較
+  context.rs                        # index / traversal / current・comparative projection
   design.rs                         # schema・適用範囲・保持の検査
 
 .agents/skills/
@@ -665,13 +660,13 @@ Agent が自動的に Question を大量起票することはしない。候補�
 **Input：** ID、変更 path、Issue／PR の明示された root、対象 SHA、必要なら比較元 SHA。  
 **Transformation：** 型付き参照グラフを決定的に辿り、重要情報を優先し、不足・古さ・未対応 path を表示する。
 
-**Output：** Human 向け Markdown と Agent 向け JSON。  
+**Output：** Human 向け Markdown と Agent 向け JSON の Context。`--from` がある場合は現在状態と semantic change を同じ出力に含める。  
 **Persistence：** 原則として生成物。ローカルまたは CI artifact。手書きの第二正本にしない。
 
 **Actor：** deterministic program。Agent の要約は、その上に付ける任意の層。  
 **Interaction model：** ローカル CLI。GitHub では同じ CLI の出力をコメント／artifact として渡す。
 
-**Exit condition：** root・revision・取得経路・欠落が分かる bundle を出す。重大な欠落時は「不完全」として終了する。  
+**Exit condition：** root・revision・取得経路・欠落が分かる Context を出す。比較時は `from` / `at` と、added・removed・changed・superseded・newly contradicted を区別する。重大な欠落時は「不完全」として終了する。  
 **Failure mode：** グラフ外の現実を存在しないと扱う、参照を論理的な依存と誤認する、制約を要約で落とす。
 
 **Downstream：** C3・C4・C5・C9。復帰では C8 と組み合わせる。
@@ -731,9 +726,63 @@ UNMAPPED:
 「関係する契約がない」という意味ではありません。
 ```
 
-### 7.2.1 Current semantic state と provenance を二層にする
+### 7.2.1 Context は一つの semantic projection とする
 
-Context Bundle は、通常まず「いま何を前提に判断するか」を返す。
+Context と comparative Context を別の architectural object として持たない。
+どちらも、root と revision から同じ semantic closure を計算する **Context Compiler の view** である。
+
+```text
+C(root, revision)
+  = その revision で判断に必要な semantic context
+
+Context(root, at)
+  = current view
+
+Context(root, from, at)
+  = current view
+    + diff(C(root, from), C(root, at))
+```
+
+`from` がない場合は現在状態だけを返す。`from` がある場合は、**今どうなっているか**と
+**以前から何が変わったか**を同じ出力で返す。
+
+比較部分は Git の textual diff ではなく、semantic state の変化を表す。
+
+```text
+added
+removed
+changed
+superseded
+newly contradicted
+question opened / closed
+scope changed
+unresolved mapping
+```
+
+これにより、PR review と re-entry は別機能ではなくなる。
+
+```text
+PR review:
+  from = origin/main
+  at   = HEAD
+
+Re-entry:
+  from = saved checkpoint
+  at   = HEAD
+```
+
+違うのは baseline の意味だけであり、どちらも「二つの revision における判断可能な Context」を比較している。
+
+Delta だけを独立表示すると、「何が変わったか」は分かっても「結局いま何が有効か」を復帰者自身が
+再構築する必要がある。comparative Context は current state を必ず含め、この再構築コストを避ける。
+
+内部実装では `build_context(root, revision)` と `compare_context(before, after)` を分けてもよい。
+しかし user-facing command / concept は `context` 一つにする。実装 module を分けることを
+architecture 上の概念分割へ持ち込まない。
+
+### 7.2.2 Current semantic state と provenance を二層にする
+
+Context は、通常まず「いま何を前提に判断するか」を返す。
 
 ```text
 Level 1 — current semantic state
@@ -741,7 +790,7 @@ TR / FSL / Q / HYP / EVID / DEC / PAT
 current implementation / stable story
 ```
 
-Issue / PR の会話履歴は、既定では全文を Bundle に入れない。
+Issue / PR の会話履歴は、既定では全文を Context に入れない。
 
 ```text
 Level 2 — provenance / history
@@ -773,7 +822,7 @@ Human 向けの先頭は、原則八項目前後の要約カードにする。
 
 詳細は折りたたみ相当の後段へ置く。Agent 向けは同じ情報を、ID・edge・source hash・取得理由付き JSON にする。
 
-Token budget は情報を黙って消す権限ではない。必須制約だけで予算を超えたら、root を狭めるか、分割 bundle を返す。**制約を省略して「準備完了」にしない。**
+Token budget は情報を黙って消す権限ではない。必須制約だけで予算を超えたら、root を狭めるか、分割 Context を返す。**制約を省略して「準備完了」にしない。**
 
 ### 7.4 CLI
 
@@ -781,20 +830,47 @@ Token budget は情報を黙って消す権限ではない。必須制約だけ�
 # 既存
 cargo xtask touched origin/main
 
-# 以下は追加するコマンド
+# current Context
 cargo xtask context \
   --root DEC-PLT-025 \
   --at HEAD \
-  --base origin/main \
   --format md
 
+# comparative Context: current state + semantic changes
 cargo xtask context \
   --root DEC-PLT-025 \
+  --from origin/main \
+  --at HEAD \
+  --format md
+
+# Agent / tooling 向けも同じ計算モデル
+cargo xtask context \
+  --root DEC-PLT-025 \
+  --from "$BASELINE_SHA" \
   --at HEAD \
   --format json
 ```
 
-PR では、採用済みの base と提案中の head を並べる。head で制約を削除しただけで「現在の制約はなくなった」と扱わない。
+引数の意味は次に限定する。
+
+```text
+--at <revision>
+  読みたい現在地点。
+
+--from <revision>
+  比較したい以前の地点。optional。
+  指定した場合も current state を省略しない。
+```
+
+`--base` と `--to` は導入しない。比較の起点は `--from`、現在地点は常に `--at` とする。
+PR では `--from origin/main --at HEAD`、再参加では保存 checkpoint を `--from` に渡す。
+
+初版では `--view current|changes|both` のような mode も不要である。`--from` なしなら current、
+`--from` ありなら current + changes を default とする。CI などで changes-only が本当に必要になった時点で
+projection option を追加する。
+
+head で制約を削除しただけで「現在の制約はなくなった」と扱わない。比較時は旧・新両方の
+semantic closure の和集合を使い、削除・supersession・新しい反証を見失わない。
 
 コア CLI はオフラインで動かす。Issue の取得は薄い adapter が行い、本文を source data として渡す。Issue 内の命令文を実行指示として扱わない。
 
@@ -807,7 +883,7 @@ PR では、採用済みの base と提案中の head を並べる。head で制
 **Purpose：** 現在案の局所調整ではなく、異なる前提に立つ体験を比較可能にする。  
 **Trigger：** R1／R2 の問い、既存案では説明できない反例、前提を覆す Evidence。
 
-**Input：** Question、Context bundle、守る制約、疑ってよい前提、利用場面、探索予算。  
+**Input：** Question、Context、守る制約、疑ってよい前提、利用場面、探索予算。  
 **Transformation：** 前提と設計軸を分解し、異なる action trace を作り、識別可能な対照へ具体化する。
 
 **Output：** 比較できる試作、予測する違い、未探索領域、次の検証方法。  
@@ -1433,7 +1509,7 @@ Decision には、従来の項目に加え、次を読み取れるようにす�
 
 誰でも異議を出せる。
 
-十分な Context を理解してからでなければ疑問を出せない仕組みにすると、Context に書かれていない問題が入れなくなる。知識が不足した異議には、関連する bundle と具体例を返し、必要なら一緒に問いを作る。
+十分な Context を理解してからでなければ疑問を出せない仕組みにすると、Context に書かれていない問題が入れなくなる。知識が不足した異議には、関連する Context と具体例を返し、必要なら一緒に問いを作る。
 
 採用側は、異議に対して次のいずれかを返す。
 
@@ -1655,10 +1731,10 @@ rollback / migration / 再検討条件:
 **Trigger：** 作業を中断する、担当を渡す、明示的に再参加する、古い branch を再開する。
 
 **Input：** 保存した SHA、関心 root、途中の artifact、次に試すこと。復帰時は現在の revision。  
-**Transformation：** 旧・新 object と周辺グラフを比較し、重要な変更と不足を取り出す。
+**Transformation：** 保存した baseline があれば `context --from <baseline> --at <current>` を使い、旧・新 semantic closure を比較する。baseline がなければ current Context を生成する。
 
-**Output：** checkpoint、handoff、Context Delta、再開可能な小さい作業。  
-**Persistence：** 個人の baseline は原則ローカル。共有 handoff は Issue。Delta は生成物。
+**Output：** checkpoint、handoff、現在 Context、baseline がある場合はそこからの semantic changes、再開可能な小さい作業。  
+**Persistence：** 個人の baseline は原則ローカル。共有 handoff は Issue。Context は生成物であり、第二正本として保存しない。
 
 **Actor：** deterministic program と本人。Agent の説明は任意。  
 **Interaction model：** ローカル CLI と非同期の引き継ぎ。面談を必須にしない。
@@ -1683,7 +1759,7 @@ rollback / migration / 再検討条件:
 
 保存先は Git の管理ディレクトリ配下など、誤って commit されないローカル領域にする。チームが本人の離席期間を追跡するプロフィール DB は作らない。
 
-Baseline がない場合は、「以前あなたが理解していたこと」を推測しない。関心領域を指定して fresh bundle を出す。
+Baseline がない場合は、「以前あなたが理解していたこと」を推測しない。関心領域を指定して current Context を出す。
 
 ### 13.2 意味的な変化を、どう検出するか
 
@@ -1703,11 +1779,11 @@ Baseline がない場合は、「以前あなたが理解していたこと」�
 比較は、旧グラフと新グラフの**両方の近傍の和集合**で行う。新グラフだけを見ると、削除された関係や置き換えられた判断を見失う。
 
 ```bash
-# 新規
-cargo xtask context-delta \
-  --from "$BASELINE_SHA" \
-  --to HEAD \
+# C2 と同じ command を comparative view として使う
+cargo xtask context \
   --root DEC-PLT-025 \
+  --from "$BASELINE_SHA" \
+  --at HEAD \
   --format md
 ```
 
@@ -1715,10 +1791,10 @@ cargo xtask context-delta \
 
 ### 13.2.1 Re-entry は Context の再インストールではなく衝突点を作る
 
-Context Delta が示すのは KOERU 側の変化だけである。復帰した人自身も、離れている間に
+`context --from` の comparative view が示す semantic changes は KOERU 側の変化だけである。復帰した人自身も、離れている間に
 別の道具、作品、共同制作、生活条件、taste によって変わっている。
 
-そのため Delta 提示後には、任意で次の問いを置く。
+そのため comparative Context の提示後には、任意で次の問いを置く。
 
 > 以前この領域を見ていたときと比べ、今のあなたには違って見えることがあるか。
 
@@ -1727,8 +1803,7 @@ Context Delta が示すのは KOERU 側の変化だけである。復帰した�
 
 Architecture 上、人間は Context Graph の consumer だけではない。
 **Graph の外にある世界で変化し、その変化を graph の境界へ持ち帰る source** でもある。
-この経路があることで、Context Bundle / Delta は社会化装置ではなく、既存文脈と新しい経験を
-比較可能にする boundary surface になる。
+この経路があることで、Context は社会化装置ではなく、既存文脈と新しい経験を比較可能にする boundary surface になる。
 
 ### 13.3 Handoff は三点でよい
 
@@ -1740,7 +1815,7 @@ Architecture 上、人間は Context Graph の consumer だけではない。
 
 長い離脱報告は要求しない。突然いなくなることも想定し、Issue と artifact に途中状態が残るようにする。
 
-復帰時には、Delta を読むだけでなく、任意で次を尋ねる。
+復帰時には、current + changes を含む Context を読むだけでなく、任意で次を尋ねる。
 
 > 今のあなたから見ると、以前とは違って見えることはあるか。
 
@@ -1755,10 +1830,10 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 **Purpose：** Context 取得後の整理・探索・反例・記録を補助し、人間の制作時間を増やす。  
 **Trigger：** 権限のある人による明示的な依頼。Issue 作成や PR 更新だけでは自動起動しない。
 
-**Input：** mode、対象 SHA、Context bundle、依頼内容、許可 tool、出力上限。  
+**Input：** mode、対象 SHA、Context、依頼内容、許可 tool、出力上限。  
 **Transformation：** mode ごとの作業を実施し、source と推論を分離した構造化出力を作る。
 
-**Output：** 問い・別案・批評・Delta 説明の候補。  
+**Output：** 問い・別案・批評・comparative Context の説明候補。  
 **Persistence：** 原則 scratch／CI artifact／提案コメント。人間が採用した部分だけを正本へ移す。
 
 **Actor：** AI worker、deterministic broker、依頼した人間。  
@@ -1776,7 +1851,7 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 | **design-frame** | `/design frame` を人間が依頼 | Signal、関連 root、既存 Question | read-only 検索。問いの候補・重複・不足を出す | 問題設定の提案 |
 | **design-explore** | Question の探索開始を依頼 | 制約、変更可能な前提、場面、比較方法 | 許可した外部資料、scratch への試作。前提の異なる案を出す | 設計提案。利用者の支持ではない |
 | **design-review** | artifact review を依頼 | SHA 固定 artifact、Hypothesis、既存 Evidence | 必要に応じ browser／test runner。観測と予測を分けた批評 | tool で観測した事実と、AI の推論を区別 |
-| **design-reentry** | baseline を指定して復帰説明を依頼 | deterministic Delta と参照元 | read-only。変化の説明と確認箇所を出す | Delta の説明。本人の記憶の推定ではない |
+| **design-reentry** | baseline を指定して復帰説明を依頼 | `context --from <baseline> --at <current>` の deterministic output と参照元 | read-only。current state と変化の説明、確認箇所を出す | Context の説明。本人の記憶の推定ではない |
 
 セッション記録の整理は `design-review` の下位操作として扱い、別の自律 Agent を増やさない。録音・記録の扱いは本人の同意と公開範囲に従う。
 
@@ -1865,7 +1940,7 @@ description: KOERU の Question に対し、前提の異なる体験案と比較
 ---
 
 対象 Q と commit SHA を確認する。
-cargo xtask context が生成した bundle を読む。
+cargo xtask context が生成した Context を読む。
 制約と、疑ってよい前提を分ける。
 案ごとに action trace・予測する差・反例・必要な観察を書く。
 利用者の反応を観測したかのように記述しない。
@@ -1950,7 +2025,7 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 
 | 観測できる失敗条件 | 何が壊れているか | 取る対応 |
 |---|---|---|
-| Context bundle が、root に関係する反証や必須制約を落とした | 選択的な記憶装置になっている | traversal と fixture を修正。欠落を隠した要約を停止 |
+| Context が、root に関係する反証や必須制約を落とした | 選択的な記憶装置になっている | traversal と fixture を修正。欠落を隠した要約を停止 |
 | 四件程度の R1 を通して、準備作業のほうが試作より重く、判断が変わった事例もない | 記録費用が便益を超えている | 必須欄・新規 object・Agent 起動を減らす |
 | 複数案の action trace が毎回ほぼ同じ | 探索が形式化している | 案数要求を外し、異なる経験・参照領域・共同制作へ戻す |
 | Hypothesis の method は正しく書かれているが、元観察を確認できない | Schema を使った新しい Evidence Laundering | 出所と公開範囲を監査。「型が正しいから信頼」をやめる |
@@ -2154,14 +2229,14 @@ C：本人が選んだ条件に達したときだけ、非評価的に知らせ�
 ### Context acquisition
 
 ```bash
-cargo xtask context-delta \
-  --from "$SAVED_SHA" \
-  --to HEAD \
+cargo xtask context \
   --root DEC-ALN-017 \
+  --from "$SAVED_SHA" \
+  --at HEAD \
   --format md
 ```
 
-実際の baseline にその ID がなければ、関連 path や旧 ID を root にする。旧・新グラフを辿り、後継関係と不足を表示する。
+実際の baseline にその ID がなければ、関連 path や旧 ID を root にする。旧・新 semantic closure を辿り、現在状態と後継関係・不足・変化を同じ Context に表示する。
 
 ### Exploration
 
