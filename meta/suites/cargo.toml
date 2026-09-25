@@ -345,10 +345,10 @@ min_cases = 0
 
 [[suite]]
 id = 'SUITE-XTASK-001'
-title = 'xtask の unit 試験（差分の走査、受領証の読み方）'
+title = 'xtask の unit 試験（差分の走査、受領証の読み方、canonical SDL の規則）'
 runner = 'cargo'
 package = 'xtask'
 target = 'bin:xtask'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 12
-contracts = ['DEC-PLT-039']
+min_cases = 32
+contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']

@@ -1,0 +1,169 @@
+# 編集（M6）。 編集の区間を開き、エントリを窓で読み、境界を動かし、一括編集を確かめてから当てる。
+#
+# ドラッグの途中は送らない。 送るのは離したときの1回（`TR-EDT-25`）。
+
+mutation BeginEditing($lease: ProjectLease!) {
+  beginEditing(input: { lease: $lease }) {
+    outcome {
+      __typename
+      ... on EditingBegan {
+        session {
+          id
+          mode
+          unconstrained
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation SwitchEditingMode($input: SwitchEditingModeInput!) {
+  switchEditingMode(input: $input) {
+    outcome {
+      __typename
+      ... on EditingModeSwitched {
+        session {
+          id
+          mode
+          unconstrained
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+query EditorWindow(
+  $lease: ProjectLease!
+  $filter: EntryFilterInput
+  $window: WindowInput!
+) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      editor {
+        violationCount
+        entries(filter: $filter, window: $window) {
+          total
+          offset
+          items {
+            entry {
+              ...EntryValues_SettingEntry
+            }
+            violations {
+              code
+              slots
+            }
+          }
+        }
+        history {
+          undo {
+            label
+          }
+          redo {
+            label
+          }
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+query PreviewBulkEdit($lease: ProjectLease!, $edit: BulkEditInput!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      editor {
+        bulkEditPreview(edit: $edit) {
+          affected
+          samples {
+            entry
+            before {
+              ...Boundaries_EntryBoundaries
+            }
+            after {
+              ...Boundaries_EntryBoundaries
+            }
+          }
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation MoveBoundary($input: MoveBoundaryInput!) {
+  moveBoundary(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on BoundaryMoved {
+        entry {
+          ...EntryValues_SettingEntry
+        }
+        violations {
+          code
+          slots
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation ApplyBulkEdit($input: ApplyBulkEditInput!) {
+  applyBulkEdit(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on BulkEditApplied {
+        changed
+        protected
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation UndoEdit($input: UndoEditInput!) {
+  undoEdit(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on EditUndone {
+        step {
+          label
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

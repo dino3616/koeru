@@ -169,7 +169,8 @@ jobs:
       run:
         shell: nix develop --command bash -eo pipefail {0}
     steps:
-      # xtask の依存は toml と serde_json だけで koeru-* を引かない。submodule も LFS も要らない。
+      # xtask の依存は toml と serde_json と apollo-compiler で、koeru-* を引かない。
+      # submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
@@ -204,6 +205,10 @@ jobs:
           # 試験 binary がどれも `meta/suites/` に登録されているか（`DEC-PLT-039`）。
           # 組み立てずに `cargo metadata` だけで見る。
           cargo run --package xtask -- check-portfolio
+      # consumer への契約（`DEC-PLT-035`）。 Rust の実装も画面も組み立てずに、
+      # canonical SDL と見本の operation と能力の表を検査する（`DEC-PLT-040`）。
+      - name: application contract
+        run: cargo run --package xtask -- check-schema
 
   ui:
     name: ui (format + lint + type + story)

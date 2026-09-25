@@ -1,0 +1,138 @@
+# 背後の仕事と project の変更の通知。
+#
+# 観測をやめること（unsubscribe）と仕事を止めること（`cancelJob`）は別（`DEC-PLT-036`）。
+# 変更の通知は落とさず、欠けたら Query で取り直す。
+
+subscription WatchProjectEvents($lease: ProjectLease!, $after: EventCursor) {
+  projectEvents(lease: $lease, after: $after) {
+    __typename
+    ... on ProjectChanged {
+      cursor
+      revision
+    }
+    ... on EventGap {
+      resumeAfter
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+subscription WatchJob($lease: ProjectLease!, $job: JobId!, $after: EventCursor) {
+  jobEvents(lease: $lease, job: $job, after: $after) {
+    __typename
+    ... on JobUpdated {
+      cursor
+      job {
+        ...JobState_BackgroundJob
+      }
+    }
+    ... on EventGap {
+      resumeAfter
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+subscription WatchJobQueue($lease: ProjectLease!) {
+  jobQueue(lease: $lease) {
+    __typename
+    ... on JobQueueCounts {
+      pending
+      running
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment JobState_BackgroundJob on BackgroundJob {
+  id
+  kind
+  attempt
+  take
+  song
+  status {
+    __typename
+    ... on JobRunning {
+      startedAt
+      progress
+    }
+    ... on JobSucceeded {
+      finishedAt
+    }
+    ... on JobCancelled {
+      finishedAt
+      computationStopped
+    }
+    ... on Problem {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+query JobStatus($lease: ProjectLease!, $job: JobId!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      jobs {
+        pending
+        running
+        job(id: $job) {
+          ...JobState_BackgroundJob
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation CancelJob($lease: ProjectLease!, $job: JobId!) {
+  cancelJob(input: { lease: $lease, job: $job }) {
+    outcome {
+      __typename
+      ... on JobCancelRequested {
+        job {
+          ...JobState_BackgroundJob
+        }
+      }
+      ... on JobAlreadyFinished {
+        job {
+          ...JobState_BackgroundJob
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation RetryAnalysis(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $take: TakeId!
+) {
+  retryAnalysis(input: { lease: $lease, operationId: $operationId, take: $take }) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on AnalysisRequeued {
+        job {
+          ...JobState_BackgroundJob
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

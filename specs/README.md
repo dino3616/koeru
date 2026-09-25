@@ -8,6 +8,9 @@ FSL に入れないものは3つある。
 - 実時間（ms、パーセンタイル）、確率、連続量、自由文の意味 → FSL の対象外。`meta/budgets/` と実機ベンチが持つ
 - ビジョン、ペルソナ、ジャーニーマップ、調査の説明 → `docs/`
 
+consumer への契約（canonical SDL）は `application/` にある（`DEC-PLT-035`）。 FSL ではなく、
+FSL の命題を上書きしない。 読み方と検査は [application/README.md](application/README.md)。
+
 ## 仕様はスコープで分ける
 
 `manifest` 1つにつき層ごと1仕様なので、スコープが違うものは manifest ごと分ける。

@@ -1,0 +1,130 @@
+schema = 'capability-map'
+
+# canonical SDL の欄ごとの能力と費用の区分。 Tauri のコマンド名が能力の境界でなくなる
+# ので、能力を別に持つ（`docs/reports/architecture/08-graphql-application-contract.md` の §11）。
+#
+# operation の manifest は、operation が選んだ欄の能力を足し合わせ、費用は最も重いものを採る。
+# root の欄（Query / Mutation / Subscription）はどれも1件ずつ持つ。 それ以外の欄は、
+# 能力で読みを分けたいところにだけ置く。 検査は `cargo xtask check-schema`。
+#
+# 暫定（人が決める）: 能力の粒度と、費用の区分の語彙。
+
+[vocabulary]
+capabilities = [
+  'application.read',
+  'library.read',
+  'library.manage',
+  'project.open',
+  'project.read',
+  'project.modify',
+  'audio.read',
+  'recording.read',
+  'recording.capture',
+  'recording.modify',
+  'playback.control',
+  'review.read',
+  'review.modify',
+  'editor.read',
+  'editor.session',
+  'editor.modify',
+  'repertoire.read',
+  'repertoire.import',
+  'repertoire.modify',
+  'distribution.read',
+  'distribution.modify',
+  'distribution.prepare',
+  'distribution.export',
+  'analysis.control',
+]
+# `light-write` と `durable-write` は §11 の例に無い。 貸与や区間のような揮発する状態を
+# 変えるものと、project へ確定するものを分けるために足した。
+costs = [
+  'cheap-read',
+  'large-read',
+  'compute-heavy',
+  'job-creating',
+  'native-resource',
+  'light-write',
+  'durable-write',
+]
+
+[fields]
+# ## Query
+'Query.application' = { capability = 'application.read', cost = 'cheap-read' }
+'Query.catalog' = { capability = 'application.read', cost = 'cheap-read' }
+# 音源ごとに台帳を開いて育ち具合を読む。
+'Query.library' = { capability = 'library.read', cost = 'large-read' }
+'Query.audio' = { capability = 'audio.read', cost = 'native-resource' }
+'Query.project' = { capability = 'project.read', cost = 'cheap-read' }
+'Query.waveformWindow' = { capability = 'recording.read', cost = 'compute-heavy' }
+'Query.spectrogramWindow' = { capability = 'recording.read', cost = 'compute-heavy' }
+'Query.songFileDrafts' = { capability = 'repertoire.import', cost = 'compute-heavy' }
+
+# ## project の面
+'Project.recording' = { capability = 'recording.read', cost = 'cheap-read' }
+'Project.review' = { capability = 'review.read', cost = 'cheap-read' }
+'Project.repertoire' = { capability = 'repertoire.read', cost = 'cheap-read' }
+'Project.editor' = { capability = 'editor.read', cost = 'cheap-read' }
+'Project.distribution' = { capability = 'distribution.read', cost = 'cheap-read' }
+'ReviewFacet.queue' = { capability = 'review.read', cost = 'large-read' }
+'EditorFacet.entries' = { capability = 'editor.read', cost = 'large-read' }
+'EditorFacet.bulkEditPreview' = { capability = 'editor.read', cost = 'compute-heavy' }
+'DistributionFacet.readiness' = { capability = 'distribution.read', cost = 'compute-heavy' }
+'DistributionImage.content' = { capability = 'distribution.read', cost = 'large-read' }
+
+# ## Mutation
+'Mutation.createProject' = { capability = 'library.manage', cost = 'durable-write' }
+'Mutation.renameProject' = { capability = 'library.manage', cost = 'durable-write' }
+'Mutation.openProject' = { capability = 'project.open', cost = 'native-resource' }
+'Mutation.closeProject' = { capability = 'project.open', cost = 'native-resource' }
+'Mutation.dismissProjectNotice' = { capability = 'project.modify', cost = 'durable-write' }
+'Mutation.armInput' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.probeInput' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.calibrateInput' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.restoreSavedGain' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.mixInputChannels' = { capability = 'recording.capture', cost = 'durable-write' }
+'Mutation.checkGuideLeak' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.playGuidePitch' = { capability = 'recording.capture', cost = 'native-resource' }
+'Mutation.startTake' = { capability = 'recording.capture', cost = 'native-resource' }
+# 確定のあとに解析の仕事を積む。
+'Mutation.finishTake' = { capability = 'recording.capture', cost = 'job-creating' }
+'Mutation.chooseRecordingOrder' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.adoptTake' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.playTake' = { capability = 'playback.control', cost = 'native-resource' }
+'Mutation.auditionTake' = { capability = 'playback.control', cost = 'compute-heavy' }
+'Mutation.stopPlayback' = { capability = 'playback.control', cost = 'native-resource' }
+'Mutation.confirmEntry' = { capability = 'review.modify', cost = 'durable-write' }
+'Mutation.confirmPendingEntries' = { capability = 'review.modify', cost = 'durable-write' }
+'Mutation.switchReviewMode' = { capability = 'review.modify', cost = 'durable-write' }
+'Mutation.requestRetake' = { capability = 'review.modify', cost = 'durable-write' }
+'Mutation.validateEntries' = { capability = 'review.modify', cost = 'durable-write' }
+'Mutation.beginEditing' = { capability = 'editor.session', cost = 'light-write' }
+'Mutation.switchEditingMode' = { capability = 'editor.session', cost = 'light-write' }
+'Mutation.endEditing' = { capability = 'editor.session', cost = 'light-write' }
+'Mutation.moveBoundary' = { capability = 'editor.modify', cost = 'durable-write' }
+'Mutation.revertBoundary' = { capability = 'editor.modify', cost = 'durable-write' }
+'Mutation.applyBulkEdit' = { capability = 'editor.modify', cost = 'durable-write' }
+'Mutation.undoEdit' = { capability = 'editor.modify', cost = 'durable-write' }
+'Mutation.redoEdit' = { capability = 'editor.modify', cost = 'durable-write' }
+'Mutation.importSongs' = { capability = 'repertoire.import', cost = 'durable-write' }
+'Mutation.renameSong' = { capability = 'repertoire.modify', cost = 'durable-write' }
+'Mutation.transposeSong' = { capability = 'repertoire.modify', cost = 'durable-write' }
+'Mutation.addSongToBank' = { capability = 'repertoire.modify', cost = 'durable-write' }
+'Mutation.removeSongFromBank' = { capability = 'repertoire.modify', cost = 'durable-write' }
+'Mutation.repackRecordingList' = { capability = 'repertoire.modify', cost = 'durable-write' }
+'Mutation.singSong' = { capability = 'playback.control', cost = 'compute-heavy' }
+'Mutation.saveDistributionSettings' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.replaceDistributionImage' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.removeDistributionImage' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.prepareExport' = { capability = 'distribution.prepare', cost = 'compute-heavy' }
+'Mutation.commitExport' = { capability = 'distribution.export', cost = 'durable-write' }
+'Mutation.exportSettingsFile' = { capability = 'distribution.export', cost = 'durable-write' }
+'Mutation.retryAnalysis' = { capability = 'analysis.control', cost = 'job-creating' }
+'Mutation.cancelJob' = { capability = 'analysis.control', cost = 'light-write' }
+
+# ## Subscription
+'Subscription.projectEvents' = { capability = 'project.read', cost = 'cheap-read' }
+'Subscription.jobEvents' = { capability = 'project.read', cost = 'cheap-read' }
+'Subscription.jobQueue' = { capability = 'project.read', cost = 'cheap-read' }
+'Subscription.inputEnvelope' = { capability = 'recording.capture', cost = 'native-resource' }
+'Subscription.playbackEvents' = { capability = 'playback.control', cost = 'cheap-read' }

@@ -1,0 +1,37 @@
+# どの領域の operation も使う断面。
+#
+# ここの operation は canonical SDL の見本で、画面の実装ではない。 すべての文書を
+# 1つにまとめて検査するので、fragment は領域の文書をまたいで使える。
+
+fragment ProblemNotice_Problem on Problem {
+  code
+  class
+  commit
+  actions
+  message
+}
+
+fragment Receipt_MutationReceipt on MutationReceipt {
+  operationId
+  commit
+  revision
+  replayed
+}
+
+fragment VoiceRings_VoiceSummary on VoiceSummary {
+  covered
+  required
+  completion
+  handoff
+  singableSongs
+  songsInBank
+  rings {
+    covered
+    total
+  }
+  color {
+    hue
+    chroma
+    lightness
+  }
+}
