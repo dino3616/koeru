@@ -1,0 +1,74 @@
+schema = 'decision'
+id = 'DEC-PKG-016'
+constraint_label = '壊れないと約束できる置き場所'
+constraint = '確定したテイクと台帳が、電源断や異常終了で壊れないと約束できる置き場所にライブラリを置くこと'
+title = '耐障害を約束するのは内蔵ドライブのファイルシステムに限り、Windows ではライブラリを Local の app data へ置く'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '内蔵ドライブだけを約束し、Windows はライブラリを Local の app data へ移す',
+  '内蔵ドライブだけを約束し、置き場所は今のまま（Windows は Roaming）',
+  '外付けドライブも約束し、ライブラリの置き場所を選ばせる',
+  '同期フォルダやネットワークドライブまで約束する',
+]
+selected = '内蔵ドライブだけを約束し、Windows はライブラリを Local の app data へ移す'
+rationale = '''
+保存の手順（WAV を `.part` へ書き、fsync し、名前を付け替え、台帳へ記録する。
+`TR-REC-28`、`specs/design/project-storage.fsl`）が本当に守られるかは、ライブラリを置いた
+ファイルシステムが rename の原子性・fsync・SQLite のロックを正しく持つかで決まる。
+どこまでを「壊れない」と約束するかを決めた。
+
+## 今の置き場所
+
+ライブラリは Tauri の `app_data_dir` の下（`TR-PKG-37`）で、本人は場所を選べない。
+
+- macOS: `~/Library/Application Support/app.koeru.studio/library`（APFS）
+- Windows: `%APPDATA%\app.koeru.studio\library`（**Roaming**）
+- Linux: `~/.local/share/app.koeru.studio/library`
+
+## 置き場所ごとに起きること
+
+- 内蔵ドライブ（APFS / NTFS / ext4 系）: 手順どおりに守られる
+- 外付けの exFAT / FAT32: 抜かれたときや電源断で、付け替えの途中のファイルや台帳が壊れやすい。
+  FAT32 は 4GB を超えるファイルを置けない
+- ネットワークドライブ: SQLite は WAL モードがネットワーク越しでは動かないと明記している
+- 同期フォルダ（iCloud Drive / Dropbox / OneDrive）: 台帳と WAL が別々に同期され、壊れた組や
+  競合の写しができる。容量の最適化で WAV が手元から追い出される
+
+**Windows の Roaming が具体的な穴になっている。** 会社の PC ではフォルダのリダイレクトや
+ローミングプロファイルで、Roaming がネットワーク上に置かれたり、ログオフのたびに同期されたり
+する。本人が何もしなくても、録音（1プロジェクトで数百 MB）がネットワーク越しの場所に入る。
+
+## 決めたこと
+
+- 約束するのは内蔵ドライブの APFS / NTFS / ext4 系だけ。 保存の障害試験（電源断・異常終了・
+  容量不足の注入）もこれらの上で行う
+- 置き場所は今までどおり選ばせない。 別の PC への移動は `TR-PKG-47` のアーカイブで行う
+- **Windows だけライブラリを `%LOCALAPPDATA%` の下へ移す。** 既にある Roaming のライブラリは、
+  移行の手順（控えを取る → 別の世代へ写す → 確かめる → 切り替える）で移す。 両方に中身が
+  あれば混ぜずに止める
+- 起動時に、ライブラリがネットワーク上か FAT 系の上にあると分かったら知らせる。
+  約束の外にいることを、壊れてから知らせない
+
+## 採らなかったもの
+
+外付けを約束する案は、容量の大きい外付けに録音を置きたい人に応える。 ただし置き場所を選ぶ
+機能と、ファイルシステムごとの障害試験と、抜かれたときの回復手順が要る。 求める声が
+出てから足せる。
+
+同期フォルダとネットワークまで約束するには、SQLite の WAL を使わない設計へ変える必要がある。
+'''
+review_triggers = [
+  '外付けドライブにライブラリを置きたいという要望が繰り返し届いたとき',
+  '内蔵ドライブの容量が足りず録れないという報告が出たとき',
+  'Linux でホームディレクトリがネットワーク上にある環境で使われると分かったとき',
+]
+affects_requirements = [
+  'TR-PKG-37',
+  'TR-PKG-47',
+  'TR-REC-28',
+]
+affects_decisions = [
+  'DEC-PKG-006',
+  'DEC-PLT-034',
+]
