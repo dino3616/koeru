@@ -35,7 +35,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 159
+min_cases = 168
 
 [[suite]]
 id = 'SUITE-CORE-002'
