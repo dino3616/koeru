@@ -26,6 +26,37 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 4
 contracts = ['DEC-PLT-034']
 
+# ## koeru-formats
+
+[[suite]]
+id = 'SUITE-FMT-001'
+title = 'koeru-formats の unit 試験（文字符号化、oto.ini、周波数表）'
+runner = 'cargo'
+package = 'koeru-formats'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 40
+
+[[suite]]
+id = 'SUITE-FMT-002'
+title = 'koeru-formats がファイルと時計に触らず、許可した crate だけを引く'
+runner = 'cargo'
+package = 'koeru-formats'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['DEC-PLT-034']
+
+[[suite]]
+id = 'SUITE-FMT-003'
+title = '取り込んだ oto.ini を1バイトも変えずに書き戻し、編集した行だけを変える'
+runner = 'cargo'
+package = 'koeru-formats'
+target = 'oto_ini_lossless'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 13
+contracts = ['TR-EDT-39', 'TR-EDT-38', 'TR-EDT-41']
+
 # ## koeru-core
 
 [[suite]]
@@ -35,7 +66,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 159
+min_cases = 138
 
 [[suite]]
 id = 'SUITE-CORE-002'
@@ -92,7 +123,7 @@ runner = 'cargo'
 package = 'koeru-align'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 114
+min_cases = 103
 
 [[suite]]
 id = 'SUITE-ALIGN-002'
