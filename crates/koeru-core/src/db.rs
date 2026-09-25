@@ -40,6 +40,7 @@ use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use koeru_model::id::{RowId, TakeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -929,33 +930,29 @@ impl Ledger {
 
     /// （収録音高, 綴り）ごとの持ち主の行（`DEC-RCL-016`）。
     ///
-    /// 同じ音高で同じ綴りを生む行のうち、有効な採用テイクを持ち、最初の有効な
-    /// テイクがいちばん早いもの。**先に録った行が持ち、あとから別の行を録っても
-    /// 入れ替わらない**——確認済みの5値と手で直した値が、本人の知らないうちに
-    /// 別の素材へ移らない。持ち主の採用テイクが無効になれば、次に録った行へ移る。
-    ///
-    /// 欄に持たず、テイクから導く。 欄に持つとテイクを無効にするたびに
-    /// 書き換えることになり、書き換え忘れた欄が別の行を指す。
+    /// 決め方は [`koeru_model::selection::owners`] が持つ。 ここは台帳から事実を読んで渡すだけ。
     ///
     /// **入れる順で先に名乗った行に持たせていた**（`DEC-ALN-017`）。 フルリストの
     /// あとに足した詰め直しの行は綴りを1つも持たず、録っても何も増えなかった。
     pub fn alias_owners(&mut self) -> Result<BTreeMap<(i32, String), String>> {
-        let valid: BTreeSet<String> = adopted_takes::table
+        let valid: BTreeSet<RowId> = adopted_takes::table
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .filter(takes::invalid.eq(0))
             .select(adopted_takes::row_id)
             .load::<String>(&mut self.conn)
             .map_err(db("alias_owners.valid"))?
             .into_iter()
+            .map(RowId::new)
             .collect();
-        let mut first: BTreeMap<String, i32> = BTreeMap::new();
+        let mut first: BTreeMap<RowId, TakeId> = BTreeMap::new();
         for (row, id) in takes::table
             .filter(takes::invalid.eq(0))
             .select((takes::row_id, takes::id))
             .load::<(String, i32)>(&mut self.conn)
             .map_err(db("alias_owners.first"))?
         {
-            let e = first.entry(row).or_insert(id);
+            let id = TakeId::new(id);
+            let e = first.entry(RowId::new(row)).or_insert(id);
             *e = (*e).min(id);
         }
         let produced: Vec<(String, i32, String)> = row_aliases::table
@@ -963,21 +960,17 @@ impl Ledger {
             .select((rows::id, rows::tone, row_aliases::alias))
             .load(&mut self.conn)
             .map_err(db("alias_owners.aliases"))?;
-        let mut best: BTreeMap<(i32, String), (i32, String)> = BTreeMap::new();
-        for (row, tone, alias) in produced {
-            if !valid.contains(&row) {
-                continue;
-            }
-            let Some(at) = first.get(&row).copied() else {
-                continue;
-            };
-            let e = best.entry((tone, alias)).or_insert((at, row.clone()));
-            // 同じテイクの番号は2行に付かないが、並びを決定的にしておく。
-            if (at, &row) < (e.0, &e.1) {
-                *e = (at, row);
-            }
-        }
-        Ok(best.into_iter().map(|(k, (_, row))| (k, row)).collect())
+        let owners = koeru_model::selection::owners(
+            produced
+                .into_iter()
+                .map(|(row, tone, alias)| ((tone, alias), RowId::new(row))),
+            &valid,
+            &first,
+        );
+        Ok(owners
+            .into_iter()
+            .map(|(k, row)| (k, row.into_string()))
+            .collect())
     }
 
     /// 録音リストが要求するエイリアスの全体（`TR-RCL-18`）。
