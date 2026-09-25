@@ -33,6 +33,17 @@ use uuid::Uuid;
 /// manifest の書式版。**読めない版を黙って読まない。**
 pub const MANIFEST_VERSION: i64 = 1;
 
+/// 1プロジェクトに残すスナップショットの数（`DEC-PKG-017`）。 超えたぶんは古い順に消す。
+///
+/// **仮の数。** 録り終えたプロジェクトの台帳の大きさを測っていない。見直す条件もそこにある。
+pub const SNAPSHOTS_KEPT: usize = 20;
+
+/// 書きかけに付ける印。 この名前で終わるものは控えでもプロジェクトでもなく、資産でもない。
+const STAGING_SUFFIX: &str = ".part";
+
+/// 消しかけの控えに付ける印。 中身を消している途中で落ちても、欠けた控えが控えの名前で残らない。
+const DISCARDING_SUFFIX: &str = ".trash";
+
 /// プロジェクトのディレクトリを扱うときの失敗。
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectError {
@@ -61,6 +72,21 @@ pub enum ProjectError {
     /// 入っていた文字列がそのまま画面とトレースに出ていた。
     #[error("manifest の方式を知らない")]
     UnknownMethod { found: String },
+
+    /// 台帳の一貫した写しを作れなかった（[`crate::db::write_consistent_copy`]）。
+    #[error("台帳を写せなかった")]
+    DbCopy(#[source] crate::db::LedgerError),
+
+    /// 控えの印が `[a-z0-9_]+` でない。 印は控えのディレクトリ名に入り、残す数を
+    /// 数えるときに名前から連番を読み戻す。
+    #[error("控えの印に使えない文字がある")]
+    SnapshotLabel,
+
+    /// 控えの連番が、取ってある最新の控えの連番より大きくない。
+    ///
+    /// 古い順に消すので、小さい連番で取ると、取ったばかりの控えが最も古いものとして消える。
+    #[error("控えの連番が最新の控えより古い")]
+    SnapshotOutOfOrder,
 }
 
 impl koeru_failure::Failure for ProjectError {
@@ -72,6 +98,9 @@ impl koeru_failure::Failure for ProjectError {
             Self::ManifestVersion { .. } => "project.manifest_version",
             Self::NotAProjectDir => "project.not_a_project_dir",
             Self::UnknownMethod { .. } => "project.unknown_method",
+            Self::DbCopy(_) => "project.db_copy",
+            Self::SnapshotLabel => "project.snapshot_label",
+            Self::SnapshotOutOfOrder => "project.snapshot_out_of_order",
         }
     }
 
@@ -86,6 +115,10 @@ impl koeru_failure::Failure for ProjectError {
             | Self::ManifestVersion { .. }
             | Self::NotAProjectDir
             | Self::UnknownMethod { .. } => Class::Corrupt,
+            Self::DbCopy(e) => koeru_failure::Failure::class(e),
+            Self::SnapshotLabel => Class::InvalidInput,
+            // 最新の控えを読み直してから連番を振り直す。
+            Self::SnapshotOutOfOrder => Class::Conflict,
         }
     }
 }
@@ -503,33 +536,155 @@ impl ProjectDir {
     ///
     /// `seq` は呼び出し側が単調増加で与える。`label` は操作の名前
     /// （`realign` / `downgrade_export` / `bulk_alias` / `delete_items` / `change_method`）。
+    ///
+    /// 控えは `snapshots/{seq:06}-{label}.part/` で組み立て、中身と入れ物を fsync してから
+    /// 名前を付け替えて出す。 途中で落ちても、欠けた控えが控えの名前を名乗らない。
+    /// 出し終えてから、[`SNAPSHOTS_KEPT`] を超えた古い控えを消す。
+    ///
+    /// # Errors
+    ///
+    /// `label` が印に使えない（[`ProjectError::SnapshotLabel`]）、`seq` が最新の控え以下
+    /// （[`ProjectError::SnapshotOutOfOrder`]）、台帳を写せない（[`ProjectError::DbCopy`]）、
+    /// manifest を読めない・書けない。 どれで落ちても、今ある控えは消さない。
     #[tracing::instrument(skip(self))]
     pub fn take_snapshot(&self, seq: u32, label: &str) -> Result<PathBuf> {
-        let dir = self.snapshots_dir().join(format!("{seq:06}-{label}"));
-        fs::create_dir_all(&dir)?;
-        fs::copy(self.db_path(), dir.join("project.db"))?;
-        fs::copy(self.manifest_path(), dir.join("manifest.toml"))?;
+        if !is_snapshot_label(label) {
+            return Err(ProjectError::SnapshotLabel);
+        }
+        let root = self.snapshots_dir();
+        fs::create_dir_all(&root)?;
+        if self
+            .published_snapshots()?
+            .last()
+            .is_some_and(|(last, _)| *last >= seq)
+        {
+            return Err(ProjectError::SnapshotOutOfOrder);
+        }
+
+        let name = format!("{seq:06}-{label}");
+        let dir = root.join(&name);
+        let staging = root.join(format!("{name}{STAGING_SUFFIX}"));
+        let published = self
+            .stage_snapshot(&staging)
+            .and_then(|()| fs::rename(&staging, &dir).map_err(ProjectError::from));
+        if let Err(e) = published {
+            // 書きかけは控えではない。 残すと、同じ連番で取り直したときに塞ぐ。
+            let _ = fs::remove_dir_all(&staging);
+            return Err(e);
+        }
         // ディレクトリエントリを永続化する。中身だけ fsync しても、
         // ディレクトリが飛べば控えは無い。
-        fsync_dir(&self.snapshots_dir())?;
+        fsync_dir(&root)?;
+
+        // 控えは出せている。 消せなかった古い控えは次の控えで消し直すので、
+        // 取ったこと自体は失敗にしない。
+        if let Err(e) = self.prune_snapshots() {
+            koeru_failure::record_failure(&e, koeru_failure::Outcome::Committed, "snapshot_prune");
+        }
         Ok(dir)
     }
 
+    /// 書きかけの控えを `staging` に組み立てる。 出すのは呼び出し側。
+    fn stage_snapshot(&self, staging: &Path) -> Result<()> {
+        // 前に落ちたときの書きかけ。 出していないので控えではない。
+        remove_dir_if_present(staging)?;
+        fs::create_dir(staging)?;
+        crate::db::write_consistent_copy(&self.db_path(), &staging.join("project.db"))
+            .map_err(ProjectError::DbCopy)?;
+        sync_file(&staging.join("project.db"))?;
+        copy_synced(&self.manifest_path(), &staging.join("manifest.toml"))?;
+        fsync_dir(staging)
+    }
+
+    /// [`SNAPSHOTS_KEPT`] を超えた古い控えを消す。 返るのは消した数。
+    ///
+    /// 先に名前を付け替えてから中身を消す。 消している途中で落ちても、欠けた控えが
+    /// 控えの名前で残らない。付け替えたまま残ったものは、次に呼んだときに消す。
+    fn prune_snapshots(&self) -> Result<usize> {
+        let root = self.snapshots_dir();
+        for entry in fs::read_dir(&root)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir()
+                && entry
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(DISCARDING_SUFFIX)
+            {
+                fs::remove_dir_all(entry.path())?;
+            }
+        }
+
+        let published = self.published_snapshots()?;
+        let excess = published.len().saturating_sub(SNAPSHOTS_KEPT);
+        if excess == 0 {
+            return Ok(0);
+        }
+        let mut discarding = Vec::with_capacity(excess);
+        for (_, dir) in &published[..excess] {
+            let mut name = dir.clone().into_os_string();
+            name.push(DISCARDING_SUFFIX);
+            let to = PathBuf::from(name);
+            fs::rename(dir, &to)?;
+            discarding.push(to);
+        }
+        fsync_dir(&root)?;
+        for dir in &discarding {
+            fs::remove_dir_all(dir)?;
+        }
+        fsync_dir(&root)?;
+        tracing::debug!(count = excess, "古い控えを消した");
+        Ok(excess)
+    }
+
     /// 取ってある控えを古い順に挙げる。
+    ///
+    /// 順は名前の連番を数として読んで決める。 辞書順だと、連番が6桁を超えたところで
+    /// `1000000-…` が `999999-…` より前に来る。 書きかけ・消しかけと、形の違う名前は挙げない。
     #[tracing::instrument(skip(self))]
     pub fn snapshots(&self) -> Result<Vec<PathBuf>> {
+        Ok(self
+            .published_snapshots()?
+            .into_iter()
+            .map(|(_, dir)| dir)
+            .collect())
+    }
+
+    /// 出し終えた控えと、その連番。 古い順。
+    fn published_snapshots(&self) -> Result<Vec<(u32, PathBuf)>> {
         let dir = self.snapshots_dir();
         if !dir.is_dir() {
             return Ok(Vec::new());
         }
-        let mut out: Vec<PathBuf> = fs::read_dir(&dir)?
-            .filter_map(std::result::Result::ok)
-            .filter(|e| e.path().is_dir())
-            .map(|e| e.path())
-            .collect();
+        let mut out = Vec::new();
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            if let Some(seq) = entry.file_name().to_str().and_then(snapshot_seq) {
+                out.push((seq, entry.path()));
+            }
+        }
         out.sort();
         Ok(out)
     }
+}
+
+/// 控えのディレクトリ名 `{seq:06}-{label}` から連番を読む。 その形でなければ `None`。
+fn snapshot_seq(name: &str) -> Option<u32> {
+    let (seq, label) = name.split_once('-')?;
+    if seq.is_empty() || !seq.bytes().all(|b| b.is_ascii_digit()) || !is_snapshot_label(label) {
+        return None;
+    }
+    seq.parse().ok()
+}
+
+/// 控えの印に使える形か。 `.` を許すと、書きかけの印と見分けがつかない。
+fn is_snapshot_label(label: &str) -> bool {
+    !label.is_empty()
+        && label
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
 /// アプリが管理するライブラリ（`TR-PKG-37`）。
@@ -564,15 +719,7 @@ impl Library {
             id,
             root: self.root.join(id.to_string()),
         };
-        for d in [
-            dir.root.clone(),
-            dir.audio_dir(),
-            dir.renders_dir(),
-            dir.exports_dir(),
-            dir.snapshots_dir(),
-        ] {
-            fs::create_dir_all(&d)?;
-        }
+        lay_out(&dir)?;
         dir.write_manifest(m)?;
         fsync_dir(&self.root)?;
         Ok(dir)
@@ -585,27 +732,31 @@ impl Library {
     ///
     /// WAV は複製する。元は不変資産なので参照でも足りるが、片方を消したときに
     /// もう片方の音が消えるのは説明がつかない（`TR-PKG-39`）。
+    ///
+    /// 派生は `{uuid}.part/` で組み立て、写し終えてから UUID の名前へ付け替える。
+    /// 途中で落ちても、台帳が指す WAV を欠いたプロジェクトが一覧に出ない。
     #[tracing::instrument(skip(self, parent, display_name))]
     pub fn derive(&self, parent: &ProjectDir, display_name: &str) -> Result<ProjectDir> {
         let mut m = parent.read_manifest()?;
         m.display_name = display_name.to_owned();
         m.derived_from = Some(parent.id());
 
-        let child = self.create(&m)?;
-        // DB は丸ごと引き継ぐ（録音も原音設定も引き継ぐのが「複製」）。
-        if parent.db_path().is_file() {
-            fs::copy(parent.db_path(), child.db_path())?;
+        let id = Uuid::new_v4();
+        let child = ProjectDir {
+            id,
+            root: self.root.join(id.to_string()),
+        };
+        let staging = ProjectDir {
+            id,
+            root: self.root.join(format!("{id}{STAGING_SUFFIX}")),
+        };
+        let published = stage_derived(parent, &staging, &m)
+            .and_then(|()| fs::rename(staging.root(), child.root()).map_err(ProjectError::from));
+        if let Err(e) = published {
+            let _ = fs::remove_dir_all(staging.root());
+            return Err(e);
         }
-        for entry in fs::read_dir(parent.audio_dir())? {
-            let src = entry?.path();
-            if !src.is_file() {
-                continue;
-            }
-            let Some(name) = src.file_name() else {
-                continue;
-            };
-            fs::copy(&src, child.audio_dir().join(name))?;
-        }
+        fsync_dir(&self.root)?;
         Ok(child)
     }
 
@@ -646,6 +797,85 @@ impl Library {
         }
         out.sort_by_key(|(d, _)| d.id);
         Ok(out)
+    }
+}
+
+/// プロジェクトのディレクトリ一式を作る（`TR-PKG-38`）。
+fn lay_out(dir: &ProjectDir) -> Result<()> {
+    for d in [
+        dir.root.clone(),
+        dir.audio_dir(),
+        dir.renders_dir(),
+        dir.exports_dir(),
+        dir.snapshots_dir(),
+    ] {
+        fs::create_dir_all(&d)?;
+    }
+    Ok(())
+}
+
+/// 派生を `staging` に組み立てる。 出すのは呼び出し側（[`Library::derive`]）。
+fn stage_derived(parent: &ProjectDir, staging: &ProjectDir, m: &Manifest) -> Result<()> {
+    lay_out(staging)?;
+    staging.write_manifest(m)?;
+    // 台帳を先に写す（録音も原音設定も引き継ぐのが「複製」）。 WAV は確定（rename）して
+    // から台帳へ載る（`DEC-REC-004`）ので、写した台帳が指す WAV は、このあと写す音声に
+    // 必ずある。 逆の順だと、その間に確定したテイクの行だけが写る。
+    if parent.db_path().is_file() {
+        crate::db::write_consistent_copy(&parent.db_path(), &staging.db_path())
+            .map_err(ProjectError::DbCopy)?;
+        sync_file(&staging.db_path())?;
+    }
+    copy_tree(&parent.audio_dir(), &staging.audio_dir())?;
+    fsync_dir(staging.root())
+}
+
+/// `src` の中身を入れ子ごと `dest` へ写す。 バイトは変えない。
+///
+/// 多音階の WAV は音高ごとのディレクトリにある（`TR-REC-36`）。 直下だけを写すと、
+/// 多音階の派生から音声が全部落ちる（`EVID-PLT-004`）。
+///
+/// 書きかけ（`.part` で終わるもの）は写さない。 確定していないので資産ではなく、
+/// 写した台帳もそれを指さない。 symlink も辿らない。 KOERU は作らない。
+fn copy_tree(src: &Path, dest: &Path) -> Result<()> {
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let to = dest.join(entry.file_name());
+        if ty.is_dir() {
+            fs::create_dir_all(&to)?;
+            copy_tree(&entry.path(), &to)?;
+        } else if ty.is_file()
+            && !entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with(STAGING_SUFFIX)
+        {
+            copy_synced(&entry.path(), &to)?;
+        }
+    }
+    fsync_dir(dest)
+}
+
+/// 写して fsync する。 入れ物のディレクトリは呼び出し側が fsync する。
+fn copy_synced(src: &Path, dest: &Path) -> Result<()> {
+    fs::copy(src, dest)?;
+    sync_file(dest)
+}
+
+/// 書き終えたファイルを fsync する。
+///
+/// 書ける形で開き直す。 Windows の `FlushFileBuffers` は、読むだけの handle では拒まれる。
+fn sync_file(path: &Path) -> Result<()> {
+    fs::OpenOptions::new().write(true).open(path)?.sync_all()?;
+    Ok(())
+}
+
+/// ディレクトリがあれば中身ごと消す。 無ければ何もしない。
+fn remove_dir_if_present(path: &Path) -> Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
     }
 }
 
@@ -904,49 +1134,238 @@ mod tests {
         assert!(listed[0].1.is_err(), "失敗として返ること");
     }
 
+    /// 読むだけで開いて行を数える。 開けない・表が無いなら `None`。
+    fn rows_in(db: &Path) -> Option<i64> {
+        use diesel::prelude::*;
+        let mut c =
+            diesel::sqlite::SqliteConnection::establish(&crate::db::read_only_url(db)).ok()?;
+        crate::schema::rows::table.count().get_result(&mut c).ok()
+    }
+
+    /// 台帳を開いて行を入れる。 返す台帳は開いたままにしておく——最後の接続が
+    /// 閉じるとチェックポイントが走り、WAL が本体へ畳まれる。
+    fn ledger_with_rows(p: &ProjectDir) -> (crate::db::Ledger, i64) {
+        let mut ledger = crate::db::Ledger::open(p.db_path()).expect("開けること");
+        let list = crate::reclist::generate_single(crate::inventory::UnitSet::Core, 5)
+            .expect("生成できること");
+        ledger.install_reclist(&list, 60).expect("書けること");
+        let n = rows_in(&p.db_path()).expect("数えられること");
+        assert!(n > 0, "行が入ったこと");
+        (ledger, n)
+    }
+
+    fn names_in(dir: &Path) -> BTreeSet<String> {
+        fs::read_dir(dir)
+            .expect("読めること")
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .collect()
+    }
+
+    fn snapshot_names(p: &ProjectDir) -> Vec<String> {
+        p.snapshots()
+            .expect("挙げられること")
+            .iter()
+            .filter_map(|d| d.file_name().and_then(|s| s.to_str()).map(str::to_owned))
+            .collect()
+    }
+
     /// 控えは WAV を複製しない（`TR-PKG-43`）。
     #[test]
     fn snapshot_copies_the_db_but_not_the_audio() {
         let lib = Library::open(tmp("snap")).expect("開けること");
         let p = lib.create(&manifest()).expect("作れること");
-        fs::write(p.db_path(), b"pretend-db").expect("書けること");
+        let (_ledger, _) = ledger_with_rows(&p);
         // 3時間ぶんのつもりの WAV。
         fs::write(p.audio_dir().join("a.wav"), vec![0_u8; 4096]).expect("書けること");
 
         let dir = p.take_snapshot(1, "realign").expect("取れること");
 
-        assert!(dir.join("project.db").is_file());
-        assert!(dir.join("manifest.toml").is_file());
-        assert!(!dir.join("audio").exists(), "WAV を複製しないこと");
+        assert_eq!(
+            names_in(&dir),
+            BTreeSet::from(["manifest.toml".to_owned(), "project.db".to_owned()]),
+            "台帳と manifest だけ。WAV も `-wal` も書きかけも無いこと"
+        );
+        assert_eq!(
+            fs::read(dir.join("manifest.toml")).expect("読めること"),
+            fs::read(p.manifest_path()).expect("読めること")
+        );
 
         // 元の WAV はそのまま残る（参照する側）。
         assert!(p.audio_dir().join("a.wav").is_file());
+    }
+
+    /// 控えは WAL に残ったコミット済みの中身ごと写す（`TR-PKG-43`、`EVID-PLT-004`）。
+    ///
+    /// 台帳の本体を `fs::copy` していた頃は、チェックポイント前のコミットが控えから落ちていた。
+    #[test]
+    fn snapshot_keeps_commits_still_in_the_wal() {
+        let lib = Library::open(tmp("wal")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (ledger, n) = ledger_with_rows(&p);
+
+        // 前提: 行はまだ WAL にしか無い。 本体だけを写すと行が見えない。
+        let wal = p.root().join("project.db-wal");
+        assert!(
+            fs::metadata(&wal).expect("WAL があること").len() > 0,
+            "チェックポイント前であること"
+        );
+        let naive = tmp("wal-naive").join("project.db");
+        fs::copy(p.db_path(), &naive).expect("写せること");
+        assert_ne!(
+            rows_in(&naive),
+            Some(n),
+            "本体だけの写しは行を落とすこと。落とさないなら、この試験は何も見ていない"
+        );
+
+        let dir = p.take_snapshot(1, "realign").expect("取れること");
+        assert_eq!(rows_in(&dir.join("project.db")), Some(n));
+        // 控えは単体で開ける。 `-wal` を伴わない。
+        assert!(!dir.join("project.db-wal").exists());
+        drop(ledger);
+    }
+
+    /// ライブラリの置き場所は利用者名を含む。 URI で意味を持つ文字が入っても控えを取れる。
+    #[test]
+    fn snapshot_survives_uri_characters_in_the_path() {
+        let lib = Library::open(tmp("uri").join("ライブラリ 100%#1")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (_ledger, n) = ledger_with_rows(&p);
+
+        let dir = p.take_snapshot(1, "realign").expect("取れること");
+        assert_eq!(rows_in(&dir.join("project.db")), Some(n));
     }
 
     #[test]
     fn snapshots_are_listed_oldest_first() {
         let lib = Library::open(tmp("snaps")).expect("開けること");
         let p = lib.create(&manifest()).expect("作れること");
-        fs::write(p.db_path(), b"db").expect("書けること");
+        let (_ledger, _) = ledger_with_rows(&p);
 
         for (seq, label) in [(1, "realign"), (2, "bulk_alias"), (10, "change_method")] {
             p.take_snapshot(seq, label).expect("取れること");
         }
-        let got: Vec<String> = p
-            .snapshots()
-            .expect("挙げられること")
-            .iter()
-            .filter_map(|d| d.file_name().and_then(|s| s.to_str()).map(str::to_owned))
-            .collect();
         assert_eq!(
-            got,
+            snapshot_names(&p),
             [
                 "000001-realign",
                 "000002-bulk_alias",
                 "000010-change_method"
-            ],
-            "連番は桁を揃えて辞書順が時系列と一致すること"
+            ]
         );
+
+        // 6桁を超えても連番の順。 名前の辞書順では `1000000-…` が先に来る。
+        p.take_snapshot(999_999, "realign").expect("取れること");
+        p.take_snapshot(1_000_000, "realign").expect("取れること");
+        let got = snapshot_names(&p);
+        assert_eq!(
+            got[got.len() - 2..],
+            ["999999-realign", "1000000-realign"],
+            "連番を数として読んで並べること"
+        );
+    }
+
+    /// 直近の [`SNAPSHOTS_KEPT`] 件を残し、超えたぶんは古い順に消す。
+    #[test]
+    fn snapshots_beyond_the_limit_are_removed_oldest_first() {
+        let lib = Library::open(tmp("keep")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (_ledger, _) = ledger_with_rows(&p);
+
+        let taken = u32::try_from(SNAPSHOTS_KEPT + 2).expect("小さい");
+        for seq in 1..=taken {
+            p.take_snapshot(seq, "realign").expect("取れること");
+        }
+
+        let want: Vec<String> = (3..=taken).map(|s| format!("{s:06}-realign")).collect();
+        assert_eq!(snapshot_names(&p), want, "古い2件が消え、残りは連番の順");
+        assert_eq!(
+            names_in(&p.snapshots_dir()),
+            want.iter().cloned().collect(),
+            "消しかけも書きかけも残らないこと"
+        );
+    }
+
+    /// 途中で落ちても、欠けた控えを出さず、今ある控えを消さない（`TR-PKG-43`）。
+    #[test]
+    fn failed_snapshot_is_not_published_and_keeps_the_old_ones() {
+        let lib = Library::open(tmp("snapfail")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (ledger, _) = ledger_with_rows(&p);
+
+        let kept = u32::try_from(SNAPSHOTS_KEPT).expect("小さい");
+        for seq in 1..=kept {
+            p.take_snapshot(seq, "realign").expect("取れること");
+        }
+        let before = names_in(&p.snapshots_dir());
+        assert_eq!(before.len(), SNAPSHOTS_KEPT);
+
+        // 台帳を写したあとで落ちる。 manifest が読めない。
+        let manifest = fs::read(p.manifest_path()).expect("読めること");
+        fs::remove_file(p.manifest_path()).expect("消せること");
+        let e = p
+            .take_snapshot(kept + 1, "realign")
+            .expect_err("落ちること");
+        assert!(matches!(e, ProjectError::Io(_)), "{e:?}");
+        assert_eq!(
+            names_in(&p.snapshots_dir()),
+            before,
+            "書きかけを残さず、最も古い控えも消さないこと"
+        );
+
+        // 台帳を写せないところで落ちる。
+        fs::write(p.manifest_path(), &manifest).expect("戻せること");
+        drop(ledger);
+        fs::write(p.db_path(), "SQLite ではない").expect("書けること");
+        let e = p
+            .take_snapshot(kept + 1, "realign")
+            .expect_err("落ちること");
+        assert_eq!(koeru_failure::Failure::code(&e), "project.db_copy");
+        assert_eq!(names_in(&p.snapshots_dir()), before);
+    }
+
+    /// 前に落ちたときの書きかけは、同じ連番で取り直すときに塞がない。
+    #[test]
+    fn stale_staging_does_not_block_a_retry() {
+        let lib = Library::open(tmp("stale")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (_ledger, n) = ledger_with_rows(&p);
+        let stale = p.snapshots_dir().join("000001-realign.part");
+        fs::create_dir_all(&stale).expect("作れること");
+        fs::write(stale.join("project.db"), b"half").expect("書けること");
+
+        let dir = p.take_snapshot(1, "realign").expect("取れること");
+        assert_eq!(rows_in(&dir.join("project.db")), Some(n));
+        assert!(!stale.exists());
+        assert_eq!(snapshot_names(&p), ["000001-realign"]);
+    }
+
+    /// 古い順に消すので、連番が戻ると取ったばかりの控えが消える。 受けない。
+    #[test]
+    fn snapshot_sequence_must_move_forward() {
+        let lib = Library::open(tmp("seq")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (_ledger, _) = ledger_with_rows(&p);
+        p.take_snapshot(5, "realign").expect("取れること");
+
+        for seq in [5, 4] {
+            let e = p.take_snapshot(seq, "bulk_alias").expect_err("拒むこと");
+            assert!(matches!(e, ProjectError::SnapshotOutOfOrder), "{e:?}");
+        }
+        assert_eq!(snapshot_names(&p), ["000005-realign"]);
+    }
+
+    /// 印は名前に入り、連番を読み戻すときに形を見る。 読み戻せない印では取らない。
+    #[test]
+    fn snapshot_label_must_be_readable_back() {
+        let lib = Library::open(tmp("label")).expect("開けること");
+        let p = lib.create(&manifest()).expect("作れること");
+        let (_ledger, _) = ledger_with_rows(&p);
+
+        for label in ["", "a.part", "../x", "Realign", "a-b"] {
+            let e = p.take_snapshot(1, label).expect_err("拒むこと");
+            assert!(matches!(e, ProjectError::SnapshotLabel), "{label}: {e:?}");
+        }
+        assert!(names_in(&p.snapshots_dir()).is_empty());
     }
 
     fn units(xs: &[&str]) -> BTreeSet<String> {
@@ -1000,7 +1419,7 @@ mod tests {
     fn derive_keeps_the_lineage() {
         let lib = Library::open(tmp("derive")).expect("開けること");
         let parent = lib.create(&manifest()).expect("作れること");
-        fs::write(parent.db_path(), b"db").expect("書けること");
+        let (_ledger, n) = ledger_with_rows(&parent);
         fs::write(parent.audio_dir().join("a.wav"), b"wav").expect("書けること");
 
         let child = lib
@@ -1011,10 +1430,79 @@ mod tests {
         assert_eq!(m.derived_from, Some(parent.id()));
         assert_eq!(m.display_name, "こえるちゃん（低め）");
         assert_ne!(child.id(), parent.id());
-        assert_eq!(fs::read(child.db_path()).expect("読める"), b"db");
+        // 親の台帳は開いたままで、行は WAL にしか無い。
+        assert_eq!(rows_in(&child.db_path()), Some(n));
         assert_eq!(
             fs::read(child.audio_dir().join("a.wav")).expect("読める"),
             b"wav"
+        );
+    }
+
+    fn sha256(path: &Path) -> Vec<u8> {
+        use sha2::{Digest as _, Sha256};
+        Sha256::digest(fs::read(path).expect("読めること")).to_vec()
+    }
+
+    /// 多音階の音声は音高ごとのディレクトリにある（`TR-REC-36`）。 入れ子ごと、
+    /// バイトを変えずに写す。
+    #[test]
+    fn derive_copies_audio_per_tone() {
+        let lib = Library::open(tmp("derive-tones")).expect("開けること");
+        let parent = lib.create(&manifest()).expect("作れること");
+        let (_ledger, _) = ledger_with_rows(&parent);
+        let files = [
+            format!("{}/あ_1.wav", crate::tone::name(60)),
+            format!("{}/あ_2.wav", crate::tone::name(60)),
+            format!("{}/あ_1.frq", crate::tone::name(60)),
+            format!("{}/い_1.wav", crate::tone::name(67)),
+            "oto.ini".to_owned(),
+        ];
+        for (i, rel) in files.iter().enumerate() {
+            let path = parent.audio_dir().join(rel);
+            fs::create_dir_all(path.parent().expect("親がある")).expect("作れること");
+            // 中身が互いに違うこと。 同じだと、取り違えて写しても気づけない。
+            let bytes: Vec<u8> = (0..65_536_usize)
+                .map(|k| ((k * 31 + i * 7) % 251) as u8)
+                .collect();
+            fs::write(&path, bytes).expect("書けること");
+        }
+        // 書きかけのテイク。 確定していないので資産ではない。
+        let partial = format!("{}/う_1.wav.part", crate::tone::name(60));
+        fs::write(parent.audio_dir().join(&partial), b"half").expect("書けること");
+
+        let child = lib.derive(&parent, "派生").expect("複製できること");
+
+        for rel in &files {
+            assert_eq!(
+                sha256(&child.audio_dir().join(rel)),
+                sha256(&parent.audio_dir().join(rel)),
+                "{rel} がバイト単位で同じであること"
+            );
+        }
+        assert!(
+            !child.audio_dir().join(&partial).exists(),
+            "書きかけを写さないこと"
+        );
+        assert!(
+            !names_in(lib.root()).iter().any(|n| n.ends_with(".part")),
+            "組み立て中の派生が残らないこと"
+        );
+    }
+
+    /// 複製が途中で落ちても、欠けたプロジェクトを一覧に出さない。
+    #[test]
+    fn failed_derive_leaves_no_project() {
+        let lib = Library::open(tmp("derive-fail")).expect("開けること");
+        let parent = lib.create(&manifest()).expect("作れること");
+        fs::write(parent.audio_dir().join("a.wav"), b"wav").expect("書けること");
+        fs::write(parent.db_path(), "SQLite ではない").expect("書けること");
+
+        let e = lib.derive(&parent, "派生").expect_err("落ちること");
+        assert_eq!(koeru_failure::Failure::code(&e), "project.db_copy");
+        assert_eq!(
+            names_in(lib.root()),
+            BTreeSet::from([parent.id().to_string()]),
+            "親だけが残り、組み立て中の派生も残らないこと"
         );
     }
 

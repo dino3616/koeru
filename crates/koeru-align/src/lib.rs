@@ -31,7 +31,9 @@
 //! 確認キュー・検証と修復・到達水準は利用者の判断と書き出しの可否に関わるので、
 //! 計算だけを持つこの crate から `koeru-model` へ移した（`DEC-PLT-034`）。 下の再輸出は
 //! 既存の `koeru_align::review` などの経路を通すためだけにある。 **移行中。**
+//! `oto.ini` の構文も同じ理由で `koeru-formats` へ移した。
 
+pub use koeru_formats::oto_ini as ini;
 pub use koeru_model::{reach, review, validate};
 
 pub mod aligner;
@@ -39,7 +41,6 @@ pub mod confidence;
 pub mod consistency;
 pub mod derive;
 pub mod determinism;
-pub mod ini;
 pub mod ledger;
 pub mod mfa;
 pub mod phoneme;

@@ -15,6 +15,15 @@
 //           残る（この層の検証が見つけた）。TR-REC-28 はこれを**復旧候補として提示する**と定める。
 //           提示のみで、DB へ自動で書き戻さない（TR-REC-31 の「自動修復しない」）。
 //           **本人が選ぶまで消えない**ことが、この層が守る契約。
+//
+// ASSUME-8: 録音を始める前に「この行をこの条件で録る」を予定として台帳へ書く（DEC-REC-010）。
+//           予定はテイクではない。 テイクの行は今までどおり WAV の確定後（ASSUME-5 は変えない）。
+//           孤児はこの予定を持つので、どの行の録音かを推し量らずに示せる。
+//           ファイルを持たないまま残った予定は、起動時の検証が放棄の印を付けて残す。消さない。
+//
+// ASSUME-9: 予定を閉じるのは、テイクの行・受領証と同じトランザクション。 応答が失われて
+//           consumer が同じ操作を送り直しても、予定は閉じているのでテイクは増えない。
+//           送り直しには受領証から同じ結果を返す。
 
 spec KoeruProjectStorage {
   type ListItem = 0..1
@@ -22,6 +31,9 @@ spec KoeruProjectStorage {
 
   const MAX_TAKES = 2
   const MAX_CRASHES = 1
+  // 予定を書いたあと、.wav.part を開く前に落ちる回数。 要求層からは何も見えない落ち方なので、
+  // 要求層の `crashes` とは別に数える。
+  const MAX_IDLE_CRASHES = 1
 
   enum ItemState { Unrecorded, Adopted, AllInvalid }
   enum Handoff   { NotExported, Exported }
@@ -38,7 +50,22 @@ spec KoeruProjectStorage {
     dismissed: Map<ListItem, Count>,
     ever_recovered: Bool,
     handoff:   Handoff,
-    crashes:   Count
+    crashes:   Count,
+    // 録音に使っている予定（ASSUME-8）。 単一の書き手なので同時に1つまで
+    active:    Option<ListItem>,
+    // 閉じていない予定の数。 使っている1つ、孤児が持つもの、ファイルを持たずに残ったもの
+    open:      Map<ListItem, Count>,
+    // ファイルを持たずに残った予定（書きかけを失った、書きかけを開く前に落ちた）
+    stale:     Map<ListItem, Count>,
+    // 起動時の検証が放棄の印を付けた予定。 消さない
+    abandoned: Map<ListItem, Count>,
+    // テイクの行と一緒に閉じた予定
+    closed_take:  Map<ListItem, Count>,
+    // テイクにならずに閉じた予定（無効で捨てた、孤児を捨てた）
+    closed_other: Map<ListItem, Count>,
+    // 最後にコミットしたテイクの受領証（ASSUME-9）
+    receipt:   Option<ListItem>,
+    idle_crashes: Count
   }
 
   init {
@@ -53,14 +80,35 @@ spec KoeruProjectStorage {
     ever_recovered = false
     handoff = NotExported
     crashes = 0
+    active = none
+    forall i: ListItem { open[i] = 0 }
+    forall i: ListItem { stale[i] = 0 }
+    forall i: ListItem { abandoned[i] = 0 }
+    forall i: ListItem { closed_take[i] = 0 }
+    forall i: ListItem { closed_other[i] = 0 }
+    receipt = none
+    idle_crashes = 0
   }
 
   def complete() = forall i: ListItem { item[i] == Adopted }
 
-  // 録音開始。ここで .wav.part を開く
+  // 録る前に予定を台帳へ書いてコミットする（ASSUME-8）。 まだファイルは無い
+  fair action declare_capture(i: ListItem) {
+    requires recording == none
+    requires wav == NoFile
+    requires active == none
+    requires takes[i] < MAX_TAKES
+    requires invalid[i] < MAX_TAKES
+    requires open[i] < 3
+    active = some(i)
+    open[i] = open[i] + 1
+  }
+
+  // 録音開始。予定のある行についてだけ .wav.part を開く
   fair action start_take(i: ListItem) {
     requires recording == none
     requires wav == NoFile
+    requires active == some(i)
     requires takes[i] < MAX_TAKES
     requires invalid[i] < MAX_TAKES
     recording = some(i)
@@ -76,7 +124,7 @@ spec KoeruProjectStorage {
     finalized[i] = finalized[i] + 1
   }
 
-  // ファイルが確定してからだけ DB に行を足す
+  // ファイルが確定してからだけ DB に行を足す。 予定を閉じ、受領証を残すのも同じ一手（ASSUME-9）
   @requirement("REQ-REC-004", "DB へ行を足すのは、ファイル確定が済んでからだけ")
   fair action commit_take() {
     requires recording is some(i)
@@ -85,15 +133,31 @@ spec KoeruProjectStorage {
     wav = NoFile
     takes[i] = takes[i] + 1
     item[i] = Adopted
+    active = none
+    open[i] = open[i] - 1
+    closed_take[i] = closed_take[i] + 1
+    receipt = some(i)
   }
 
   action discard_invalid_take() {
     requires recording is some(i)
     requires wav == Writing
+    requires closed_other[i] < 3
     recording = none
     wav = NoFile
     invalid[i] = invalid[i] + 1
     item[i] = if takes[i] > 0 then Adopted else AllInvalid
+    active = none
+    open[i] = open[i] - 1
+    closed_other[i] = closed_other[i] + 1
+  }
+
+  // 応答が届かなかった consumer が、同じ操作を送り直す（ASSUME-9）。
+  // 予定はもう閉じているので、コミットの手は再び開かない。受領証から同じ結果を返すだけ
+  action retry_commit() {
+    requires recording == none
+    requires receipt != none
+    receipt = receipt
   }
 
   action readopt_earlier_take(i: ListItem) {
@@ -116,17 +180,31 @@ spec KoeruProjectStorage {
   }
 
   // 書きかけだけが失われる。確定済みファイルと DB の行は残る（DEC-REC-004）。
-  // 確定済み・未コミットのまま落ちた1本は孤児として残る（ASSUME-7）
+  // 確定済み・未コミットのまま落ちた1本は孤児として残る（ASSUME-7）。
+  // 予定は消えない。ファイルを持たない予定として残る（ASSUME-8）
   action crash_losing_part() {
-    requires recording != none
+    requires recording is some(i)
     requires wav != Finalized
     requires crashes < MAX_CRASHES
     recording = none
     wav = NoFile
     crashes = crashes + 1
+    active = none
+    stale[i] = stale[i] + 1
   }
 
-  // rename は済んでいたがコミット前だった。確定済み WAV が孤児として残る
+  // 予定を書いたが、.wav.part を開く前に落ちた。 要求層からは何も起きていない
+  action crash_after_declare() {
+    requires recording == none
+    requires active is some(i)
+    requires idle_crashes < MAX_IDLE_CRASHES
+    active = none
+    stale[i] = stale[i] + 1
+    idle_crashes = idle_crashes + 1
+  }
+
+  // rename は済んでいたがコミット前だった。確定済み WAV が孤児として残る。
+  // 孤児は予定を持ったまま残るので、どの行の録音かを推し量らずに示せる（ASSUME-8）
   @requirement("REQ-REC-006", "コミット前に落ちた確定済み WAV は、孤児として残る")
   action crash_leaving_orphan() {
     requires recording is some(i)
@@ -136,9 +214,10 @@ spec KoeruProjectStorage {
     recording = none
     wav = NoFile
     crashes = crashes + 1
+    active = none
   }
 
-  // 起動時の整合性検証が孤児を提示し、本人が復旧を選ぶ（TR-REC-28）
+  // 起動時の整合性検証が孤児を提示し、本人が復旧を選ぶ（TR-REC-28）。 孤児の予定を閉じる
   @requirement("REQ-REC-007", "起動時の整合性検証が孤児を提示し、本人が復旧として採る")
   action adopt_orphan(i: ListItem) {
     requires recording == none
@@ -148,6 +227,8 @@ spec KoeruProjectStorage {
     takes[i] = takes[i] + 1
     item[i] = Adopted
     ever_recovered = true
+    open[i] = open[i] - 1
+    closed_take[i] = closed_take[i] + 1
   }
 
   // 本人が要らないと判断して捨てる。**本人の操作でしか消えない**
@@ -155,9 +236,22 @@ spec KoeruProjectStorage {
   action dismiss_orphan(i: ListItem) {
     requires recording == none
     requires orphans[i] > 0
+    requires closed_other[i] < 3
     orphans[i] = orphans[i] - 1
     finalized[i] = finalized[i] - 1
     dismissed[i] = dismissed[i] + 1
+    open[i] = open[i] - 1
+    closed_other[i] = closed_other[i] + 1
+  }
+
+  // 起動時の検証が、ファイルを持たない予定に放棄の印を付ける（ASSUME-8）。
+  // 失われる録音は無いので本人に見せない。 消さずに残す
+  action abandon_stale_intent(i: ListItem) {
+    requires recording == none
+    requires stale[i] > 0
+    stale[i] = stale[i] - 1
+    open[i] = open[i] - 1
+    abandoned[i] = abandoned[i] + 1
   }
 
   // この層が背負う契約：ファイルの無いテイク行が DB にできない
@@ -223,6 +317,45 @@ spec KoeruProjectStorage {
     forall i: ListItem { item[i] == Unrecorded => (takes[i] == 0 and invalid[i] == 0) }
   }
 
+  // 書きかけも確定済みも、その行の予定があるときだけ手元にある（ASSUME-8）
+  invariant RecordingUnderIntent {
+    recording != none => active == recording
+  }
+
+  // 閉じていない予定の内訳は3つしかない。 使っている1つ、孤児が持つもの、
+  // ファイルを持たずに残ったもの
+  invariant OpenIntentsAccountedFor {
+    forall i: ListItem {
+      open[i] == orphans[i] + stale[i] + (if active == some(i) then 1 else 0)
+    }
+  }
+
+  // 孤児には必ず予定がある。 どの行の録音かを推し量らずに示せる
+  @requirement("REQ-REC-007", "孤児は、どの行の録音かを予定から示せる")
+  invariant OrphanHasIntent {
+    forall i: ListItem { orphans[i] <= open[i] }
+  }
+
+  // どのテイクにも、閉じた予定が1つずつある
+  invariant EveryTakeClosedAnIntent {
+    forall i: ListItem { takes[i] == closed_take[i] }
+  }
+
+  // 受領証があるのは、その行にコミット済みのテイクがあるときだけ
+  invariant ReceiptBacksATake {
+    forall i: ListItem { receipt == some(i) => takes[i] > 0 }
+  }
+
+  invariant IdleCrashesBounded {
+    idle_crashes <= MAX_IDLE_CRASHES
+  }
+
+  // ファイルを持たない予定は、落ちたときにしかできない。 放棄の印を付けたものも含めて、
+  // 落ちた回数を超えない。 OrphansBounded と同じく、帰納法のための補助（この領域の真理）
+  invariant LeftoverIntentsBounded {
+    sum(i: ListItem of stale[i] + abandoned[i]) <= crashes + idle_crashes
+  }
+
   @requirement("REQ-REC-004", "コミット済みテイクは減らない")
   trans TakesAreNeverLost {
     forall i: ListItem { takes[i] >= old(takes[i]) }
@@ -259,6 +392,29 @@ spec KoeruProjectStorage {
     (crashes != old(crashes)) => forall i: ListItem { takes[i] == old(takes[i]) }
   }
 
+  // 予定は黙って消えない。 閉じるか、放棄の印が付くかのどちらかだけ（ASSUME-8）
+  trans IntentNeverVanishesOnItsOwn {
+    forall i: ListItem {
+      open[i] >= old(open[i])
+      or closed_take[i] > old(closed_take[i])
+      or closed_other[i] > old(closed_other[i])
+      or abandoned[i] > old(abandoned[i])
+    }
+  }
+
+  // 放棄の印は消えない
+  trans AbandonedIsKept {
+    forall i: ListItem { abandoned[i] >= old(abandoned[i]) }
+  }
+
+  // テイクが増えるのは、予定を閉じた手だけ。 送り直しは閉じた予定を再び閉じられないので、
+  // テイクを増やさない（ASSUME-9）
+  trans TakeGrowsOnlyByClosingIntent {
+    forall i: ListItem {
+      takes[i] > old(takes[i]) => closed_take[i] > old(closed_take[i])
+    }
+  }
+
   // クラッシュのあと孤児が提示され、本人がそれを復旧として採れる
   reachable OrphanRecoveredByUser {
     ever_recovered
@@ -266,6 +422,16 @@ spec KoeruProjectStorage {
 
   reachable CompleteWhileUnpublished {
     complete() and handoff == NotExported
+  }
+
+  // ファイルを持たずに残った予定に、放棄の印を付けられる
+  reachable StaleIntentAbandoned {
+    exists i: ListItem { abandoned[i] > 0 }
+  }
+
+  // 応答が届かなかったあとの送り直しに、受領証で答えられる
+  reachable RetryAnsweredByReceipt {
+    receipt != none and recording == none
   }
 
   terminal {
