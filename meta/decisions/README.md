@@ -55,6 +55,8 @@
 | [DEC-PKG-013](DEC-PKG-013.toml) | 配り物への到達 | 配り物の置き場所を、OS のファイルマネージャで見せる | accepted |
 | [DEC-PKG-014](DEC-PKG-014.toml) | 下位方式の出どころ | 下位方式へ降りるとき、綴りごとに行頭のモーラを持つ素材から採る | accepted |
 | [DEC-PKG-015](DEC-PKG-015.toml) | 配布物の方式の名乗り | readme の収録方式と収録音高を別の節に分け、収録音高は単音階でも出す | accepted |
+| [DEC-PKG-016](DEC-PKG-016.toml) | 壊れないと約束できる置き場所 | 耐障害を約束するのは内蔵ドライブのファイルシステムに限り、Windows ではライブラリを Local の app data へ置く | accepted |
+| [DEC-PKG-017](DEC-PKG-017.toml) | 控えが際限なく増えない | スナップショットは1プロジェクトにつき直近 20 件を残し、移行前の控えは次の移行が成功するまで1つ残す | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -95,6 +97,7 @@
 | [DEC-PLT-038](DEC-PLT-038.toml) | 失敗の分類と伝え方 | 失敗は「呼び出し側の次の手」と「確定したかどうか」で分類する。予期できる結果は失敗にせず、失敗の記録は持ち主が1回だけ型で出す | accepted |
 | [DEC-PLT-039](DEC-PLT-039.toml) | 検査が通ったことの意味 | テストは危険ごとに最も安い検出点を選び、必須の suite は meta に登録して実行した件数で判定する。前提を欠いたら黙って return しない | accepted |
 | [DEC-PLT-040](DEC-PLT-040.toml) | GraphQL の実装と検査の道具 | GraphQL は async-graphql で process 内で実行し、apollo-compiler で SDL と operation を検査し、画面の型は graphql-codegen の client-preset で作る | accepted |
+| [DEC-PLT-041](DEC-PLT-041.toml) | 移行で推し量らない | 行の並びから録る対象へ写せないエントリがあれば、移行を止めて元の台帳と控えを残し、そのプロジェクトは開かない | accepted |
 | [DEC-PLT-042](DEC-PLT-042.toml) | 契約の語彙の初版 | 識別子は種類ごとの scalar、32 bit を超える量は専用の scalar、ファイルは名前（ディレクトリなし）と base64 の中身で運ぶ。名前と互換の窓は公開の前に見直す | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
@@ -122,6 +125,7 @@
 | [DEC-REC-007](DEC-REC-007.toml) | リングバッファの位置の持ち方 | リングの位置は総数で持つ。剰余で持たない | accepted |
 | [DEC-REC-008](DEC-REC-008.toml) | 録音の観測をどこまで出すか | 機材と設定の不備も指摘しない。観測をフラットに報告するだけにする | accepted |
 | [DEC-REC-009](DEC-REC-009.toml) | 入力レベルの見せ方 | 入力レベルから区分ごと外す。行 ID は画面のどこにも出さない | accepted |
+| [DEC-REC-010](DEC-REC-010.toml) | 孤児がどの録音か分かる | 録音を始める前に「この行をこの条件で録る」を台帳に1行残す段を足す。テイクの行は今までどおり WAV を確定してから | accepted |
 | [DEC-SYN-001](DEC-SYN-001.toml) | 合成 | 合成は WORLD ベースとし、F0 推定のみ SwiftF0 に差し替える | accepted |
 | [DEC-SYN-002](DEC-SYN-002.toml) | 中核体験 | 録音の途中でも自分の声で歌を聴けることを中核体験に置く | accepted |
 | [DEC-SYN-003](DEC-SYN-003.toml) | 外部エンジン | 既定は同梱コア。本人がローカルに持つ resampler を指して使えるようにする | accepted |
@@ -138,4 +142,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-128 件。
+132 件。
