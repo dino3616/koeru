@@ -1,0 +1,23 @@
+[package]
+name = "koeru-model"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の意味の kernel。素材と要求の解決、録音リスト、綴りの表、曲。入出力を持たない"
+
+[lints]
+workspace = true
+
+# 入出力・SQLite・画面・native を持ち込まない（DEC-PLT-034）。 M6 では同じ規則を
+# WASM でも呼ぶので、足す依存はその両方で組み立つものに限る。 `tests/purity.rs` が見る。
+[dependencies]
+koeru-failure = { path = "../koeru-failure" }
+# 詰め直した行の ID（`reclist::packed_id`）。
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+# 綴りを比べる前に NFC へ揃える（TR-PKG-48）。
+unicode-normalization.workspace = true

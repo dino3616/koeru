@@ -7,17 +7,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// 走査する crate。 **足し忘れると、その crate だけ素通りする。**
-const CRATES: [&str; 7] = [
-    "koeru-core",
-    "koeru-synth",
-    "koeru-audio",
-    "koeru-app",
-    "koeru-align",
-    "koeru-package",
-    "koeru-failure",
-];
-
 /// `#[error("…")]` に差し込んでよい欄。 どれも数で、利用者のデータではない。
 ///
 /// 何番目のノートか、1行に何単位か、が分からないと直しようがない失敗だけがここに来る。
@@ -46,11 +35,19 @@ fn sources() -> Vec<(PathBuf, String)> {
             }
         }
     }
-    let root = repo_root();
+    // 走査する crate は `crates/` の下で `Cargo.toml` を持つもの全部。 名前を並べると、
+    // 足した crate だけが素通りする——`koeru-model` を切り出したとき、実装が 28 個に
+    // 減ったことでしか気づけなかった。**踏んだ。**
+    let crates = repo_root().join("crates");
     let mut out = Vec::new();
-    for c in CRATES {
-        walk(&root.join("crates").join(c).join("src"), &mut out);
+    let entries = std::fs::read_dir(&crates)
+        .unwrap_or_else(|e| panic!("{} を読めない: {e}", crates.display()));
+    for e in entries.filter_map(Result::ok) {
+        if e.path().join("Cargo.toml").is_file() {
+            walk(&e.path().join("src"), &mut out);
+        }
     }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
 }
 

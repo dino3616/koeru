@@ -52,6 +52,7 @@ use koeru_core::waveform;
 // `Outcome` は収録の校正（`calibration::Outcome`）が名乗っているので、確定の状態は
 // `koeru_failure::Outcome` と書く。
 use koeru_failure::{Class, Failure};
+use koeru_model::retake::{self, Anchor, Onsets, Pins};
 use koeru_synth::f0;
 use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 
@@ -2709,12 +2710,9 @@ impl Studio {
                     };
                     // 確信度は、その枠が乗っているモーラの区間で測る（`TR-ALN-26`）。
                     // 渡りは直前のモーラの尾に乗るので、そちらを見る。
-                    let owner = match *slot {
-                        koeru_core::reclist::Slot::Cv { mora }
-                        | koeru_core::reclist::Slot::Ending { mora } => mora,
-                        koeru_core::reclist::Slot::Vc { prev, .. } => prev,
+                    let Some(b) = v.get(slot.mora()) else {
+                        continue;
                     };
-                    let Some(b) = v.get(owner) else { continue };
                     let reading = alias.as_str();
                     // 話者内一貫性（`TR-ALN-12`）。 成分 (3) を差し替える。
                     // `from_alignment` は 1.0 を置いて「呼び出し側が集団を持ったときに
@@ -3312,6 +3310,9 @@ impl Studio {
     ///
     /// 固定した値は引き継ぐ（`REQ-ALN-007`）。 録り直しは新しいテイクの行を作るので、
     /// 引き継がないと、人が直した値が自動の値で上書きされる（`INV-ALN-001`）。
+    ///
+    /// 左ブランクは発声の始まりに合わせて写す（`DEC-ALN-019`）。 揃えられなければ
+    /// 絶対位置のまま写し、どちらも確認キューに入る。
     fn enqueue_take(&mut self, take_id: i32) -> Result<()> {
         // 録り足したものを書き出せるようにする（`TR-PKG-44`）。
         self.start_new_export_generation()?;
@@ -3341,31 +3342,67 @@ impl Studio {
             .copied()
             .unwrap_or_default();
 
+        // 発声の始まりはテイクごとに1度だけ引く。 前の世代は綴りごとに別のテイクでありうる。
+        let mut onsets_by_take: HashMap<i32, std::collections::BTreeMap<String, f64>> =
+            HashMap::new();
+        let (mut shifted, mut absolute) = (0_usize, 0_usize);
         for alias in &aliases {
             // 前の世代に固定があったものだけ運ぶ。
             let key = crate::review::EntryKey::new(tone, alias.as_str()).handle();
-            let Some((prev, pins)) = self
+            let Some((prev, pins, which)) = self
                 .opened()?
                 .review
                 .get(&key)
                 .filter(|e| e.pins().iter().any(|p| *p))
-                .map(|e| (e.oto, e.pins()))
+                .map(|e| {
+                    let which = Pins {
+                        offset: e.is_pinned(Slot::Offset),
+                        consonant: e.is_pinned(Slot::Consonant),
+                        cutoff: e.is_pinned(Slot::Cutoff),
+                        preutterance: e.is_pinned(Slot::Preutterance),
+                        overlap: e.is_pinned(Slot::Overlap),
+                    };
+                    (e.oto, e.pins(), which)
+                })
             else {
                 continue;
             };
             let Some(row) = self.opened_mut()?.ledger.oto_of(take_id, alias)? else {
                 continue;
             };
-            let mut next = Oto {
+            let fresh = Oto {
                 offset_ms: row.offset_ms,
                 consonant_ms: row.consonant_ms,
                 cutoff_ms: row.cutoff_ms,
                 preutterance_ms: row.preutterance_ms,
                 overlap_ms: row.overlap_ms,
             };
-            for (i, s) in Slot::ALL.into_iter().enumerate() {
-                if pins[i] {
-                    s.set(&mut next, s.get(&prev));
+            let prev_take = self.opened()?.review_takes.get(&key).copied();
+            let mut onset_in = |take: Option<i32>| -> Result<Option<f64>> {
+                let Some(take) = take else { return Ok(None) };
+                if let std::collections::hash_map::Entry::Vacant(slot) = onsets_by_take.entry(take)
+                {
+                    slot.insert(self.onsets_of_take(take)?);
+                }
+                Ok(onsets_by_take
+                    .get(&take)
+                    .and_then(|m| m.get(alias))
+                    .copied())
+            };
+            let onsets = Onsets {
+                previous: onset_in(prev_take)?,
+                next: onset_in(Some(take_id))?,
+            };
+            let carried = retake::carry(&prev, &fresh, which, onsets);
+            match carried.anchor {
+                Anchor::NotPinned => {}
+                Anchor::Shifted { .. } => shifted += 1,
+                Anchor::Absolute(why) => {
+                    absolute += 1;
+                    tracing::info!(
+                        reason = why.as_str(),
+                        "固定した左ブランクを当て直せなかった"
+                    );
                 }
             }
             // 値と固定を一度に書く。 別々に流すと、固定だけ落ちたときに
@@ -3374,13 +3411,31 @@ impl Studio {
             open.ledger.put_review_entry(
                 take_id,
                 alias,
-                &next,
+                &carried.oto,
                 EntryState::InQueue.as_str(),
                 pins,
             )?;
         }
+        if shifted + absolute > 0 {
+            tracing::info!(shifted, absolute, "固定した左ブランクを写した");
+        }
 
         self.refresh_review()
+    }
+
+    /// そのテイクで、綴りごとに乗るモーラの発声の始まり（`DEC-ALN-019`）。
+    ///
+    /// 境界を残していないテイクなら空。
+    fn onsets_of_take(&mut self, take_id: i32) -> Result<std::collections::BTreeMap<String, f64>> {
+        let Some(row_id) = self.opened_mut()?.ledger.take(take_id)?.map(|t| t.row_id) else {
+            return Ok(std::collections::BTreeMap::new());
+        };
+        let here = self.current_preset()?;
+        let rules = self.current_rules()?;
+        let line = self.opened_mut()?.ledger.row_units_of(&row_id, here.set)?;
+        let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
+        let saved = self.opened_mut()?.ledger.boundaries_for_take(take_id)?;
+        Ok(retake::onsets(&entries, &saved))
     }
 
     /// 確認の進み具合（`TR-ALN-25`, `TR-ALN-28`）。
@@ -5071,6 +5126,8 @@ mod tests {
     ///
     /// **素の綴りで引いていた。** キューは（音高, 綴り）で持つので鍵が合わず、
     /// 録り直すたびに直した値が自動の値で上書きされていた。
+    ///
+    /// 新しいテイクは境界を持たないので、当て直さずに絶対位置のまま写る（`DEC-ALN-019`）。
     #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
     #[test]
     fn 録り直しても固定した値を引き継ぐ() {
@@ -5142,6 +5199,120 @@ mod tests {
             "直した値を引き継ぐ: {}",
             got.offset_ms
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 録り直したテイクでは、固定した左ブランクを発声の始まりに合わせて写す（`DEC-ALN-019`）。
+    ///
+    /// **絶対位置のまま写していた。** 発声が 100ms 遅れただけで、固定した左ブランクが
+    /// 新しい録音の無音の中を指した。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 録り直したら固定した左ブランクを発声に合わせる() {
+        let root = std::env::temp_dir().join(format!("koeru-reanchor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("当て直し").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        let first = studio.seed_material_for_test(&row).expect("素材を置ける");
+        let item = studio
+            .review_queue()
+            .expect("キューを引ける")
+            .into_iter()
+            .find(|i| i.row_id == row)
+            .expect("その行のエントリがある");
+        studio
+            .edit_oto_value(&item.key, "offset", 123.0)
+            .expect("直せる");
+        let was = studio
+            .onsets_of_take(first)
+            .expect("引ける")
+            .get(&item.alias)
+            .copied()
+            .expect("1本目はその綴りの発声の始まりを持つ");
+
+        // 2本目は同じ並びで、どのモーラも 100ms 遅れて始まる。
+        let session_id = studio.test_session().expect("セッションを始められる");
+        let open = studio.opened_mut().expect("開いている");
+        let take = open
+            .ledger
+            .commit_take(&FinalizedTake {
+                row_id: row.clone(),
+                session_id,
+                rel_path: format!("audio/{row}_2.wav"),
+                frames: 44_100,
+                recorded_at: now_rfc3339(),
+            })
+            .expect("テイクを確定できる");
+        open.ledger.adopt_take(&row, take).expect("採れる");
+        let later: Vec<(String, koeru_core::oto::Boundary)> = open
+            .ledger
+            .boundaries_for_take(first)
+            .expect("引ける")
+            .into_iter()
+            .map(|(a, b)| {
+                (
+                    a,
+                    koeru_core::oto::Boundary {
+                        voice_start_ms: b.voice_start_ms + 100.0,
+                        vowel_start_ms: b.vowel_start_ms + 100.0,
+                        vowel_end_ms: b.vowel_end_ms + 100.0,
+                    },
+                )
+            })
+            .collect();
+        open.ledger.put_boundaries(take, &later).expect("置ける");
+        open.ledger
+            .put_oto(
+                take,
+                &item.alias,
+                &koeru_core::db::koeru_oto::Oto {
+                    offset_ms: 150.0,
+                    consonant_ms: 60.0,
+                    cutoff_ms: -300.0,
+                    preutterance_ms: 40.0,
+                    overlap_ms: 20.0,
+                },
+                1.0,
+                None,
+                false,
+            )
+            .expect("自動の値を置ける");
+        studio.enqueue_take(take).expect("キューへ入れられる");
+
+        let now = studio
+            .onsets_of_take(take)
+            .expect("引ける")
+            .get(&item.alias)
+            .copied()
+            .expect("2本目もその綴りの発声の始まりを持つ");
+        assert!((now - was - 100.0).abs() < f64::EPSILON);
+        let got = studio
+            .opened_mut()
+            .expect("開いている")
+            .ledger
+            .oto_of(take, &item.alias)
+            .expect("引ける")
+            .expect("エントリがある");
+        assert!(
+            (got.offset_ms - 223.0).abs() < f64::EPSILON,
+            "発声の始まりの差だけ動く: {}",
+            got.offset_ms
+        );
+        let state = studio
+            .review_queue()
+            .expect("キューを引ける")
+            .into_iter()
+            .find(|i| i.key == item.key)
+            .map(|i| i.state)
+            .expect("エントリが残っている");
+        assert_eq!(state, "in_queue", "当て直しても確認に入る");
 
         let _ = std::fs::remove_dir_all(&root);
     }

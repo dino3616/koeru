@@ -956,4 +956,36 @@ wave_parts: []
             "上へ伸ばす幅に収まる: {hi}"
         );
     }
+
+    /// 同梱曲はどれも1音符1モーラ。 取り込みの検査で同梱曲が落ちないこと。
+    #[test]
+    fn 同梱曲は一音符一モーラ() {
+        for s in bundled_songs() {
+            assert_eq!(s.note_not_one_mora(UnitSet::Core), None, "{}", s.title);
+        }
+    }
+
+    /// 内部形式はテンポと既定ピッチベンドを持つ（`TR-SYN-30`）。
+    ///
+    /// UST / USTX は読み込みの入口であって内部形式ではない。 テンポを
+    /// 落とすと、読み込んだ曲がどれも同じ速さで鳴る。
+    #[test]
+    fn 内部形式はテンポを持つ() {
+        let s = bundled_songs();
+        assert_eq!(s.len(), 1, "同梱は最小限（`TR-RCL-12`）");
+        assert!(s[0].tempo_bpm > 0.0);
+        assert!(s[0].default_portamento_ms >= 0.0);
+    }
+
+    /// 同梱曲はパブリックドメイン（`TR-SYN-30`）。
+    ///
+    /// > 同梱する課題曲は、権利処理済みのオリジナル、またはパブリックドメインの
+    /// > 旋律に限り、最小限（1〜2曲）にとどめる
+    #[test]
+    fn 同梱曲は出典と許諾を持つ() {
+        for s in bundled_songs() {
+            assert!(!s.provenance.source.trim().is_empty(), "{}", s.title);
+            assert!(!s.provenance.license.trim().is_empty(), "{}", s.title);
+        }
+    }
 }

@@ -37,7 +37,7 @@ const NETWORK_CRATES: [&str; 9] = [
 #[test]
 fn 合成の経路がhttpクライアントを引かない() {
     let root = repo_root();
-    for crate_name in ["koeru-core", "koeru-synth", "koeru-audio"] {
+    for crate_name in ["koeru-model", "koeru-core", "koeru-synth", "koeru-audio"] {
         let manifest = root.join("crates").join(crate_name).join("Cargo.toml");
         let text = std::fs::read_to_string(&manifest).expect("読めること");
         for name in NETWORK_CRATES {
@@ -57,7 +57,13 @@ fn 合成の経路がhttpクライアントを引かない() {
 fn 自分のコードがhttpクライアントを呼ばない() {
     let root = repo_root();
     let mut found = Vec::new();
-    for crate_name in ["koeru-core", "koeru-synth", "koeru-audio", "koeru-app"] {
+    for crate_name in [
+        "koeru-model",
+        "koeru-core",
+        "koeru-synth",
+        "koeru-audio",
+        "koeru-app",
+    ] {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
             for name in NETWORK_CRATES {
@@ -145,7 +151,13 @@ const EXTERNAL_PROCESS_ALLOWED: [&str; 1] = ["external.rs"];
 fn 合成の経路に外部プロセスの起動が無い() {
     let root = repo_root();
     let mut found = Vec::new();
-    for crate_name in ["koeru-core", "koeru-synth", "koeru-audio", "koeru-app"] {
+    for crate_name in [
+        "koeru-model",
+        "koeru-core",
+        "koeru-synth",
+        "koeru-audio",
+        "koeru-app",
+    ] {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
             let allowed = path
@@ -307,6 +319,10 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "semitones",
     // 収録音高の本数（`TR-REC-25`）。1 か 3 のような数で、音高そのものではない。
     "tones",
+    // 録り直しで固定した左ブランクを当て直した件数と、当て直せずに絶対位置のまま
+    // 写した件数（`DEC-ALN-019`）。数だけ。
+    "shifted",
+    "absolute",
     "bundled",
     "columns",
     "count",
@@ -380,8 +396,14 @@ fn トレースのフィールドが許可リストに収まっている() {
 
     // 全クレートを見る。 **足し忘れると、その crate だけ素通りする。**
     // `koeru-package` を足したとき、`verify` が配布名と `install.txt` の
-    // バイト列をそのままスパンへ載せていた。**踏んだ。**
-    for crate_name in CRATES {
+    // バイト列をそのままスパンへ載せていた。**踏んだ。** 名前を並べると同じことが
+    // 起きるので、`crates/` の下にあるものを全部読む。
+    let crates = workspace_crates(&root);
+    assert!(
+        crates.len() >= 8,
+        "crate が少なすぎる。読み方が壊れていないか: {crates:?}"
+    );
+    for crate_name in &crates {
         let src = root.join("crates").join(crate_name).join("src");
         walk(&src, &mut |path, text| {
             files += 1;
@@ -557,16 +579,18 @@ fn トレースのフィールドが許可リストに収まっている() {
     );
 }
 
-/// 走査する crate。 **足し忘れると、その crate だけ素通りする。**
-const CRATES: [&str; 7] = [
-    "koeru-core",
-    "koeru-synth",
-    "koeru-audio",
-    "koeru-app",
-    "koeru-align",
-    "koeru-package",
-    "koeru-failure",
-];
+/// 走査する crate。 `crates/` の下で `Cargo.toml` を持つディレクトリ全部。
+fn workspace_crates(root: &Path) -> Vec<String> {
+    let dir = root.join("crates");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{} を読めない: {e}", dir.display()))
+        .filter_map(Result::ok)
+        .filter(|e| e.path().join("Cargo.toml").is_file())
+        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+        .collect();
+    names.sort();
+    names
+}
 
 /// 検査そのものを検査する（`DEC-PLT-039`）。 読み方が壊れると、上の検査は黙って通る。
 #[test]

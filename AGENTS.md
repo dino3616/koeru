@@ -152,6 +152,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - **1パス目は `final.alimdl`（話者非依存）。** `final.mdl` は SAT で fMLLR 済みの特徴を前提にしており、素の特徴に当てると尤度が歪む。**踏んだ**
 - `ComputeFmllrDiagGmm` は使えない。 ヘッダに宣言があるだけで Kaldi に定義が無く、リンクで初めて分かる。実際の口は `FmllrDiagGmmAccs::Update`
 - **`koeru-align` にも「書いていない OS」の席がある**（`src/mfa/unsupported.rs`）。**trait を足したら両方に実装すること。踏んだ**
+- **入出力を持たない規則は `koeru-model` に足す**（`DEC-PLT-034`）。**移行中。** `koeru-core` の `alias` / `reclist` / `song` などは `koeru-model` の再輸出で、既存の `koeru_core::…` の経路を通すためだけに残っている。依存とソースの純度は `crates/koeru-model/tests/purity.rs` が見る
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - 部品へ注入してよいクラスは lint の contract が決める（`shadcn/no-restyle`、`vite.config.ts`）。型で言えるのは「受け取るか否か」までで、「幅は良いが高さは駄目」が書けない。畳むのは外から来たものと突き合わせる1箇所だけ——`~/lib/tv` の `cn`。`tv` は畳まない入口（`tailwind-variants/lite`）から取る。詳細は `react-conventions` skill

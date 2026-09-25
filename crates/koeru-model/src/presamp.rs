@@ -353,9 +353,12 @@ pub fn parse(text: &str) -> Rules {
 /// **どの KOERU がどの OpenUtau と突き合わされたかの記録。** 配布物の readme
 /// に出す（`koeru_package::readme`）ので、受け取った側も確かめられる。
 ///
-/// 正本は `fixtures/phonemizer-parity/openutau.toml`。 CI が同じファイルを読んで
-/// 実際に突き合わせる。**2箇所に書かない**——片方だけが古くなる。
-pub const VERIFIED_OPENUTAU: &str = include_str!("../fixtures/phonemizer-parity/openutau.toml");
+/// 正本は `crates/koeru-core/fixtures/phonemizer-parity/openutau.toml`。 CI が同じファイルを
+/// 読んで実際に突き合わせる。**2箇所に書かない**——片方だけが古くなる。 置き場所は
+/// 突き合わせの試験（`koeru-core/tests/phonemizer_parity.rs`）と CI・Renovate・hash 更新が
+/// 引いているので、ここからはその場所を読みに行く。
+pub const VERIFIED_OPENUTAU: &str =
+    include_str!("../../koeru-core/fixtures/phonemizer-parity/openutau.toml");
 
 /// 突き合わせたチャンネル1つ（`DEC-SYN-010`）。
 #[derive(Debug, Clone, PartialEq, Eq)]

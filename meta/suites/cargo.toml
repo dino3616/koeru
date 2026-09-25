@@ -5,6 +5,27 @@ schema = 'test-portfolio'
 # `min_cases` は、件数を求めるどの環境でも下回らない数にしてある。 書いていない OS の席では
 # macOS の backend と Kaldi の試験が cfg で外れるので、lib の床はそちらの件数で決まる。
 
+# ## koeru-model
+
+[[suite]]
+id = 'SUITE-MODEL-001'
+title = 'koeru-model の unit 試験'
+runner = 'cargo'
+package = 'koeru-model'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 231
+
+[[suite]]
+id = 'SUITE-MODEL-002'
+title = 'koeru-model が入出力と時計を持ち込まない'
+runner = 'cargo'
+package = 'koeru-model'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['DEC-PLT-034']
+
 # ## koeru-core
 
 [[suite]]
@@ -14,7 +35,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 378
+min_cases = 159
 
 [[suite]]
 id = 'SUITE-CORE-002'
