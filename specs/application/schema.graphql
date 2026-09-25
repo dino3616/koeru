@@ -7,7 +7,8 @@
 # 何を持つか、変え方、旧コマンドからの移行表は `README.md`。
 # 検査は `cargo xtask check-schema`。
 #
-# `暫定（人が決める）` の印は、決まっていない語彙に置いた仮の選択。 印の一覧は `README.md`。
+# 語彙の選び方は `DEC-PLT-042`（識別子・量・ファイル・名前・互換の窓）と `DEC-EDT-004`（5値と
+# 編集の区間）が持つ。
 
 schema {
   query: Query
@@ -20,8 +21,7 @@ schema {
 # 取り違えると別のものを指す識別子は、それぞれ別の scalar にする（`DEC-PLT-034`）。
 # operation の検査で、テイクの識別子を行の欄へ渡すと落ちる。 wire ではどれも文字列で、
 # consumer は中身を解釈しない。 表示文・エイリアス・並びの位置から作らない（`DEC-RCL-017`）。
-#
-# 暫定（人が決める）: 識別子ごとに scalar を分けるか、組み込みの ID にまとめるか。
+# 組み込みの `ID` にまとめない（`DEC-PLT-042`）。
 
 "永続する project。 表示名を変えても、開き直しても変わらない。"
 scalar ProjectId
@@ -85,9 +85,7 @@ scalar EditingSessionId
 # ## 値
 #
 # GraphQL の Int は 32 bit で、超えうる量だけを scalar にする。 wire では JSON の数で、
-# 2^53 まで正確に届く。
-#
-# 暫定（人が決める）: 32 bit を超えうる量を scalar にするか、Float で運ぶか。
+# 2^53 まで正確に届く。 `Float` で運ばない（`DEC-PLT-042`）。
 
 "バイト数。 0 以上の整数。"
 scalar ByteCount
@@ -97,8 +95,8 @@ scalar SampleCount
 
 scalar DateTime @specifiedBy(url: "https://www.rfc-editor.org/rfc/rfc3339")
 
-# 暫定（人が決める）: ファイルの中身を base64 で運ぶか、desktop host が発行する
-# 不透明な許可（選んだファイルを指す札）で渡すか。 どちらでもパスは契約に入らない。
+# ファイルの中身は base64 で運ぶ。 パスは契約に入れない。 大きさが転送の予算を超えると
+# 測れたら、host が発行する不透明な許可へ移すことを見直す（`DEC-PLT-042`）。
 "ファイルの中身そのもの。 base64 で運ぶ。"
 scalar Base64Bytes
 
@@ -321,8 +319,8 @@ input WindowInput {
   limit: Int!
 }
 
-# 暫定（人が決める）: consumer が選んだファイルの名前を契約へ入れてよいか。 曲の題の
-# 候補を作るためだけに要る。
+# 名前は曲の題の候補を作るためだけに入れる。 ディレクトリを含めず、トレースに載せない
+# （`DEC-PLT-042`）。
 "consumer が選んだファイル。"
 input FileInput {
   "題の候補を作るための名前。 ディレクトリを含めない。"
@@ -922,8 +920,8 @@ type SettingEntry {
   boundaries: EntryBoundaries!
 }
 
-# 暫定（人が決める）: 5値をテイクの先頭からの絶対標本位置で運ぶか（`TR-EDT-01`）、
-# oto.ini と同じ相対のミリ秒で運ぶか。
+# oto.ini と同じ相対のミリ秒で運ばない。 左ブランクを動かしても他の値の位置が変わらない
+# （`DEC-EDT-004`）。
 "5値。 どれもテイクの先頭からの標本位置（`TR-EDT-01`）。"
 type EntryBoundaries {
   offset: Boundary!
@@ -997,8 +995,8 @@ type ConstraintViolation {
   slots: [BoundarySlot!]!
 }
 
-# 暫定（人が決める）: 一括編集の種類（`TR-EDT-27`）のうち、ここに置いたのは値の一括適用だけ。
-# 残りの種類の入力の形は、M6 の代表の縦切りで決める。
+# 一括編集の種類（`TR-EDT-27`）のうち、ここに置いたのは値の一括適用だけ。 残りの種類の
+# 入力の形は、M6 の代表の縦切り（T13）で決める（`DEC-PLT-042`）。
 "一括編集の対象と中身（`TR-EDT-27`, `TR-EDT-28`）。"
 input BulkEditInput {
   scope: EntryScopeInput!
@@ -1913,8 +1911,8 @@ type PlaybackAlreadyEnded {
 
 # ### 確認
 
-# 暫定（人が決める）: 確認と境界の編集に、編集の区間（`EditingSessionId`）を要るものに
-# するか。 要るものにすると、確認の画面も区間を開いてから操作する。
+# 確認と境界の編集は編集の区間（`EditingSessionId`）を要る。 閉じた上級モードから遅れて
+# 届いた編集を値で断る。 確認の画面も区間を開いてから操作する（`DEC-EDT-004`）。
 input ConfirmEntryInput {
   lease: ProjectLease!
   session: EditingSessionId!

@@ -7,7 +7,7 @@ schema = 'capability-map'
 # root の欄（Query / Mutation / Subscription）はどれも1件ずつ持つ。 それ以外の欄は、
 # 能力で読みを分けたいところにだけ置く。 検査は `cargo xtask check-schema`。
 #
-# 暫定（人が決める）: 能力の粒度と、費用の区分の語彙。
+# 能力の粒度と費用の区分の語彙は `DEC-PLT-042`。 MCP などの consumer の範囲が決まったら見直す。
 
 [vocabulary]
 capabilities = [

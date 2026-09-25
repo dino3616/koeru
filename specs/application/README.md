@@ -155,22 +155,14 @@ tauri-specta の 78 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 `Query.waveformWindow` を小さい画素数で読む。 行と確認の `key`（結合した文字列）は
 `RowId` / `EntryId` / `TargetId` に分かれる。
 
-## 人が決めること
+## 語彙の判断
 
-`schema.graphql` と `capabilities.toml` の `暫定（人が決める）` の印が、決まっていない語彙に
-置いた仮の選択。 検査を通すために1つ選んであるだけで、判断ではない。
+語彙の選び方は判断記録が持つ。 ここでは場所だけを示す。
 
-| 印のある場所 | 論点 |
+| 場所 | 判断 |
 |---|---|
-| 識別子の scalar | 種類ごとに分けるか、組み込みの `ID` にまとめるか |
-| `ByteCount` / `SampleCount` | 32 bit を超えうる量を scalar にするか、`Float` で運ぶか |
-| `Base64Bytes` | ファイルの中身を base64 で運ぶか、host が発行する不透明な許可で渡すか |
-| `FileInput.name` | 題の候補のためにファイル名を契約へ入れてよいか |
-| `EntryBoundaries` | 5値を絶対標本位置で運ぶか、oto.ini と同じ相対のミリ秒で運ぶか |
-| `BulkEditInput` | 一括編集の残りの種類の入力の形 |
-| `ConfirmEntryInput` | 確認と境界の編集に、編集の区間を要るものにするか |
-| `capabilities.toml` | 能力の粒度と、費用の区分の語彙 |
+| 識別子の scalar、`ByteCount` / `SampleCount`、`Base64Bytes`、`FileInput.name`、`capabilities.toml`、面の名前と説明の言語、互換の窓 | `DEC-PLT-042` |
+| `EntryBoundaries`、`ConfirmEntryInput` と境界の編集の `EditingSessionId` | `DEC-EDT-004` |
 
-印の外にも決まっていないものがある。 公開する語彙そのもの（面を `…Facet` と呼ぶこと、
-description を日本語で書くこと）と、互換を保つ期間（画面と同梱の consumer だけの間と、
-外部の consumer を公開したあと）。
+まだ決めていないものは次の段で決める。 一括編集の残りの種類の入力の形（`BulkEditInput`）は T13、
+書き出し前の NFC 化を書き出しの計画だけで行うか（`preflight` の副作用）は T08。
