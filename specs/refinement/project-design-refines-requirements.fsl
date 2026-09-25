@@ -17,6 +17,14 @@ refinement ProjectDesignRefinesRequirements {
   // ファイル確定は、要求層から見れば何も起きていない
   action finalize_file() -> stutter
 
+  // 録る前の予定（DEC-REC-010）は、要求層から見れば何も起きていない。
+  // 予定を書く、書いたあと .wav.part を開く前に落ちる、ファイルの無い予定に放棄の印を付ける、
+  // 応答を失った consumer が送り直す——どれも項目の状態もテイクの数も変えない
+  action declare_capture(i)      -> stutter
+  action crash_after_declare()   -> stutter
+  action abandon_stale_intent(i) -> stutter
+  action retry_commit()          -> stutter
+
   // DB へ行が載った瞬間が、要求層の「テイクが確定した」
   action commit_take() -> finalize_valid_take()
 
