@@ -222,14 +222,14 @@ product-development capability として観測する。
 
 ```text
 Decision: accepted
-Claim: untested
+Hypothesis: untested
 Release: 限定的・可逆的な範囲で許可
 ```
 
 逆に、次もありうる。
 
 ```text
-Claim: 特定条件では支持された
+Hypothesis: 特定条件では支持された
 Decision: 不採用
 理由: KOERU が守る価値や運用費用と合わない
 ```
@@ -271,10 +271,10 @@ flowchart TB
   end
 
   subgraph REPO["Repository：異なる種類の知識を混ぜない"]
-    Q["meta/questions/Q-*<br/>問い・対照案・識別条件"]
-    X["C3 design/work/Q-*<br/>action trace・試作・反例"]
+    Q["meta/questions/Q-*<br/>未解決の問い・閉じる条件"]
+    X["C3 GitHub Issue / PR<br/>action trace・試作・反例"]
     E["C5 meta/evidence/EVID-*<br/>観測・方法・出所・限界"]
-    CL["meta/claims/CLM-*<br/>経験的主張と根拠状態"]
+    CL["meta/hypotheses/HYP-*<br/>経験的主張と根拠状態"]
     CAN["C6 現在の規範<br/>Vision／TR／FSL／DEC／PAT"]
   end
 
@@ -286,7 +286,7 @@ flowchart TB
   subgraph TOOLS["道具：判断を代行せず、判断可能な状態を作る"]
     CTX["C2 cargo xtask context<br/>型付き参照グラフ・不足の明示"]
     DELTA["C8 cargo xtask context-delta<br/>旧／新グラフ・後継判断・新しい反証"]
-    CI["C7 決定的 CI<br/>既存検査＋参照・Claim・実行範囲の検査"]
+    CI["C7 決定的 CI<br/>既存検査＋参照・Hypothesis・実行範囲の検査"]
     AG["C9 明示起動の Agent<br/>問いの候補／別案／反例／要約<br/>規範採用・自動 merge は不可"]
     HEALTH["C10 運用の振り返り<br/>UX・再参加・異議・費用・削除候補"]
   end
@@ -357,12 +357,38 @@ flowchart TB
 | `DEC-*` | 選択、理由、採否、覆す条件 | 採用された判断は規範 |
 | `Q-*` | 未解決の問い、検討中の選択肢、閉じる条件 | いいえ |
 | `EVID-*` | 観測・調査・測定の出所と結果 | いいえ |
-| **`CLM-*`：追加** | 検証対象となる経験的主張と、その根拠状態 | いいえ |
+| **`HYP-*`：追加** | 検証対象となる経験的主張と、その根拠状態 | いいえ |
 | **`PAT-*`：追加** | 適用条件と不適用条件を持つ、再利用可能な設計実践 | 採用された範囲で規範 |
 
 `CMP-*` は流用しない。現状の `CMP` は依存部品・ライセンス監査の台帳であり、UI component の登録簿とは役割が違う。
 
-Signal、Critique、Context Bundle、Agent の各発言については、新しい恒久的な登録簿を作らない。Issue、PR、生成物、作業ディレクトリを使う。
+Signal、探索案、Blind Read、Critique、Context Bundle、Agent の各発言については、新しい恒久的な登録簿を作らない。これらは Issue、PR、commit、CI artifact、branch 上の一時 artifact に残す。
+
+### 5.1.1 PR / Issue は event log、meta は compiled memory
+
+GitHub 上の Issue / PR と `meta/` は、同じ過程を二重保存するためのものではない。
+
+> **PR は議論を残す。meta は議論の結果として、プロジェクトが今後も覚えておく必要があることだけを残す。**
+
+Issue / PR は、提案、比較、却下案、Blind Read、Critique、Agent 出力、途中の screenshot、review、diff といった**変更イベントの履歴**を持つ。  
+`meta/` は、その履歴から未来の判断へ持ち越す必要がある**現在の semantic state**だけを持つ。
+
+判断基準は、「この PR を知らない未来の Contributor が、それでも発見できなければ困るか」である。
+
+| 内容 | 原則の保存先 |
+|---|---|
+| 一回限りの没案、途中の比較、Agent の発言 | Issue / PR |
+| Blind Read の生コメント、Critique の往復 | Issue / PR |
+| branch 上だけで使う比較 Story / screenshot | PR と対象 commit |
+| 次の変更へ持ち越す未解決の未知 | `Q-*` |
+| 将来の Decision が依存する経験的予測 | `HYP-*` |
+| 別の判断でも再利用する価値がある観測 | `EVID-*` |
+| 現在の実装を拘束する採用判断 | `DEC-*` |
+| 複数箇所で再利用する設計実践 | `PAT-*` |
+
+meta object から元 Issue / PR / commit への provenance を参照してよいが、conversation 全文を Markdown に複製しない。GitHub から別 forge へ移る場合は provenance/history の移行を行い、lock-in 回避のために全議論を二重管理することはしない。
+
+一方、外部観測そのものが失われると将来の判断を再構成できない場合は、`EVID-*` に必要な観測結果・条件・限界を保存し、元資料への locator を併記する。
 
 ### 5.2 規範の種類ごとに、正本を明示する
 
@@ -419,30 +445,22 @@ docs/
 meta/
   requirements/                     # 既存
   decisions/                        # 既存
-  questions/                        # 既存。必要な Q に探索情報を追加
+  questions/                        # 既存。未解決の問いと閉じる条件
   evidence/                         # 既存。方法・観測範囲を拡張
-  claims/                           # 新規：経験的主張
+  hypotheses/                       # 新規：検証可能な経験的仮説
   patterns/                         # 新規：適用範囲付き実践
 
 design/
   policy.toml                       # 経路・費用・保持・Agent の運用設定
-  work/
-    Q-UX-nnn/
-      exploration.md                # action trace、比較、未探索領域
-      critique.md                   # Issue の重要な結論への参照
-      artifacts/                    # 残す価値のある最小限の自作 artifact
 
 crates/koeru-app/ui/
-  design-links.toml                 # UI path / story export と知識 ID の対応
+  design-links.toml                 # UI path / stable story と知識 ID の対応
   src/
     components/                     # 既存
     screens/                        # 既存
     styles/                         # 既存
-    experiments/
-      Q-UX-nnn/
-        alternatives.story.tsx      # 非出荷の比較用
   .storybook/
-    main.ts                         # stable / workbench の選択
+    main.ts                         # stable と明示起動の workbench を分離
 
 xtask/src/
   main.rs                           # 既存コマンドと新コマンドの入口
@@ -465,20 +483,25 @@ xtask/src/
     design-assist.yml                # 必要になってから追加する任意の入口
 ```
 
-`design-links.toml` は規則の複製ではない。「この screen／story は何の文脈で読むか」という対応だけを持つ。実際の story export の存在は、ビルド時に検査する。
+探索中だけ必要な比較 Story や prototype は、PR branch 上で `src/experiments/<issue-or-q>/` などに置いてよい。ただし**過程の保存を目的に main へ merge しない**。採用後も regression fixture・比較教材・再利用可能な artifact として価値がある場合だけ stable な置き場所へ昇格し、それ以外の履歴は Issue / PR が持つ。
+
+
+`design-links.toml` は規則の複製ではない。「この screen／stable story は何の文脈で読むか」という対応だけを持つ。実際の story export の存在は、ビルド時に検査する。PR 中だけの experiment は、この恒久 mapping に登録しない。
 
 ### 5.4 Schema の最小拡張
 
-#### Claim
+#### Hypothesis
+
+Hypothesis は、**まだ世界によって確かめる余地があり、Design Decision が依存しうる経験的予測**を表す。誰かの意見を集める「主張台帳」ではない。
 
 以下の ID は形式例であり、未予約である。実装時は `next-id` を拡張・使用して正式に採番する。`Q-UX-nnn` の `nnn` は採番前のプレースホルダで、`check-references` が ID として拾わない形にしている。
 
 ```toml
-schema = "design-claim"
-id = "CLM-UX-001"
+schema = "design-hypothesis"
+id = "HYP-UX-001"
 question = "Q-UX-nnn"
 
-claim_class = "semantic-comprehension"
+hypothesis_kind = "semantic-comprehension"
 statement = """
 初めて使う人が、環の外径の違いを音源の優劣ではなく、
 録れた音の量の違いとして説明できる。
@@ -498,49 +521,43 @@ limits = [
 ]
 ```
 
-Claim に「採用／不採用」を持たせない。Decision に「真／偽」を持たせない。
+Hypothesis に「採用／不採用」を持たせない。Decision に「真／偽」を持たせない。Hypothesis は Evidence によって支持・反証・scope 限定されても同じ ID のまま扱い、`untested` / `supported` / `contradicted` / `superseded` などの assessment を更新する。
 
-既存の `confidence = Fact / Assumption / Unknown / Risk` の意味も、黙って変更しない。新しい Claim の評価は、既存 Evidence の確度表記とは別の軸にする。
+既存の `confidence = Fact / Assumption / Unknown / Risk` の意味も、黙って変更しない。新しい Hypothesis の評価は、既存 Evidence の確度表記とは別の軸にする。
 
-#### Question の探索部分
+#### Question と探索過程を分離する
 
-既存の必須項目に加え、探索が必要な Question にだけ次を持たせる。
+Question は durable な未知だけを持つ。既存の `why_it_matters`、`how_to_close`、影響先の relation を中心とし、**探索中の alternatives、action trace、artifact path、作業時間の予算を Question の第二正本として保存しない。**
 
-```toml
-[design]
-risk_lane = "R1"
-discriminator = "次の操作の発見と、環の意味理解を分けて比較する"
-artifact_root = "design/work/Q-UX-nnn"
-effort_budget_minutes = 90
+探索過程は Question に対応する GitHub Issue / PR で行う。
 
-[[design.alternative]]
-key = "baseline"
-action_trace = [
-  "音源を開く",
-  "中央の声を見る",
-  "次に読む内容を探す",
-]
-predicted_difference = "比較の基準"
-artifact = "crates/koeru-app/ui/src/screens/voice-screen/voice-screen.story.tsx"
-
-[[design.alternative]]
-key = "recording-first"
-action_trace = [
-  "音源を開く",
-  "次に読む内容と録音操作を見る",
-  "録音後に声の変化へ戻る",
-]
-predicted_difference = "録音の開始は分かりやすくなるが、声の存在感が弱まるかもしれない"
-artifact = "crates/koeru-app/ui/src/experiments/Q-UX-nnn/alternatives.story.tsx"
+```text
+Issue / PR
+├── current frame
+├── alternatives / action trace
+├── Blind Read / Critique
+├── temporary Story / screenshot / commit SHA
+├── Agent output
+└── rejected alternatives
 ```
 
-選んだ案はここに書かない。選択は `DEC` に残す。
+そこから未来にも必要なものだけを昇格する。
+
+```text
+未解決の未知                    → Q-*
+将来の判断が依存する経験的予測  → HYP-*
+再利用価値のある観測            → EVID-*
+採用した選択                    → DEC-*
+再利用する実践                  → PAT-*
+```
+
+PR 側は関連 ID を参照し、meta object 側は必要なら元 Issue / PR / commit の provenance を持つ。文章を両方へコピーしない。
 
 #### Evidence と Pattern
 
 | Object | 追加する主要情報 |
 |---|---|
-| Evidence | 方法、対象 Claim、観測した revision、実行状態、参加者との関係、観測条件、元資料の locator、同一起源を表す `origin_group`、派生元、限界、公開可否 |
+| Evidence | 方法、対象 Hypothesis、観測した revision、実行状態、参加者との関係、観測条件、元資料の locator、同一起源を表す `origin_group`、派生元、限界、公開可否 |
 | Pattern | `applies_when`、`must_not_apply_when`、規則本文、例、反例、関連する TR、採用した DEC、検査先、撤回条件 |
 
 実施予定は Evidence にしない。調査計画は Question に置き、実際に観測してから Evidence を作る。
@@ -671,8 +688,8 @@ Edge の意味を区別する。
 | `depends_on` | 明示的な依存 |
 | `affects_*` | 変更時に関係を確認すべき対象。論理的含意とは限らない |
 | `answers`／`resolved_by` | Question と Decision の対応 |
-| `relies_on_claims` | Decision が期待する経験的効果 |
-| `assesses` | Evidence が評価した Claim |
+| `relies_on_hypotheses` | Decision が期待する経験的効果 |
+| `assesses` | Evidence が評価した Hypothesis |
 | `supersedes` | 判断の後継関係 |
 | `decided_by` | Pattern の採用根拠 |
 | `mentions` | コメントや文書で ID に言及しているだけ |
@@ -690,8 +707,8 @@ Edge の意味を区別する。
 
 - normative ancestor：現在有効な安全・同意・元データ保護を含む上位制約
 - supersession chain：直接関係する Decision / Pattern の現在有効な後継
-- empirical dependency：Decision が `relies_on_claims` で依存する Claim
-- contradiction closure：その Claim の contradicting Evidence と scope mismatch
+- empirical dependency：Decision が `relies_on_hypotheses` で依存する Hypothesis
+- contradiction closure：その Hypothesis の contradicting Evidence と scope mismatch
 - open uncertainty：関連する未解決 Question と release blocker
 - artifact closure：読むべき stable story / workbench / implementation
 - broken edge：root の取得に失敗した参照、orphan、UNMAPPED path
@@ -699,7 +716,7 @@ Edge の意味を区別する。
 `mentions` は原則として closure を拡張しない。必要なら presentation layer から参照候補として見る。
 
 semantic closure を集めた後でだけ、探索用の周辺 context を token / item budget 付きで広げる。
-五段先でも `supersedes → relies_on_claims → contradicting_evidence` なら重要であり、
+五段先でも `supersedes → relies_on_hypotheses → contradicting_evidence` なら重要であり、
 一段先でも単なる `mentions` なら通常は重要ではない。
 
 一般の参照グラフには循環があってよい。`visited` 集合で止める。`supersedes` の循環は不正として検査する。
@@ -713,6 +730,31 @@ UNMAPPED:
 この変更に関係する設計契約を特定できていません。
 「関係する契約がない」という意味ではありません。
 ```
+
+### 7.2.1 Current semantic state と provenance を二層にする
+
+Context Bundle は、通常まず「いま何を前提に判断するか」を返す。
+
+```text
+Level 1 — current semantic state
+TR / FSL / Q / HYP / EVID / DEC / PAT
+current implementation / stable story
+```
+
+Issue / PR の会話履歴は、既定では全文を Bundle に入れない。
+
+```text
+Level 2 — provenance / history
+Issue
+PR
+review comment
+commit
+temporary experiment artifact
+```
+
+Level 2 は、「なぜこの Decision になったか」「meta の rationale だけでは異議や却下案を再構成できない」ときに source locator から辿る。これにより、復帰者へ過去の全会話を読ませずに現在状態を提示しつつ、短い meta 記述が歴史を美化・単純化した場合には元の議論へ戻れる。
+
+Context compiler は GitHub conversation を semantic state に自動昇格させない。Issue に書かれた一意見が、引用された回数だけで Hypothesis / Evidence / Decision になることを防ぐ。
 
 ### 7.3 情報量の制御
 
@@ -769,7 +811,7 @@ PR では、採用済みの base と提案中の head を並べる。head で制
 **Transformation：** 前提と設計軸を分解し、異なる action trace を作り、識別可能な対照へ具体化する。
 
 **Output：** 比較できる試作、予測する違い、未探索領域、次の検証方法。  
-**Persistence：** Q の探索欄、`design/work/<Q>/`、実験用 story。大量の生成案は原則 ephemeral。
+**Persistence：** 主な探索過程は Question の Issue / PR。比較 Story や prototype は branch-local でよく、過程を保存するためには merge しない。未来の判断が依存する Hypothesis、再利用する Evidence、採用した Decision／Pattern だけを meta へ昇格する。
 
 **Actor：** Human、Agent、または両者の共同制作。作者性と Evidence authority は分離する。Agent が Concept prototype 全体を生成してもよいが、その生成物は利用者の支持や意味理解の証拠にはならない。  
 **Interaction model：** ローカル制作と非同期共有。必要なら短い共同制作。
@@ -963,7 +1005,7 @@ DESIGN SPACE WARNING:
 **Transformation：** 観察と解釈を分離し、基準・反例・次の変更を特定する。必要なら一緒に直してみる。
 
 **Output：** 検証すべき論点、変更案、異議への応答、実演で分かった操作。  
-**Persistence：** 主な対話は Question の Issue。重要な帰結だけを Q／EVID／DEC に移す。
+**Persistence：** 主な対話は Question の Issue。重要な帰結だけを Q／HYP／EVID／DEC／PAT に昇格する。Blind Read や Critique の transcript を別 Markdown へ複製しない。
 
 **Actor：** 作者、他の Contributor、必要な専門家。Agent は補助的な批評案を出す。  
 **Interaction model：** 非同期が標準。同期は任意の実演・共同制作に限定する。
@@ -1037,7 +1079,7 @@ Gap があること自体を失敗とはしない。作者の Intent が利用�
   何を意味すると考えたか。別解釈はあるか
 
 関係するもの：
-  Claim / Requirement / 作者の狙い / 利用場面
+  Hypothesis / Requirement / 作者の狙い / 利用場面
 
 次に試すこと：
   変更、反例、比較、観察方法
@@ -1110,12 +1152,12 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 ### Execution Contract
 
 **Purpose：** 主張の種類に合う方法で不確実性を減らし、答えられないことを答えた扱いにしない。  
-**Trigger：** Question の識別条件、重要 Claim の未検証、矛盾する観察、専門的な危険が見つかったとき。
+**Trigger：** Question の識別条件、重要 Hypothesis の未検証、矛盾する観察、専門的な危険が見つかったとき。
 
-**Input：** Claim、対象 artifact、方法、対象条件、同意・公開範囲、必要な専門性。  
-**Transformation：** 検査・観察・相談を実施し、観測と解釈を分け、Claim の適用範囲内で結果を整理する。
+**Input：** Hypothesis、対象 artifact、方法、対象条件、同意・公開範囲、必要な専門性。  
+**Transformation：** 検査・観察・相談を実施し、観測と解釈を分け、Hypothesis の適用範囲内で結果を整理する。
 
-**Output：** Evidence、Claim の評価案、未解決事項、専門家の判断条件。  
+**Output：** Evidence、Hypothesis の評価案、未解決事項、専門家の判断条件。  
 **Persistence：** 公開可能な最小記録は `meta/evidence/`。個人情報や研究用音声は同意された別の保管先。
 
 **Actor：** deterministic tool、Human observer、参加者、external specialist。Agent は計画案と整理を補助する。  
@@ -1126,18 +1168,17 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 
 **Downstream：** C6。反証が出れば C1・C3へ戻る。
 
-### 10.0 Claim と Evidence の間に Probe を置く
+### 10.0 Hypothesis と Evidence の間に Probe を置く
 
-Claim は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
-その間には、**どう観測すれば Claim を区別できるか**という実行計画が必要である。
+Hypothesis は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
+その間には、**どう観測すれば Hypothesis を区別できるか**という実行計画が必要である。
 これを Probe と呼ぶ。
 
-Probe は新しい巨大な台帳から始めない。初期形では Question または Claim の nested data とし、
-繰り返し参照する必要が生じたときだけ独立 object 化を検討する。
+Probe は新しい巨大な台帳から始めない。初期形では Issue / PR 上の検証計画として置き、実行結果は Evidence に残す。複数の Decision から再実行する必要が生じた Probe だけ、Hypothesis や検査コードから安定して参照できる形へ昇格する。
 
 ```toml
 [[probe]]
-claim = "CLM-UX-001"
+claim = "HYP-UX-001"
 method = "first-contact-comprehension"
 input = "VoiceList/UnevenCoverage"
 prediction = "外径差を録音量の差として説明する"
@@ -1151,27 +1192,27 @@ repeat_on = ["voice-ring representation changed"]
 produces = "EVID-*"
 ```
 
-Probe が最低限持つのは、対象 Claim、観測条件、予測、反証条件、method capability、
+Probe が最低限持つのは、対象 Hypothesis、観測条件、予測、反証条件、method capability、
 human requirement、再実行 trigger、生成する Evidence の種類である。
 
 したがって検証の実行系列は次になる。
 
 ```text
 Question
-  → Claim
+  → Hypothesis
   → Probe
   → Observation
   → Evidence
-  → Claim assessment
+  → Hypothesis assessment
   → Decision
 ```
 
 Probe を書いたこと自体は Evidence ではない。実行されていない Probe は planned のまま残す。
-また、同じ Claim に複数の Probe を置ける。単一の測定方法を Claim の意味と同一視しない。
+また、同じ Hypothesis に複数の Probe を置ける。単一の測定方法を Hypothesis の意味と同一視しない。
 
 ### 10.1 Evidence capability matrix
 
-| Claim の種類 | Evidence になれるもの | それだけでは Evidence にならないもの | 上げられる確信の範囲 |
+| Hypothesis の種類 | Evidence になれるもの | それだけでは Evidence にならないもの | 上げられる確信の範囲 |
 |---|---|---|---|
 | **機械的・形式的性質** | 実行された test、FSL 検査、型検査、再現可能な計測 | Agent の「問題ありません」、未実行 test | 検査したモデル・実装・条件の範囲 |
 | **視認性・知覚的区別** | 実際の描画、contrast 計測、サイズ・距離を含む人間の確認 | design token の整合、静的コードの印象だけ | 測定条件と確認者の範囲 |
@@ -1189,25 +1230,25 @@ Probe を書いたこと自体は Evidence ではない。実行されていな�
 
 ### 10.1.1 Evidence capability は機械可読な registry にする
 
-前表は説明用 projection である。実装では Claim class と observation method の組を
+前表は説明用 projection である。実装では Hypothesis kind と observation method の組を
 machine-readable な capability registry として持つ。目的は Evidence の存在確認ではなく、
-**その観測方法が、その Claim について証言する資格を持つか**を検査することである。
+**その観測方法が、その Hypothesis について証言する資格を持つか**を検査することである。
 
 概念例:
 
 ```toml
 [[capability]]
-claim_class = "semantic-comprehension"
+hypothesis_kind = "semantic-comprehension"
 method = "agent-review"
 support = "cannot-support"
 
 [[capability]]
-claim_class = "accessibility-conformance"
+hypothesis_kind = "accessibility-conformance"
 method = "browser-measurement"
 support = "can-support"
 
 [[capability]]
-claim_class = "emotional-response"
+hypothesis_kind = "emotional-response"
 method = "competitive-corpus"
 support = "hypothesis-generation-only"
 ```
@@ -1216,7 +1257,7 @@ support = "hypothesis-generation-only"
 `context-dependent` を区別する。`context-dependent` は必要条件を明示できない限り
 自動昇格させない。
 
-`check-design` は Claim と Evidence の relation をこの registry に照らす。
+`check-design` は Hypothesis と Evidence の relation をこの registry に照らす。
 ただし registry は観察内容の真偽を認定しない。正しい method label を付けた誤観察は依然として
 誤観察であり、provenance と元 artifact を追える必要がある。
 
@@ -1233,7 +1274,7 @@ support = "hypothesis-generation-only"
 同じ原研究の紹介記事十本は、十個の独立した Evidence ではない。`origin_group` と `derived_from` を持ち、同一起源を表示する。
 
 **三つ目は、方法の capability を超える結論を出さないこと。**  
-`claim_class = emotional-response` に対して、唯一の Evidence が `method = agent-review` なら、検査で止める。ただし型が正しくても内容が誤っている可能性は残る。CI は真実を認定しない。
+`hypothesis_kind = emotional-response` に対して、唯一の Evidence が `method = agent-review` なら、検査で止める。ただし型が正しくても内容が誤っている可能性は残る。CI は真実を認定しない。
 
 **四つ目は、反証を同じ表示面に出すこと。**  
 Context の要約では supporting evidence だけでなく、contradicting evidence と scope mismatch を必須表示する。
@@ -1261,10 +1302,10 @@ not-applicable
 
 ### 10.3.1 Human Verification Debt を derived queue として扱う
 
-「人間に会えないので untested のまま残す」だけでは、human-only な Claim が静かに積み上がる。
+「人間に会えないので untested のまま残す」だけでは、human-only な Hypothesis が静かに積み上がる。
 一方、それらをすべて blocking にすると KOERU は進まない。
 
-そこで、人間の観察でしか十分に扱えない未解決 Claim を正本とは別の **derived queue** として
+そこで、人間の観察でしか十分に扱えない未解決 Hypothesis を正本とは別の **derived queue** として
 いつでも取り出せるようにする。
 
 ```bash
@@ -1273,19 +1314,19 @@ cargo xtask design-debt --human
 
 出力には少なくとも次を含める。
 
-- Claim と claim class
+- Hypothesis と claim class
 - なぜ human evidence が必要か
-- その Claim に依存している Decision / Pattern
+- その Hypothesis に依存している Decision / Pattern
 - blast radius と reversibility
 - 現在持っている Evidence と不足
-- 一回の session で同時に観察できる他の Claim
+- 一回の session で同時に観察できる他の Hypothesis
 - 有効な Probe があるか
 
 優先度を単一 score にしない。人との接触機会が得られたときに、
 **その一回を最も情報価値の高い観察へ変換するための planning surface** とする。
 
-Queue から消えるのは、Claim が解決した場合だけではない。
-Decision がその Claim に依存しなくなった場合、Claim 自体が不要になった場合も含む。
+Queue から消えるのは、Hypothesis が解決した場合だけではない。
+Decision がその Hypothesis に依存しなくなった場合、Hypothesis 自体が不要になった場合も含む。
 「未検証数を減らすこと」を目的化しない。
 
 ### 10.4 専門家の位置づけ
@@ -1295,7 +1336,7 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 相談時には、次を渡す。
 
 ```text
-判断してほしい Claim
+判断してほしい Hypothesis
 対象 artifact と条件
 すでに分かっていること
 専門外も含め、答えられないことを明示してほしい旨
@@ -1314,7 +1355,7 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 **Purpose：** 不確実性が残っていても行動を選び、選択を後から変更できる形で残す。  
 **Trigger：** 比較・検証が次の行動を選べる段階に達した、または予算・期限により判断が必要になったとき。
 
-**Input：** Q、候補、Evidence、Claim の状態、異議、費用、移行・撤回方法。  
+**Input：** Q、候補、Evidence、Hypothesis の状態、異議、費用、移行・撤回方法。  
 **Transformation：** 価値判断と経験的予測を分け、採用範囲と残存リスクを決める。
 
 **Output：** DEC、必要な TR／FSL／Vision の変更、条件を満たす場合だけ PAT。  
@@ -1327,6 +1368,29 @@ Decision がその Claim に依存しなくなった場合、Claim 自体が不�
 **Failure mode：** 合意と真実の混同、古参による veto、沈黙の同意化、accepted DEC の意味の上書き。
 
 **Downstream：** C7、C2、C8。新たな異議は C1 へ戻れる。
+
+### 11.0 Canonization は event stream から durable knowledge を compile すること
+
+Canonization は、Issue / PR の会話をきれいな議事録へ書き直す作業ではない。
+
+```text
+Issue / PR event stream
+  ├─ exploration
+  ├─ critique
+  ├─ rejected alternative
+  ├─ observation
+  └─ implementation discussion
+          │
+          ▼
+durable semantic state
+  Q / HYP / EVID / DEC / PAT / TR / FSL
+```
+
+昇格条件は「その発言が重要そうだったか」ではなく、**元 PR を知らない未来の Contributor が、現在または将来の判断をするために発見できる必要があるか**である。
+
+PR に百件のコメントがあっても、残る durable object が一つの HYP と一つの DEC だけでよい場合がある。逆に、一つの短い観測でも複数の将来判断から参照されるなら EVID に昇格しうる。
+
+この compile は lossless な transcript 化ではない。失われたニュアンスが必要になったときに元 Issue / PR / commit へ戻れる provenance を保つことで、**current state の可読性と history の再検証可能性を両立する。**
 
 ### 11.1 採用するのは「範囲付きの選択」
 
@@ -1414,7 +1478,7 @@ Pattern にする条件は、次の三つである。
 **Purpose：** 判断を実物へ移し、検査した範囲を明示して出荷し、その後の経験を戻す。  
 **Trigger：** R0 修正、採用された DEC、実験版の公開、release profile の確認。
 
-**Input：** 適用する規範、artifact、変更差分、必要な検証、未検証 Claim、rollback 条件。  
+**Input：** 適用する規範、artifact、変更差分、必要な検証、未検証 Hypothesis、rollback 条件。  
 **Transformation：** 実装し、機械検査・実機確認を適切に分担し、リリース範囲を決める。
 
 **Output：** コード、story、検査結果、release の制約、再観測する項目。  
@@ -1475,7 +1539,7 @@ Pattern にする条件は、次の三つである。
 | Check | 失敗させるもの | 判定しないもの |
 |---|---|---|
 | `check-design` | 新 schema の不正、未解決参照、accepted DEC の禁止された意味変更、必要な risk 情報の欠落 | UX が良いか |
-| Claim capability check | 観測方法と Claim 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
+| Hypothesis capability check | 観測方法と Hypothesis 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
 | Context check | root の欠落、後継関係の循環、重大な不足を隠した bundle | Context が世界全体を表しているか |
 | UI boundary check | production から experiments への import | 試作の芸術的価値 |
 | Artifact provenance check | 検査対象 SHA と提示 artifact の不一致 | screenshot が望ましい体験を示すか |
@@ -1524,7 +1588,7 @@ voice hue A → B
 これらは Human UX research の代替ではない。
 **利用者がいなくても大量に攻撃できる invariance / resilience を増やす**ための Probe である。
 
-relation は PAT / TR / Claim から導出し、どの relation を何が守っているか追跡できるようにする。
+relation は PAT / TR / Hypothesis から導出し、どの relation を何が守っているか追跡できるようにする。
 「全 UI に同じ metamorphic test を課す」ことはしない。
 
 ### 12.4.2 Design Mutation Testing で Probe の感度を検査する
@@ -1549,7 +1613,7 @@ error recovery action を隠す
 FSL mutation と同様に、生き残った mutation は即 failure とは限らない。
 「Probe がその差に感度を持たない」「そもそも守る性質ではなかった」のどちらかを review する。
 
-Aesthetic / emotional Claim に mutation score を持ち込まない。適用するのは、明確な observable relation を
+Aesthetic / emotional Hypothesis に mutation score を持ち込まない。適用するのは、明確な observable relation を
 持つ Probe に限る。
 
 ### 12.5 PR template の追加欄
@@ -1567,7 +1631,7 @@ Aesthetic / emotional Claim に mutation score を持ち込まない。適用す
 
 ## 確認範囲
 実行した検査・観察:
-まだ確かめていない Claim:
+まだ確かめていない Hypothesis:
 
 ## 戻し方
 rollback / migration / 再検討条件:
@@ -1613,7 +1677,7 @@ rollback / migration / 再検討条件:
   "baseline_commit": "<full-sha>",
   "roots": ["DEC-PLT-025", "TR-RCL-19"],
   "work_item": "Q-UX-nnn",
-  "artifact": "design/work/Q-UX-nnn/exploration.md"
+  "artifact": "github:pr/201#voice-workbench@<full-sha>"
 }
 ```
 
@@ -1629,7 +1693,7 @@ Baseline がない場合は、「以前あなたが理解していたこと」�
 |---|---|
 | Decision の後継追加 | 「以前の判断は、現在この判断に置き換わった」 |
 | TR の対象・条件変更 | 「守る条件が変わった」 |
-| Claim への反証追加 | 「この前提への信頼が弱まった／見解が混在した」 |
+| Hypothesis への反証追加 | 「この前提への信頼が弱まった／見解が混在した」 |
 | Question の解決 | 「不明だったことに、こういう選択がされた」 |
 | Pattern の適用範囲変更 | 「以前の使い方が、今は範囲外になった」 |
 | free text の変更 | 「意味確認が必要」。差分と根拠箇所を示す |
@@ -1711,7 +1775,7 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 |---|---|---|---|
 | **design-frame** | `/design frame` を人間が依頼 | Signal、関連 root、既存 Question | read-only 検索。問いの候補・重複・不足を出す | 問題設定の提案 |
 | **design-explore** | Question の探索開始を依頼 | 制約、変更可能な前提、場面、比較方法 | 許可した外部資料、scratch への試作。前提の異なる案を出す | 設計提案。利用者の支持ではない |
-| **design-review** | artifact review を依頼 | SHA 固定 artifact、Claim、既存 Evidence | 必要に応じ browser／test runner。観測と予測を分けた批評 | tool で観測した事実と、AI の推論を区別 |
+| **design-review** | artifact review を依頼 | SHA 固定 artifact、Hypothesis、既存 Evidence | 必要に応じ browser／test runner。観測と予測を分けた批評 | tool で観測した事実と、AI の推論を区別 |
 | **design-reentry** | baseline を指定して復帰説明を依頼 | deterministic Delta と参照元 | read-only。変化の説明と確認箇所を出す | Delta の説明。本人の記憶の推定ではない |
 
 セッション記録の整理は `design-review` の下位操作として扱い、別の自律 Agent を増やさない。録音・記録の扱いは本人の同意と公開範囲に従う。
@@ -1724,13 +1788,13 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 | Mode／Skill | 主な仕事 | 出力の authority |
 |---|---|---|
 | **design-context-audit** | DEC / CLM / EVID / PAT の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
-| **design-verify** | Claim class から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only claim は未解決のまま返す |
+| **design-verify** | Hypothesis kind から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only claim は未解決のまま返す |
 
 `design-context-audit` は Context の意味を勝手に統合せず、「この二つは矛盾している可能性」
 という candidate を source locator 付きで返す。
 
 `design-verify` は Evidence capability registry を参照する。
-Human observation が必要な Claim に対して synthetic answer を生成せず、Human Verification Debt に送る。
+Human observation が必要な Hypothesis に対して synthetic answer を生成せず、Human Verification Debt に送る。
 
 これにより `review` は artifact critique、`verify` は検証手段、
 `context-audit` は知識構造の健全性という別の epistemic role を持つ。
@@ -1741,7 +1805,7 @@ Human observation が必要な Claim に対して synthetic answer を生成せ�
 
 ```text
 DEC を accepted にする。
-Claim を「利用者によって検証済み」にする。
+Hypothesis を「利用者によって検証済み」にする。
 自分の生成した persona を参加者として記録する。
 main を更新する。
 PR を承認・merge する。
@@ -1780,10 +1844,10 @@ Issue 作成や PR 更新だけで LLM Agent を自動起動しない方針は�
 
 CI / `xtask` は自動で少なくとも次を表面化できる。
 
-- Decision が依存する Claim に contradicting Evidence が追加された
+- Decision が依存する Hypothesis に contradicting Evidence が追加された
 - `review_triggers` に関連する Evidence / requirement change が生じた
 - PAT が参照する DEC が superseded された
-- Human-only Claim が release-critical な Decision の前提になった
+- Human-only Hypothesis が release-critical な Decision の前提になった
 - active Question の discriminator を無効にする constraint change が入った
 - Context root が orphan / unmapped になった
 
@@ -1889,7 +1953,7 @@ R0 は通常の開発経路を維持し、Agent の自動再試行・連鎖起�
 | Context bundle が、root に関係する反証や必須制約を落とした | 選択的な記憶装置になっている | traversal と fixture を修正。欠落を隠した要約を停止 |
 | 四件程度の R1 を通して、準備作業のほうが試作より重く、判断が変わった事例もない | 記録費用が便益を超えている | 必須欄・新規 object・Agent 起動を減らす |
 | 複数案の action trace が毎回ほぼ同じ | 探索が形式化している | 案数要求を外し、異なる経験・参照領域・共同制作へ戻す |
-| Claim の method は正しく書かれているが、元観察を確認できない | Schema を使った新しい Evidence Laundering | 出所と公開範囲を監査。「型が正しいから信頼」をやめる |
+| Hypothesis の method は正しく書かれているが、元観察を確認できない | Schema を使った新しい Evidence Laundering | 出所と公開範囲を監査。「型が正しいから信頼」をやめる |
 | 復帰者が元作者なしでは、判断の差と撤回条件を見つけられない | Context が索引として機能していない | root mapping、後継関係、反例 artifact を改善 |
 | 既存 Canon に反する案だけ、事前の説明負担が大きい | 文脈が参入障壁・同質化装置になっている | challenge の入口と採用側の応答責任を見直す |
 | 専門家の回答が、条件抜きの禁止事項へ変わった | 専門性を cargo-cult 化した | 専門判断の適用範囲と例外を復元 |
@@ -1944,7 +2008,7 @@ C1 で、二つの問いを混ぜないよう整理する。
 Q-UX-nnn：
   次の創作行為へ移りにくい原因は、操作の発見か、注意配分か。
 
-関連 Claim：
+関連 Hypothesis：
   環は音源への関係を助ける。
   環の大きさは優劣ではなく収録量として理解される。
 ```
@@ -1957,11 +2021,11 @@ Q-UX-nnn：
 cargo xtask context --root DEC-PLT-025 --at HEAD --format md
 ```
 
-`TR-RCL-19`、`TR-SYN-20`、関連 story、Claim、残存リスクを取得する。
+`TR-RCL-19`、`TR-SYN-20`、関連 story、Hypothesis、残存リスクを取得する。
 
 ### Exploration
 
-`design/work/Q-UX-nnn/exploration.md` と実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。
+Issue `#101` と PR branch 上の実験 story に、現状案と「次の録音を先に示し、確定後に声へ戻る案」を作る。探索メモと比較の履歴は Issue / PR に残し、`exploration.md` を別途 merge しない。
 
 同じ fixture、同じ録音量、同じ待ち時間で比較する。配色まで同時に変えて、差の原因を曖昧にしない。
 
@@ -1975,17 +2039,17 @@ Issue `#101` に workbench と SHA を提示する。
 
 機械検査では、keyboard、焦点、描画、状態遷移を確認する。
 
-協力者が得られれば、説明を先にせず録音を再開してもらい、操作と本人の説明を観察する。得られなければ、初回理解の Claim は未検証のまま残す。
+協力者が得られれば、説明を先にせず録音を再開してもらい、操作と本人の説明を観察する。得られなければ、初回理解の Hypothesis は未検証のまま残す。
 
 ### Decision
 
 仮に操作発見が改善し、声への反応も残せそうなら、限定的に新案を採用する。ただし「環が愛着を生む」まで確認できたとは書かない。
 
-新 DEC に、比較した artifact、分かったこと、未検証 Claim、戻す条件を記録する。
+新 DEC に、比較した artifact、分かったこと、未検証 Hypothesis、戻す条件を記録する。
 
 ### Implementation
 
-PR `#201` で `voice-screen`／`voice-portrait` を変更し、採用した状態を stable story に移す。実験の比較物は最小限だけ残す。
+PR `#201` で `voice-screen`／`voice-portrait` を変更し、採用した状態を stable story に移す。branch-local の比較物は、regression fixture や再利用教材として独立した価値がない限り merge せず、比較の履歴は PR に残す。
 
 ### Learning
 
@@ -2115,7 +2179,7 @@ cargo xtask context-delta \
 
 異なる音高の対象を取り違えないこと、編集済み値を保持すること、確認状態の意味が正しいことを検査する。
 
-表示の理解に関する Claim は、機械検査とは分ける。
+表示の理解に関する Hypothesis は、機械検査とは分ける。
 
 ### Decision
 
@@ -2179,7 +2243,7 @@ Contributor は KOERU の Context だけでできているのではない。
 Contributor が行うのは候補の採点だけではない。録る、聴く、配置を動かす、別案を一緒に作る活動を残す。
 
 **記録しない自由。**  
-すべての試みを Claim や Evidence にしない。遊びや途中の感触まで、正当化の義務に変えない。
+すべての試みを Hypothesis や Evidence にしない。遊びや途中の感触まで、正当化の義務に変えない。
 
 **離れて変わる自由。**  
 復帰を「正しい Context の再インストール」にしない。以前と違う見方を新しい Signal として扱う。
@@ -2203,3 +2267,5 @@ KOERU に必要なのは、現在の visual direction を永久に正当化す�
 一つの曖昧な Signal を受け入れ、必要な Context を出し、異なる体験を実物で比べ、答えられる範囲だけを Evidence にし、未検証を残したまま採用範囲を選び、後から覆せる記録を残す。その一周を、まず KOERU の一画面で成立させる。
 
 Design System の価値は、その一周を毎回重くすることではなく、**必要なときには深く疑え、必要のないときには軽く作れ、誰かが離れても創作の続きを手渡せること**にある。
+
+そのために KOERU は、制作中の思考をすべて meta へ保存しない。**制作と議論は Issue / PR で起こり、未来の判断に必要なものだけを Q / HYP / EVID / DEC / PAT へ compile する。**
