@@ -13,8 +13,8 @@
 |---|---|---|
 | **PR 1：判断の境界を明確にする** | Vision と `meta/README` の正本関係、実験 workbench を許す限定的な Decision、Signal Form、短い PR 欄 | 新 Contributor が、方針を守る変更と方針を疑う提案の両方を出せる |
 | **PR 2：最小 Context compiler** | 既存 ID と `touched` を使う `context`、不足表示、基本 graph fixture | 参照のない UI 変更を「影響なし」と表示しない。後継判断と反証を落とさない |
-| **PR 3：一つの実際の探索を通す** | Voice 画面の Question、比較 story、Issue critique、最小の Evidence／Decision | 名前と矢印ではなく、一件の変更が問いから実装まで通る |
-| **PR 4：Claim と検証範囲を型にする** | `CLM` schema、Evidence の method／実行状態、`check-design` | synthetic user と skipped test を、利用者観察・実音声確認へ昇格できない |
+| **PR 3：一つの実際の探索を通す** | Voice 画面の Question、Issue / PR 上の比較・critique、branch-local story、最小の Hypothesis／Evidence／Decision | 過程を別 Markdown に複製せず、一件の変更が問いから実装まで通る |
+| **PR 4：Hypothesis と検証範囲を型にする** | `HYP` schema、Evidence の method／実行状態、`check-design` | synthetic user と skipped test を、利用者観察・実音声確認へ昇格できない |
 | **PR 5：Delta と handoff** | checkpoint、`context-delta`、旧・新 schema fixture | 削除された関係と後継判断を含む復帰説明が出る |
 | **PR 6：必要な Agent だけを追加** | 実際に負担だった工程の Skill と bounded runner | Agent なしでも作業でき、Agent によって制作時間が増える |
 
