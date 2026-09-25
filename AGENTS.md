@@ -153,6 +153,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - `ComputeFmllrDiagGmm` は使えない。 ヘッダに宣言があるだけで Kaldi に定義が無く、リンクで初めて分かる。実際の口は `FmllrDiagGmmAccs::Update`
 - **`koeru-align` にも「書いていない OS」の席がある**（`src/mfa/unsupported.rs`）。**trait を足したら両方に実装すること。踏んだ**
 - **入出力を持たない規則は `koeru-model` に足す**（`DEC-PLT-034`）。**移行中。** `koeru-core` の `alias` / `reclist` / `song` などは `koeru-model` の再輸出で、既存の `koeru_core::…` の経路を通すためだけに残っている。依存とソースの純度は `crates/koeru-model/tests/purity.rs` が見る
+- **エイリアスを新しい鍵にしない**（`DEC-RCL-017`）。録る対象は `koeru_model::target` の構造の鍵で持ち、同値は `Catalog` が決める。**移行中**は台帳が（音高, 綴り）で持っている。綴りの持ち主の決め方は `koeru_model::selection` が持ち、台帳は事実を読んで渡すだけ
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - 部品へ注入してよいクラスは lint の contract が決める（`shadcn/no-restyle`、`vite.config.ts`）。型で言えるのは「受け取るか否か」までで、「幅は良いが高さは駄目」が書けない。畳むのは外から来たものと突き合わせる1箇所だけ——`~/lib/tv` の `cn`。`tv` は畳まない入口（`tailwind-variants/lite`）から取る。詳細は `react-conventions` skill

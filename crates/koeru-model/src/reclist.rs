@@ -188,60 +188,17 @@ impl Slot {
 ///
 /// 並びは行の中での初出順。 順がぶれると、同じリストから違う差分が出る
 /// （`TR-RCL-27`）。
+///
+/// 行が生む対象（[`crate::target::of_row`]）を描いて、同じ綴りを重ねずに並べたもの
+/// （`DEC-RCL-017`）。 連続音の先頭は `- CV`、以降は「直前の母音 CV」（`TR-SYN-12`）。
+/// CVVC の CV は先頭だけ語頭形、以降は素（`DEC-SYN-011`）——どちらも規則の描き方で決まる。
 #[must_use]
 pub fn row_entries(rules: &Rules, method: Method, line: &[Unit]) -> Vec<(String, Slot)> {
     let mut out: Vec<(String, Slot)> = Vec::new();
-    let mut push = |a: String, slot: Slot| {
-        if !out.iter().any(|(x, _)| *x == a) {
-            out.push((a, slot));
-        }
-    };
-    let cv = |i: usize, prev: Option<&str>| {
-        rules
-            .candidates(method, line[i].kana, prev)
-            .first()
-            .cloned()
-            .unwrap_or_else(|| line[i].kana.to_owned())
-    };
-    match method {
-        Method::Single => {
-            for i in 0..line.len() {
-                push(cv(i, None), Slot::Cv { mora: i });
-            }
-        }
-        // 先頭は `- CV`、以降は「直前の母音 CV」（`TR-SYN-12`）。
-        Method::Sequential => {
-            for i in 0..line.len() {
-                let prev = i.checked_sub(1).map(|p| line[p].vowel);
-                push(cv(i, prev), Slot::Cv { mora: i });
-            }
-        }
-        // CV は先頭だけ語頭形、以降は素（`DEC-SYN-011`）。
-        // 隣接から VC、行末から語尾（`TR-RCL-05`）。
-        Method::Cvvc => {
-            for i in 0..line.len() {
-                let prev = i.checked_sub(1).map(|p| line[p].vowel);
-                push(cv(i, prev), Slot::Cv { mora: i });
-                if let Some(next) = line.get(i + 1)
-                    && !next.consonant.is_empty()
-                {
-                    push(
-                        rules.vc(line[i].vowel, next.consonant),
-                        Slot::Vc {
-                            prev: i,
-                            next: i + 1,
-                        },
-                    );
-                }
-            }
-            if let Some(last) = line.last() {
-                push(
-                    rules.ending(last.vowel),
-                    Slot::Ending {
-                        mora: line.len() - 1,
-                    },
-                );
-            }
+    for (target, slot) in crate::target::of_row(method, line) {
+        let alias = crate::target::render(rules, method, &target);
+        if !out.iter().any(|(x, _)| *x == alias) {
+            out.push((alias, slot));
         }
     }
     out

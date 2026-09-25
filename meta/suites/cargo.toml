@@ -14,7 +14,7 @@ runner = 'cargo'
 package = 'koeru-model'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 231
+min_cases = 246
 
 [[suite]]
 id = 'SUITE-MODEL-002'
