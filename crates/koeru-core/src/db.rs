@@ -258,6 +258,56 @@ fn db(op: &'static str) -> impl FnOnce(diesel::result::Error) -> LedgerError {
     move |source| LedgerError::Db { op, source }
 }
 
+/// 台帳を、コミット済みの中身をすべて含む一時点の写しとして `dest` へ書く（`TR-PKG-43`）。
+///
+/// **本体のファイルを `fs::copy` しない。** [`Ledger::open`] は WAL モードで開くので、
+/// コミットした中身はチェックポイントまで `-wal` にしか無い。本体だけを写した控えは
+/// 直前のコミットを落とす（`EVID-PLT-004`）。 `VACUUM INTO` は読みのトランザクションの
+/// 中で写すので、書き手を止めずに一時点の姿が取れる。
+///
+/// 読むだけの接続で開く。 無い台帳を空で作らず、閉じるときにチェックポイントも走らせない。
+///
+/// 写しは fsync しない（SQLite もしない）。 置き場所へ出す側が行う。
+///
+/// # Errors
+///
+/// `src` が無い・SQLite として読めない、`dest` が既に中身を持つ・書けない。
+pub fn write_consistent_copy(src: &Path, dest: &Path) -> Result<()> {
+    let mut conn = SqliteConnection::establish(&read_only_url(src))
+        .map_err(|source| LedgerError::Open { source })?;
+    diesel::sql_query("VACUUM INTO ?")
+        .bind::<diesel::sql_types::Text, _>(dest.to_string_lossy().as_ref())
+        .execute(&mut conn)
+        .map_err(db("vacuum_into"))?;
+    Ok(())
+}
+
+/// `path` を読むだけで開く URI（`mode=ro`）。
+///
+/// URI では `?` と `#` が名前を打ち切り、`%` が符号の始まりになる。 ライブラリは
+/// 利用者名を含む場所に置かれるので、この3つだけを符号にする。 Windows の `C:\…` は
+/// `file:///C:\…` になり、SQLite が先頭の `/` を落とす。
+pub(crate) fn read_only_url(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let mut url = String::from("file:");
+    if path.is_absolute() {
+        url.push_str("//");
+        if !raw.starts_with('/') {
+            url.push('/');
+        }
+    }
+    for c in raw.chars() {
+        match c {
+            '%' => url.push_str("%25"),
+            '?' => url.push_str("%3f"),
+            '#' => url.push_str("%23"),
+            _ => url.push(c),
+        }
+    }
+    url.push_str("?mode=ro");
+    url
+}
+
 /// 行の出どころ（`TR-RCL-18` (g)）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowOrigin {
