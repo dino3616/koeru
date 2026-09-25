@@ -1616,7 +1616,7 @@ Pattern にする条件は、次の三つである。
 |---|---|---|
 | `check-design` | 新 schema の不正、未解決参照、accepted DEC の禁止された意味変更、必要な risk 情報の欠落 | UX が良いか |
 | Hypothesis capability check | 観測方法と Hypothesis 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
-| Context check | root の欠落、後継関係の循環、重大な不足を隠した bundle | Context が世界全体を表しているか |
+| Context check | root の欠落、後継関係の循環、重大な不足を隠した Context | Context が世界全体を表しているか |
 | UI boundary check | production から experiments への import | 試作の芸術的価値 |
 | Artifact provenance check | 検査対象 SHA と提示 artifact の不一致 | screenshot が望ましい体験を示すか |
 | Native verification gate | 必須の実音声確認が `skipped` のままの対象変更 | browser mock が実機を代替すること |
