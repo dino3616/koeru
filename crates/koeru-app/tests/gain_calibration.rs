@@ -12,12 +12,13 @@
 use koeru_audio::backend::macos as mac;
 
 #[test]
+#[ignore = "マイクが要る実機ハーネス。利用者のマイクの設定を一時的に触る。--ignored を付けて走らせる"]
 fn 入力ゲインを読み書きして元へ戻す() {
     let devices = mac::enumerate_input_devices().expect("列挙できる");
-    if devices.is_empty() {
-        println!("入力デバイスが無い。ここで戻る");
-        return;
-    }
+    assert!(
+        !devices.is_empty(),
+        "入力デバイスが無い。マイクをつないで走らせる"
+    );
 
     let mut touched = 0;
     for d in &devices {

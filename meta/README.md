@@ -13,6 +13,7 @@ FSL が扱わない情報はここが正本。 形式的な契約（状態・遷
 | 領域ごとの性能目標。上限は無い | `budgets/{領域}.toml` | `TGT-{領域}-{番号}` |
 | 代表プロジェクトの規模。予算はここから導く | `budgets/SCALE-*.toml` | `SCALE-{種別}-{番号}` |
 | リリース対象 | `profiles/PROFILE-*.toml` | `PROFILE-{名前}` |
+| 必須の試験。実行した件数と前提で判定する | `suites/{実行器}.toml` | `SUITE-{領域}-{番号}` |
 
 すべての項目が ID を持ち、ID で引ける。 1件1ファイルのものも、収集ファイルの中の1件も同じ。
 **引けないものは参照できず、参照できないものは検査できない。** 名前で参照すると、改名で黙って古くなる。
@@ -32,6 +33,7 @@ FSL が扱わない情報はここが正本。 形式的な契約（状態・遷
 | `target-set` | `budgets/` | `[[target]]` の配列。上限は無い |
 | `scale-reference` | `budgets/` | 1件1ファイル。`SCALE-*`。基点と `[[derived]]` の導出式を持つ |
 | `profile` | `profiles/` | 1件1ファイル。`PROFILE-*` |
+| `test-portfolio` | `suites/` | `[[suite]]` の配列。`SUITE-*` |
 
 1つのディレクトリに2つの形が入るのは、それが同じ種類のものだから。 予算と目標値はどちらも
 「FSL が表現できない数値」で、検査できることだけが違う。台帳と Evidence はどちらも「判断の根拠」。
@@ -102,6 +104,20 @@ cargo xtask check-meta       # 必須項目と、参照先 ID の実在
 cargo xtask check-budgets    # 配分の合計が上限を超えていないか
 cargo xtask check-coverage   # 全要件が「支える部品がある」か「外部部品が要らない」のどちらかか
 cargo xtask check-profile ID # 未決の論点がリリースを塞いでいないか
+cargo xtask check-portfolio  # 試験の target がどれも suite に登録されているか
+cargo xtask test-receipt     # 試験を走らせ、件数を suite と突き合わせて受領証を書く
 ```
 
-`check-meta` は、要件が参照する `TR-*` が登録簿に実在すること、`formalized_as` が FSL に実在すること、`depends_on` が解決することを検査する。本文の無い ID を参照する状態には戻れない。
+`check-meta` は、要件が参照する `TR-*` が登録簿に実在すること、`formalized_as` が FSL に実在すること、`depends_on` が解決することを検査する。本文の無い ID を参照する状態には戻れない。 suite の `contracts` も同じく実在を見る。
+
+## 試験の登録
+
+**試験 binary はどれも、ちょうど1件の suite に属する**（`DEC-PLT-039`）。 crate の lib、`tests/*.rs`、bin のそれぞれが1つの試験 binary になる。 登録の無いものは `check-portfolio` が落とすので、試験ファイルを足したら `suites/` にも足す。
+
+`test-receipt` は試験 binary を1本ずつ走らせ、libtest の要約行から件数を数える。 登録と合わないものは落とす。
+
+- `min_cases` — 実行した件数の下限。 これを割ると落ちる。 数え方が壊れて 0 件になったり、cfg で丸ごと外れたりしたのを見つけるための床で、正確な件数ではない
+- `manual` — `#[ignore]` にしてある手動のハーネスの数。 これより多く無視すると落ちる。 黙って外した試験を見つける
+- `platforms` / `backends` — 件数を求める環境。 `unsupported` は書いていない OS の席で、Linux・Windows と、`--cfg koeru_force_unsupported_backend` で組んだ macOS が当たる
+
+前提（モデル・fixture・マイク・実音声）を欠いたときの扱いは `DEC-PLT-039` が決めている。 手動のハーネスは `#[ignore = "理由"]` を付け、その数を `manual` に書く。

@@ -3,7 +3,10 @@
 //! recording-input.fsl の状態機械を通し、macOS のキャプチャから
 //! `.wav.part` → fsync → rename までを実機で確かめる。
 //!
-//! これは回帰テストではなく、実機ハーネス。 マイクが無い環境では途中で戻る。
+//! これは回帰テストではなく、実機ハーネス。 `#[ignore]` なので既定では走らない。
+//! 実機で `--ignored` を付けて走らせる。 **マイクが無い・音が届かないなら落ちる。**
+//! 一度は黙って戻っていて、CI のマイクの無いランナーで毎回「通過」と数えられていた
+//! （`DEC-PLT-039`）。
 //! 何が起きたかを読むために標準出力を使う。ここだけ `print_stdout` を許す
 //! （出力は tracing に統一する規律は、アプリのコードに掛かるもの）。
 
@@ -18,6 +21,7 @@
 use koeru_audio::{Session, backend::macos as mac, wav};
 
 #[test]
+#[ignore = "マイクが要る実機ハーネス。--ignored を付けて走らせる"]
 fn 録音してテイクのファイルを作る() {
     let devices = mac::enumerate_input_devices().expect("列挙");
     // **信号が届いているデバイスを選ぶ。** 既定が無音のことがある（実機で踏んだ）。
@@ -46,10 +50,9 @@ fn 録音してテイクのファイルを作る() {
             break;
         }
     }
-    let Some(dev) = chosen.or(devices.first()) else {
-        println!("入力デバイスが無い。飛ばす");
-        return;
-    };
+    let dev = chosen
+        .or(devices.first())
+        .expect("入力デバイスが無い。マイクをつないで走らせる");
 
     // ## 状態機械の手順どおりに進める（`AC-REC-101`）
     let mut s = Session::new();
@@ -99,8 +102,8 @@ fn 録音してテイクのファイルを作る() {
     } else {
         s.input_is_dead().expect("死んでいる");
         cap.disarm();
-        println!("入力が届いていないので収録しない（TR-REC-17）");
-        return;
+        // 収録しないのは製品として正しい（`TR-REC-17`）が、このハーネスは何も確かめていない。
+        panic!("入力が届いていない。マイクの権限と接続を確かめて走らせ直す");
     }
 
     s.estimate_space(1_000_000, u64::MAX).expect("残量");

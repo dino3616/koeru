@@ -1,12 +1,13 @@
 //! 実際に録った音声でアライメントが正気かを見る実機ハーネス。
 //!
-//! これは回帰テストではない。 音声が無い環境では静かに戻る
-//! （`koeru-audio` の `record_to_file.rs` と同じ形）。
+//! これは回帰テストではない。 `#[ignore]` なので既定では走らず、音声を指して
+//! `--ignored` を付けて走らせる。 **指していなければ落ちる。** 一度は静かに戻っていて、
+//! CI で毎回「通過」と数えられていた（`DEC-PLT-039`）。
 //!
 //! ```bash
 //! KOERU_ALIGN_SAMPLE_WAV=/path/to/s004_1.wav \
 //! KOERU_ALIGN_SAMPLE_READING='ぎ ぎゃ ぎゅ ぎょ' \
-//!   cargo test --package koeru-align --test alignment_on_real_audio -- --nocapture
+//!   cargo test --package koeru-align --test alignment_on_real_audio -- --ignored --nocapture
 //! ```
 //!
 //! # 何を見ているか
@@ -59,17 +60,13 @@ fn model_dir() -> Option<std::path::PathBuf> {
 
 /// アライナが置いた発声区間が、パワーで見た発声区間と重なる。
 #[test]
+#[ignore = "実音声が要る。KOERU_ALIGN_SAMPLE_WAV と KOERU_ALIGN_SAMPLE_READING を指して --ignored を付ける"]
 fn 実音声で発声の位置がパワーと合う() {
-    let (Ok(wav), Ok(reading)) = (
-        std::env::var("KOERU_ALIGN_SAMPLE_WAV"),
-        std::env::var("KOERU_ALIGN_SAMPLE_READING"),
-    ) else {
-        return;
-    };
-    let Some(dir) = model_dir() else {
-        println!("  モデルの submodule が初期化されていない");
-        return;
-    };
+    let wav = std::env::var("KOERU_ALIGN_SAMPLE_WAV")
+        .expect("KOERU_ALIGN_SAMPLE_WAV で録った WAV を指す");
+    let reading = std::env::var("KOERU_ALIGN_SAMPLE_READING")
+        .expect("KOERU_ALIGN_SAMPLE_READING で読みを渡す（例: 'ぎ ぎゃ ぎゅ ぎょ'）");
+    let dir = model_dir().expect("モデルの submodule を初期化する（setup-koeru）");
 
     let w = koeru_audio::wav::read(std::path::Path::new(&wav)).expect("wav を読める");
     let s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();

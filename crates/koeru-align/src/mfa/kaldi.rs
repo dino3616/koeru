@@ -476,8 +476,14 @@ mod tests {
     /// 実モデルの試験が1件も走らないまま `ok` と出ていた。
     ///
     /// submodule を取っていない環境では戻る（`koeru-audio` の実機ハーネスと同じ形）。
-    fn model_dir() -> Option<std::path::PathBuf> {
+    /// 同梱のモデル（`DEC-ALN-012`）。 **無ければ落とす。**
+    ///
+    /// 無いときに戻っていたので、LFS の実体が来ていない手元では 12 本が
+    /// 中身を実行せずに「通過」と数えられていた（`DEC-PLT-039`）。 CI は大きさを見て
+    /// 先に落としているが、手元にはその関門が無い。
+    fn model_dir() -> std::path::PathBuf {
         crate::mfa::model_dir()
+            .expect("MFA のモデルが無い。submodule と LFS を取り込む（setup-koeru）")
     }
 
     #[test]
@@ -505,9 +511,7 @@ mod tests {
     /// 実モデルを読む。 モデルが見つからなければ戻る。
     #[test]
     fn 実モデルを読める() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "mfa-japanese@3.0.0").expect("読める");
         // LDA の出力次元は 40（`EVID-ALN-001`）。
         assert_eq!(a.feature_dim(), 40);
@@ -518,9 +522,7 @@ mod tests {
     /// 16kHz でないものは黙って変換しない（`TR-SYN-31` と同じ規律）。
     #[test]
     fn サンプリング周波数が合わなければ拒む() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let e = a.features(&[0.0; 16000], 44_100).unwrap_err();
         assert_eq!(koeru_failure::Failure::code(&e), "mfa.rate_mismatch");
@@ -529,9 +531,7 @@ mod tests {
     /// 実モデルで特徴を作る。次元とフレーム数が理屈に合うこと。
     #[test]
     fn 実モデルで特徴を作れる() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
 
         // 1秒ぶんの正弦波。無音だと CMVN の分散が 0 になる。
@@ -561,9 +561,7 @@ mod tests {
     /// （到達水準の判定は M6。`DEC-ALN-007`）。
     #[test]
     fn 実モデルで単独音をアライメントできる() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
 
         let wave = syllable(200.0, 80.0, 500.0, 200.0);
@@ -608,9 +606,7 @@ mod tests {
     /// 飛び越しを許していて最短 1 フレーム（`EVID-ALN-001`）。
     #[test]
     fn 各音素の区間が最短長を下回らない() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let wave = syllable(200.0, 80.0, 500.0, 200.0);
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
@@ -637,9 +633,7 @@ mod tests {
     /// 同じ入力からは同じ境界が出る（`TR-ALN-29`）。
     #[test]
     fn 同じ入力からは同じ境界が出る() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let wave = syllable(150.0, 60.0, 400.0, 150.0);
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
@@ -660,9 +654,7 @@ mod tests {
     /// 当たり前に見えるが、**境界が入力と無関係な定数になっていないこと**の確認。
     #[test]
     fn 音声が長くなれば末尾の境界も動く() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
         let vowel = crate::phoneme::Phoneme::new("a").expect("ある").id();
@@ -688,9 +680,7 @@ mod tests {
     /// 音素列が空なら拒む。
     #[test]
     fn 空の音素列は拒む() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let e = a
             .align_raw(&[0.0; 16000], MODEL_SAMPLE_RATE_HZ, &[])
@@ -701,9 +691,7 @@ mod tests {
     /// 短すぎる音声は拒む。 状態の数だけフレームが要る。
     #[test]
     fn 短すぎる音声は拒む() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let k = crate::phoneme::Phoneme::new("k").expect("ある").id();
         // 10ms しかない。フレームが1〜2個。
@@ -756,9 +744,7 @@ mod tests {
     fn trait_経由で四四一〇〇の音声を扱える() {
         use crate::aligner::AlignRequest;
 
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "mfa-japanese@3.0.0").expect("読める");
 
         // 44100 Hz で作る。 マスターと同じ。
@@ -812,9 +798,7 @@ mod tests {
     /// 退避経路と違い、MFA は経路確信度を出せる（`TR-ALN-24` の成分 (1)）。
     #[test]
     fn trait_の識別子にモデルの版が入る() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "mfa-japanese@3.0.0").expect("読める");
         assert_eq!(Aligner::identity(&a), "mfa-japanese@3.0.0");
     }
@@ -825,9 +809,7 @@ mod tests {
     /// 同一プロセス内では再現するが、ここが崩れたら `TR-ALN-29` が成り立たない。
     #[test]
     fn 同じ入力からは同じ特徴が出る() {
-        let Some(dir) = model_dir() else {
-            return;
-        };
+        let dir = model_dir();
         let a = MfaAligner::open(&dir, "t").expect("読める");
         let wave: Vec<f32> = (0..8000)
             .map(|i| {

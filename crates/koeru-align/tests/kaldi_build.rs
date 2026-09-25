@@ -21,10 +21,10 @@ use koeru_align::mfa::{self, FRAME_SHIFT_MS, MODEL_SAMPLE_RATE_HZ, MfaAligner};
 
 #[test]
 fn 組んだ_kaldi_がモデルを読んで特徴を出す() {
-    // モデルは submodule ＋ LFS で入る（`DEC-ALN-012`）。無い環境では静かに戻る。
-    let Some(dir) = mfa::model_dir() else {
-        return;
-    };
+    // モデルは submodule ＋ LFS で入る（`DEC-ALN-012`）。 無ければ落とす
+    // ——戻ると「組んだ Kaldi が動く」を確かめないまま通る（`DEC-PLT-039`）。
+    let dir =
+        mfa::model_dir().expect("MFA のモデルが無い。submodule と LFS を取り込む（setup-koeru）");
     let aligner = MfaAligner::open(&dir, "kaldi_build").expect("モデルを開ける");
 
     // 変換行列を読み違えると、ここが 13 や 39 になる

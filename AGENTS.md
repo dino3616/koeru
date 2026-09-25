@@ -24,6 +24,7 @@ M2 と M4 を実装中。 録音 → テイク確定 → 試唱 → 配布パッ
 
 - `TR-*` → [meta/requirements/](meta/requirements/) ／ `DEC-*` → [meta/decisions/](meta/decisions/) ／ `Q-*` → [meta/questions/](meta/questions/)
 - `PROFILE-M1`〜`M7` → [meta/profiles/](meta/profiles/)（要件はちょうど1つに属する） ／ `BUDGET-*` → [meta/budgets/](meta/budgets/) ／ `EVID-*` → [meta/evidence/](meta/evidence/)
+- `SUITE-*` → [meta/suites/](meta/suites/)（試験 binary はちょうど1つに属する。試験ファイルを足したらここにも足す）
 
 読み方と規律は [meta/README.md](meta/README.md) と [specs/README.md](specs/README.md)。
 
@@ -94,6 +95,16 @@ cargo test --workspace --all-features
 
 ```bash
 nix develop --command cargo test --workspace --all-features
+```
+
+**緑は「実行した」ではない。** CI が見るのは `cargo xtask test-receipt` で、試験 binary を
+1本ずつ走らせて件数を `meta/suites/` の登録と突き合わせる（`DEC-PLT-039`）。 0 件で通った、
+前提を欠いて `return` した、黙って `#[ignore]` した、を落とす。 マイクや実音声が要る
+ハーネスは `#[ignore]` で、`-- --ignored` を付けて手元で走らせる。
+
+```bash
+nix develop --command cargo xtask test-receipt     # CI と同じ判定。受領証は target/receipts/
+nix develop --command cargo xtask check-portfolio  # 試験ファイルを足したら。組み立てずに見る
 ```
 
 `flake.nix` も整形と lint の対象。 `nix fmt` と `statix` と `deadnix` を CI が強制する。
