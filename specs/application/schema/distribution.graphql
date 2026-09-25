@@ -1,0 +1,349 @@
+# 配布（`Project.distribution`）。 配布に出す値を読み書きし、書き出せるかを確かめ、
+# 書き出しの計画を作ってから確定する。 在り処は返さない（`TR-PKG-45`）。
+
+# ## 読み
+
+type DistributionFacet {
+  settings: DistributionSettings!
+  "選んでいなければ null（`TR-PKG-07`）。"
+  icon: DistributionImage
+  "選んでいなければ null（`TR-PKG-07`）。"
+  portrait: DistributionImage
+  "いま書き出せるか（`TR-PKG-49`）。"
+  readiness: ExportReadiness!
+  "配布物に入るファイル（`TR-PKG-28`）。"
+  contents: [PackageFile!]!
+  "書き出しの履歴（`TR-PKG-44`）。 新しい順。"
+  releases: [Release!]!
+}
+
+type DistributionSettings {
+  "音源ルートフォルダ名（`DEC-PKG-008`）。"
+  distributionName: String!
+  profile: ExportProfile!
+  author: String
+  voice: String
+  sample: String
+  web: String
+  version: String
+  portraitOpacity: Float!
+  "立ち絵から決まる。 設定しない。"
+  portraitHeight: Int!
+  toneRangeNote: String
+  terms: String
+  creditExample: String
+  contact: String
+  disclaimer: String
+  characterNote: String
+}
+
+"書き出しのプロファイル（`TR-PKG-12`）。"
+enum ExportProfile {
+  CLASSIC
+  OPEN_UTAU
+  BOTH
+}
+
+"中身は選んだときだけ運ぶ。 設定を読むたびに画像を運ばない。"
+type DistributionImage {
+  byteLength: ByteCount!
+  mediaType: String!
+  content: Base64Bytes!
+}
+
+type ExportReadiness {
+  mayExport: Boolean!
+  "使える書き出し方。 CP932 で書けなければ減る（`TR-PKG-13`）。"
+  availableProfiles: [ExportProfile!]!
+  fileCount: Int!
+  aliasCount: Int!
+  "そのまま出せる方式（`INV-PKG-105`）。"
+  exportableMethods: [RecordingMethod!]!
+  "この音源の方式に足りていない対象（`TR-PKG-23`）。 全件。"
+  missingTargets: [RecordingTarget!]!
+  "この作り方に必要な音の表を持っているか（`TR-RCL-02`）。"
+  requiredTableKnown: Boolean!
+  "原音設定の確認が済んでいるか（`INV-ALN-003`）。"
+  settingsReviewed: Boolean!
+  findings: [PackageFinding!]!
+  "CP932 で書けない箇所（`TR-PKG-17`）。"
+  unencodable: [UnencodableText!]!
+  "下位方式への書き出し（`TR-PKG-24`, `TR-PKG-25`）。"
+  downgrades: [DowngradeOption!]!
+  "素材の名前（`TR-REC-32`）とフルスケール（`TR-REC-16`）。"
+  materials: MaterialCheck!
+}
+
+"検証で見つかった1件（`TR-PKG-51`）。 文面は画面が持つ。"
+type PackageFinding {
+  code: String!
+  "音源ルートからの名前。"
+  file: String!
+  alias: String
+  "その行の録った回へ入るため。"
+  row: RowId
+  "数を伴うものだけ。"
+  detail: String
+}
+
+type UnencodableText {
+  place: UnencodablePlace!
+  "キー名・節の見出し・エイリアス。 音源名のときは null。"
+  label: String
+  chars: [String!]!
+  "代替案。 無ければ本人が決める。"
+  suggestion: String
+  "エイリアスのときだけ、その行へ戻れる。"
+  row: RowId
+}
+
+enum UnencodablePlace {
+  VOICE_NAME
+  CHARACTER_FIELD
+  README_SECTION
+  ALIAS
+  RULES_FILE
+}
+
+type DowngradeOption {
+  method: RecordingMethod!
+  "複製される音声のおおよその大きさ。 元とほぼ同じ容量がもう1本できる。"
+  duplicatedBytes: ByteCount!
+}
+
+type MaterialCheck {
+  "NFC でない素材の名前。 残っていたら書き出さない。"
+  nonNfcNames: [String!]!
+  "フルスケールに達している採用テイク。 止めない。"
+  clippedTakes: [ClippedTake!]!
+}
+
+type ClippedTake {
+  row: RowId!
+  take: TakeId!
+  clippedRuns: Int!
+}
+
+type PackageFile {
+  "音源ルートからの名前。"
+  name: String!
+  bytes: ByteCount!
+}
+
+"在り処は持たない（`TR-PKG-45`）。 見せるのは desktop host の役目。"
+type Release {
+  id: ReleaseId!
+  version: String!
+  method: RecordingMethod!
+  aliasCount: Int!
+  validation: ReleaseValidation!
+  archiveName: String!
+  releasedAt: DateTime!
+}
+
+enum ReleaseValidation {
+  PASSED
+  PASSED_WITH_WARNINGS
+  NOT_RUN
+}
+
+"確定しない書き出しの計画。 固定した版の素材から作り、project を書き換えない。"
+type ExportPlan {
+  id: ExportPlanId!
+  basedOn: Revision!
+  method: RecordingMethod!
+  profile: ExportProfile!
+  fileCount: Int!
+  aliasCount: Int!
+  totalBytes: ByteCount!
+  "配布物の中で NFC へ揃える名前の数（`TR-REC-32`）。"
+  normalizedNames: Int!
+}
+
+enum TextEncoding {
+  CP932
+  UTF8
+}
+
+# ## 意図
+
+extend type Mutation {
+  saveDistributionSettings(input: SaveDistributionSettingsInput!): SaveDistributionSettingsPayload!
+  "アイコンか立ち絵を入れ替える（`TR-PKG-07`）。 受け取った時点で使える画像かを確かめる。"
+  replaceDistributionImage(input: ReplaceDistributionImageInput!): ReplaceDistributionImagePayload!
+  removeDistributionImage(input: RemoveDistributionImageInput!): RemoveDistributionImagePayload!
+  "書き出しの計画を作る。 project を変えない。"
+  prepareExport(input: PrepareExportInput!): PrepareExportPayload!
+  "計画どおりに書き出して、履歴に1件足す（`TR-PKG-44`）。"
+  commitExport(input: CommitExportInput!): CommitExportPayload!
+  "原音設定のファイルだけを書き出す（`TR-ALN-21`）。 確認が残っていれば通らない（`INV-ALN-003`）。"
+  exportSettingsFile(input: ExportSettingsFileInput!): ExportSettingsFilePayload!
+}
+
+input SaveDistributionSettingsInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  settings: DistributionSettingsInput!
+}
+
+"画像と、画像から決まる値はここで触らない。"
+input DistributionSettingsInput {
+  distributionName: String!
+  profile: ExportProfile!
+  author: String
+  voice: String
+  sample: String
+  web: String
+  version: String
+  portraitOpacity: Float!
+  toneRangeNote: String
+  terms: String
+  creditExample: String
+  contact: String
+  disclaimer: String
+  characterNote: String
+}
+
+type SaveDistributionSettingsPayload {
+  receipt: MutationReceipt!
+  outcome: SaveDistributionSettingsOutcome!
+}
+
+union SaveDistributionSettingsOutcome =
+  | DistributionSettingsSaved
+  | InvalidRequest
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionSettingsSaved {
+  settings: DistributionSettings!
+}
+
+"役割（`TR-PKG-07`）。"
+enum ImageRole {
+  ICON
+  PORTRAIT
+}
+
+input ReplaceDistributionImageInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  role: ImageRole!
+  file: FileInput!
+}
+
+type ReplaceDistributionImagePayload {
+  receipt: MutationReceipt!
+  outcome: ReplaceDistributionImageOutcome!
+}
+
+union ReplaceDistributionImageOutcome =
+  | DistributionImageReplaced
+  | InvalidRequest
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionImageReplaced {
+  role: ImageRole!
+  image: DistributionImage!
+}
+
+input RemoveDistributionImageInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  role: ImageRole!
+}
+
+type RemoveDistributionImagePayload {
+  receipt: MutationReceipt!
+  outcome: RemoveDistributionImageOutcome!
+}
+
+union RemoveDistributionImageOutcome =
+  | DistributionImageRemoved
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionImageRemoved {
+  role: ImageRole!
+}
+
+input PrepareExportInput {
+  lease: ProjectLease!
+  "省くと音源の方式。 下位の方式なら独立した音源として出す（`TR-PKG-24`）。"
+  method: RecordingMethod
+  "省くと保存してあるプロファイル。"
+  profile: ExportProfile
+}
+
+type PrepareExportPayload {
+  outcome: PrepareExportOutcome!
+}
+
+union PrepareExportOutcome =
+  | ExportPrepared
+  | ExportBlocked
+  | InvalidRequest
+  | CapabilityUnavailable
+  | ProjectLeaseExpired
+
+type ExportPrepared {
+  plan: ExportPlan!
+}
+
+"今は書き出せない。 何が足りないかは `readiness`。"
+type ExportBlocked implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  readiness: ExportReadiness!
+}
+
+input CommitExportInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  plan: ExportPlanId!
+}
+
+type CommitExportPayload {
+  receipt: MutationReceipt!
+  outcome: CommitExportOutcome!
+}
+
+union CommitExportOutcome =
+  | ReleasePublished
+  | RevisionConflict
+  | ReferenceNotFound
+  | StorageProblem
+  | RecoveryRequired
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type ReleasePublished {
+  release: Release!
+}
+
+input ExportSettingsFileInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  encoding: TextEncoding!
+}
+
+type ExportSettingsFilePayload {
+  receipt: MutationReceipt!
+  outcome: ExportSettingsFileOutcome!
+}
+
+union ExportSettingsFileOutcome =
+  | SettingsFileExported
+  | ActionRejected
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SettingsFileExported {
+  fileName: String!
+  entryCount: Int!
+}

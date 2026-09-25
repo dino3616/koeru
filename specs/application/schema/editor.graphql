@@ -1,0 +1,330 @@
+# 編集（`Project.editor`、M6）。 編集の区間を開き、エントリを窓で読み、境界を動かし、
+# 一括編集を確かめてから当てる。 エントリと5値の形は `review.graphql` が持つ。
+
+# ## 読み
+
+type EditorFacet {
+  "開いている編集の区間。 閉じていれば null。"
+  session(id: EditingSessionId!): EditingSession
+  "エントリの窓（`TR-EDT-26`）。 全件を一度に運ばない。"
+  entries(filter: EntryFilterInput, window: WindowInput!): EditorEntryPage!
+  "制約違反の件数（`TR-EDT-43`）。"
+  violationCount: Int!
+  "一括編集を確定せずに当てた結果（`TR-EDT-28`）。 project を変えない。"
+  bulkEditPreview(edit: BulkEditInput!): BulkEditPreviewResult!
+  "undo と redo（`TR-EDT-25`）。 編集の区間ではなく project に属する。"
+  history: EditHistory!
+}
+
+type EditingSession {
+  id: EditingSessionId!
+  mode: EditingMode!
+  "上級で制約を外しているか。 通常へ戻すと解ける。"
+  unconstrained: Boolean!
+}
+
+enum EditingMode {
+  NORMAL
+  ADVANCED
+}
+
+input EntryFilterInput {
+  tone: Int
+  aliasContains: String
+  state: ReviewState
+}
+
+type EditorEntryPage {
+  total: Int!
+  offset: Int!
+  items: [EditorEntry!]!
+}
+
+type EditorEntry {
+  entry: SettingEntry!
+  violations: [ConstraintViolation!]!
+}
+
+type ConstraintViolation {
+  code: String!
+  slots: [BoundarySlot!]!
+}
+
+# 一括編集の種類（`TR-EDT-27`）のうち、ここに置いたのは値の一括適用だけ。 残りの種類の
+# 入力の形は、M6 の代表の縦切り（T13）で決める（`DEC-PLT-042`）。
+"一括編集の対象と中身（`TR-EDT-27`, `TR-EDT-28`）。"
+input BulkEditInput {
+  scope: EntryScopeInput!
+  slot: BoundarySlot!
+  change: ValueChangeInput!
+}
+
+"""
+一括編集の対象。 `kind` で決め、TONE は `tone`、FILTER は `filter`、SELECTION は
+`entries` を読む。
+"""
+input EntryScopeInput {
+  kind: EntryScopeKind!
+  tone: Int
+  filter: EntryFilterInput
+  entries: [EntryId!]
+}
+
+enum EntryScopeKind {
+  PROJECT
+  TONE
+  FILTER
+  SELECTION
+}
+
+"値の変え方。 `mode` で決め、ABSOLUTE は `position`、OFFSET は `delta`、RATIO は `ratio` を読む。"
+input ValueChangeInput {
+  mode: ValueChangeMode!
+  "テイクの先頭からの標本位置。"
+  position: SamplePosition
+  "標本の差。 負もありうる。"
+  delta: SamplePosition
+  ratio: Float
+}
+
+enum ValueChangeMode {
+  ABSOLUTE
+  OFFSET
+  RATIO
+}
+
+# 一括編集の中身は人が打つので、予期できる形で不正になりうる。 窓の誤りと違って consumer の
+# 欠陥ではないので、結果で返す（`DEC-PLT-038`）。
+union BulkEditPreviewResult = BulkEditPreview | InvalidRequest
+
+type BulkEditPreview {
+  affected: Int!
+  "先頭から数件の変更前と変更後（`TR-EDT-28`）。"
+  samples: [BulkEditChange!]!
+}
+
+type BulkEditChange {
+  entry: EntryId!
+  before: EntryBoundaries!
+  after: EntryBoundaries!
+}
+
+type EditHistory {
+  undo: [HistoryStep!]!
+  redo: [HistoryStep!]!
+}
+
+type HistoryStep {
+  "操作の名前（`TR-EDT-25`）。"
+  label: String!
+}
+
+# ## 意図
+
+extend type Mutation {
+  beginEditing(input: BeginEditingInput!): BeginEditingPayload!
+  "通常と上級を切り替える。 データも履歴も変えない（`TR-EDT-03`）。"
+  switchEditingMode(input: SwitchEditingModeInput!): SwitchEditingModePayload!
+  endEditing(input: EndEditingInput!): EndEditingPayload!
+  "境界を1本動かし、その値を固定する（`REQ-ALN-005`）。 ドラッグ中の途中は送らない。"
+  moveBoundary(input: MoveBoundaryInput!): MoveBoundaryPayload!
+  "固定を解いて推定へ戻す（`REQ-ALN-006`）。"
+  revertBoundary(input: RevertBoundaryInput!): RevertBoundaryPayload!
+  "一括編集を当てる（`TR-EDT-27`）。 何件に及んでも undo 1件。"
+  applyBulkEdit(input: ApplyBulkEditInput!): ApplyBulkEditPayload!
+  undoEdit(input: UndoEditInput!): UndoEditPayload!
+  redoEdit(input: RedoEditInput!): RedoEditPayload!
+}
+
+input BeginEditingInput {
+  lease: ProjectLease!
+}
+
+type BeginEditingPayload {
+  outcome: BeginEditingOutcome!
+}
+
+union BeginEditingOutcome = EditingBegan | ProjectLeaseExpired
+
+"通常のモードで始まる。"
+type EditingBegan {
+  session: EditingSession!
+}
+
+input SwitchEditingModeInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  mode: EditingMode!
+  "上級で制約を外すか。 NORMAL では読まない。"
+  unconstrained: Boolean
+}
+
+type SwitchEditingModePayload {
+  outcome: SwitchEditingModeOutcome!
+}
+
+union SwitchEditingModeOutcome =
+  | EditingModeSwitched
+  | ActionRejected
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+
+type EditingModeSwitched {
+  session: EditingSession!
+}
+
+input EndEditingInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+}
+
+type EndEditingPayload {
+  outcome: EndEditingOutcome!
+}
+
+union EndEditingOutcome = EditingEnded | EditingSessionEnded | ProjectLeaseExpired
+
+type EditingEnded {
+  session: EditingSessionId!
+}
+
+input MoveBoundaryInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+  entry: EntryId!
+  slot: BoundarySlot!
+  "テイクの先頭からの標本位置。"
+  position: SamplePosition!
+  gesture: EditGesture!
+}
+
+"どの操作で動かしたか。 undo の単位と制約の当て方が操作で違う（`TR-EDT-25`）。"
+enum EditGesture {
+  DRAG
+  TYPED_VALUE
+  KEY_ASSIGN
+}
+
+type MoveBoundaryPayload {
+  receipt: MutationReceipt!
+  outcome: MoveBoundaryOutcome!
+}
+
+union MoveBoundaryOutcome =
+  | BoundaryMoved
+  | ActionRejected
+  | RevisionConflict
+  | ReferenceNotFound
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+"動かした。 制約違反を残したまま受け取ることがある（`TR-EDT-43`）。"
+type BoundaryMoved {
+  entry: SettingEntry!
+  violations: [ConstraintViolation!]!
+}
+
+input RevertBoundaryInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+  entry: EntryId!
+  slot: BoundarySlot!
+}
+
+type RevertBoundaryPayload {
+  receipt: MutationReceipt!
+  outcome: RevertBoundaryOutcome!
+}
+
+union RevertBoundaryOutcome =
+  | BoundaryReverted
+  | RevisionConflict
+  | ReferenceNotFound
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type BoundaryReverted {
+  entry: SettingEntry!
+}
+
+input ApplyBulkEditInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+  edit: BulkEditInput!
+}
+
+type ApplyBulkEditPayload {
+  receipt: MutationReceipt!
+  outcome: ApplyBulkEditOutcome!
+}
+
+union ApplyBulkEditOutcome =
+  | BulkEditApplied
+  | ActionRejected
+  | InvalidRequest
+  | RevisionConflict
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type BulkEditApplied {
+  changed: Int!
+  "固定されていて触らなかった件数（`TR-EDT-46`）。"
+  protected: Int!
+}
+
+input UndoEditInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+}
+
+type UndoEditPayload {
+  receipt: MutationReceipt!
+  outcome: UndoEditOutcome!
+}
+
+union UndoEditOutcome =
+  | EditUndone
+  | ActionRejected
+  | RevisionConflict
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type EditUndone {
+  step: HistoryStep!
+}
+
+input RedoEditInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+}
+
+type RedoEditPayload {
+  receipt: MutationReceipt!
+  outcome: RedoEditOutcome!
+}
+
+union RedoEditOutcome =
+  | EditRedone
+  | ActionRejected
+  | RevisionConflict
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type EditRedone {
+  step: HistoryStep!
+}

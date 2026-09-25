@@ -1,0 +1,149 @@
+# 背後の仕事（`Project.jobs`）。 解析と試唱の仕事を読み、やり直し、止め、観測する。
+# root ではなく `Project.jobs` の下に置く理由は `DEC-PLT-042`。 観測をやめること
+# （unsubscribe）と仕事を止めること（`cancelJob`）は別（`DEC-PLT-036`）。
+
+# ## 読み
+
+type JobQueue {
+  "待っている仕事（`TR-SYN-33`）。"
+  pending: Int!
+  running: Int!
+  active: [BackgroundJob!]!
+  "保持の期間を過ぎていれば null。"
+  job(id: JobId!): BackgroundJob
+}
+
+type BackgroundJob {
+  id: JobId!
+  kind: JobKind!
+  "何回目の試行か。"
+  attempt: Int!
+  status: JobStatus!
+  "対象がテイクのとき。"
+  take: TakeId
+  "対象が曲のとき。"
+  song: SongId
+}
+
+enum JobKind {
+  ANALYSIS
+  PREVIEW_RENDER
+  CHART
+}
+
+union JobStatus = JobQueued | JobRunning | JobSucceeded | JobFailed | JobCancelled
+
+type JobQueued {
+  since: DateTime!
+}
+
+type JobRunning {
+  startedAt: DateTime!
+  "0〜1。 測れなければ null。"
+  progress: Float
+}
+
+type JobSucceeded {
+  finishedAt: DateTime!
+}
+
+type JobFailed implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  finishedAt: DateTime!
+}
+
+type JobCancelled {
+  finishedAt: DateTime!
+  "計算そのものを止められたか。 走り始めた外部エンジンは止められないことがある。"
+  computationStopped: Boolean!
+}
+
+# ## 意図
+
+extend type Mutation {
+  "解析をやり直す。 元のテイクには触らない。"
+  retryAnalysis(input: RetryAnalysisInput!): RetryAnalysisPayload!
+  "仕事を止める。 観測をやめること（unsubscribe）とは別（`DEC-PLT-036`）。"
+  cancelJob(input: CancelJobInput!): CancelJobPayload!
+}
+
+input RetryAnalysisInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  take: TakeId!
+}
+
+type RetryAnalysisPayload {
+  receipt: MutationReceipt!
+  outcome: RetryAnalysisOutcome!
+}
+
+union RetryAnalysisOutcome =
+  | AnalysisRequeued
+  | ReferenceNotFound
+  | ResourceBusy
+  | CapabilityUnavailable
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type AnalysisRequeued {
+  job: BackgroundJob!
+}
+
+input CancelJobInput {
+  lease: ProjectLease!
+  job: JobId!
+}
+
+type CancelJobPayload {
+  outcome: CancelJobOutcome!
+}
+
+union CancelJobOutcome =
+  | JobCancelRequested
+  | JobAlreadyFinished
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+
+"止める要求を受けた。 止まったかは `jobEvents` と `JobQueue.job` で見る。"
+type JobCancelRequested {
+  job: BackgroundJob!
+}
+
+"止める前に終わっていた。 結果は公開済みで、取り消していない。"
+type JobAlreadyFinished implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  job: BackgroundJob!
+}
+
+# ## 観測
+
+extend type Subscription {
+  "仕事1件の今の状態と、以後の変化。 無い仕事と、保持の期間を過ぎた仕事は ReferenceNotFound。"
+  jobEvents(lease: ProjectLease!, job: JobId!, after: EventCursor): JobEvent!
+  "待っている仕事の数（`TR-SYN-33`）。 捨ててよく、再送しない。"
+  jobQueue(lease: ProjectLease!): JobQueueEvent!
+}
+
+union JobEvent = JobUpdated | EventGap | ProjectLeaseExpired | ReferenceNotFound
+
+"最初の1件は今の状態。"
+type JobUpdated {
+  cursor: EventCursor!
+  job: BackgroundJob!
+}
+
+union JobQueueEvent = JobQueueCounts | ProjectLeaseExpired
+
+type JobQueueCounts {
+  pending: Int!
+  running: Int!
+}

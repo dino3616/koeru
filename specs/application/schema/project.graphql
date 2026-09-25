@@ -1,0 +1,309 @@
+# project。 アプリの情報、ライブラリ、作るときの選択肢、開いた project の面と、開閉。
+#
+# root の型（Query / Mutation / Subscription）の本体はここに置く。 ほかの領域は
+# `extend type` で自分の欄を足す。
+
+# ## 読み
+
+type Query {
+  "アプリと契約の版（`DEC-PLT-035`）。"
+  application: ApplicationInfo!
+  "ライブラリにある project。 開かずに読める要約だけ。"
+  library: Library!
+  "project を作るときに選べるもの。 project に属さない。"
+  catalog: Catalog!
+  "開いた project を読む。 1つの operation の中の project 由来の欄は同じ版を観測する。"
+  project(lease: ProjectLease!): ProjectResult!
+}
+
+type ApplicationInfo {
+  version: String!
+  "この実行が約束している契約の hash。 support bundle と受領証に結び付ける。"
+  contractHash: String!
+  "マスターのレート（`TR-REC-02`）。 標本位置をミリ秒へ直すのに使う。"
+  masterSampleRate: Int!
+  limits: ContractLimits!
+  "同梱しているモデルのライセンス表記（`TR-ALN-31`）。"
+  bundledModelNotice: String!
+}
+
+"要求の大きさの上限。 数は実行が決め、契約には書かない。"
+type ContractLimits {
+  maxWindow: Int!
+  maxWaveformPixels: Int!
+  maxSpectrogramCells: Int!
+}
+
+type Library {
+  projects: [ProjectListing!]!
+}
+
+union ProjectListing = ProjectSummary | UnreadableProject
+
+type ProjectSummary {
+  id: ProjectId!
+  displayName: String!
+  method: RecordingMethod!
+  rowCount: Int!
+  voice: VoiceSummary!
+}
+
+"manifest か台帳が読めない project。"
+type UnreadableProject implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  id: ProjectId!
+  "manifest が読めたときだけ。"
+  displayName: String
+}
+
+"""
+音源の育ち具合（`DEC-PLT-025`, `DEC-PLT-027`）。 被覆と歌える曲は常に並べて出す
+（`TR-RCL-19`）。
+"""
+type VoiceSummary {
+  covered: Int!
+  required: Int!
+  "完成の状態。 書き出しの履歴を見ない（`INV-PKG-001`）。"
+  completion: CompletionState!
+  "手渡しの状態。 完成の判定はこれを見ない（`TR-PKG-33`）。"
+  handoff: HandoffState!
+  singableSongs: Int!
+  songsInBank: Int!
+  "内側から順。 五十音の行ごとの被覆。"
+  rings: [CoverageRing!]!
+  "声から作った色。 1つも録れていなければ null。"
+  color: VoiceColor
+}
+
+enum CompletionState {
+  INCOMPLETE
+  AWAITING_SETTINGS
+  COMPLETE
+}
+
+enum HandoffState {
+  NOT_EXPORTED
+  EXPORTED
+}
+
+type CoverageRing {
+  covered: Int!
+  total: Int!
+}
+
+"彩度と明度は 0〜1 の位置。 面ごとの幅への写しは画面が持つ（`DEC-PLT-027`）。"
+type VoiceColor {
+  hue: Float!
+  chroma: Float!
+  lightness: Float!
+}
+
+type Catalog {
+  "選べる作り方（`TR-RCL-11`）。 収録音高の本数は所要時間にだけ効く。"
+  methodPresets(toneCount: Int!): [MethodPreset!]!
+  "収録音高の出発点（`TR-RCL-06`）。 制約ではない。"
+  toneSuggestions: [ToneSuggestion!]!
+  "選べる収録音高（`TR-RCL-06`）。"
+  toneOptions: [Tone!]!
+}
+
+type MethodPreset {
+  id: MethodPresetId!
+  method: RecordingMethod!
+  label: String!
+  summary: String!
+  rowCount: Int!
+  unitCount: Int!
+  "全部読み終えるまでの固定の見積もり（`TR-RCL-09`）。"
+  estimatedSeconds: Int!
+  passes: Int!
+  "読み終えると何ができるか（`TR-RCL-11`）。"
+  reach: String!
+  reading: String!
+}
+
+type ToneSuggestion {
+  label: String!
+  why: String!
+  tones: [Tone!]!
+}
+
+union ProjectResult = Project | ProjectLeaseExpired
+
+"""
+開いた project の1つの版。 欄は領域ごとの面に分け、同じ版から遅延して読む。
+面をまたいで1つの巨大な読みにしない。
+"""
+type Project {
+  id: ProjectId!
+  lease: ProjectLease!
+  "この読みが観測した版。"
+  revision: Revision!
+  displayName: String!
+  method: RecordingMethod!
+  tones: [Tone!]!
+  notices: [ProjectNotice!]!
+  voice: VoiceSummary!
+  recording: RecordingFacet!
+  review: ReviewFacet!
+  repertoire: RepertoireFacet!
+  editor: EditorFacet!
+  distribution: DistributionFacet!
+  jobs: JobQueue!
+}
+
+enum ProjectNoticeKind {
+  RULES_FILE_RESTORED
+}
+
+"本人が下ろすまで残る知らせ。"
+interface ProjectNotice {
+  kind: ProjectNoticeKind!
+}
+
+"""
+開いたときに綴りの規則を作成時のものへ戻した（`DEC-SYN-013`）。 書き換えられていた
+中身は `keptAs` の名前で project の中に残してある。
+"""
+type RulesFileRestored implements ProjectNotice {
+  kind: ProjectNoticeKind!
+  keptAs: String!
+}
+
+# ## 意図
+#
+# 名前は利用者の意図で、DB の行の作成・更新・削除を写さない。 どれも `input` を1つ取り、
+# `outcome` の union を持つ payload を返す。 確定を伴うものは `operationId` を取り、
+# payload に受領証を持つ（`DEC-PLT-035`）。
+
+type Mutation {
+  createProject(input: CreateProjectInput!): CreateProjectPayload!
+  renameProject(input: RenameProjectInput!): RenameProjectPayload!
+  "開くと収録の区間が始まる（`TR-REC-30`）。 読みの寿命に隠さない（`DEC-PLT-037`）。"
+  openProject(input: OpenProjectInput!): OpenProjectPayload!
+  closeProject(input: CloseProjectInput!): CloseProjectPayload!
+  dismissProjectNotice(input: DismissProjectNoticeInput!): DismissProjectNoticePayload!
+}
+
+input CreateProjectInput {
+  operationId: OperationId!
+  displayName: String!
+  "`Catalog.methodPresets` の `id`。"
+  preset: MethodPresetId!
+  "収録音高（MIDI）。"
+  tones: [Int!]!
+  "綴りの規則（`DEC-SYN-013`）。 無ければ同梱の既定。 あとから変える道は無い。"
+  rules: FileInput
+}
+
+type CreateProjectPayload {
+  receipt: MutationReceipt!
+  outcome: CreateProjectOutcome!
+}
+
+union CreateProjectOutcome =
+  | ProjectCreated
+  | InvalidRequest
+  | StorageProblem
+  | OperationIdReused
+
+type ProjectCreated {
+  project: ProjectSummary!
+}
+
+input RenameProjectInput {
+  operationId: OperationId!
+  project: ProjectId!
+  displayName: String!
+}
+
+type RenameProjectPayload {
+  receipt: MutationReceipt!
+  outcome: RenameProjectOutcome!
+}
+
+union RenameProjectOutcome =
+  | ProjectRenamed
+  | ReferenceNotFound
+  | InvalidRequest
+  | StorageProblem
+  | OperationIdReused
+
+type ProjectRenamed {
+  project: ProjectSummary!
+}
+
+input OpenProjectInput {
+  project: ProjectId!
+}
+
+type OpenProjectPayload {
+  outcome: OpenProjectOutcome!
+}
+
+union OpenProjectOutcome =
+  | ProjectOpened
+  | ReferenceNotFound
+  | ResourceBusy
+  | RecoveryRequired
+  | CapabilityUnavailable
+
+type ProjectOpened {
+  lease: ProjectLease!
+  project: Project!
+}
+
+input CloseProjectInput {
+  lease: ProjectLease!
+}
+
+type CloseProjectPayload {
+  outcome: CloseProjectOutcome!
+}
+
+union CloseProjectOutcome = ProjectClosed | ResourceBusy | ProjectLeaseExpired
+
+type ProjectClosed {
+  project: ProjectId!
+}
+
+input DismissProjectNoticeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  kind: ProjectNoticeKind!
+}
+
+type DismissProjectNoticePayload {
+  receipt: MutationReceipt!
+  outcome: DismissProjectNoticeOutcome!
+}
+
+union DismissProjectNoticeOutcome =
+  | ProjectNoticeDismissed
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type ProjectNoticeDismissed {
+  kind: ProjectNoticeKind!
+}
+
+# ## 観測
+#
+# 1つの operation に1つの root。 持ち主ごとに分け、届け方も持ち主ごとに違う
+# （`DEC-PLT-036`）。 unsubscribe は観測をやめるだけで、作業を止めない。
+
+type Subscription {
+  "project の変更の通知。 落とさない。 欠けたら Query で取り直す。"
+  projectEvents(lease: ProjectLease!, after: EventCursor): ProjectEvent!
+}
+
+union ProjectEvent = ProjectChanged | EventGap | ProjectLeaseExpired
+
+type ProjectChanged {
+  cursor: EventCursor!
+  revision: Revision!
+}

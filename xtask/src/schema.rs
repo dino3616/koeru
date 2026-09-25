@@ -25,7 +25,8 @@ use apollo_compiler::{Name, Schema};
 
 use crate::{Report, list_of, str_of};
 
-const SDL: &str = "specs/application/schema.graphql";
+/// 契約は領域ごとのファイルに分かれていて、この下の `*.graphql` すべてで1つになる。
+const SCHEMA: &str = "specs/application/schema";
 const OPERATIONS: &str = "specs/application/operations";
 const CAPABILITIES: &str = "specs/application/capabilities.toml";
 
@@ -64,14 +65,14 @@ const DEFAULT_DEPRECATION: &str = "No longer supported";
 
 /// `cargo xtask check-schema`
 pub(crate) fn check_schema(root: &Path, mut rep: Report) -> ExitCode {
-    let sdl = match fs::read_to_string(root.join(SDL)) {
+    let sources = match read_graphql(root, SCHEMA) {
         Ok(s) => s,
         Err(e) => {
-            rep.error(format!("{SDL} を読めない: {e}"));
+            rep.error(e);
             return rep.finish("check-schema");
         }
     };
-    let schema = match parse_schema(&sdl, SDL) {
+    let schema = match parse_schema(&sources) {
         Ok(s) => s,
         Err(errors) => {
             errors.into_iter().for_each(|e| rep.error(e));
@@ -80,7 +81,7 @@ pub(crate) fn check_schema(root: &Path, mut rep: Report) -> ExitCode {
     };
     lint_schema(&schema).into_iter().for_each(|e| rep.error(e));
 
-    let docs = match read_documents(root) {
+    let docs = match read_graphql(root, OPERATIONS) {
         Ok(d) => d,
         Err(e) => {
             rep.error(e);
@@ -126,13 +127,32 @@ pub(crate) fn check_schema(root: &Path, mut rep: Report) -> ExitCode {
     }
 
     let (types, roots) = sizes(&schema);
-    rep.note(format!("型 {types} 個、root の欄 {roots} 個"));
+    rep.note(format!(
+        "型 {types} 個、root の欄 {roots} 個、SDL {} 本",
+        sources.len()
+    ));
     rep.finish("check-schema")
 }
 
-/// SDL を読んで GraphQL の仕様どおりかを確かめる。
-fn parse_schema(src: &str, path: &str) -> Result<Valid<Schema>, Vec<String>> {
-    Schema::parse_and_validate(src, path).map_err(|e| diagnostics(&e.errors))
+/// SDL のファイルをすべて1つの schema に組み、GraphQL の仕様どおりかを確かめる。
+///
+/// root の型は1つのファイルが定義し、ほかの領域は `extend type` で欄を足す。 extension が
+/// 定義より前のファイルにあっても、apollo-compiler は定義を読んだ時点で付け直す。 どの
+/// 定義も読んだファイルの場所を持つので、診断と規則の違反はファイルを名指す。
+fn parse_schema(sources: &[(String, String)]) -> Result<Valid<Schema>, Vec<String>> {
+    // 1本も無いまま組むと、組み込みの型だけの空の契約を検査して通る。
+    if sources.is_empty() {
+        return Err(vec![format!("{SCHEMA} に SDL のファイルが1本も無い")]);
+    }
+    let mut builder = Schema::builder();
+    for (path, src) in sources {
+        builder = builder.parse(src.as_str(), path);
+    }
+    builder
+        .build()
+        .map_err(|e| diagnostics(&e.errors))?
+        .validate()
+        .map_err(|e| diagnostics(&e.errors))
 }
 
 /// operation の文書をすべて1つにまとめて検証する。
@@ -159,10 +179,11 @@ fn parse_documents(
     doc.validate(schema).map_err(|e| diagnostics(&e.errors))
 }
 
-/// `specs/application/operations/` の下の `*.graphql` を、パスの順に。
-fn read_documents(root: &Path) -> Result<Vec<(String, String)>, String> {
+/// `root` からの `dir` の下の `*.graphql` を、パスの順に。 パスは `root` からの相対で持ち、
+/// 診断の場所になる。 順を決めておくのは、診断と数の並びを実行ごとに変えないため。
+fn read_graphql(root: &Path, dir: &str) -> Result<Vec<(String, String)>, String> {
     let mut paths = Vec::new();
-    let mut stack = vec![root.join(OPERATIONS)];
+    let mut stack = vec![root.join(dir)];
     while let Some(dir) = stack.pop() {
         let rd = fs::read_dir(&dir).map_err(|e| format!("{} を読めない: {e}", dir.display()))?;
         for entry in rd.filter_map(Result::ok) {
@@ -959,22 +980,22 @@ costs = ['cheap-read', 'durable-write']
     }
 
     fn schema_of(src: &str) -> Valid<Schema> {
-        parse_schema(src, "schema.graphql").expect("GraphQL として正しい")
+        parse_schema(&files(&[("schema.graphql", src)])).expect("GraphQL として正しい")
     }
 
     fn lint(src: &str) -> Vec<String> {
         lint_schema(&schema_of(src))
     }
 
-    fn docs(files: &[(&str, &str)]) -> Vec<(String, String)> {
-        files
-            .iter()
+    /// (パス, 中身) の並び。 SDL にも operation の文書にも使う。
+    fn files(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter()
             .map(|(p, s)| ((*p).to_owned(), (*s).to_owned()))
             .collect()
     }
 
     fn base_docs() -> Vec<(String, String)> {
-        docs(&[
+        files(&[
             ("read.graphql", READ_THING),
             ("fragments.graphql", THING_NAME),
             ("rename.graphql", RENAME_THING),
@@ -999,19 +1020,83 @@ costs = ['cheap-read', 'durable-write']
     fn fragment_は文書をまたいで使える() {
         // 1本ずつ検証すると、`ThingName_Thing` が別の文書にあるだけで落ちる。
         let schema = schema_of(BASE);
-        assert!(parse_documents(&schema, &docs(&[("read.graphql", READ_THING)])).is_err());
+        assert!(parse_documents(&schema, &files(&[("read.graphql", READ_THING)])).is_err());
         assert!(parse_documents(&schema, &base_docs()).is_ok());
     }
 
     #[test]
     fn graphql_の誤りは_apollo_compiler_が落とす() {
         let broken = with("name: String!\n", "name: Missing!\n");
-        let errors = parse_schema(&broken, "schema.graphql").expect_err("未定義の型");
+        let errors = parse_schema(&files(&[("schema.graphql", &broken)])).expect_err("未定義の型");
         assert!(mentions(&errors, "Missing"), "{errors:?}");
         assert!(
             mentions(&errors, "schema.graphql:"),
             "場所が付く: {errors:?}"
         );
+    }
+
+    /// 別の領域のファイルが root の型に足す欄。 `BASE` より前に読まれる名前で置く。
+    const AREA: &str = r"
+extend type Query { other(lease: ProjectLease!): OtherResult! }
+type Other { id: ThingId! }
+union OtherResult = Other | ProjectLeaseExpired
+";
+
+    #[test]
+    fn 契約はファイルをまたいで1つに組む() {
+        // extension が root の型の定義より前のファイルにあっても、定義に付け直される。
+        let schema = parse_schema(&files(&[("area.graphql", AREA), ("base.graphql", BASE)]))
+            .expect("GraphQL として正しい");
+        assert!(schema.get_object("Other").is_some());
+        assert!(
+            schema
+                .get_object("Query")
+                .is_some_and(|q| q.fields.contains_key("other") && q.fields.contains_key("thing"))
+        );
+        assert_eq!(lint_schema(&schema), Vec::<String>::new());
+
+        // 規則はファイルをまたいで効き、違反は欄を足したファイルを名指す。
+        let stale = AREA.replace("Other | ProjectLeaseExpired", "Other");
+        let schema = parse_schema(&files(&[("area.graphql", &stale), ("base.graphql", BASE)]))
+            .expect("GraphQL として正しい");
+        let errors = lint_schema(&schema);
+        assert!(
+            mentions(&errors, "area.graphql:2:") && mentions(&errors, "Query.other"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn sdl_のディレクトリの下を読み尽くす() {
+        // 試験のプロセスごとに場所を分ける。 前に落ちた回の残りは先に消す。
+        let root = std::env::temp_dir().join(format!("koeru-xtask-schema-{}", std::process::id()));
+        fs::remove_dir_all(&root).ok();
+        let dir = root.join(SCHEMA);
+        fs::create_dir_all(dir.join("nested")).expect("作れる");
+        fs::write(dir.join("project.graphql"), BASE).expect("書ける");
+        fs::write(dir.join("nested").join("area.graphql"), AREA).expect("書ける");
+        fs::write(dir.join("notes.md"), "SDL ではない").expect("書ける");
+        let read = read_graphql(&root, SCHEMA);
+        fs::remove_dir_all(&root).expect("消せる");
+
+        let sources = read.expect("読める");
+        let paths: Vec<std::path::PathBuf> = sources.iter().map(|(p, _)| p.into()).collect();
+        let base = Path::new(SCHEMA);
+        assert_eq!(
+            paths,
+            [
+                base.join("nested").join("area.graphql"),
+                base.join("project.graphql")
+            ]
+        );
+        let schema = parse_schema(&sources).expect("GraphQL として正しい");
+        assert!(schema.get_object("Other").is_some() && schema.get_object("Thing").is_some());
+    }
+
+    #[test]
+    fn sdl_が1本も無ければ落とす() {
+        let errors = parse_schema(&[]).expect_err("0本");
+        assert!(mentions(&errors, "SDL のファイルが1本も無い"), "{errors:?}");
     }
 
     #[test]
@@ -1258,7 +1343,7 @@ costs = ['cheap-read', 'durable-write']
     #[test]
     fn 見本は非推奨の欄を選ばない() {
         let schema = schema_of(BASE);
-        let using = docs(&[
+        let using = files(&[
             ("read.graphql", READ_THING),
             (
                 "fragments.graphql",
@@ -1274,7 +1359,7 @@ costs = ['cheap-read', 'durable-write']
     #[test]
     fn operation_は名前を持ち_fragment_は持ち主_型() {
         let schema = schema_of(BASE);
-        let loose = docs(&[(
+        let loose = files(&[(
             "loose.graphql",
             "query ($lease: ProjectLease!) { thing(lease: $lease) { ... on Thing { ...Name } } }\nfragment Name on Thing { name }",
         )]);

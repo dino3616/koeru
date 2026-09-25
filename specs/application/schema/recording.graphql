@@ -1,0 +1,377 @@
+# 収録（`Project.recording`）。 録る順と行を読み、テイクを録って確定し、採用を切り替える。
+# テイクの波形とスペクトログラムは、見えている範囲だけを root の窓の欄で読む。
+
+# ## 読み
+
+extend type Query {
+  "テイクの見えている範囲の波形（`TR-PLT-04`）。 読む量は画素数で決まり、範囲の広さに比例しない。"
+  waveformWindow(input: WaveformWindowInput!): WaveformWindowResult!
+  "テイクの見えている範囲のスペクトログラム（`TR-PLT-04`）。 素材全体を先に計算しない。"
+  spectrogramWindow(input: SpectrogramWindowInput!): SpectrogramWindowResult!
+}
+
+type RecordingFacet {
+  order: RecordingOrder!
+  rows(window: WindowInput!): RowPage!
+  "この版に無ければ null。"
+  row(id: RowId!): RecordingRow
+  "この版に無ければ null。"
+  take(id: TakeId!): Take
+  "残りの見積もり（`TR-RCL-09`, `DEC-RCL-013`）。"
+  remaining: RemainingWork!
+  "音高ごとの消化率（`TR-RCL-26`）。"
+  byTone: [ToneProgress!]!
+  "この音源で使うと選んだマイク（`TR-REC-03`）。 一度も選んでいなければ null。"
+  chosenDevice: DeviceId
+  "開いている入力。 開いていなければ null。"
+  input: InputLease
+  "いま録っている1回。 録っていなければ null。"
+  activeCapture: Capture
+  "残量の見積もり（`TR-REC-41`）。"
+  space: SpaceEstimate!
+  "次のフレーズへ進むまでの長さ（`TR-REC-20`）。"
+  autoAdvanceMs: Float!
+}
+
+"録る順（`TR-SYN-19`）。 どちらの順でいるかを常に表示する。"
+type RecordingOrder {
+  mode: RecordingOrderMode!
+  "次に録る順。 収録済みの行は入らない。"
+  upcoming(window: WindowInput!): RowPage!
+}
+
+enum RecordingOrderMode {
+  SONG_BANK_FIRST
+  COVERAGE_EFFICIENCY
+}
+
+type RowPage {
+  total: Int!
+  offset: Int!
+  items: [RecordingRow!]!
+}
+
+type RecordingRow {
+  id: RowId!
+  "読み上げる文字列。 識別子ではない。"
+  prompt: String!
+  state: RowState!
+  "この行から取れる音の数。 被覆は行ではなくこれで数える（`TR-RCL-19`）。"
+  unitCount: Int!
+  "モーラ数と難読音の数（`TR-RCL-07`）。 重みを合成したスコアは返さない。"
+  moraCount: Int!
+  hardMoraCount: Int!
+  "この行を読むと録れる対象。"
+  targets: [RecordingTarget!]!
+  "世代順。 採用していないものも含む（`TR-REC-21`）。 窓で読む。"
+  takes(window: WindowInput!): TakePage!
+  "採用しているテイク。 まだ無ければ null。"
+  adoptedTake: TakeId
+}
+
+enum RowState {
+  UNRECORDED
+  RECORDED
+  NEEDS_RETAKE
+  EXCLUDED
+}
+
+"""
+録る対象（`DEC-RCL-017`）。 identity は音高・方式の上の役割・音素の文脈の組で、
+`renderedAlias` はそれを作成時の規則で描いた表現。
+"""
+type RecordingTarget {
+  id: TargetId!
+  tone: Tone!
+  shape: TargetShape!
+  "作成時に固定した規則で描いた綴り。 鍵にしない。"
+  renderedAlias: String!
+}
+
+union TargetShape = CvTarget | TransitionTarget | EndingTarget
+
+enum CvPosition {
+  ISOLATED
+  PHRASE_HEAD
+  AFTER_VOWEL
+}
+
+type CvTarget {
+  kana: String!
+  position: CvPosition!
+  "`position` が AFTER_VOWEL のときだけ。"
+  precedingVowel: String
+}
+
+"隣り合う2モーラのあいだの渡り。"
+type TransitionTarget {
+  vowel: String!
+  consonant: String!
+}
+
+"行末の母音が消えていく区間。"
+type EndingTarget {
+  vowel: String!
+}
+
+type TakePage {
+  total: Int!
+  offset: Int!
+  items: [Take!]!
+}
+
+type Take {
+  id: TakeId!
+  row: RowId!
+  "何本目か。 1 から。"
+  generation: Int!
+  "録った時刻（`DEC-RCL-015`）。 事実だけで、間隔を集計しない。"
+  recordedAt: DateTime!
+  durationMs: Float!
+  validity: TakeValidity!
+  capture: CaptureReport!
+  "派生物の状態。 テイクの確定とは別に進む。"
+  analysis: AnalysisState!
+  "このテイクから作ったエントリ（`TR-ALN-33`）。"
+  entries: [SettingEntry!]!
+}
+
+enum TakeValidity {
+  VALID
+  "取りこぼしで自動的に無効にした（`TR-REC-07`）。 同じ行がもう一度出てくる。"
+  INVALIDATED_BY_DROPOUT
+}
+
+type CaptureReport {
+  "押した瞬間より前から遡れた長さ（`TR-REC-19`）。"
+  prerollMs: Float!
+  "取りこぼしの回数（`TR-REC-07`）。"
+  discontinuities: Int!
+  "サンプルピーク（dBFS）。 無音なら null。"
+  peakDbfs: Float
+  "フルスケールに達した回数（`TR-REC-16`）。"
+  clippedRuns: Int!
+  "前後の無音（`TR-REC-38`）。 足りなくてもテイクは有効。"
+  leadingMarginMs: Float!
+  trailingMarginMs: Float!
+  hasRequiredMargins: Boolean!
+}
+
+union AnalysisState =
+  | AnalysisReady
+  | AnalysisPending
+  | AnalysisFailed
+  | AnalysisUnavailable
+
+type AnalysisReady {
+  "境界の確信度。"
+  confidence: Float!
+  "推定したあとでモデルが変わった（`TR-ALN-29`）。"
+  staleModel: Boolean!
+}
+
+type AnalysisPending {
+  job: JobId!
+}
+
+"解析が落ちた。 テイクは確定したまま残る。"
+type AnalysisFailed implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  job: JobId!
+}
+
+"この環境には解析のエンジンが無い。"
+type AnalysisUnavailable implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+type Capture {
+  id: CaptureId!
+  row: RowId!
+  startedAt: DateTime!
+}
+
+type RemainingWork {
+  "固定の見積もり。 実測では書き換えない（`DEC-RCL-013`）。"
+  seconds: Int!
+  "数え上げなので正確。 多音階では音高の本数を掛けた数。"
+  rows: Int!
+}
+
+type ToneProgress {
+  tone: Tone!
+  done: Int!
+  total: Int!
+}
+
+type SpaceEstimate {
+  remainingRows: Int!
+  rowsThatFit: Int!
+  sufficient: Boolean!
+  requiredBytes: ByteCount!
+  "保存先の空き。 引けなければ null。"
+  availableBytes: ByteCount
+}
+
+input WaveformWindowInput {
+  lease: ProjectLease!
+  take: TakeId!
+  fromMs: Float!
+  toMs: Float!
+  pixels: Int!
+}
+
+union WaveformWindowResult =
+  | WaveformWindow
+  | ProjectLeaseExpired
+  | ReferenceNotFound
+  | InvalidRequest
+
+type WaveformWindow {
+  take: TakeId!
+  "画素ごと。"
+  columns: [EnvelopeStep!]!
+}
+
+input SpectrogramWindowInput {
+  lease: ProjectLease!
+  take: TakeId!
+  fromMs: Float!
+  toMs: Float!
+  columns: Int!
+  rows: Int!
+}
+
+union SpectrogramWindowResult =
+  | SpectrogramWindow
+  | ProjectLeaseExpired
+  | ReferenceNotFound
+  | InvalidRequest
+
+type SpectrogramWindow {
+  take: TakeId!
+  columns: Int!
+  rows: Int!
+  "列を並べた強度。 1バイトで 0〜255。"
+  intensities: Base64Bytes!
+}
+
+# ## 意図
+
+extend type Mutation {
+  "行を指して録り始める。 行を省くと、録る順の先頭。 録った行なら世代を1つ足す（`TR-REC-21`）。"
+  startTake(input: StartTakeInput!): StartTakePayload!
+  "録り終えてテイクを確定する。 解析が保留でも失敗でも、確定は確定（`DEC-PLT-038`）。"
+  finishTake(input: FinishTakeInput!): FinishTakePayload!
+  "録る順を切り替える（`TR-SYN-19`）。 可逆。"
+  chooseRecordingOrder(input: ChooseRecordingOrderInput!): ChooseRecordingOrderPayload!
+  "採用するテイクを切り替える（`TR-RCL-25`）。 被覆は変わらない。"
+  adoptTake(input: AdoptTakeInput!): AdoptTakePayload!
+}
+
+input StartTakeInput {
+  lease: ProjectLease!
+  input: InputLeaseId!
+  "省くと録る順の先頭。"
+  row: RowId
+}
+
+type StartTakePayload {
+  outcome: StartTakeOutcome!
+}
+
+union StartTakeOutcome =
+  | TakeStarted
+  | ActionRejected
+  | ReferenceNotFound
+  | StorageProblem
+  | ResourceBusy
+  | DeviceUnavailable
+  | InputLeaseEnded
+  | ProjectLeaseExpired
+
+type TakeStarted {
+  capture: Capture!
+}
+
+input FinishTakeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  capture: CaptureId!
+}
+
+type FinishTakePayload {
+  receipt: MutationReceipt!
+  outcome: FinishTakeOutcome!
+}
+
+union FinishTakeOutcome =
+  | TakeCommitted
+  | ActionRejected
+  | RecoveryRequired
+  | StorageProblem
+  | DeviceUnavailable
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+"""
+テイクを確定した。 取りこぼしで無効にしたかは `take.validity`、解析の進みは
+`take.analysis` が持つ。
+"""
+type TakeCommitted {
+  take: Take!
+}
+
+input ChooseRecordingOrderInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  mode: RecordingOrderMode!
+}
+
+type ChooseRecordingOrderPayload {
+  receipt: MutationReceipt!
+  outcome: ChooseRecordingOrderOutcome!
+}
+
+union ChooseRecordingOrderOutcome =
+  | RecordingOrderChosen
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type RecordingOrderChosen {
+  order: RecordingOrder!
+}
+
+input AdoptTakeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  row: RowId!
+  take: TakeId!
+}
+
+type AdoptTakePayload {
+  receipt: MutationReceipt!
+  outcome: AdoptTakeOutcome!
+}
+
+union AdoptTakeOutcome =
+  | TakeAdopted
+  | RevisionConflict
+  | ReferenceNotFound
+  | ActionRejected
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type TakeAdopted {
+  row: RecordingRow!
+}

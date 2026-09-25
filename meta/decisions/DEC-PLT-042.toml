@@ -1,7 +1,7 @@
 schema = 'decision'
 id = 'DEC-PLT-042'
 constraint_label = '契約の語彙の初版'
-constraint = 'consumer への契約（`specs/application/schema.graphql`）で、取り違えると別のものを指す値が型で区別され、利用者のデータとパスが必要な分しか入らないこと'
+constraint = 'consumer への契約（`specs/application/schema/`）で、取り違えると別のものを指す値が型で区別され、利用者のデータとパスが必要な分しか入らないこと'
 title = '識別子は種類ごとの scalar、32 bit を超える量は専用の scalar、ファイルは名前（ディレクトリなし）と base64 の中身で運ぶ。名前と互換の窓は公開の前に見直す'
 status = 'accepted'
 owner = 'dino3616'

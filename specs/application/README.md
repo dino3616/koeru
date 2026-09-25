@@ -6,7 +6,7 @@ KOERU が画面と、これから来る consumer（MCP・自動化・拡張）�
 
 | ファイル | 何か |
 |---|---|
-| `schema.graphql` | 契約そのもの。 読みの Query、意図の Mutation、観測の Subscription |
+| `schema/*.graphql` | 契約そのもの。 領域ごとのファイルに分け、すべてで1つの契約になる。 読みの Query、意図の Mutation、観測の Subscription |
 | `operations/*.graphql` | 領域ごとの見本の operation と fragment。 画面の実装ではない |
 | `capabilities.toml` | 欄ごとの能力と費用の区分。 operation の manifest がここから能力を足し合わせる |
 
@@ -30,6 +30,11 @@ Rust の実装が SDL を満たすかは T09 が runtime の SDL との一致で
 ## 変え方
 
 規則は `DEC-PLT-035` の「変更の規則」にある。 ここでは写さない。
+
+`schema/` はファイルを領域（面）ごとに分ける。 領域をまたいで使う語彙（識別子と量の scalar、
+`Problem` と共通の結果、`WindowInput`）は `shared.graphql`、root の型の本体は `project.graphql` が持ち、
+ほかの領域は自分のファイルで `extend type Query` / `Mutation` / `Subscription` に欄を足す。
+検査はファイル名の順にすべてを読み、1つの契約として組む。
 
 `@deprecated` には代わりに使うものを書く。 見本の operation は非推奨の欄を選ばない
 （どちらも `check-schema` が落とす）。 main と PR のあいだで壊れる変更を見つけるのは

@@ -1,0 +1,322 @@
+# 曲（`Project.repertoire`）。 曲バンクを読み、ファイルから取り込み、キーを決め、
+# 録音リストを詰め直し、歌わせる。 取り込む前のファイルの中身は root の欄で読む。
+
+# ## 読み
+
+extend type Query {
+  "取り込む前の曲ファイルの中身（`TR-RCL-12`）。 台帳へ入れない。"
+  songFileDrafts(input: SongFileDraftsInput!): SongFileDraftsResult!
+}
+
+type RepertoireFacet {
+  "曲バンクの曲。 手が届く順（`TR-RCL-17`）。"
+  bank: [Song!]!
+  "取り込んだ曲すべて（`TR-RCL-12`）。"
+  songs: [Song!]!
+  "この版に無ければ null。"
+  song(id: SongId!): Song
+  "試唱の待ち時間の実測（`TR-SYN-33`）。"
+  previewLatency: [PreviewLatency!]!
+}
+
+type Song {
+  id: SongId!
+  title: String!
+  inBank: Boolean!
+  "利用許諾（`TR-RCL-12`）。 同梱分と持ち込み分を見分ける。"
+  license: String!
+  noteCount: Int!
+  moraCount: Int!
+  singability: Singability!
+  "「歌える」に含めてよいか。"
+  singable: Boolean!
+  coverage: SongCoverage!
+  key: SongKey!
+  notes(window: WindowInput!): NotePage!
+  "この曲を歌うために、あと録る行（`TR-RCL-17`）。"
+  plan: SongPlan!
+}
+
+enum Singability {
+  COMPLETE
+  WITH_FALLBACK
+  UNAVAILABLE
+}
+
+type SongCoverage {
+  covered: Int!
+  required: Int!
+  "エイリアスの一覧は返さない。 数だけ（`TR-SYN-20`）。"
+  missingUnits: Int!
+  missingRows: Int!
+  estimatedSeconds: Float!
+}
+
+type SongKey {
+  "いま当てているキー（半音）。 本人が決めたときだけ動く（`DEC-SYN-012`）。"
+  transpose: Int!
+  "勧めるキー（半音）。 当てていない。"
+  recommendedTranspose: Int!
+  "収録音高から近いか（`TR-SYN-15`）。 偽でも鳴らせる。"
+  nearRecordedTones: Boolean!
+  "足すと今のキーのまま届くようになる収録音高（`TR-RCL-22`）。 届いていれば null。"
+  rescuingTone: Tone
+}
+
+type NotePage {
+  total: Int!
+  offset: Int!
+  items: [Note!]!
+}
+
+type Note {
+  id: NoteId!
+  "1モーラぶん。"
+  lyric: String!
+  tone: Tone!
+  "480 が4分音符。"
+  ticks: Int!
+}
+
+type SongPlan {
+  rows: [RecordingRow!]!
+  "これで埋まる音の数。"
+  covers: Int!
+  "どの行にも無くて埋まらない音の数。 0 でなければ、その作り方では歌えない。"
+  unreachable: Int!
+  estimatedSeconds: Float!
+}
+
+type PreviewLatency {
+  case: LatencyCase!
+  count: Int!
+  "測っていなければ null。"
+  medianMs: Int
+  budgetMs: Int!
+  verdict: LatencyVerdict!
+}
+
+enum LatencyCase {
+  FIRST
+  WARM
+  INCREMENTAL
+  REPLAY
+}
+
+enum LatencyVerdict {
+  MEETS
+  MISSES
+  TOO_FEW_SAMPLES
+}
+
+input SongFileDraftsInput {
+  file: FileInput!
+}
+
+union SongFileDraftsResult = SongFileDrafts | InvalidRequest
+
+type SongFileDrafts {
+  drafts: [SongDraft!]!
+}
+
+type SongDraft {
+  "題の候補。 空のことがある。 そのときは本人に打たせる。"
+  titleHint: String!
+  noteCount: Int!
+  "ノートが無ければ null。"
+  lowest: Tone
+  highest: Tone
+}
+
+# ## 意図
+
+extend type Mutation {
+  "UST / USTX を取り込む（`TR-RCL-12`）。 題は本人が決める。"
+  importSongs(input: ImportSongsInput!): ImportSongsPayload!
+  renameSong(input: RenameSongInput!): RenameSongPayload!
+  "曲のキーを決める（`TR-SYN-15`）。 自動では動かさない（`DEC-SYN-012`）。"
+  transposeSong(input: TransposeSongInput!): TransposeSongPayload!
+  addSongToBank(input: AddSongToBankInput!): AddSongToBankPayload!
+  "曲をバンクから外す。 曲そのものは消さない。"
+  removeSongFromBank(input: RemoveSongFromBankInput!): RemoveSongFromBankPayload!
+  "選んだノートから録音リストを詰め直す（`TR-RCL-16`）。"
+  repackRecordingList(input: RepackRecordingListInput!): RepackRecordingListPayload!
+  "曲を歌わせる（`TR-SYN-18`）。 先頭のフレーズができた時点で鳴りはじめる。"
+  singSong(input: SingSongInput!): SingSongPayload!
+}
+
+input ImportSongsInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  file: FileInput!
+  "`songFileDrafts` の並びと同じ長さ・同じ順。 空の題は受け取らない。"
+  titles: [String!]!
+}
+
+type ImportSongsPayload {
+  receipt: MutationReceipt!
+  outcome: ImportSongsOutcome!
+}
+
+union ImportSongsOutcome =
+  | SongsImported
+  | InvalidRequest
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SongsImported {
+  songs: [Song!]!
+}
+
+input RenameSongInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  song: SongId!
+  title: String!
+}
+
+type RenameSongPayload {
+  receipt: MutationReceipt!
+  outcome: RenameSongOutcome!
+}
+
+union RenameSongOutcome =
+  | SongRenamed
+  | ReferenceNotFound
+  | InvalidRequest
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SongRenamed {
+  song: Song!
+}
+
+input TransposeSongInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  song: SongId!
+  semitones: Int!
+}
+
+type TransposeSongPayload {
+  receipt: MutationReceipt!
+  outcome: TransposeSongOutcome!
+}
+
+union TransposeSongOutcome =
+  | SongTransposed
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SongTransposed {
+  song: Song!
+}
+
+input AddSongToBankInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  song: SongId!
+}
+
+type AddSongToBankPayload {
+  receipt: MutationReceipt!
+  outcome: AddSongToBankOutcome!
+}
+
+union AddSongToBankOutcome =
+  | SongBankChanged
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SongBankChanged {
+  song: Song!
+}
+
+input RemoveSongFromBankInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  song: SongId!
+}
+
+type RemoveSongFromBankPayload {
+  receipt: MutationReceipt!
+  outcome: RemoveSongFromBankOutcome!
+}
+
+union RemoveSongFromBankOutcome =
+  | SongBankChanged
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+input RepackRecordingListInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "複数の曲から選べる。"
+  selections: [SongSelectionInput!]!
+}
+
+input SongSelectionInput {
+  song: SongId!
+  "空なら曲全体。"
+  spans: [NoteSpanInput!]!
+}
+
+"ノートの範囲。 両端を含む。"
+input NoteSpanInput {
+  first: NoteId!
+  last: NoteId!
+}
+
+type RepackRecordingListPayload {
+  receipt: MutationReceipt!
+  outcome: RepackRecordingListOutcome!
+}
+
+union RepackRecordingListOutcome =
+  | RecordingListRepacked
+  | ReferenceNotFound
+  | InvalidRequest
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type RecordingListRepacked {
+  addedRows: Int!
+}
+
+input SingSongInput {
+  lease: ProjectLease!
+  song: SongId!
+}
+
+type SingSongPayload {
+  outcome: SingSongOutcome!
+}
+
+union SingSongOutcome =
+  | SongPlaybackStarted
+  | ActionRejected
+  | ReferenceNotFound
+  | EngineFailed
+  | DeviceUnavailable
+  | ProjectLeaseExpired
+
+type SongPlaybackStarted {
+  playback: PlaybackId!
+  phrases: Int!
+  "鳴らせないので落としたフレーズ。 代わりの音を挿さない（`TR-SYN-18`）。"
+  droppedPhrases: Int!
+  durationMs: Float!
+  "音高の区画が切り替わった位置（`TR-SYN-16`）。 単音階では常に空。"
+  pitchRegionSwitches: [PitchRegionSwitch!]!
+}
+
+type PitchRegionSwitch {
+  note: NoteId!
+  "直前まで使っていた収録音高。"
+  from: Tone
+  to: Tone
+}

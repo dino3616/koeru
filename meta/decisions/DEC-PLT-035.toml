@@ -2,7 +2,7 @@ schema = 'decision'
 id = 'DEC-PLT-035'
 constraint_label = '画面と Rust の契約の正本'
 constraint = 'Rust の型を変えても consumer への約束が黙って変わらず、約束を変えたら実装と画面が黙って古いまま通らないこと'
-title = 'consumer への契約は specs/application/schema.graphql を正本にし、process 内で実行する。Rust の型から契約を生成しない'
+title = 'consumer への契約は specs/application/schema/ の SDL（領域ごとのファイル）を正本にし、process 内で実行する。Rust の型から契約を生成しない'
 status = 'accepted'
 owner = 'dino3616'
 options = [
@@ -32,7 +32,8 @@ GUI の都合がそのまま外部契約になる。
 ## 選んだもの
 
 Rust の domain model、consumer への契約、React の UX model を別のものとして持つ。
-契約は `specs/application/schema.graphql` が正本で、FSL と meta の下に置く。
+契約は `specs/application/schema/` の下の `.graphql` のファイルすべてが1つの正本で、FSL と meta の
+下に置く。 ファイルは領域ごとに分け、root の型へは各領域が `extend type` で欄を足す。
 **SDL は FSL / meta の命題を上書きしない。** product の規則は FSL と meta が持ち、
 SDL は consumer に約束する語彙・形・能力・予期できる結果・変更の規則を持つ。
 
