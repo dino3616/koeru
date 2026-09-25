@@ -466,6 +466,129 @@ deterministic tool が発見できるのは、明示された relation / typed f
 
 Pattern を今後の規則として採用したくなった場合は、Pattern object を canonize するのではなく、**新しい DEC が必要なら REQ を establish / revise する。** したがって descriptive pattern と normative rule を混同しない。
 
+### 5.1.4 Semantic Object・Operational Resource・Derived View を分ける
+
+`meta/` に ID が付いていることと、すべてが同じ種類の知識であることは別である。
+Target Architecture では、repository 内の情報を次の三層へ分ける。
+
+```text
+Authored Semantic Objects
+  Q / HYP / EVID / DEC / REQ
+
+Operational / Resource Nodes
+  PROBE / WORKLOAD / source path / story / dependency / artifact / PR / commit
+
+Derived Views
+  Context / Pattern / Budget / Component Inventory / Verification Portfolio
+  Human Verification Debt / Requirement Coverage
+```
+
+**Semantic Object** は、元の PR や tool output が消えても未来の判断から address する必要がある意味を持つ。
+
+**Operational / Resource Node** は、観測方法・代表 workload・実装 artifact・provenance など、semantic object と関係づける実体である。必ずしも `meta/` の一件一ファイル object にしない。
+
+**Derived View** は semantic graph・repository state・run receipt から再計算できる。第二正本として手書き保存しない。
+
+この区別により、現在の `BUDGET-*`、`TGT-*`、`SCALE-*`、`CMP-*`、`SUITE-*` を「既に ID があるから」という理由だけで first-class semantic object として残さない。
+
+### 5.1.5 BUDGET / TGT / SCALE / CMP / SUITE の Target migration
+
+現行 object は次のように分解する。
+
+| 現行 | Target | 理由 |
+|---|---|---|
+| `BUDGET-*` | quantitative `REQ` + allocation relation + **Budget View** | 上限は obligation。合計・余白・mode 別 peak は計算結果 |
+| `TGT-*` | 内容に応じ `REQ` / `HYP` / `EVID` / `DEC` | 「守る線」「予測」「実測」「目標を置く判断」が一つの type に混在している |
+| `SCALE-*` | `WORKLOAD` resource + `DEC` + `EVID` + derived calculation | 代表 workload の選択、実測 basis、式の結果を分離する |
+| `CMP-*` | repository dependency / artifact inventory + `DEC` / `EVID` + **Component Inventory View** | package の存在は deterministic、採否は Decision、license/measurement は Evidence |
+| `SUITE-*` | reusable `PROBE` + generated **Receipt** +必要なら `EVID` | test suite は「何をどの条件で観測できるか」という再利用可能な検証手段 |
+
+#### Budget
+
+例えば「代表 workload で process peak memory <= 1500MB」は `BUDGET` ではなく quantitative Requirement である。
+
+```toml
+id = "REQ-5H8NQ2"
+kind = "quantitative"
+metric = "process_peak_memory"
+operator = "<="
+limit = 1500
+unit = "MB"
+scope = "workload:continuous-8mora-3pitch"
+```
+
+allocation を future work の独立した obligation として拘束するなら child REQ と relation にする。単なる内訳・subtotal・margin は Budget View が計算する。
+
+#### Target
+
+`TGT` は type として維持しない。
+
+```text
+破ったら product regression になる線    → REQ
+まだ「この程度になるはず」という予測     → HYP
+実際に測った値                           → EVID
+その目標を置く／置かないという選択       → DEC
+```
+
+#### Scale
+
+代表プロジェクトを benchmark basis として選んだことは DEC、実際の行数・モーラ数などの観測は EVID、そこから計算できる件数や容量は derived calculation とする。
+
+繰り返し参照する workload は operational resource として、例えば次のような locator を持てる。
+
+```text
+verification/workloads/continuous-8mora-3pitch.toml
+workload:continuous-8mora-3pitch
+```
+
+`WORKLOAD-*` を semantic object として量産する必要はない。
+
+#### Component
+
+Cargo/Bun/Nix/submodule/asset の存在・version は repository から deterministic に inventory できる。
+採用・不採用の理由は DEC、license や benchmark の観測は EVID、不採用候補の探索過程は Issue / PR に置く。
+
+したがって `CMP-*` ledger を manually maintained SSOT とせず、repository inventory と semantic graph を join した Component Inventory View を生成する。
+
+Requirement coverage も「外部 component があるか」ではなく、少なくとも次の relation で読む。
+
+```text
+REQ
+  ← formalizes ─ FSL
+  ← verified by ─ PROBE
+  ← implemented by ─ source / dependency / artifact
+```
+
+#### Suite / Probe / Receipt / Evidence
+
+自動 test、Storybook interaction、native harness、人間の確認手順など、繰り返し実行する検証方法は `PROBE` として扱う。
+
+```text
+PROBE
+  = 何を、どの条件で、どの runner / fixture / capability を使って観測するか
+
+Receipt
+  = 特定 SHA / platform / backend / fixture で今回何を実行したか
+
+EVID
+  = Receipt や人間観察から、未来の複数判断で再利用する価値がある観測を canonize したもの
+```
+
+すべての Probe 実行を `EVID-*` に昇格しない。CI の毎回の結果は generated Receipt で十分である。
+一方、設計判断の根拠として長期参照する観測だけ EVID にする。
+
+Target directory の例:
+
+```text
+verification/
+  probes/
+    PROBE-<opaque>.toml
+  workloads/
+    <slug>.toml
+```
+
+`PROBE` は reusable operational contract なので addressable ID を持ってよいが、Q/HYP/EVID/DEC/REQ と同じ semantic proposition ではない。
+
 ### 5.2 ID は分類ではなく identity だけを持つ
 
 `TYPE-DOMAIN-NNN` は読みやすい一方、object 作成時に「UX / REC / PLT / ALL のどれか」を決める分類作業が発生し、複数領域に跨ると ID 自体が意味的に古くなる。
@@ -547,7 +670,10 @@ FB-Z  ──formalizes──► REQ-A
 | 未解決の問い | `meta/questions/Q-<opaque>.toml` |
 | 経験的仮説 | `meta/hypotheses/HYP-<opaque>.toml` |
 | 再利用する観測 | `meta/evidence/EVID-<opaque>.toml` |
+| 再利用可能な検証方法 | `verification/probes/PROBE-<opaque>.toml`。実行結果は generated Receipt |
+| 代表 workload / fixture 定義 | `verification/workloads/` 等の operational resource |
 | 複数事例に現れる再利用可能な構造 | Graph から生成する Pattern View。正本ファイルは作らない |
+| Budget / Component / Verification portfolio | Graph + repository + Receipt から生成する derived view |
 | 実際の色値・寸法・component API | CSS・TypeScript・Rust の実装 |
 | 運用経路・費用上限・Agent 権限 | `design/policy.toml` とそれを実行する workflow |
 | 学習用の説明・手順・索引 | `docs/design/guide.md`。正本への参照と projection |
@@ -590,6 +716,12 @@ meta/
     EVID-<opaque>.toml
   hypotheses/
     HYP-<opaque>.toml
+
+verification/
+  probes/
+    PROBE-<opaque>.toml
+  workloads/
+    <slug>.toml
 
 design/
   policy.toml
@@ -827,7 +959,7 @@ Agent が自動的に Question を大量起票することはしない。候補�
 
 ### 7.1 Graph の node と edge
 
-Node は semantic object ID、FSL contract ID、source path、story、GitHub Issue / PR / commit locator である。PR / commit は provenance node であり、DEC の代替ではない。
+Node は semantic object ID、FSL contract ID、reusable PROBE、WORKLOAD、source path、story、dependency / artifact locator、GitHub Issue / PR / commit locator、生成 Receipt locator である。PR / commit は provenance node であり、DEC の代替ではない。Operational node を semantic proposition と同一視しない。
 
 Edge の意味を区別する。
 
@@ -836,6 +968,10 @@ Edge の意味を区別する。
 | `formalizes` | FSL contract → REQ | Requirement の一部を形式 contract として表現する。完全同値・完全被覆を意味しない |
 | `resolved_by` | Q → DEC | 問いがどの判断によって閉じられたか |
 | `relies_on_hypotheses` | DEC → HYP | Decision が期待する経験的効果 |
+| `targets` | PROBE → HYP / REQ | Probe が何を観測・検証するためのものか。実行済みを意味しない |
+| `runs_with` | PROBE → WORKLOAD | Probe が使う代表 workload / fixture |
+| `produces` | PROBE → Receipt | 特定実行の receipt を生成する |
+| `derived_from` | EVID → Receipt / artifact / source | durable Evidence がどの観測結果から作られたか |
 | `assesses` | EVID → HYP | Evidence がどの Hypothesis を観測・評価したか |
 | `considers` | DEC → EVID | Decision が直接参照した Evidence。Evidence 自体の意味は DEC にコピーしない |
 | `establishes` / `revises` / `removes` | DEC → REQ | Decision が current obligation をどう変えるか |
@@ -846,6 +982,7 @@ Edge の意味を区別する。
 | `affects_*` | object → object / source | 変更時に関係を確認すべき対象。論理的含意とは限らない |
 | `mentions` | source → object | ID に言及しているだけ |
 | `context_for` | source / story → object | UI path / story を読む入口となる semantic object |
+| `implements` | source / dependency / artifact → REQ | Requirement を実現する implementation/resource。満足の証明とは限らない |
 
 `formalized_as` は Target Graph では使わない。`as` は同じ命題の projection / representation のように読めるためである。Human-readable UI では REQ 側から inverse relation を「formalized by」と表示してよい。
 
@@ -1407,47 +1544,62 @@ Lerman の protocol からは、作り手が質問を出すこと、誘導的で
 
 **Downstream：** C6。反証が出れば C1・C3へ戻る。
 
-### 10.0 Hypothesis と Evidence の間に Probe を置く
+### 10.0 Hypothesis / Requirement と Observation の間に Probe と Receipt を置く
 
-Hypothesis は「何が真なら設計が成立するか」を表し、Evidence は「何を観測したか」を表す。
-その間には、**どう観測すれば Hypothesis を区別できるか**という実行計画が必要である。
-これを Probe と呼ぶ。
+Hypothesis は「何が起きると予想するか」、Requirement は「何を満たさなければならないか」、Evidence は「何を観測したか」を表す。
+その間には、**何をどの条件で実行すれば観測できるか**という operational contract が必要である。これを Probe と呼ぶ。
 
-Probe は新しい巨大な台帳から始めない。初期形では Issue / PR 上の検証計画として置き、実行結果は Evidence に残す。複数の Decision から再実行する必要が生じた Probe だけ、Hypothesis や検査コードから安定して参照できる形へ昇格する。
+一回限りの exploratory Probe は Issue / PR 上の検証計画でよい。
+一方、自動 test、Storybook interaction、native harness、人間確認 protocol のように複数変更から再利用する Probe は `verification/probes/` に addressable operational resource として登録する。
 
 ```toml
-[[probe]]
-hypothesis = "HYP-91MTWX"
+id = "PROBE-A7K2QF"
+kind = "human-first-contact"
+targets = ["HYP-91MTWX"]
 method = "first-contact-comprehension"
-input = "VoiceList/UnevenCoverage"
+requires_human = true
+workloads = ["workload:voice-list-uneven-coverage"]
 prediction = "外径差を録音量の差として説明する"
 disconfirm_if = [
   "優劣として説明する",
   "差に気づかない",
 ]
-capability = "semantic-comprehension"
-requires_human = true
-repeat_on = ["voice-ring representation changed"]
-produces = "EVID-*"
 ```
 
-Probe が最低限持つのは、対象 Hypothesis、観測条件、予測、反証条件、method capability、
-human requirement、再実行 trigger、生成する Evidence の種類である。
+Probe を実行すると **Receipt** を生成する。
 
-したがって検証の実行系列は次になる。
+```json
+{
+  "probe": "PROBE-A7K2QF",
+  "git": "<tested-sha>",
+  "platform": "macos-arm64",
+  "backend": "native",
+  "fixture_hashes": ["..."],
+  "discovered": 8,
+  "executed": 8,
+  "actual_work": {"audio_files_opened": 8},
+  "result": "passed"
+}
+```
+
+Receipt は run artifact であって durable semantic object ではない。毎回の CI run を `EVID-*` に変換しない。
+その観測が複数の将来判断から参照される価値を持つ場合だけ、条件・限界・provenance を抜き出して EVID に canonize する。
 
 ```text
 Question
-  → Hypothesis
+  → Hypothesis / Requirement
   → Probe
-  → Observation
-  → Evidence
-  → Hypothesis assessment
+  → Receipt / human observation
+  → Evidence (必要な場合だけ canonize)
+  → Hypothesis assessment / verification state
   → Decision
 ```
 
-Probe を書いたこと自体は Evidence ではない。実行されていない Probe は planned のまま残す。
-また、同じ Hypothesis に複数の Probe を置ける。単一の測定方法を Hypothesis の意味と同一視しない。
+Probe が存在することは実行済みを意味しない。Receipt があることは、その Probe の capability を超える主張を証明しない。
+同じ HYP / REQ に複数 Probe を置ける。
+
+現行 `meta/suites/SUITE-*` は、この reusable Probe registry の migration source として扱う。
+`runner / package / target / platform / backend / min_cases / manual / contracts` を一律に「suite metadata」とみなさず、Probe の execution contract・target・capability・required work に分解する。
 
 ### 10.1 Evidence capability matrix
 
@@ -1625,7 +1777,8 @@ durable semantic state
   Q / HYP / EVID / DEC / REQ / FSL
 
 derived views
-  Pattern / Human Verification Debt / Context projections
+  Pattern / Context / Budget / Component Inventory / Verification Portfolio
+  Human Verification Debt / Requirement Coverage
 ```
 
 昇格条件は「その発言が重要そうだったか」ではなく、**元 PR を知らない未来の Contributor が、現在または将来の判断をするために発見できる必要があるか**である。
@@ -1789,7 +1942,8 @@ derived Pattern candidate
 | Check | 失敗させるもの | 判定しないもの |
 |---|---|---|
 | `check-design` | 新 schema の不正、未解決参照、accepted DEC の禁止された意味変更、必要な risk 情報の欠落 | UX が良いか |
-| Hypothesis capability check | 観測方法と Hypothesis 種類の明白な不一致、未実行結果の支持 Evidence 化 | 観察者の解釈が正しいか |
+| Probe / capability check | Probe の capability と HYP / REQ target の明白な不一致、未実行 Probe / Receipt 無しを実施済み扱い、actual-work 0 の false green | 観察者の解釈が正しいか |
+| Derived view consistency | Budget / Component Inventory / Verification Portfolio が source graph / repository / Receipt と不整合 | 数値目標や component 選択が妥当か |
 | Context check | root の欠落、後継関係の循環、重大な不足を隠した Context | Context が世界全体を表しているか |
 | UI boundary check | production から experiments への import | 試作の芸術的価値 |
 | Artifact provenance check | 検査対象 SHA と提示 artifact の不一致 | screenshot が望ましい体験を示すか |
