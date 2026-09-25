@@ -31,6 +31,7 @@ koeru-align = { path = "../koeru-align" }
 koeru-audio = { path = "../koeru-audio" }
 koeru-core = { path = "../koeru-core" }
 koeru-failure = { path = "../koeru-failure" }
+koeru-model = { path = "../koeru-model" }
 koeru-package = { path = "../koeru-package" }
 koeru-synth = { path = "../koeru-synth" }
 serde.workspace = true

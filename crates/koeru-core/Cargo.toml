@@ -16,6 +16,7 @@ diesel.workspace = true
 encoding_rs.workspace = true
 diesel_migrations.workspace = true
 koeru-failure = { path = "../koeru-failure" }
+koeru-model = { path = "../koeru-model" }
 libsqlite3-sys.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

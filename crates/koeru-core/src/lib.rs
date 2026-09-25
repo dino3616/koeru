@@ -1,33 +1,23 @@
 //! KOERU のドメイン層。GUI と OS に依存しない。
 //!
 //! 型を足すときは `rust-conventions` skill に従うこと。
+//!
+//! 移行中（`DEC-PLT-034`）。 入出力を持たない規則は `koeru-model` へ移した。
+//! 下の再輸出は既存の `koeru_core::alias` などの経路を通すためだけにある。
+//! 新しい規則は `koeru-model` に足す。
 
-pub mod alias;
+pub use koeru_model::{
+    alias, calibration, channel, guide, inventory, leak, mora, names, order, oto, pace, plan,
+    presamp, preset, reclist, song, tone, voice, waveform,
+};
+
 pub mod analysis;
-pub mod calibration;
-pub mod channel;
 pub mod db;
 pub mod frq;
-pub mod guide;
 pub mod handoff;
-pub mod inventory;
-pub mod leak;
-pub mod mora;
-pub mod names;
-pub mod order;
-pub mod oto;
-pub mod pace;
-pub mod plan;
-pub mod presamp;
-pub mod preset;
 pub mod project;
-pub mod reclist;
 pub mod release;
 pub mod schema;
-pub mod song;
 pub mod subbank;
 pub mod text;
-pub mod tone;
 pub mod ust;
-pub mod voice;
-pub mod waveform;

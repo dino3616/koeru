@@ -2193,6 +2193,7 @@ dependencies = [
  "koeru-audio",
  "koeru-core",
  "koeru-failure",
+ "koeru-model",
  "koeru-package",
  "koeru-synth",
  "libc",
@@ -2230,6 +2231,7 @@ dependencies = [
  "diesel_migrations",
  "encoding_rs",
  "koeru-failure",
+ "koeru-model",
  "libsqlite3-sys",
  "sha2 0.11.0",
  "thiserror 2.0.21",
@@ -2246,6 +2248,17 @@ name = "koeru-failure"
 version = "0.0.0"
 dependencies = [
  "tracing",
+]
+
+[[package]]
+name = "koeru-model"
+version = "0.0.0"
+dependencies = [
+ "koeru-failure",
+ "sha2 0.11.0",
+ "thiserror 2.0.21",
+ "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]

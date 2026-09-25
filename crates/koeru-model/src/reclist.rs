@@ -167,6 +167,20 @@ pub enum Slot {
     Ending { mora: usize },
 }
 
+impl Slot {
+    /// その綴りが乗るモーラ（`TR-ALN-26`）。
+    ///
+    /// 渡りは直前のモーラの尾に乗る。 確信度を測る区間も、録り直しで固定値を
+    /// 当て直す基準（`DEC-ALN-019`）も、このモーラの境界から取る。
+    #[must_use]
+    pub const fn mora(self) -> usize {
+        match self {
+            Self::Cv { mora } | Self::Ending { mora } => mora,
+            Self::Vc { prev, .. } => prev,
+        }
+    }
+}
+
 /// 行が生むエイリアスと、その出どころ（`TR-RCL-18`）。
 ///
 /// 行に持たせず、単位列と方式から導く。 同じ値を2箇所に置くと片方だけが変わる

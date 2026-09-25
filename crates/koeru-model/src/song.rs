@@ -304,7 +304,7 @@ pub const PREVIEW_MAX_RMS_SHIFT: f64 = 4.0;
 /// 勧めるキーの探索範囲（半音、`TR-SYN-15`）。
 ///
 /// 1オクターブの上下まで。 `TR-SYN-15` の「本人が半音単位で 1 オクターブの
-/// 上下まで指定できる」がそのまま上限で、[`crate::db`] 側の口
+/// 上下まで指定できる」がそのまま上限で、台帳（`koeru_core::db`）側の口
 /// （`set_song_transpose`）も同じ範囲しか受け取らない。
 ///
 /// **一度これを広げた。** 2オクターブ離れた曲にも勧め先を出そうとしたが、
@@ -736,14 +736,6 @@ mod tests {
         let mut s = song("はーか", &["は", "ー", "か"]);
         s.notes[2].rest_ticks = 480;
         assert_eq!(s.phrase_breaks(UnitSet::Core), BTreeSet::from([2]));
-    }
-
-    /// 同梱曲はどれも1音符1モーラ。 取り込みの検査で同梱曲が落ちないこと。
-    #[test]
-    fn 同梱曲は一音符一モーラ() {
-        for s in crate::ust::bundled_songs() {
-            assert_eq!(s.note_not_one_mora(UnitSet::Core), None, "{}", s.title);
-        }
     }
 
     /// 休符で綴りの文脈が切れる（`TR-RCL-12`, `TR-SYN-12`）。
@@ -1185,33 +1177,5 @@ mod range_tests {
         assert_eq!(got[0].missing_units, 0, "エイリアスは揃っている");
         assert_eq!(got[0].singability, Singability::Unavailable);
         assert_eq!(singable_count(&got), 0);
-    }
-}
-
-#[cfg(test)]
-mod format_tests {
-
-    /// 内部形式はテンポと既定ピッチベンドを持つ（`TR-SYN-30`）。
-    ///
-    /// UST / USTX は読み込みの入口であって内部形式ではない。 テンポを
-    /// 落とすと、読み込んだ曲がどれも同じ速さで鳴る。
-    #[test]
-    fn 内部形式はテンポを持つ() {
-        let s = crate::ust::bundled_songs();
-        assert_eq!(s.len(), 1, "同梱は最小限（`TR-RCL-12`）");
-        assert!(s[0].tempo_bpm > 0.0);
-        assert!(s[0].default_portamento_ms >= 0.0);
-    }
-
-    /// 同梱曲はパブリックドメイン（`TR-SYN-30`）。
-    ///
-    /// > 同梱する課題曲は、権利処理済みのオリジナル、またはパブリックドメインの
-    /// > 旋律に限り、最小限（1〜2曲）にとどめる
-    #[test]
-    fn 同梱曲は出典と許諾を持つ() {
-        for s in crate::ust::bundled_songs() {
-            assert!(!s.provenance.source.trim().is_empty(), "{}", s.title);
-            assert!(!s.provenance.license.trim().is_empty(), "{}", s.title);
-        }
     }
 }

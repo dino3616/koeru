@@ -14,6 +14,7 @@
 //! UTAU が読み書きする範囲では一致する。
 
 use encoding_rs::{SHIFT_JIS, UTF_8};
+pub use koeru_model::text::to_nfc;
 use unicode_normalization::UnicodeNormalization as _;
 
 /// 書き出す文字符号化（`TR-PLT-08`）。
@@ -230,15 +231,6 @@ pub fn oto_charset_declaration(bytes: &[u8]) -> Option<String> {
         }
     }
     None
-}
-
-/// NFC へ揃える（`TR-PKG-48`）。
-///
-/// macOS はファイル名を NFD で返す。 揃えないと、同じ「が」が
-/// 別の文字列として二重に台帳へ載る。
-#[must_use]
-pub fn to_nfc(s: &str) -> String {
-    s.nfc().collect()
 }
 
 /// ディレクトリの中のファイル名を NFC に揃える（`TR-REC-32`）。
@@ -488,16 +480,6 @@ mod tests {
             None,
             "本文の宣言らしき行を拾わないこと"
         );
-    }
-
-    /// macOS が NFD で返すファイル名を揃える（`TR-PKG-48`）。
-    #[test]
-    fn nfd_and_nfc_become_the_same_string() {
-        let nfd = "\u{304B}\u{3099}"; // か + 濁点
-        let nfc = "が";
-        assert_ne!(nfd, nfc, "元は別の文字列");
-        assert_eq!(to_nfc(nfd), nfc);
-        assert_eq!(to_nfc(nfc), nfc, "既に NFC なら変わらないこと");
     }
 
     /// NFD のままだと CP932 へ書けない（＝揃える必要がある）。
