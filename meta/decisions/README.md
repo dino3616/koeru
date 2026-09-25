@@ -37,6 +37,7 @@
 | [DEC-ALN-016](DEC-ALN-016.toml) | 退避経路の段数 | アライメントの退避経路を持たない。MFA が無ければ自動原音設定を行わない | accepted |
 | [DEC-ALN-017](DEC-ALN-017.toml) | 原音設定エントリの同一性 | 原音設定エントリの同一性を（収録音高, 綴り）にし、同じ音高の中で綴りの持ち主を1行に決める | superseded |
 | [DEC-ALN-018](DEC-ALN-018.toml) | 無声破裂音の分岐の事後検証 | 無声破裂音の閉鎖は直前の母音と比べて検証し、閾値は実測までの仮置きにする | accepted |
+| [DEC-ALN-019](DEC-ALN-019.toml) | 録り直しで残す固定値 | 録り直したテイクへは、固定した値を発声の始まりに合わせて写す。揃えられないときは絶対位置のまま写して確認へ戻す | accepted |
 | [DEC-EDT-003](DEC-EDT-003.toml) | 違反と確認済み | 上級モードの自動確認済みに「制約違反が残っていない場合に限る」を課す | accepted |
 | [DEC-PKG-001](DEC-PKG-001.toml) | 完成 | 完成状態と手渡し状態を直交させる | accepted |
 | [DEC-PKG-002](DEC-PKG-002.toml) | 周波数表 | `.frq` は録音時に作る | accepted |
@@ -92,6 +93,7 @@
 | [DEC-PLT-037](DEC-PLT-037.toml) | 読みの取り回し | 画面が読むものは部品の近くの fragment で宣言し、経路が1つの operation に束ねる。結果の寿命は TanStack Query が持つ | accepted |
 | [DEC-PLT-038](DEC-PLT-038.toml) | 失敗の分類と伝え方 | 失敗は「呼び出し側の次の手」と「確定したかどうか」で分類する。予期できる結果は失敗にせず、失敗の記録は持ち主が1回だけ型で出す | accepted |
 | [DEC-PLT-039](DEC-PLT-039.toml) | 検査が通ったことの意味 | テストは危険ごとに最も安い検出点を選び、必須の suite は meta に登録して実行した件数で判定する。前提を欠いたら黙って return しない | accepted |
+| [DEC-PLT-040](DEC-PLT-040.toml) | GraphQL の実装と検査の道具 | GraphQL は async-graphql で process 内で実行し、apollo-compiler で SDL と operation を検査し、画面の型は graphql-codegen の client-preset で作る | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -133,4 +135,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-123 件。
+125 件。

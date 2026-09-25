@@ -5,6 +5,7 @@
 | 場所 | 内容 |
 |---|---|
 | [ux/](ux/) | 画面の設計。ディレクション、オブジェクトモデル、リデザインの対応方針 |
+| [design-system/](design-system/) | デザインシステムの調査・Reference Architecture |
 | [architecture/](architecture/) | リポジトリ構造の外部レビュー（バンドル） |
 | [gtm/](gtm/) | Go-to-market の整理 |
 | [market/](market/) | 市場・ユーザー調査 |
