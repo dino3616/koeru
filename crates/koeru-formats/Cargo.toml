@@ -1,0 +1,27 @@
+[package]
+name = "koeru-formats"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の外部形式。oto.ini と周波数表の構文、文字符号化、無損失の往復。入出力を持たない"
+
+[lints]
+workspace = true
+
+# バイト列と文字列だけを扱う（DEC-PLT-034）。 ファイルを読み書きするのは呼び出し側で、
+# 採用・台帳・確信度の方針もここに持ち込まない。 `tests/purity.rs` が見る。
+[dependencies]
+# CP932 と UTF-8 の読み書き（TR-PLT-08）。
+encoding_rs.workspace = true
+koeru-failure = { path = "../koeru-failure" }
+# `oto.ini` の1エントリが持つ5値（`IniEntry.oto`）。 台帳と書き出しが同じ型を渡すので、
+# ここで別の形を作らない。
+koeru-model = { path = "../koeru-model" }
+thiserror.workspace = true
+# 符号化の span。 載せるのは符号化の名前とバイト数だけ。
+tracing.workspace = true
+# CP932 で書けない字の代替案を作る互換分解（TR-PKG-17）。
+unicode-normalization.workspace = true

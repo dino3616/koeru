@@ -37,7 +37,13 @@ const NETWORK_CRATES: [&str; 9] = [
 #[test]
 fn 合成の経路がhttpクライアントを引かない() {
     let root = repo_root();
-    for crate_name in ["koeru-model", "koeru-core", "koeru-synth", "koeru-audio"] {
+    for crate_name in [
+        "koeru-model",
+        "koeru-formats",
+        "koeru-core",
+        "koeru-synth",
+        "koeru-audio",
+    ] {
         let manifest = root.join("crates").join(crate_name).join("Cargo.toml");
         let text = std::fs::read_to_string(&manifest).expect("読めること");
         for name in NETWORK_CRATES {
@@ -59,6 +65,7 @@ fn 自分のコードがhttpクライアントを呼ばない() {
     let mut found = Vec::new();
     for crate_name in [
         "koeru-model",
+        "koeru-formats",
         "koeru-core",
         "koeru-synth",
         "koeru-audio",
@@ -153,6 +160,7 @@ fn 合成の経路に外部プロセスの起動が無い() {
     let mut found = Vec::new();
     for crate_name in [
         "koeru-model",
+        "koeru-formats",
         "koeru-core",
         "koeru-synth",
         "koeru-audio",

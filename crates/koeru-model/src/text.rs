@@ -1,6 +1,6 @@
 //! 文字列の正規形（`TR-PKG-48`）。
 //!
-//! 符号化（CP932 / UTF-8 の読み書き）は入出力の側に残る（`koeru_core::text`）。
+//! 符号化（CP932 / UTF-8 の読み書き）は外部形式の側が持つ（`koeru_formats::text`）。
 //! ここは綴りを比べる前に揃える規則だけを持つ。
 
 use unicode_normalization::UnicodeNormalization as _;

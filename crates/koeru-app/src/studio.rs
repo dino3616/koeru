@@ -2545,7 +2545,7 @@ impl Studio {
         let rules = self.current_rules()?;
 
         self.opened_mut()?.ledger.put_analysis(take_id, analysis)?;
-        analysis.frq.write(&frq::frq_path(&finished.path)?)?;
+        frq::write(&analysis.frq, &frq::frq_path(&finished.path)?)?;
 
         // ## 境界と oto
         let cfg = SegmentConfig::default();

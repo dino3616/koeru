@@ -2178,6 +2178,7 @@ dependencies = [
  "koeru-audio",
  "koeru-core",
  "koeru-failure",
+ "koeru-formats",
  "koeru-model",
  "serde_json",
  "sha2 0.11.0",
@@ -2230,15 +2231,14 @@ version = "0.0.0"
 dependencies = [
  "diesel",
  "diesel_migrations",
- "encoding_rs",
  "koeru-failure",
+ "koeru-formats",
  "koeru-model",
  "libsqlite3-sys",
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "toml_edit 0.25.15+spec-1.1.0",
  "tracing",
- "unicode-normalization",
  "uuid",
  "yaml_serde",
  "zip",
@@ -2249,6 +2249,18 @@ name = "koeru-failure"
 version = "0.0.0"
 dependencies = [
  "tracing",
+]
+
+[[package]]
+name = "koeru-formats"
+version = "0.0.0"
+dependencies = [
+ "encoding_rs",
+ "koeru-failure",
+ "koeru-model",
+ "thiserror 2.0.21",
+ "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]
