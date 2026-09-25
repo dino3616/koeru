@@ -418,7 +418,7 @@ meta object から元 Issue / PR / commit への provenance を参照してよ�
 |---|---|---|
 | **Product promise / durable constraint** | Own your voice、アクセシビリティを既定で満たす | Vision / TR / FSL / DEC |
 | **Adopted design decision** | 特定の metaphor、情報構造を現在採用する理由 | DEC |
-| **Empirical claim** | 「この表現なら未完成を不足ではなく途中として理解する」 | CLM + Probe + EVID |
+| **Empirical hypothesis** | 「この表現なら未完成を不足ではなく途中として理解する」 | HYP + Probe + EVID |
 | **Reusable pattern** | 特定条件で再利用する interaction / language practice | PAT |
 | **Aesthetic authorship** | 現時点で選ぶ tone / composition | DEC または artifact。疑似 Evidence を作らない |
 | **Implementation convention** | component API、CSS token、focus 実装 | code / checked convention |
@@ -1178,7 +1178,7 @@ Probe は新しい巨大な台帳から始めない。初期形では Issue / PR
 
 ```toml
 [[probe]]
-claim = "HYP-UX-001"
+hypothesis = "HYP-UX-001"
 method = "first-contact-comprehension"
 input = "VoiceList/UnevenCoverage"
 prediction = "外径差を録音量の差として説明する"
@@ -1314,7 +1314,7 @@ cargo xtask design-debt --human
 
 出力には少なくとも次を含める。
 
-- Hypothesis と claim class
+- Hypothesis と hypothesis kind
 - なぜ human evidence が必要か
 - その Hypothesis に依存している Decision / Pattern
 - blast radius と reversibility
@@ -1787,8 +1787,8 @@ System が変わっただけでなく、人もプロジェクト外で変わる�
 
 | Mode／Skill | 主な仕事 | 出力の authority |
 |---|---|---|
-| **design-context-audit** | DEC / CLM / EVID / PAT の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
-| **design-verify** | Hypothesis kind から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only claim は未解決のまま返す |
+| **design-context-audit** | DEC / HYP / EVID / PAT の孤立、矛盾、古い前提、supersession 後の参照を探す | graph と source から確認できる不整合 + 要確認候補 |
+| **design-verify** | Hypothesis kind から許される Probe を選び、実行可能な deterministic check を走らせる | 実行した tool の観測結果。Human-only hypothesis は未解決のまま返す |
 
 `design-context-audit` は Context の意味を勝手に統合せず、「この二つは矛盾している可能性」
 という candidate を source locator 付きで返す。
