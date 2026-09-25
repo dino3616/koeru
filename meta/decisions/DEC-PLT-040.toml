@@ -1,0 +1,74 @@
+schema = 'decision'
+id = 'DEC-PLT-040'
+constraint_label = 'GraphQL の実装と検査の道具'
+constraint = 'canonical SDL を正本のまま、Rust の実装・画面の operation・生成した型が黙ってずれないこと'
+title = 'GraphQL は async-graphql で process 内で実行し、apollo-compiler で SDL と operation を検査し、画面の型は graphql-codegen の client-preset で作る'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'async-graphql 7.2 ＋ apollo-compiler 1.33 ＋ graphql-codegen client-preset 6',
+  'juniper 0.17 ＋ apollo-compiler 1.33 ＋ graphql-codegen client-preset 6',
+  'async-graphql 8.0-rc ＋ apollo-compiler 1.33 ＋ graphql-codegen client-preset 6',
+  '画面の型を gql.tada（生成物を持たない）で持つ',
+]
+selected = 'async-graphql 7.2 ＋ apollo-compiler 1.33 ＋ graphql-codegen client-preset 6'
+rationale = '''
+`DEC-PLT-035` が契約の置き方を決め、道具は入れる段で決めるとしていた。 その判断。
+事実は crates.io / npm の登録簿、各リポジトリ、公式文書で確かめた（2026-09-25）。
+
+## Rust の実行: async-graphql 7.2.1
+
+MIT OR Apache-2.0。 process 内の実行（`Schema::execute`）と、subscription の
+`'static` な stream（`execute_stream`）がそのままあり、Tauri の Channel に載せられる
+（`DEC-PLT-036`）。 runtime schema を SDL へ書き出す口（`sdl_with_options`）も持つ。
+tokio を要さない。websocket と multipart を使わなければ、実行は runtime に依存しない。
+
+**弱点は保守。** GitHub の organization だが crates.io の所有者は1人で、安定版は
+5か月出ておらず、8.0 は RC のまま。 版を固定し、既定の feature を切って入れる。
+
+juniper 0.17.1（BSD-2-Clause）は保守が活発で組み立ても少し速いが、subscription は
+別 crate で、生態系が小さい。 8.0-rc は組み立ての短縮が見込めるが、RC を承知で採る理由が無い。
+
+## 検査: apollo-compiler 1.33
+
+MIT OR Apache-2.0、Apollo が保守。 canonical SDL と、画面の operation / fragment を
+それぞれ検証できる（`Schema::parse_and_validate`、`ExecutableDocument::parse_and_validate`）。
+2つの schema の構造の一致は `==` で見られ、型と欄の並び順も位置も無視する。
+
+試作で、async-graphql が書き出した SDL と手で書いた SDL を突き合わせた。一致しなかった
+のは、async-graphql が `@include` / `@skip` を説明つきで書き出す点だけで、組み込みの
+directive を除けば一致した。 意図して `Float!` を `Float` に変えたものは落ちた。
+
+xtask に置き、canonical SDL の検証・runtime SDL との一致・operation の検証・
+operation manifest（名前・hash・種類・schema の hash・能力・費用）の生成を受け持たせる。
+
+## 画面の型: @graphql-codegen/cli 7.4 ＋ client-preset 6.x
+
+MIT、The Guild が保守。 fragment masking が既定で入り、`documentMode: 'string'` と
+persisted documents（hash で文書を置き換える）がある。 TypeScript 7 で動く。
+
+gql.tada は生成物を持たずに型を出せるが、**TypeScript 7 で CLI が落ちる**
+（gql.tada#572）。editor の plugin も TS 7 に対応していない（GraphQLSP#421）。
+このリポジトリは TS 7 なので、TS 6 を並べて入れることになる。
+
+schema の後方互換は GraphQL Inspector の `diff`（MIT、手元で動く）で main と PR を
+比べて見る。 runtime SDL との一致には使わない——壊れる変更でしか落ちないので、
+一致の検査としては緩い。
+
+## 入れ方
+
+npm の部品は safe-chain の公開経過日数の関門を通す。 通らない版は古い版へ落とさず、
+本人が手元で入れる。
+'''
+review_triggers = [
+  'async-graphql の安定版が1年出ない、または所有者が保守をやめると表明したとき（juniper へ移る）',
+  'async-graphql 8.0 が安定版になったとき。組み立ての短縮を実測して上げるか決める',
+  'apollo-compiler 2.0 が安定版になり、1.x の保守が止まったとき',
+  'graphql-codegen の client-preset が fragment masking か persisted documents をやめたとき',
+  'gql.tada が TypeScript 7 に対応したとき。生成物を持たない形を見直す',
+]
+affects_decisions = [
+  'DEC-PLT-035',
+  'DEC-PLT-036',
+  'DEC-PLT-037',
+]
