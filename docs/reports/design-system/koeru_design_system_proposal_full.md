@@ -406,11 +406,11 @@ Q / HYP / EVID / existing REQ
 DEC に REQ の本文をコピーしない。REQ に DEC の rationale をコピーしない。例えば Graph は次のように表す。
 
 ```text
-Q-4K7DP2 --resolved_by------> DEC-6CQ3NA
-HYP-91MTWX --relied_on_by---> DEC-6CQ3NA
-EVID-2V8JRF --considered_by-> DEC-6CQ3NA
-DEC-6CQ3NA --establishes----> REQ-5H8NQ2
-DEC-6CQ3NA --provenance-----> github:pr/123@<merge-sha>
+Q-4K7DP2 --resolved_by-------------> DEC-6CQ3NA
+DEC-6CQ3NA --relies_on_hypotheses-> HYP-91MTWX
+DEC-6CQ3NA --considers-------------> EVID-2V8JRF
+DEC-6CQ3NA --establishes-----------> REQ-5H8NQ2
+DEC-6CQ3NA --provenance------------> github:pr/123@<merge-sha>
 ```
 
 一回限りの局所選択で、future work を独立した obligation として拘束する必要がない場合は DEC が REQ を作らなくてもよい。現在状態は実装そのものが持てる。
@@ -837,6 +837,7 @@ Edge の意味を区別する。
 | `resolved_by` | Q → DEC | 問いがどの判断によって閉じられたか |
 | `relies_on_hypotheses` | DEC → HYP | Decision が期待する経験的効果 |
 | `assesses` | EVID → HYP | Evidence がどの Hypothesis を観測・評価したか |
+| `considers` | DEC → EVID | Decision が直接参照した Evidence。Evidence 自体の意味は DEC にコピーしない |
 | `establishes` / `revises` / `removes` | DEC → REQ | Decision が current obligation をどう変えるか |
 | `constrains` | REQ → DEC | 既存 Requirement が Decision の選択空間を拘束する |
 | `supersedes` | DEC → DEC、必要に応じ REQ → REQ | 意味を上書きせず後継を作る |
@@ -1597,7 +1598,7 @@ Decision がその Hypothesis に依存しなくなった場合、Hypothesis 自
 **Transformation：** 価値判断と経験的予測を分け、採用範囲と残存リスクを決める。
 
 **Output：** DEC、必要な REQ／FSL／Vision の変更。複数事例に共通する構造は Pattern View の候補として導出する。  
-**Persistence：** Repository の PR と採用記録。議論は Issue に残す。
+**Persistence：** addressable な Decision / Requirement は semantic graph に残し、元の議論・review・diff は Issue / PR / commit provenance に残す。
 
 **Actor：** 人間の maintainer が統合判断する。専門家は担当範囲の判断を提供する。Agent に採用権限はない。  
 **Interaction model：** 非同期。R2 は公開された検討期間を設ける。会議でしか決めない運用にしない。
@@ -1630,6 +1631,8 @@ derived views
 昇格条件は「その発言が重要そうだったか」ではなく、**元 PR を知らない未来の Contributor が、現在または将来の判断をするために発見できる必要があるか**である。
 
 PR に百件のコメントがあっても、残る durable object が一つの HYP と一つの DEC だけでよい場合がある。逆に、一つの短い観測でも複数の将来判断から参照されるなら EVID に昇格しうる。
+
+DEC は PR の transcript ではない。PR が historical event を保持し、DEC はその event から得られた選択を Q / HYP / EVID / REQ と同じ Graph 上で address する。両者は `provenance` で接続する。
 
 この compile は lossless な transcript 化ではない。失われたニュアンスが必要になったときに元 Issue / PR / commit へ戻れる provenance を保つことで、**current state の可読性と history の再検証可能性を両立する。**
 
