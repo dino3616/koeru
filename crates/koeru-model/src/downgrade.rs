@@ -24,9 +24,9 @@
 
 use std::collections::BTreeSet;
 
-use koeru_core::alias::Method;
-use koeru_core::inventory::UnitSet;
-use koeru_core::presamp::Rules;
+use crate::alias::Method;
+use crate::inventory::UnitSet;
+use crate::presamp::Rules;
 
 use crate::coverage;
 
@@ -129,7 +129,7 @@ mod tests {
         Rules::builtin(UnitSet::Core)
     }
 
-    use koeru_core::inventory::units;
+    use crate::inventory::units;
 
     fn sequential_full() -> BTreeSet<String> {
         coverage::required(&core(), Method::Sequential, UnitSet::Core).expect("表がある")

@@ -23,10 +23,16 @@
 //! `TR-ALN-03` が「いずれの実装も emission 行列を呼び出し側に返し、
 //! `TR-ALN-24` の確信度計算に使えること」と要求しているため。
 //!
-//! # 5値そのものは `koeru-core` にある
+//! # 5値と確認の規則は `koeru-model` にある
 //!
-//! [`koeru_core::oto::Oto`] はプロジェクトのデータで、DB を正とする（`TR-PKG-40`）。
+//! [`koeru_model::oto::Oto`] はプロジェクトのデータで、DB を正とする（`TR-PKG-40`）。
 //! 制約（`TR-EDT-43`）は原音設定エディタも使う。ここが持つのは導出と規約。
+//!
+//! 確認キュー・検証と修復・到達水準は利用者の判断と書き出しの可否に関わるので、
+//! 計算だけを持つこの crate から `koeru-model` へ移した（`DEC-PLT-034`）。 下の再輸出は
+//! 既存の `koeru_align::review` などの経路を通すためだけにある。 **移行中。**
+
+pub use koeru_model::{reach, review, validate};
 
 pub mod aligner;
 pub mod confidence;
@@ -38,9 +44,6 @@ pub mod ledger;
 pub mod mfa;
 pub mod phoneme;
 pub mod preset;
-pub mod reach;
 pub mod resample;
-pub mod review;
 pub mod segment;
 pub mod subframe;
-pub mod validate;

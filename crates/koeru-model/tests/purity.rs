@@ -21,15 +21,17 @@ const DEPENDENCIES_ALLOWED: [&str; 5] = [
 /// 本体のコードが触ってはいけない標準ライブラリの口。
 ///
 /// 時計も入れる。 同じ入力から同じ判断を返す kernel が現在時刻を読むと、
-/// 編集のドラッグ中の予測（WASM）と確定（native）で答えが割れる。
-const STD_FORBIDDEN: [&str; 7] = [
+/// 編集のドラッグ中の予測（WASM）と確定（native）で答えが割れる。 `Duration` は
+/// 値なので通す（確認に掛かる見込み時間、`TR-ALN-25`）。
+const STD_FORBIDDEN: [&str; 8] = [
     "std::fs",
     "std::io",
     "std::net",
     "std::process",
     "std::thread",
     "std::env",
-    "std::time",
+    "Instant",
+    "SystemTime",
 ];
 
 #[test]
@@ -85,6 +87,17 @@ fn 依存とソースの読み方が壊れていない() {
 
     let src = "use std::fs;\n#[cfg(test)]\nmod tests { use std::time::Instant; }\n";
     assert_eq!(product_lines(src).collect::<Vec<_>>(), ["use std::fs;"]);
+
+    let clock = "let t = std::time::Instant::now();";
+    assert!(
+        STD_FORBIDDEN.iter().any(|f| clock.contains(f)),
+        "時計を拾う"
+    );
+    let budget = "use std::time::Duration;";
+    assert!(
+        !STD_FORBIDDEN.iter().any(|f| budget.contains(f)),
+        "値の Duration は通す"
+    );
 }
 
 fn crate_dir() -> PathBuf {
