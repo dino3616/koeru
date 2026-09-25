@@ -153,6 +153,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - `ComputeFmllrDiagGmm` は使えない。 ヘッダに宣言があるだけで Kaldi に定義が無く、リンクで初めて分かる。実際の口は `FmllrDiagGmmAccs::Update`
 - **`koeru-align` にも「書いていない OS」の席がある**（`src/mfa/unsupported.rs`）。**trait を足したら両方に実装すること。踏んだ**
 - **入出力を持たない規則は `koeru-model` に足す**（`DEC-PLT-034`）。**移行中。** `koeru-core` の `alias` / `reclist` / `song` などは `koeru-model` の再輸出で、既存の `koeru_core::…` の経路を通すためだけに残っている。依存とソースの純度は `crates/koeru-model/tests/purity.rs` が見る
+- **外部形式の構文と符号化は `koeru-formats` に足す**（`DEC-PLT-034`）。受け取るのはバイト列と文字列で、ファイルは呼び出し側が読む。**移行中。** `koeru_core::text` / `koeru_core::frq` / `koeru_align::ini` は再輸出で、ファイルに触る口（名前の NFC 化、`.frq` の書き込み）だけが元に残っている。**取り込んだ `oto.ini` は `oto_ini::Document` で持ち、編集していない行を文字列から作り直さない**（`TR-EDT-39`）——CP932 は同じ字に2つの符号を持つ（NEC 特殊文字の `≒` など）ので、読んで書き直すと字は同じでもバイトが変わる
 - **エイリアスを新しい鍵にしない**（`DEC-RCL-017`）。録る対象は `koeru_model::target` の構造の鍵で持ち、同値は `Catalog` が決める。**移行中**は台帳が（音高, 綴り）で持っている。綴りの持ち主の決め方は `koeru_model::selection` が持ち、台帳は事実を読んで渡すだけ
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）

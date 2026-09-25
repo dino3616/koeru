@@ -1,18 +1,19 @@
-//! `koeru-model` が入出力を持ち込まないことを確かめる（`DEC-PLT-034`）。
+//! `koeru-formats` がファイルにも方針にも触らないことを確かめる（`DEC-PLT-034`）。
 //!
-//! 型では言えない。 `std::fs` を1行足しても組み立ては通り、WASM で呼ぶ日（M6）に
-//! 初めて落ちる。 それより前に、依存とソースの両方をここで見る。
+//! 型では言えない。 `std::fs` を1行足しても組み立ては通り、構文の試験も通る。
+//! 呼び出し側がファイルを読んで渡す形が崩れると、同じ構文を GraphQL や WASM から
+//! 呼べなくなる。 それより前に、依存とソースの両方をここで見る。
 
 use std::path::{Path, PathBuf};
 
 /// 引いてよい crate。 **並べていないものは通さない。**
 ///
-/// 足すなら、native と WASM の両方で組み立ち、入出力を持たないことを確かめてから。
-/// SQLite（`diesel`）・圧縮（`zip`）・画像・Tauri・GraphQL・外部形式の読み書き
-/// （`encoding_rs` / `yaml_serde` / `toml_edit`）は、ここではなく外側の crate が持つ。
-const DEPENDENCIES_ALLOWED: [&str; 5] = [
+/// `koeru-model` は `oto.ini` の5値の型（`Oto`）のためだけに引く。 採用・台帳・確信度の
+/// 規則は持ち込まない。 SQLite（`diesel`）・圧縮（`zip`）・Tauri・GraphQL は外側の crate が持つ。
+const DEPENDENCIES_ALLOWED: [&str; 6] = [
+    "encoding_rs",
     "koeru-failure",
-    "sha2",
+    "koeru-model",
     "thiserror",
     "tracing",
     "unicode-normalization",
@@ -20,9 +21,8 @@ const DEPENDENCIES_ALLOWED: [&str; 5] = [
 
 /// 本体のコードが触ってはいけない標準ライブラリの口。
 ///
-/// 時計も入れる。 同じ入力から同じ判断を返す kernel が現在時刻を読むと、
-/// 編集のドラッグ中の予測（WASM）と確定（native）で答えが割れる。 `Duration` は
-/// 値なので通す（確認に掛かる見込み時間、`TR-ALN-25`）。
+/// 受け取るのはバイト列と文字列。 `std::path` は名前の綴りを組み替えるだけなので通す
+/// （WAV 名から `.frq` 名を作る、`TR-PKG-05`）。
 const STD_FORBIDDEN: [&str; 8] = [
     "std::fs",
     "std::io",
@@ -50,12 +50,12 @@ fn 許可した_crate_しか引かない() {
         .collect();
     assert!(
         extra.is_empty(),
-        "許可していない依存: {extra:?}。 入出力を持つものは外側の crate に置く"
+        "許可していない依存: {extra:?}。 ファイルや方針を持つものは外側の crate に置く"
     );
 }
 
 #[test]
-fn 本体のコードが入出力と時計に触らない() {
+fn 本体のコードがファイルと時計に触らない() {
     let mut found = Vec::new();
     let mut files = 0_usize;
     walk(&crate_dir().join("src"), &mut |path, text| {
@@ -69,8 +69,8 @@ fn 本体のコードが入出力と時計に触らない() {
             }
         }
     });
-    assert!(files >= 20, "走査したファイルが少なすぎる: {files}");
-    assert!(found.is_empty(), "入出力か時計に触っている: {found:?}");
+    assert!(files >= 5, "走査したファイルが少なすぎる: {files}");
+    assert!(found.is_empty(), "ファイルか時計に触っている: {found:?}");
 }
 
 /// `build.rs` を持たない。 組み立ての途中で外を読むと、同じソースから別の答えが出る。
@@ -82,21 +82,25 @@ fn 組み立ての手順を持たない() {
 /// 検査そのものを検査する（`DEC-PLT-039`）。 読み方が壊れると、上の検査は黙って通る。
 #[test]
 fn 依存とソースの読み方が壊れていない() {
-    let manifest = "[package]\nname = \"x\"\n\n[dependencies]\n# 注記\nsha2.workspace = true\nkoeru-failure = { path = \"../koeru-failure\" }\n\n[dev-dependencies]\nzip = \"1\"\n\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n";
-    assert_eq!(dependencies(manifest), ["sha2", "koeru-failure", "libc"]);
-
-    let src = "use std::fs;\n#[cfg(test)]\nmod tests { use std::time::Instant; }\n";
-    assert_eq!(product_lines(src).collect::<Vec<_>>(), ["use std::fs;"]);
-
-    let clock = "let t = std::time::Instant::now();";
-    assert!(
-        STD_FORBIDDEN.iter().any(|f| clock.contains(f)),
-        "時計を拾う"
+    let manifest = "[package]\nname = \"x\"\n\n[dependencies]\n# 注記\nencoding_rs.workspace = true\nkoeru-failure = { path = \"../koeru-failure\" }\n\n[dev-dependencies]\nzip = \"1\"\n\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n";
+    assert_eq!(
+        dependencies(manifest),
+        ["encoding_rs", "koeru-failure", "libc"]
     );
-    let budget = "use std::time::Duration;";
+
+    let src = "use std::io::Write as _;\n#[cfg(test)]\nmod tests { use std::fs; }\n";
+    assert_eq!(
+        product_lines(src).collect::<Vec<_>>(),
+        ["use std::io::Write as _;"]
+    );
     assert!(
-        !STD_FORBIDDEN.iter().any(|f| budget.contains(f)),
-        "値の Duration は通す"
+        STD_FORBIDDEN.iter().any(|f| src.contains(f)),
+        "書き込みの口を拾う"
+    );
+    let naming = "use std::path::{Path, PathBuf};";
+    assert!(
+        !STD_FORBIDDEN.iter().any(|f| naming.contains(f)),
+        "名前を組み替えるだけの std::path は通す"
     );
 }
 
@@ -133,7 +137,7 @@ fn dependencies(manifest: &str) -> Vec<String> {
 }
 
 /// 試験の module より前の行。 本体の後ろに `#[cfg(test)] mod tests` を置く慣習に頼っている。
-/// 試験は時間を測ってよい（被覆の計算が 50ms に収まるか、など）。
+/// 試験はファイルを作ってよい。
 fn product_lines(text: &str) -> impl Iterator<Item = &str> {
     text.lines().take_while(|l| l.trim() != "#[cfg(test)]")
 }

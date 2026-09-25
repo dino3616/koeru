@@ -16,7 +16,7 @@ FSL に入れないものは3つある。
 |---|---|---|
 | 製品全体 | `requirements/telemetry-consent.fsl` | 同意・撤回・送信。プロジェクトが1つも無い時点から存在する |
 | プロジェクト1本 | `requirements/project-lifecycle.fsl` | 録音リスト項目ごとの状態、テイクの世代、完成、手渡し |
-| （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭 |
+| （同上・設計層） | `design/project-storage.fsl` | テイク確定を3手に割った実装の輪郭と、録る前の予定（`DEC-REC-010`） |
 | 収録セッション | `requirements/recording-input.fsl` | デバイス・効果の無効化・校正・入力経路の生死・消失 |
 | oto エントリ | `requirements/align-review.fsl` | 確認キュー、人の編集の固定 |
 | 編集操作 | `requirements/editor-constraints.fsl` | 制約を破らない編集、通常/上級モードの可逆性 |
@@ -55,6 +55,9 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 | ファイルの無いテイク行が DB にできない | `NoOrphanTakeRow`（設計層） |
 | 復旧候補は、本人が採るか捨てるまで消えない | `RecoverableNeverVanishesOnItsOwn` / `OrphanNeverVanishesOnItsOwn`（設計層） |
 | 確定済みファイルが減るのは、本人が捨てたときだけ | `FinalizedFilesOnlyLeaveByChoice`（設計層） |
+| 孤児は、どの行の録音かを予定から示せる | `OrphanHasIntent`（設計層） |
+| 録る前の予定は、閉じるか放棄の印が付くまで消えない | `IntentNeverVanishesOnItsOwn`（設計層） |
+| テイクが増えるのは予定を閉じた手だけ。送り直してもテイクは増えない | `TakeGrowsOnlyByClosingIntent`（設計層） |
 | 残量を見積もらないまま収録を始めない | `FB-REC-107` |
 | デバイスを失った状態では収録していない | `INV-REC-101` |
 | 入力が届いていないまま収録することはない | `INV-REC-103` |
@@ -86,7 +89,7 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 ```
 
 すべて `proved`。 不変条件は深さの上限なしで成立している。変異検査の kill 率は
-project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.70（深さ8）/
+project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.73（深さ8）/
 align-review 0.52（深さ6）/ preview-synthesis 0.61 / packaging-export 0.61 /
 method-coverage 0.72 / editor-constraints 0.41 / song-coverage 0.54 / first-run 0.70
 （いずれも深さ 6〜8）を基準線として扱う。

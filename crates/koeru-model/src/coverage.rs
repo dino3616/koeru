@@ -14,9 +14,9 @@
 
 use std::collections::BTreeSet;
 
-use koeru_core::alias::{self, Method, Request};
-use koeru_core::inventory::{UnitSet, transition_vowels, units, vc_units};
-use koeru_core::presamp::Rules;
+use crate::alias::{self, Method, Request};
+use crate::inventory::{UnitSet, transition_vowels, units, vc_units};
+use crate::presamp::Rules;
 
 /// その方式が要求するエイリアス表（`TR-PKG-23`）。
 ///
@@ -233,7 +233,7 @@ mod tests {
     fn cvvc_の要求表は三種の合計() {
         let r = required(&ext(), Method::Cvvc, UnitSet::Extended).expect("表があること");
         let units = units(UnitSet::Extended).len();
-        let vc = koeru_core::inventory::vc_units(UnitSet::Extended).len();
+        let vc = crate::inventory::vc_units(UnitSet::Extended).len();
         let ending = transition_vowels(UnitSet::Extended).len();
         assert_eq!((units, vc, ending), (144, 180, 6));
         // CV は語頭形と素の2綴り（`DEC-SYN-011`）。
@@ -277,7 +277,7 @@ mod tests {
                 out.insert(format!("{v} {}", u.kana));
             }
         }
-        for vc in koeru_core::inventory::vc_units(set) {
+        for vc in crate::inventory::vc_units(set) {
             out.insert(core().vc(vc.vowel, vc.consonant));
         }
         for v in transition_vowels(set) {

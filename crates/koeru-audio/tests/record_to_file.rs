@@ -27,7 +27,7 @@ fn 録音してテイクのファイルを作る() {
     // **信号が届いているデバイスを選ぶ。** 既定が無音のことがある（実機で踏んだ）。
     let mut chosen = None;
     for d in &devices {
-        let Ok((c, cons)) = mac::open(&d.id, 48_000) else {
+        let Ok((c, mut cons)) = mac::open(&d.id, 48_000) else {
             continue;
         };
         c.arm();
@@ -58,7 +58,7 @@ fn 録音してテイクのファイルを作る() {
     let mut s = Session::new();
     s.select_device(dev.id.clone()).expect("デバイスを選ぶ");
 
-    let (cap, consumer) = mac::open(&dev.id, 48_000 * 4).expect("ストリームを開く");
+    let (cap, mut consumer) = mac::open(&dev.id, 48_000 * 4).expect("ストリームを開く");
     s.open_stream().expect("開いた状態にする");
 
     // マイクモードが standard なら「効果を無効化できた」

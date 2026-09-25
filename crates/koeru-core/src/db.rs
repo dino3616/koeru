@@ -3006,17 +3006,13 @@ pub struct FingerprintRow {
     pub aligner: String,
 }
 
-/// oto の5値。`koeru-synth` から独立させて、依存の向きを一方向に保つ。
+/// oto の5値。
+///
+/// **同じ形の型を台帳だけで別に持っていた。** 欄は [`crate::oto::Oto`] と同じで、
+/// 呼び出し側が欄を1つずつ詰め替えていた。 詰め替えのどこかで欄を取り違えても
+/// 組み立ては通る。 移行中の経路を通すために名前だけ残す。
 pub mod koeru_oto {
-    /// oto.ini の1エントリ。単位はすべてミリ秒。
-    #[derive(Debug, Clone, Copy, PartialEq)]
-    pub struct Oto {
-        pub offset_ms: f64,
-        pub consonant_ms: f64,
-        pub cutoff_ms: f64,
-        pub preutterance_ms: f64,
-        pub overlap_ms: f64,
-    }
+    pub use crate::oto::Oto;
 }
 
 /// 保存されていた方式名を戻す。

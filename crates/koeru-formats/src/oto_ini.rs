@@ -16,13 +16,24 @@
 //! # 文字コード
 //!
 //! 既定は Shift-JIS（CP932）。UTF-8（BOM なし）を選べる。読み込みは両方受け付ける。
-//! 判定と変換は [`koeru_core::text`] が持っている（`TR-PLT-08`, `DEC-PLT-013`）。
+//! 判定と変換は [`crate::text`] が持っている（`TR-PLT-08`, `DEC-PLT-013`）。
 //!
 //! `oto.ini` は作業ファイルにしない（`TR-PKG-40`）。DB を正とし、
 //! ここが作るのは書き出し時の派生物。
+//!
+//! # 2つの口
+//!
+//! [`IniEntry`] の [`read`] / [`write`] は KOERU が書き出すための口で、値を丸め、
+//! 空欄を読めず、コメントと改行の形を捨てる。 外で作られた `oto.ini` を取り込んで
+//! 書き戻すときは [`Document`] を使う（`TR-EDT-39`）。 行ごとに原文を持ち、
+//! 編集していない行は原文のバイト列のまま書き戻す。
 
-use koeru_core::oto::Oto;
-use koeru_core::text::{self, TextEncoding};
+use crate::text::{self, TextEncoding};
+use koeru_model::oto::Oto;
+
+mod document;
+
+pub use document::{Document, Entry, Field, Line, LineEnding, LineKind};
 
 /// 書き出す数値の小数点以下の桁数（`TR-ALN-21`）。
 pub const DECIMALS: usize = 3;
@@ -51,6 +62,10 @@ pub enum IniError {
     #[error("数値として読めない欄がある")]
     NotANumber,
 
+    /// エイリアスに `,` か改行が入っている。 書くと行の区切りが変わり、読み戻せない。
+    #[error("エイリアスに区切りの文字が入っている")]
+    SeparatorInAlias,
+
     /// 文字コードの扱いに失敗した。
     #[error("文字コードを扱えない")]
     Text(#[from] text::TextError),
@@ -63,15 +78,17 @@ impl koeru_failure::Failure for IniError {
             Self::MalformedLine => "ini.malformed_line",
             Self::MissingFields => "ini.missing_fields",
             Self::NotANumber => "ini.not_a_number",
+            Self::SeparatorInAlias => "ini.separator_in_alias",
             Self::Text(e) => e.code(),
         }
     }
 
     fn class(&self) -> koeru_failure::Class {
         match self {
-            Self::MalformedLine | Self::MissingFields | Self::NotANumber => {
-                koeru_failure::Class::InvalidInput
-            }
+            Self::MalformedLine
+            | Self::MissingFields
+            | Self::NotANumber
+            | Self::SeparatorInAlias => koeru_failure::Class::InvalidInput,
             Self::Text(e) => e.class(),
         }
     }
@@ -287,6 +304,7 @@ mod tests {
             IniError::MalformedLine,
             IniError::MissingFields,
             IniError::NotANumber,
+            IniError::SeparatorInAlias,
         ] {
             let code = koeru_failure::Failure::code(&e);
             assert!(code.starts_with("ini."), "{code}");

@@ -67,7 +67,7 @@ fn record_at(device_rate_hz: u32) -> wav::Wav {
     std::fs::create_dir_all(&dir).expect("作れる");
     let path = dir.join("take.wav");
 
-    let (producer, consumer) = ring::channel(device_rate_hz as usize * 4);
+    let (mut producer, consumer) = ring::channel(device_rate_hz as usize * 4);
     let pump = Pump::start(consumer, device_rate_hz);
 
     // 押す前の音も流しておく（プリロールが要る）。

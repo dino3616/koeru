@@ -11,12 +11,40 @@
 //! # コールバックの規律（`TR-REC-40`）
 //!
 //! レンダーコールバックの中で確保も解放もロックもしない。
-//! やるのは、あらかじめ置いてある f32 のスライスから書き出す複製だけ。
+//! やるのは、リングから書き出す複製だけ。 リングの読み出し側はコールバックだけが持ち、
+//! 継ぎ足す側とはロックを挟まずに分かれる。
+//!
+//! 以前は `RwLock<Vec<f32>>` を継ぎ足しで伸ばし、コールバックが `try_read` していた。
+//! 継ぎ足しと重なった周は読めずに無音を出して枯渇と数え、
+//! 鳴らし終えたぶんも再生を落とすまで残っていた。
+//!
+//! # 継ぎ足しは待つ
+//!
+//! リングは有界（[`STREAM_RING_MS`]）。 満杯なら [`Feed::push`] は空くまで待つ。
+//! コールバックは待てないので、待つのは継ぎ足す側。 再生を止めるか落とすと、
+//! 待っている継ぎ足しは書き終えずに戻る。
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::sys;
+use crate::ring;
+
+/// 継ぎ足す再生のリングが持てる長さ（ミリ秒）。
+///
+/// 要るのは先行（`TR-SYN-03` の「2秒以上先行」）を保てる長さで、それより長くしても
+/// 鳴り方は変わらない。 4倍にしてあるのは、満杯まで書けていれば、次のフレーズの
+/// 合成が数秒詰まっても先行を割らないため。 44100 Hz で約 1.4MB。
+///
+/// 先頭がこれより長ければ、先頭の長さに合わせる（[`play_streaming`]）。
+const STREAM_RING_MS: u64 = 8000;
+
+/// 満杯のときに継ぎ足しが空きを見に行く間隔。
+///
+/// コールバックから起こさない。 起こすのはシステムコールで、`TR-REC-40` の外になる。
+/// 止めたあと待ちが抜けるまでの遅れも、これで決まる。
+const PUSH_WAIT: Duration = Duration::from_millis(10);
 
 /// 再生の失敗。
 #[derive(Debug, thiserror::Error)]
@@ -59,21 +87,58 @@ fn check(op: &'static str, status: sys::OSStatus) -> Result<()> {
 }
 
 /// コールバックと呼び出し側で共有する状態。
+///
+/// アトミックと、継ぎ足す側だけが握るロック。 コールバックはロックに触らない。
 #[derive(Debug)]
 struct Shared {
-    /// 流すもの。
+    /// 継ぎ足す側（`TR-SYN-03`）。 **コールバックはこのロックに触らない。**
     ///
-    /// 継ぎ足せる（`TR-SYN-03`）。先頭フレーズができた時点で鳴らしはじめ、
-    /// 残りは並行して作る。`RwLock` の書き側は継ぎ足しのときだけ。
-    samples: RwLock<Vec<f32>>,
-    /// 次に読む位置。コールバックだけが進める。
-    cursor: AtomicUsize,
+    /// ロックは `Feed` の複製どうしで書く順序を揃えるためだけにある。
+    producer: Mutex<ring::Producer>,
+    /// 流し終えたフレーム数。コールバックだけが進める。
+    played: AtomicUsize,
+    /// リングへ書いたフレーム数。継ぎ足す側だけが進める。
+    queued: AtomicUsize,
     /// もう継ぎ足さない。
     sealed: AtomicBool,
     /// 末尾まで流し終えたか。
     done: AtomicBool,
     /// 継ぎ足しが間に合わず、無音を出した回数。枯渇の記録（`TR-SYN-03`）。
     starved: AtomicUsize,
+    /// 止めた、または落とした。 満杯で待っている継ぎ足しを抜けさせる。
+    closed: AtomicBool,
+}
+
+/// レンダーコールバックが持つもの。 コールバックのほかは触らない。
+///
+/// リングの読み出し側は、読むのに `&mut` が要る（`ring` の「端点は1つずつ」）。
+/// 共有する状態の中に置くと、`&Shared` から `&mut` を取り出す口が要り、
+/// `Shared` の `Sync` を手で約束することになる。 丸ごとコールバックへ渡せば要らない。
+#[derive(Debug)]
+struct Render {
+    consumer: ring::Consumer,
+    shared: Arc<Shared>,
+}
+
+impl Render {
+    /// コールバックの本体。 `out` を埋め、進み具合を `shared` へ書く。
+    ///
+    /// 確保も解放もロックもしない（`TR-REC-40`）。
+    fn render(&mut self, out: &mut [f32]) {
+        // リングより先に読む（`fill` の `sealed`）。
+        let sealed = self.shared.sealed.load(Ordering::Acquire);
+        let filled = fill(&mut self.consumer, out, sealed);
+        self.shared
+            .played
+            .fetch_add(filled.frames, Ordering::Release);
+        match filled.end {
+            End::Full => {}
+            End::Done => self.shared.done.store(true, Ordering::Release),
+            End::Starved => {
+                self.shared.starved.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
 }
 
 /// 鳴っている最中の再生。落とすと止まる。
@@ -81,12 +146,14 @@ struct Shared {
 pub struct Playback {
     unit: sys::AudioUnit,
     shared: Arc<Shared>,
-    /// `Arc::into_raw` で渡した参照。`Drop` で回収する。
-    raw: *const Shared,
+    /// `Box::into_raw` でコールバックへ渡したもの。 `Drop` でユニットを捨てたあとに回収する。
+    /// それまでは参照を作らない——作るのはコールバックだけ。
+    raw: *mut Render,
 }
 
-// `AudioUnit` は不透明ポインタ。 CoreAudio 側が内部で同期しており、
+// SAFETY: `AudioUnit` は不透明ポインタ。 CoreAudio 側が内部で同期しており、
 // 所有権をスレッド間で移すことは許される（同時に触らない限り）。
+// `raw` は `Drop` で回収するまで参照にしないので、どのスレッドで落としても同じ。
 unsafe impl Send for Playback {}
 
 impl Playback {
@@ -108,7 +175,7 @@ impl Playback {
         }
     }
 
-    /// 続きを継ぎ足す（`TR-SYN-03`）。
+    /// 続きを継ぎ足す（`TR-SYN-03`）。 満杯なら空くまで待つ（[`Feed::push`]）。
     ///
     /// 鳴らしながら足せる。 先頭フレーズができた時点で鳴らしはじめ、
     /// 残りは並行して作る。
@@ -126,8 +193,7 @@ impl Playback {
     /// これが先行の余裕（`TR-SYN-03` の「2秒以上先行」）。
     #[must_use]
     pub fn buffered(&self) -> usize {
-        let have = self.shared.samples.read().map_or(0, |g| g.len());
-        have.saturating_sub(self.shared.cursor.load(Ordering::Acquire))
+        self.shared.buffered()
     }
 
     /// 継ぎ足しが間に合わず、無音を出した回数。
@@ -139,14 +205,24 @@ impl Playback {
     /// いま何フレーム目まで流したか。進捗表示に使う。
     #[must_use]
     pub fn position(&self) -> usize {
-        self.shared.cursor.load(Ordering::Acquire)
+        self.shared.played.load(Ordering::Acquire)
     }
 
+    /// 止める。 満杯で待っている継ぎ足しも抜ける。止めたあとの継ぎ足しは捨てる。
     pub fn stop(&self) -> Result<()> {
+        self.shared.closed.store(true, Ordering::Release);
         // SAFETY: `unit` は `start` が作って `Drop` まで生きている。
         check("AudioOutputUnitStop", unsafe {
             sys::AudioOutputUnitStop(self.unit)
         })
+    }
+}
+
+impl Shared {
+    /// 目安。 2つを別々に読むので、読む間に流れたぶんだけずれる。
+    fn buffered(&self) -> usize {
+        let played = self.played.load(Ordering::Acquire);
+        self.queued.load(Ordering::Acquire).saturating_sub(played)
     }
 }
 
@@ -158,17 +234,26 @@ pub struct Feed {
     shared: Arc<Shared>,
 }
 
-// SAFETY: `Shared` の中身は `RwLock` とアトミックだけで、内部で同期している。
-// `AudioUnit` のハンドルはここに含まれない。
-unsafe impl Send for Feed {}
-// SAFETY: 同上。
-unsafe impl Sync for Feed {}
-
 impl Feed {
+    /// 続きを継ぎ足す（`TR-SYN-03`）。
+    ///
+    /// **満杯なら空くまで待つ。** 空くのは鳴らしたぶんだけなので、
+    /// リングの長さ（`STREAM_RING_MS`）を超えて先へは書けない。
+    /// 再生を止めるか落とすと、書き終えていなくても戻る。
+    ///
+    /// 待つので、リアルタイムのスレッドからは呼ばない。 画面の操作が通るロックを
+    /// 握ったまま呼ぶと、書き終えるまで止める操作も通らない。 呼ぶのは合成のスレッドにする。
     pub fn push(&self, more: &[f32]) {
-        if let Ok(mut g) = self.shared.samples.write() {
-            g.extend_from_slice(more);
-        }
+        let Ok(mut producer) = self.shared.producer.lock() else {
+            return;
+        };
+        push_waiting(
+            &mut producer,
+            more,
+            &self.shared.closed,
+            &self.shared.queued,
+            PUSH_WAIT,
+        );
     }
 
     pub fn seal(&self) {
@@ -178,30 +263,61 @@ impl Feed {
     /// まだ鳴らしていない長さ（サンプル）。
     #[must_use]
     pub fn buffered(&self) -> usize {
-        let have = self.shared.samples.read().map_or(0, |g| g.len());
-        have.saturating_sub(self.shared.cursor.load(Ordering::Acquire))
+        self.shared.buffered()
     }
+}
+
+/// 入りきるまで待って書く。戻り値は書けたフレーム数。
+///
+/// `closed` が立ったら、書き終えていなくても戻る。 書くたびに `queued` を進めるので、
+/// 待っている間もどこまで書けたかが読める。
+fn push_waiting(
+    producer: &mut ring::Producer,
+    more: &[f32],
+    closed: &AtomicBool,
+    queued: &AtomicUsize,
+    wait: Duration,
+) -> usize {
+    let mut at = 0;
+    while at < more.len() && !closed.load(Ordering::Acquire) {
+        let n = producer.push(&more[at..]);
+        queued.fetch_add(n, Ordering::Release);
+        at += n;
+        if at < more.len() {
+            std::thread::sleep(wait);
+        }
+    }
+    at
 }
 
 impl Drop for Playback {
     fn drop(&mut self) {
+        // 先に閉じる。 閉じないと、満杯で待っている継ぎ足しが、止まって空かなくなった
+        // リングを待ち続ける。
+        self.shared.closed.store(true, Ordering::Release);
         // SAFETY: `unit` はここでだけ捨てる。停止 → 解除 → 破棄の順。
         unsafe {
             sys::AudioOutputUnitStop(self.unit);
             sys::AudioUnitUninitialize(self.unit);
             sys::AudioComponentInstanceDispose(self.unit);
         }
-        // SAFETY: `start` の `Arc::into_raw` と1対1で対応する。
-        drop(unsafe { Arc::from_raw(self.raw) });
+        // SAFETY: `build` の `Box::into_raw` と1対1で対応する。 ユニットは直前に捨てたので、
+        // もうコールバックは来ず、`Render` を触っている者はいない。
+        drop(unsafe { Box::from_raw(self.raw) });
     }
 }
 
 /// モノラルの f32 を既定の出力デバイスへ流す。
 ///
 /// 返った `Playback` を落とすと止まる。 最後まで鳴らしたいなら持ち続ける。
+///
+/// リングは渡したものがちょうど入る長さで作り、鳴らす前に全部書いておく。
+/// 継ぎ足す前提ではないので、[`Playback::push`] は鳴らしたぶんが空くまで待つ。
 #[tracing::instrument(skip(samples), fields(frames = samples.len(), rate_hz))]
 pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
-    start(samples, rate_hz, true)
+    // 1枠は満杯と空の区別に使う（`ring::channel`）。
+    let capacity = samples.len() + 1;
+    start(samples, capacity, rate_hz, true)
 }
 
 /// 継ぎ足せる再生を始める（`TR-SYN-03`）。
@@ -209,15 +325,48 @@ pub fn play(samples: Vec<f32>, rate_hz: u32) -> Result<Playback> {
 /// 先頭フレーズができた時点で鳴らしはじめ、残りは並行して作る。
 /// 足し終わったら [`Playback::seal`] を呼ぶ。
 ///
+/// リングの長さは `STREAM_RING_MS`。 `head` がそれより長ければ `head` に合わせる
+/// ——先頭は鳴らす前に全部書いておきたく、ここで待つと鳴りはじめが遅れる。
+///
 /// # Errors
 ///
 /// 出力ユニットを開けないとき。
 #[tracing::instrument(skip(head), fields(frames = head.len(), rate_hz))]
 pub fn play_streaming(head: Vec<f32>, rate_hz: u32) -> Result<Playback> {
-    start(head, rate_hz, false)
+    let capacity = stream_capacity(head.len(), rate_hz);
+    start(head, capacity, rate_hz, false)
 }
 
-fn start(samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
+/// 継ぎ足す再生のリングの容量（フレーム）。1枠は満杯と空の区別に使う。
+fn stream_capacity(head: usize, rate_hz: u32) -> usize {
+    let lead = u64::from(rate_hz) * STREAM_RING_MS / 1000;
+    head.max(usize::try_from(lead).unwrap_or(usize::MAX))
+        .saturating_add(1)
+}
+
+/// リングを作って `samples` を先に書き、共有する状態とコールバックの持ち物に分ける。
+///
+/// 確保はここで済ませる。 コールバックの中ではしない。
+fn prepare(samples: &[f32], capacity: usize, sealed: bool) -> (Arc<Shared>, Render) {
+    let (mut producer, consumer) = ring::channel(capacity);
+    let queued = producer.push(samples);
+    let shared = Arc::new(Shared {
+        producer: Mutex::new(producer),
+        played: AtomicUsize::new(0),
+        queued: AtomicUsize::new(queued),
+        sealed: AtomicBool::new(sealed),
+        done: AtomicBool::new(false),
+        starved: AtomicUsize::new(0),
+        closed: AtomicBool::new(false),
+    });
+    let render = Render {
+        consumer,
+        shared: Arc::clone(&shared),
+    };
+    (shared, render)
+}
+
+fn start(samples: Vec<f32>, capacity: usize, rate_hz: u32, sealed: bool) -> Result<Playback> {
     let desc = sys::AudioComponentDescription {
         componentType: sys::kAudioUnitType_Output,
         componentSubType: sys::kAudioUnitSubType_DefaultOutput,
@@ -239,7 +388,7 @@ fn start(samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
     })?;
 
     // ここから先で失敗したら unit を捨てる。
-    let built = build(unit, samples, rate_hz, sealed);
+    let built = build(unit, samples, capacity, rate_hz, sealed);
     match built {
         Ok(p) => Ok(p),
         Err(e) => {
@@ -250,7 +399,13 @@ fn start(samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
     }
 }
 
-fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) -> Result<Playback> {
+fn build(
+    unit: sys::AudioUnit,
+    samples: Vec<f32>,
+    capacity: usize,
+    rate_hz: u32,
+    sealed: bool,
+) -> Result<Playback> {
     // モノラル・非インタリーブの f32。 変換は WORLD 側で済んでいる。
     let format = sys::AudioStreamBasicDescription {
         mSampleRate: f64::from(rate_hz),
@@ -277,19 +432,14 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) ->
         )
     })?;
 
-    let shared = Arc::new(Shared {
-        samples: RwLock::new(samples),
-        cursor: AtomicUsize::new(0),
-        sealed: AtomicBool::new(sealed),
-        done: AtomicBool::new(false),
-        starved: AtomicUsize::new(0),
-    });
-    // コールバックへ渡す参照を、`Drop` まで生かす。
-    let raw = Arc::into_raw(Arc::clone(&shared));
+    let (shared, state) = prepare(&samples, capacity, sealed);
+    drop(samples);
+    // コールバックへ丸ごと渡す。 `Drop` でユニットを捨てるまで生かす。
+    let raw = Box::into_raw(Box::new(state));
 
     let cb = sys::AURenderCallbackStruct {
         inputProc: Some(render),
-        inputProcRefCon: raw.cast::<std::ffi::c_void>().cast_mut(),
+        inputProcRefCon: raw.cast::<std::ffi::c_void>(),
     };
     // SAFETY: `cb` はこの呼び出しの間だけ読まれ、中の `raw` は `Drop` まで生きる。
     let set = unsafe {
@@ -303,8 +453,8 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) ->
         )
     };
     if let Err(e) = check("SetProperty(SetRenderCallback)", set) {
-        // SAFETY: 上の `into_raw` と1対1。
-        drop(unsafe { Arc::from_raw(raw) });
+        // SAFETY: 上の `into_raw` と1対1。 まだ開始していないので、コールバックは来ていない。
+        drop(unsafe { Box::from_raw(raw) });
         return Err(e);
     }
 
@@ -312,8 +462,8 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) ->
     if let Err(e) = check("AudioUnitInitialize", unsafe {
         sys::AudioUnitInitialize(unit)
     }) {
-        // SAFETY: 上の `into_raw` と1対1。
-        drop(unsafe { Arc::from_raw(raw) });
+        // SAFETY: 同上。
+        drop(unsafe { Box::from_raw(raw) });
         return Err(e);
     }
 
@@ -323,8 +473,8 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) ->
     }) {
         // SAFETY: 初期化は済んでいるので、解除してから捨てる。
         unsafe { sys::AudioUnitUninitialize(unit) };
-        // SAFETY: 上の `into_raw` と1対1。
-        drop(unsafe { Arc::from_raw(raw) });
+        // SAFETY: 同上。 開始に失敗したので、コールバックは来ていない。
+        drop(unsafe { Box::from_raw(raw) });
         return Err(e);
     }
 
@@ -333,7 +483,7 @@ fn build(unit: sys::AudioUnit, samples: Vec<f32>, rate_hz: u32, sealed: bool) ->
 
 /// レンダーコールバック。
 ///
-/// 確保も解放もロックもしない（`TR-REC-40`）。置いてあるスライスから複製するだけ。
+/// 確保も解放もロックもしない（`TR-REC-40`）。リングから複製するだけ（[`fill`]）。
 unsafe extern "C" fn render(
     in_ref_con: *mut std::ffi::c_void,
     _flags: *mut sys::AudioUnitRenderActionFlags,
@@ -345,8 +495,10 @@ unsafe extern "C" fn render(
     if in_ref_con.is_null() || io_data.is_null() {
         return 0;
     }
-    // SAFETY: `build` が `Arc::into_raw` で渡した参照。`Playback` が生きている間だけ呼ばれる。
-    let shared = unsafe { &*in_ref_con.cast::<Shared>() };
+    // SAFETY: `build` が `Box::into_raw` で渡した `Render`。 `Playback` がユニットを捨てるまで
+    // 生きていて、その間これを参照にするのはこのコールバックだけ。 CoreAudio は
+    // 1つのユニットのレンダーコールバックを重ねて呼ばないので、`&mut` は重ならない。
+    let state = unsafe { &mut *in_ref_con.cast::<Render>() };
 
     // `AudioBuffer` はポインタを含むので8バイト境界に揃う。
     // ヘッダの直後に詰め物が入る（capture 側と同じ落とし穴）。
@@ -367,31 +519,236 @@ unsafe extern "C" fn render(
         )
     };
 
-    let start = shared.cursor.load(Ordering::Relaxed);
+    state.render(out);
+    0
+}
 
-    // コールバックの中でロックを待たない（`TR-REC-40` と同じ規律）。
-    // 取れなければ無音を出して次の周に回す。継ぎ足し側は一瞬しか握らない。
-    let Ok(buf) = shared.samples.try_read() else {
-        out.fill(0.0);
-        shared.starved.fetch_add(1, Ordering::Relaxed);
-        return 0;
+/// 1回のレンダーで、リングから写したもの。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Filled {
+    /// リングから写したフレーム数。残りは無音で埋めてある。
+    frames: usize,
+    end: End,
+}
+
+/// 埋めきれたか。 埋めきれなかったなら、なぜか。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum End {
+    /// 全部リングから埋まった。
+    Full,
+    /// もう継ぎ足さないと宣言されていて、末尾まで流し終えた。
+    Done,
+    /// まだ続きが来る予定なのに足りなかった。 枯渇として数える（`TR-SYN-03`）。
+    Starved,
+}
+
+/// リングから `out` を埋める。 足りないぶんは無音にする。
+///
+/// 確保も解放もロックもしない（`TR-REC-40`）。 コールバックの本体で、
+/// CoreAudio なしで試せるように切り出してある。
+///
+/// `sealed` は**リングを読む前に**読んだ値を渡す。 継ぎ足しは書いてから閉じるので、
+/// 閉じたのを見てから読めば、書いたものは全部見える。 読んだあとで見ると、
+/// その間に書き足して閉じたぶんを残したまま、流し終えたことになる。
+fn fill(consumer: &mut ring::Consumer, out: &mut [f32], sealed: bool) -> Filled {
+    let frames = consumer.pop(out);
+    // 埋めないと直前のバッファの中身が鳴る。
+    out[frames..].fill(0.0);
+    let end = if frames == out.len() {
+        End::Full
+    } else if sealed {
+        End::Done
+    } else {
+        End::Starved
     };
+    Filled { frames, end }
+}
 
-    let avail = buf.len().saturating_sub(start);
-    let n = avail.min(out.len());
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    out[..n].copy_from_slice(&buf[start..start + n]);
-    // 残りは無音で埋める。 埋めないと直前のバッファの中身が鳴る。
-    out[n..].fill(0.0);
+    /// 通し番号の音。 どこまで流れたかを値で見分ける。
+    fn ramp(from: usize, n: usize) -> Vec<f32> {
+        (from..from + n).map(|i| i as f32).collect()
+    }
 
-    shared.cursor.store(start + n, Ordering::Release);
-    if n < out.len() {
-        if shared.sealed.load(Ordering::Acquire) {
-            shared.done.store(true, Ordering::Release);
-        } else {
-            // まだ続きが来る予定なのに足りなかった。 枯渇として数える。
-            shared.starved.fetch_add(1, Ordering::Relaxed);
+    #[test]
+    fn 足りないぶんは無音で埋める() {
+        let (mut p, mut c) = ring::channel(16);
+        p.push(&[1.0, 2.0, 3.0]);
+        let mut out = [9.0_f32; 5];
+        let got = fill(&mut c, &mut out, true);
+        assert_eq!(out, [1.0, 2.0, 3.0, 0.0, 0.0], "直前の中身を残さない");
+        assert_eq!(got.frames, 3);
+    }
+
+    #[test]
+    fn 埋めきれれば終わりでも枯渇でもない() {
+        let (mut p, mut c) = ring::channel(16);
+        p.push(&[1.0, 2.0, 3.0]);
+        let mut out = [0.0_f32; 3];
+        assert_eq!(
+            fill(&mut c, &mut out, false),
+            Filled {
+                frames: 3,
+                end: End::Full
+            }
+        );
+    }
+
+    /// 継ぎ足しが来る予定なら枯渇、もう来ないなら流し終えた（`TR-SYN-03`）。
+    #[test]
+    fn 足りないときは閉じていれば終わり閉じていなければ枯渇() {
+        let (mut p, mut c) = ring::channel(16);
+        let mut out = [0.0_f32; 4];
+
+        p.push(&[1.0]);
+        assert_eq!(fill(&mut c, &mut out, false).end, End::Starved);
+
+        p.push(&[2.0]);
+        assert_eq!(fill(&mut c, &mut out, true).end, End::Done);
+    }
+
+    /// 容量が2の冪でなくても、環をまたいで順に流れる（`DEC-REC-007`）。
+    #[test]
+    fn 容量が2の冪でなくても環をまたいで順に流れる() {
+        let (mut p, mut c) = ring::channel(301); // **2の冪ではない。** 実効容量 300
+        let mut out = vec![0.0_f32; 128];
+        let mut written = 0;
+        let mut read = 0;
+        while read < 301 * 5 {
+            written += p.push(&ramp(written, 97));
+            let got = fill(&mut c, &mut out, false);
+            for v in &out[..got.frames] {
+                assert!(
+                    (*v - read as f32).abs() < f32::EPSILON,
+                    "{read} フレーム目で順序が壊れた: {v}"
+                );
+                read += 1;
+            }
+            assert!(out[got.frames..].iter().all(|v| *v == 0.0), "残りは無音");
         }
     }
-    0
+
+    /// 流したフレーム数だけ位置が進み、まだ鳴らしていない長さが減る。
+    #[test]
+    fn 流したぶんだけ位置が進む() {
+        let (shared, mut render) = prepare(&ramp(0, 10), 11, true);
+        assert_eq!(shared.buffered(), 10, "先に全部書いてある");
+
+        let mut out = [0.0_f32; 4];
+        render.render(&mut out);
+        assert_eq!(shared.played.load(Ordering::Acquire), 4);
+        assert_eq!(shared.buffered(), 6);
+        assert!(!shared.done.load(Ordering::Acquire));
+
+        render.render(&mut out);
+        render.render(&mut out); // 残り2つで足りない。閉じているので終わり
+        assert_eq!(
+            shared.played.load(Ordering::Acquire),
+            10,
+            "足りなかった周も数えすぎない"
+        );
+        assert_eq!(shared.buffered(), 0);
+        assert!(shared.done.load(Ordering::Acquire));
+        assert_eq!(shared.starved.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn 継ぎ足す再生が足りなければ枯渇を数える() {
+        let (shared, mut render) = prepare(&[], stream_capacity(0, 100), false);
+        let mut out = [0.0_f32; 4];
+        render.render(&mut out);
+        assert_eq!(shared.starved.load(Ordering::Relaxed), 1);
+        assert!(
+            !shared.done.load(Ordering::Acquire),
+            "閉じていないので終わらない"
+        );
+    }
+
+    /// 最後まで知っている再生は、渡したものがちょうど入る（`play`）。
+    #[test]
+    fn 渡したものは鳴らす前に全部入る() {
+        let samples = ramp(0, 1234);
+        let (shared, _render) = prepare(&samples, samples.len() + 1, true);
+        assert_eq!(shared.queued.load(Ordering::Acquire), samples.len());
+    }
+
+    /// 継ぎ足す再生のリングは、先行より長く、先頭より短くならない。
+    #[test]
+    fn 継ぎ足す再生のリングの長さ() {
+        let rate = 44_100;
+        let lead = rate as usize * STREAM_RING_MS as usize / 1000;
+        assert_eq!(stream_capacity(0, rate), lead + 1);
+        assert_eq!(
+            stream_capacity(lead * 2, rate),
+            lead * 2 + 1,
+            "先頭は全部入る"
+        );
+    }
+
+    /// 満杯なら、鳴らして空くまで待ってから続きを書く。
+    #[test]
+    fn 満杯なら空くまで待って全部書く() {
+        let (shared, mut render) = prepare(&[], 101, false); // 実効容量 100
+        let feed = Feed {
+            shared: Arc::clone(&shared),
+        };
+        let more = ramp(0, 450);
+        let writer = std::thread::spawn({
+            let more = more.clone();
+            move || feed.push(&more)
+        });
+
+        let mut heard = Vec::new();
+        let mut out = [0.0_f32; 37];
+        while heard.len() < more.len() {
+            render.render(&mut out);
+            let n = shared.played.load(Ordering::Acquire) - heard.len();
+            heard.extend_from_slice(&out[..n]);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        writer.join().expect("書き手が終わる");
+        assert_eq!(heard, more, "待って書いたぶんも順に全部鳴る");
+        assert_eq!(shared.queued.load(Ordering::Acquire), more.len());
+    }
+
+    /// 止めた・落とした再生へ継ぎ足しても、待ち続けない。
+    #[test]
+    fn 閉じたら満杯でも待たずに戻る() {
+        let (shared, _render) = prepare(&ramp(0, 100), 101, false); // 満杯
+        let feed = Feed {
+            shared: Arc::clone(&shared),
+        };
+        let writer = std::thread::spawn(move || feed.push(&ramp(100, 50)));
+        std::thread::sleep(PUSH_WAIT * 3);
+        assert!(!writer.is_finished(), "満杯なので待っている");
+
+        // `Playback::stop` と `Drop` が立てるもの。
+        shared.closed.store(true, Ordering::Release);
+        writer.join().expect("待ちを抜けて戻る");
+        assert_eq!(
+            shared.queued.load(Ordering::Acquire),
+            100,
+            "閉じたあとは書かない"
+        );
+    }
+
+    #[test]
+    fn 閉じたあとの継ぎ足しは捨てる() {
+        let (mut producer, _consumer) = ring::channel(8);
+        let closed = AtomicBool::new(true);
+        let queued = AtomicUsize::new(0);
+        let wrote = push_waiting(&mut producer, &[1.0, 2.0], &closed, &queued, PUSH_WAIT);
+        assert_eq!(wrote, 0);
+        assert_eq!(queued.load(Ordering::Acquire), 0);
+    }
+
+    /// 合成スレッドへ渡して複製できる口のまま（`TR-SYN-03`）。
+    #[test]
+    fn 継ぎ足す口はスレッドをまたいで複製できる() {
+        fn shareable<T: Clone + Send + Sync>() {}
+        shareable::<Feed>();
+    }
 }

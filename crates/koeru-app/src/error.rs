@@ -150,6 +150,7 @@ from_failure!(
     koeru_core::handoff::HandoffError,
     koeru_core::text::TextError,
     koeru_core::frq::FrqError,
+    koeru_core::frq::FrqWriteError,
     koeru_core::reclist::ReclistError,
     koeru_core::preset::PresetError,
     koeru_core::tone::ToneError,

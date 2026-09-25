@@ -212,6 +212,9 @@ impl Drop for Running {
 }
 
 /// 合成した波形を受け取る口。
+///
+/// `push` は背後の合成スレッドだけが呼ぶ。 先へ溜めすぎないよう、受け取る側が
+/// 空くまで待たせてよい。 待たせるなら、鳴らすのをやめたときに待ちを抜けさせる。
 pub trait Sink: Send {
     fn push(&self, samples: &[f32]);
     /// もう来ないと伝える。
@@ -220,8 +223,12 @@ pub trait Sink: Send {
 
 /// フレーズを順に合成して流す（`TR-SYN-03`）。
 ///
-/// 先頭フレーズができた時点で呼び出し側が鳴らしはじめられるよう、
-/// 1本目だけは同期で作って返す。 残りは背後で作る。
+/// 1本目だけは同期で作る。 作れなければ、何も流さずにここで失敗を返す。
+/// 流すのは背後のスレッドで、1本目から順に `sink` へ渡し、残りはそこで作る。
+///
+/// 1本目を呼び出し側で流さない。 `sink` は待たせてよい口なので、呼び出し側が
+/// 画面の操作と同じロックを握ったまま流すと、止める操作まで待たされる。
+/// 背後のスレッドが先に2本目の手前の休みを流して、順序が入れ替わることもなくなる。
 ///
 /// # Errors
 ///
@@ -233,19 +240,16 @@ pub fn start(
     cache: Arc<Mutex<PhraseCache>>,
     sink: Box<dyn Sink>,
     rate_hz: u32,
-) -> Result<(Vec<f32>, Running), RenderError> {
+) -> Result<Running, RenderError> {
     let cancel = Arc::new(AtomicBool::new(false));
 
     let mut rest = phrases;
     if rest.is_empty() {
         sink.seal();
-        return Ok((
-            Vec::new(),
-            Running {
-                cancel,
-                handle: None,
-            },
-        ));
+        return Ok(Running {
+            cancel,
+            handle: None,
+        });
     }
     let (first, lead) = rest.remove(0);
     let mut head = silence(lead, rate_hz);
@@ -255,6 +259,8 @@ pub fn start(
         let cancel = Arc::clone(&cancel);
         let cache = Arc::clone(&cache);
         move || {
+            sink.push(&head);
+            drop(head);
             for (p, lead) in rest {
                 if cancel.load(Ordering::Acquire) {
                     // 部分結果を書かない（`TR-SYN-27`）。
@@ -283,13 +289,10 @@ pub fn start(
         }
     });
 
-    Ok((
-        head,
-        Running {
-            cancel,
-            handle: Some(handle),
-        },
-    ))
+    Ok(Running {
+        cancel,
+        handle: Some(handle),
+    })
 }
 
 /// キャッシュを見てから合成する。
