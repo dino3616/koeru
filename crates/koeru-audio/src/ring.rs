@@ -14,6 +14,19 @@
 //! ブロックする選択肢が無い。捨てたことは `dropped()` で読み取り側が知る。
 //! 取りこぼしはレイテンシより優先して検出する（`TR-REC-40`）ので、
 //! 1サンプルでも捨てたテイクは無効にする（`TR-REC-07`）。
+//!
+//! ## 端点は1つずつ
+//!
+//! 書き込みにも読み出しにも `&mut self` が要る。 端点は [`channel`] だけが作り、
+//! 複製できない。 なので、同じ端点から2つのスレッドが同時に書く（読む）形は
+//! safe なコードでは組み立たない。 `buf` へ触る `unsafe` は、この一意性に乗っている。
+//!
+//! 以前は `&self` で書けた。 端点は `Arc<Shared>` を持つので自動で `Sync` になり、
+//! 1つの `Producer` を共有して2本のスレッドから `push` できた。 そうすると
+//! `head` の読み書きが競り、同じ枠へ2つが書く。
+//!
+//! 共有参照から呼べるのはアトミックを読むもの（`dropped`、`len`）だけにしてある。
+//! これらは端点が `Sync` のままでも壊れない。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,18 +49,65 @@ struct Shared {
 }
 
 // SAFETY: buf の各要素へは、head と tail の順序付けによって
-// 生産者と消費者のどちらか一方しか同時に触れない。
+// 生産者と消費者のどちらか一方しか同時に触れない。 生産者と消費者は
+// それぞれ1つしか無い（`channel` だけが作り、複製できない）。
 unsafe impl Send for Shared {}
-// SAFETY: 同上。Producer と Consumer が別スレッドへ渡ることを許す。
+// SAFETY: 同上。 Producer と Consumer が別スレッドへ渡ることを許す。
+// buf へ触るのは `&mut self` の `push` と `pop` だけなので、1つの端点を
+// 共有しても buf へ同時に書く（読む）者は増えない。
 unsafe impl Sync for Shared {}
 
-/// 書き込み側。キャプチャコールバックが持つ。
+/// 書き込み側。収録ではキャプチャコールバック、再生では継ぎ足す側が持つ。
+///
+/// ```
+/// let (mut p, mut c) = koeru_audio::ring::channel(8);
+/// assert_eq!(p.push(&[1.0, 2.0]), 2);
+/// let mut out = [0.0_f32; 2];
+/// assert_eq!(c.pop(&mut out), 2);
+/// ```
+///
+/// 共有した参照からは書けない。
+///
+/// ```compile_fail,E0596
+/// let (p, _c) = koeru_audio::ring::channel(8);
+/// let shared = &p;
+/// shared.push(&[1.0]);
+/// ```
+///
+/// ```compile_fail,E0596
+/// let (p, _c) = koeru_audio::ring::channel(8);
+/// let shared = &p;
+/// shared.push_or_drop(&[1.0]);
+/// ```
+///
+/// 複製できない。
+///
+/// ```compile_fail,E0599
+/// let (p, _c) = koeru_audio::ring::channel(8);
+/// let _twin = p.clone();
+/// ```
 #[derive(Debug)]
 pub struct Producer {
     shared: Arc<Shared>,
 }
 
-/// 読み出し側。ディスクへ書くスレッドが持つ。
+/// 読み出し側。収録ではディスクへ書くスレッド、再生ではレンダーコールバックが持つ。
+///
+/// 共有した参照からは読めない。
+///
+/// ```compile_fail,E0596
+/// let (_p, c) = koeru_audio::ring::channel(8);
+/// let shared = &c;
+/// let mut out = [0.0_f32; 1];
+/// shared.pop(&mut out);
+/// ```
+///
+/// 複製できない。
+///
+/// ```compile_fail,E0599
+/// let (_p, c) = koeru_audio::ring::channel(8);
+/// let _twin = c.clone();
+/// ```
 #[derive(Debug)]
 pub struct Consumer {
     shared: Arc<Shared>,
@@ -82,7 +142,7 @@ impl Producer {
     /// [`Producer::push_or_drop`] を使うこと。あちらは再試行できない。
     ///
     /// 確保も解放もロックも行わない。戻り値は実際に書けたサンプル数。
-    pub fn push(&self, samples: &[f32]) -> usize {
+    pub fn push(&mut self, samples: &[f32]) -> usize {
         let cap = self.shared.buf.len();
         let head = self.shared.head.load(Ordering::Relaxed);
         let tail = self.shared.tail.load(Ordering::Acquire);
@@ -95,6 +155,7 @@ impl Producer {
             let at = (head + i) % cap;
             // SAFETY: at は空き領域の中。消費者は tail より前にしか触れず、
             // head を Release で公開するまでこの領域を読まない。
+            // 生産者は1つで、`&mut self` なので、ほかに同じ枠へ書く者はいない。
             unsafe { *self.shared.buf[at].get() = *s };
         }
         self.shared
@@ -108,7 +169,7 @@ impl Producer {
     /// コールバックは待てないので、ブロックする選択肢が無い。捨てた数は
     /// [`Consumer::dropped`] から読める。1サンプルでも捨てたテイクは無効にする
     /// （`TR-REC-07`）。戻り値は実際に書けたサンプル数。
-    pub fn push_or_drop(&self, samples: &[f32]) -> usize {
+    pub fn push_or_drop(&mut self, samples: &[f32]) -> usize {
         let n = self.push(samples);
         if n < samples.len() {
             self.shared
@@ -127,7 +188,7 @@ impl Producer {
 
 impl Consumer {
     /// 読み出す。戻り値は実際に読めたサンプル数。
-    pub fn pop(&self, out: &mut [f32]) -> usize {
+    pub fn pop(&mut self, out: &mut [f32]) -> usize {
         let cap = self.shared.buf.len();
         let tail = self.shared.tail.load(Ordering::Relaxed);
         let head = self.shared.head.load(Ordering::Acquire);
@@ -136,7 +197,9 @@ impl Consumer {
 
         for (i, slot) in out[..n].iter_mut().enumerate() {
             let at = (tail + i) % cap;
-            // SAFETY: at は生産者が Release で公開済みの領域。
+            // SAFETY: at は生産者が Release で公開済みの領域。 生産者は tail を
+            // Release で返されるまでここへ書かない。 消費者は1つで、`&mut self` なので、
+            // ほかに同じ枠を読んで tail を進める者はいない。
             *slot = unsafe { *self.shared.buf[at].get() };
         }
         self.shared
@@ -171,7 +234,7 @@ mod tests {
 
     #[test]
     fn 書いた順に読める() {
-        let (p, c) = channel(16);
+        let (mut p, mut c) = channel(16);
         assert_eq!(p.push(&[1.0, 2.0, 3.0]), 3);
         let mut out = [0.0_f32; 3];
         assert_eq!(c.pop(&mut out), 3);
@@ -181,7 +244,7 @@ mod tests {
 
     #[test]
     fn 環をまたいでも順序が保たれる() {
-        let (p, c) = channel(4); // 実効容量 3
+        let (mut p, mut c) = channel(4); // 実効容量 3
         let mut out = [0.0_f32; 2];
         for round in 0..10 {
             let a = round as f32;
@@ -196,7 +259,7 @@ mod tests {
     /// 満杯なら捨てる。待たない。 コールバックはブロックできない。
     #[test]
     fn コールバックの書き込みは満杯なら捨てて数える() {
-        let (p, c) = channel(4); // 実効容量 3
+        let (mut p, c) = channel(4); // 実効容量 3
         assert_eq!(
             p.push_or_drop(&[1.0, 2.0, 3.0, 4.0, 5.0]),
             3,
@@ -209,7 +272,7 @@ mod tests {
     /// 再試行する側の書き込みは、入りきらなくても捨てたと数えない。
     #[test]
     fn 再試行する書き込みは捨てたと数えない() {
-        let (p, c) = channel(4); // 実効容量 3
+        let (mut p, c) = channel(4); // 実効容量 3
         assert_eq!(p.push(&[1.0, 2.0, 3.0, 4.0, 5.0]), 3, "3つだけ書ける");
         assert_eq!(c.dropped(), 0, "残りは呼び出し側が持っている");
     }
@@ -223,7 +286,7 @@ mod tests {
     #[test]
     fn 容量が2の冪でなくても環をまたげる() {
         let cap = 300; // **2の冪ではない。**
-        let (p, c) = channel(cap);
+        let (mut p, mut c) = channel(cap);
         let mut out = vec![0.0_f32; 64];
         let mut next_written = 0_u32;
         let mut next_read = 0_u32;
@@ -258,7 +321,7 @@ mod tests {
     #[test]
     fn 読める数は実際に読める数を超えない() {
         let cap = 300;
-        let (p, c) = channel(cap);
+        let (mut p, mut c) = channel(cap);
         let mut sink = vec![0.0_f32; 8];
 
         for round in 0..200 {
@@ -281,7 +344,7 @@ mod tests {
     #[test]
     fn 実際の容量で何周しても順序が保たれる() {
         let cap = 48_000 * 8;
-        let (p, c) = channel(cap);
+        let (mut p, mut c) = channel(cap);
         let mut out = vec![0.0_f32; 4096];
         let mut written = 0_u64;
         let mut read = 0_u64;
@@ -309,7 +372,7 @@ mod tests {
 
     #[test]
     fn 空なら何も読めない() {
-        let (_p, c) = channel(8);
+        let (_p, mut c) = channel(8);
         let mut out = [9.9_f32; 4];
         assert_eq!(c.pop(&mut out), 0);
         assert_eq!(out, [9.9; 4], "触らない");
@@ -320,7 +383,7 @@ mod tests {
     fn 別スレッドとの受け渡しで取りこぼさない() {
         const N: usize = 100_000;
         // 2の冪でない容量にする。 冪だと剰余の誤りが隠れる。
-        let (p, c) = channel(1000);
+        let (mut p, mut c) = channel(1000);
         let writer = std::thread::spawn(move || {
             let mut sent = 0_usize;
             while sent < N {

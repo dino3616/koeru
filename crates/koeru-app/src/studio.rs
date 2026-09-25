@@ -4192,9 +4192,15 @@ impl Studio {
     ///
     /// 進行中の合成も止める。 200ms 以内に抜ける。
     pub fn stop_preview(&mut self) {
+        // 合図 → 再生 → 合成の待ち合わせの順。 合成のスレッドは、満杯のリングへの
+        // 継ぎ足しで待っていることがある。再生を先に落とせば、その待ちが抜ける。
+        // 合成を先に待つと、鳴らして空くまで待つことになる。
+        if let Some(running) = &self.singing {
+            running.cancel();
+        }
+        self.playback_stream = None;
         self.singing = None;
         self.playback = None;
-        self.playback_stream = None;
         // 積んである仕事も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
         // 前の曲のための前処理を回し続ける意味は無い。
         self.workers.clear();
@@ -4499,7 +4505,9 @@ impl Studio {
         let sink = StreamSink {
             feed: stream.feed(),
         };
-        let (head, running) = preview::start(
+        // 先頭フレーズも背後のスレッドが流す。 ここで流すと、リングが満杯のあいだ
+        // 状態のロックを握ったまま待つ（`preview::start`）。
+        let running = preview::start(
             owned,
             samples,
             Arc::clone(&self.song_cache),
@@ -4508,7 +4516,6 @@ impl Studio {
         )
         .map_err(AppError::from_failure)?;
 
-        stream.push(&head);
         self.playback_stream = Some(stream);
         self.singing = Some(running);
 
@@ -4986,6 +4993,9 @@ impl Drop for Studio {
     /// 戻さないと、利用者のマイクの設定を勝手に変えたままになる。
     /// KOERU を閉じたあとに別のアプリで小さすぎる／大きすぎる音になる。
     fn drop(&mut self) {
+        // 試唱は止める順が決まっている（`stop_preview`）。 フィールドの宣言順に
+        // 任せると、合成の待ち合わせが再生より先に来る。
+        self.stop_preview();
         // 排出スレッドを先に止める。ゲインを触るのはそのあと。
         self.pump = None;
         if let Some((device, before)) = self.gain_before.take()

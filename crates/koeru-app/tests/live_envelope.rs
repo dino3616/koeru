@@ -31,7 +31,7 @@ fn tone(hz: f64, rate: u32, ms: u64) -> Vec<f32> {
 #[test]
 fn 通算フレーム数が流した量と一致する() {
     let rate = 48_000_u32;
-    let (producer, consumer) = ring::channel(rate as usize * 4);
+    let (mut producer, consumer) = ring::channel(rate as usize * 4);
     let pump = Pump::start(consumer, rate);
 
     let fed = tone(440.0, rate, 1000);
@@ -57,7 +57,7 @@ fn 通算フレーム数が流した量と一致する() {
 #[test]
 fn 通算フレーム数は巻き戻らない() {
     let rate = 48_000_u32;
-    let (producer, consumer) = ring::channel(rate as usize * 4);
+    let (mut producer, consumer) = ring::channel(rate as usize * 4);
     let pump = Pump::start(consumer, rate);
 
     let feed = std::thread::spawn(move || {
@@ -86,7 +86,7 @@ fn 通算フレーム数は巻き戻らない() {
 #[test]
 fn 引き続けても実時間に追いつく() {
     let rate = 48_000_u32;
-    let (producer, consumer) = ring::channel(rate as usize * 4);
+    let (mut producer, consumer) = ring::channel(rate as usize * 4);
     let pump = Pump::start(consumer, rate);
 
     let feed = std::thread::spawn(move || {
@@ -129,7 +129,7 @@ fn 引き続けても実時間に追いつく() {
 #[test]
 fn 目盛りより細かく流しても通算がずれない() {
     let rate = 48_000_u32;
-    let (producer, consumer) = ring::channel(rate as usize * 4);
+    let (mut producer, consumer) = ring::channel(rate as usize * 4);
     let pump = Pump::start(consumer, rate);
 
     // 1回 64 サンプル ＝ 1.3ms。目盛り（5ms）より細かい。
@@ -166,7 +166,7 @@ fn 目盛りより細かく流しても通算がずれない() {
 fn 環をまたいでも余分に排出しない() {
     let rate = 48_000_u32;
     // 1秒で環をまたぐ容量。 3秒流して3回またぐ。
-    let (producer, consumer) = ring::channel(rate as usize);
+    let (mut producer, consumer) = ring::channel(rate as usize);
     let pump = Pump::start(consumer, rate);
 
     let feed = std::thread::spawn(move || {

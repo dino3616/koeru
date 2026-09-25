@@ -353,7 +353,7 @@ struct Shared {
 }
 
 fn run(
-    consumer: ring::Consumer,
+    mut consumer: ring::Consumer,
     device_rate_hz: u32,
     cmd: &Receiver<Cmd>,
     stop: &AtomicBool,
