@@ -89,13 +89,18 @@ pub struct CaptureFormat {
 
 /// コールバックとアプリの間で共有する状態。
 ///
-/// すべてアトミック。 コールバックはロックを取れない。
+/// コールバックはロックを取れない。 両側から書き換えるものはアトミックにし、
+/// コールバックしか触らないもの（`producer` と `scratch`）は `UnsafeCell` に置く。
 #[derive(Debug)]
 struct Shared {
     /// コールバックが `AudioUnitRender` を呼ぶために要る。
     /// コールバックが来はじめる前に確定し、以後変わらない。
     unit: sys::AudioUnit,
-    producer: ring::Producer,
+    /// リングの書き込み側。コールバックだけが触る。
+    ///
+    /// 書くには `&mut` が要る（`ring` の「端点は1つずつ」）。 コールバックへ渡るのは
+    /// `&Shared` なので、ここから `&mut` を取り出せるように `UnsafeCell` に置く。
+    producer: std::cell::UnsafeCell<ring::Producer>,
     /// 直前のコールバックの末尾サンプル位置。連続性の判定に使う。
     last_end: AtomicU64,
     /// タイムスタンプが飛んだ回数。xrun の検出（`TR-REC-07`）。
@@ -128,7 +133,9 @@ pub const MIX_ALL: usize = usize::MAX;
 /// 二乗和を積むときの倍率。
 const ENERGY_SCALE: f64 = 1_048_576.0;
 
-// SAFETY: scratch へはコールバックだけが触れる。他のフィールドはすべてアトミック。
+// SAFETY: scratch と producer へはコールバックだけが触れる。 CoreAudio は1つのユニットの
+// 入力コールバックを重ねて呼ばない（デバイスの IO スレッドが順に呼ぶ）。 `build` が置いた
+// あとは `Capture` の側からも触らない。 ほかのフィールドはアトミックか、開いたあと変わらない値。
 unsafe impl Send for Shared {}
 // SAFETY: 同上。
 unsafe impl Sync for Shared {}
@@ -315,7 +322,7 @@ fn build(
     scratch.resize_with(scratch_len, || std::cell::UnsafeCell::new(0.0_f32));
     let shared = Arc::new(Shared {
         unit,
-        producer,
+        producer: std::cell::UnsafeCell::new(producer),
         last_end: AtomicU64::new(u64::MAX),
         discontinuities: AtomicUsize::new(0),
         render_errors: AtomicUsize::new(0),
@@ -498,6 +505,11 @@ unsafe extern "C" fn input_callback(
         return sys::kAudioHardwareNoError; // 収録していないので捨てる
     }
 
+    // SAFETY: producer へはこのコールバックだけが触れ、CoreAudio はこのユニットの
+    // 入力コールバックを重ねて呼ばない（`Shared` の `Sync` の理由）。
+    // ここで取った `&mut` はこの呼び出しの中でしか生きない。
+    let producer = unsafe { &mut *shared.producer.get() };
+
     // 選んだチャンネルだけをリングへ流す（`TR-REC-06`）。
     // L+R の平均を既定にしない。片側にしか信号が無いときに 6dB 損をする。
     let source = shared.source.load(Ordering::Relaxed);
@@ -514,13 +526,13 @@ unsafe extern "C" fn input_callback(
             }
             *slot = acc / shared.channels as f32;
         }
-        shared.producer.push_or_drop(out);
+        producer.push_or_drop(out);
     } else {
         let ch = source.min(shared.channels.saturating_sub(1));
         // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
         let picked =
             unsafe { std::slice::from_raw_parts(shared.scratch[ch * n].get().cast_const(), n) };
-        shared.producer.push_or_drop(picked);
+        producer.push_or_drop(picked);
     }
 
     sys::kAudioHardwareNoError
