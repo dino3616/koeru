@@ -23,12 +23,20 @@ T06 + T07 + T09 + T10 ---> T12 Subscription unification
 T02 + T04 + T05 + T11 ---> T13 M6 editor vertical slice
 T03 + T05 + T07 + T09 ---> T14 diagnostics/errors/consent/privacy
 T04..T14 ----------------> T15 integrated fitness/performance/schema gates
+                              ^
+                              |
+X07 xtask checks/probe substrate
+  ^  (X00-X07 は Design System implementation plan の sidecar DAG)
+  |
+X01..X05
 T15 ---------------------> T16 coherent cutover / legacy contract removal
 T16 ---------------------> T17 contributor governance / Agent Skills
 T16 ---------------------> H6 / H7 milestone completion
 ```
 
 公開contract/root configを複数agentが独自変更しない。T03はcanonical SDL vocabulary、T04はstorage/migration、T05はProjectRuntime/read consistency、T06はRT unsafe、T07はjob/result admission、T09はGraphQL Rust adapter、T10はdesktop transport/persisted operations、T15はCI/fitness portfolioのowner。interface変更要求は該当ownerへ返す。
+
+T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design-system/implementation-plan.md) が定義する X00–X07 を shared tooling sidecar として使う。これは T02–T14 の product refactor を Design System 完成待ちにする意味ではない。X-track は現在の巨大な `xtask/src/main.rs` を Repository View / Knowledge Snapshot / Semantic Graph / Probe-Receipt substrate へ分解し、T15 と Design System が同じ deterministic tooling を使えるようにする。
 
 各task cardは Objective / Prerequisites / Architecture contract / Owned or affected / Must not change / Tests / Observability / Migration or recovery / Acceptance / Adversarial / Verification / Evidence outputs / Human review or decision の13項目を持つ。
 
@@ -272,21 +280,21 @@ T16 ---------------------> H6 / H7 milestone completion
 - **Evidence outputs:** error/outcome catalog、privacy schema、support-bundle sample。
 - **Human review / decision:** SaaS provider/retention/location remains blocked until decided。
 
-## T15 — Integrated fitness / portfolio / performance / schema gates
+## T15 — Integrated fitness / Probe portfolio / performance / schema gates
 
-- **Objective:** architecture rulesをcompiler/linter/schema validators/test receiptsで機械化し、false greenを防ぐ。
-- **Prerequisites:** T04–T14。
-- **Architecture contract:** enforceable rulesは機械化、quality/native/human evidenceはobserved gatesとして区別。
-- **Owned / affected:** CI/xtask、portfolio manifest、schema/document checks、dependency/import checks、performance runners。
-- **Must not change:** required suite missing fixtureをpass化、shared runner noiseを絶対performance gate、custom validatorsを重複乱造。
-- **Tests:** negative canaries for SDL/runtime drift、0 GraphQL docs、missing operation manifest、feature Channel import、resolver direct storage dep、privacy variables leak、0 native calls。
-- **Observability:** machine receipts include git/schema/runtime-schema/operation-manifest hashes、discovered/executed operations/subscriptions/tests。
-- **Migration / recovery:** fixture/version corpus itself versioned; no user data destructive checks。
-- **Acceptance:** cargo/dependency graph、SDL parity、document validation/codegen、persisted operations、subscription policy、test portfolio all green with evidence receipts。
-- **Adversarial:** empty globs、stale generated files、unsupported backend、fake subscription no events、deprecated field still used、budget bypass。
+- **Objective:** architecture rulesをcompiler/linter/schema validators/Probe receiptsで機械化し、false greenを防ぐ。
+- **Prerequisites:** T04–T14 + xtask sidecar X07。X07 は X01–X05 の shared substrate 上にある。
+- **Architecture contract:** enforceable rulesは機械化、quality/native/human evidenceはobserved gatesとして区別。Reusable verification method は Probe、特定 SHA / platform / backend での実行結果は Receipt として分ける。
+- **Owned / affected:** CI/xtask checks、Probe registry、Receipt aggregation、schema/document checks、dependency/import checks、performance runners。
+- **Must not change:** required Probe の missing fixtureをpass化、Probe登録だけを実行済み扱い、shared runner noiseを絶対performance gate、custom validatorsを重複乱造。
+- **Tests:** negative canaries for SDL/runtime drift、0 GraphQL docs、missing operation manifest、feature Channel import、resolver direct storage dep、privacy variables leak、0 native calls、Probe discovery 0、Receipt actual-work 0。
+- **Observability:** machine Receipts include git/schema/runtime-schema/operation-manifest hashes、platform/backend/fixture hashes、discovered/executed operations/subscriptions/tests、actual-work counters。
+- **Migration / recovery:** legacy `SUITE-*` は reusable Probe definitions の migration source として読める。fixture/version corpus itself versioned; no user data destructive checks。
+- **Acceptance:** cargo/dependency graph、SDL parity、document validation/codegen、persisted operations、subscription policy、required Probe portfolio が green で、必要な execution は Receipt と actual-work evidence を持つ。
+- **Adversarial:** empty globs、stale generated files、unsupported backend、fake subscription no events、deprecated field still used、quantitative REQ bypass、Probe definition without execution。
 - **Verification:** clean CI replica + isolated canary mutations + platform/nightly/release split。
-- **Evidence outputs:** fitness report、negative-canary receipts、performance baseline。
-- **Human review / decision:** what becomes hard release gate vs advisory until runners stabilize。
+- **Evidence outputs:** fitness report、negative-canary Receipts、performance baseline。毎回の Receipt を自動的に durable EVID へ昇格しない。
+- **Human review / decision:** what becomes hard release gate vs advisory until runners stabilize。Budget View 等を hard gate にする場合は、その閾値が DEC/REQ として採択済みであること。
 
 ## T16 — Coherent cutover / legacy application contract removal
 
@@ -308,11 +316,11 @@ T16 ---------------------> H6 / H7 milestone completion
 
 - **Objective:** post-refactor architectureをcontributor/agentが再現可能に守れる形へcanonicalizeする。
 - **Prerequisites:** T16。
-- **Architecture contract:** Skills are workflow/control plane, not canonical semantics. Contributor guide points to FSL/meta/SDL/owner/test/error/operation manifests。
+- **Architecture contract:** Skills are workflow/control plane, not canonical semantics. Contributor guide points to FSL/meta/SDL/owner graph と deterministic Context / Probe / Receipt output。
 - **Owned / affected:** AGENTS/contributor guide/architecture index/owner map、`plan-koeru-change`、updated `verify-koeru`、skill evals/package。
-- **Must not change:** canonical rulesをSkillへコピー、old crate/path namesをhardcode、skills implementationでproduction architectureを再設計。
-- **Tests:** trigger positive/negative, GraphQL contract changes, subscription changes, pure internal change, missing native fixture, stale SDL/runtime drift。
-- **Observability:** skill verification receipt references tested SHA/schema/manifest hashes; no telemetry requirement。
+- **Must not change:** canonical rulesをSkillへコピー、budget/component/suite catalogをSkill側へ複製、old crate/path namesをhardcode、skills implementationでproduction architectureを再設計。
+- **Tests:** trigger positive/negative, GraphQL contract changes, subscription changes, pure internal change, missing native fixture/Receipt, stale SDL/runtime drift。
+- **Observability:** skill verification output references tested SHA/schema/manifest hashes and source Probe/Receipt IDs; no telemetry requirement。
 - **Migration / recovery:** old skill references/path updates; symlink/package conventions preserved。
 - **Acceptance:** new contributor can classify Query/Mutation/Subscription/host/internal, place code, choose tests, detect schema/channel drift without architecture author。
 - **Adversarial:** cosmetic UI change overtested、Rust struct change unnecessarily modifies SDL、new Channel added for convenience、MCP bypasses GraphQL executor。
