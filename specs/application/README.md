@@ -48,10 +48,10 @@ apollo-compiler が見て、その上に次を足す。 どれも根拠を `xtas
 |---|---|
 | 名前の形 | PascalCase でない型、camelCase でない欄、SCREAMING_SNAKE_CASE でない enum の値、`Input` の付け方の不揃い |
 | パス | 名前が `path` / `dir` / `directory` / `folder` で終わる欄・引数 |
-| 識別子 | `id` / `…Id` を組み込みの scalar にしたもの、`key` / `…Key` を文字列にしたもの |
+| 識別子 | `id` / `…Id` を組み込みの scalar にしたもの、どこかで組み込みの `ID` を使ったもの、`key` / `…Key` を文字列にしたもの |
 | root | null を返す root の欄、union を返さない Subscription |
 | Mutation の形 | `x(input: XInput!): XPayload!` と `outcome: XOutcome!`（union）から外れたもの。 `operationId` と受領証の片方だけを持つもの |
-| 古くなりうる入力 | 貸与・版・操作の識別子・続きの位置を取るのに、それが古いときの結果を union に持たないもの |
+| 古くなりうる入力 | 貸与・版・操作の識別子・続きの位置・仕事の識別子を取るのに、それが古いときの結果を union に持たないもの |
 | 環 | 欄をたどって自分へ戻る出力の型 |
 | 非推奨 | reason の無い `@deprecated`、非推奨の欄を選ぶ見本 |
 | operation | 名前の無い operation、`持ち主_型` でない fragment、見本が1本も無いこと |
@@ -161,7 +161,7 @@ tauri-specta の 78 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 
 | 場所 | 判断 |
 |---|---|
-| 識別子の scalar、`ByteCount` / `SampleCount`、`Base64Bytes`、`FileInput.name`、`capabilities.toml`、面の名前と説明の言語、互換の窓 | `DEC-PLT-042` |
+| 識別子の scalar、`ByteCount` / `SampleCount` / `SamplePosition`、`Base64Bytes`、`FileInput.name`、`capabilities.toml`、面の名前と説明の言語、互換の窓 | `DEC-PLT-042` |
 | `EntryBoundaries`、`ConfirmEntryInput` と境界の編集の `EditingSessionId` | `DEC-EDT-004` |
 
 まだ決めていないものは次の段で決める。 一括編集の残りの種類の入力の形（`BulkEditInput`）は T13、

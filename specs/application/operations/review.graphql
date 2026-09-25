@@ -45,7 +45,23 @@ fragment ReviewGate_ReviewSummary on ReviewSummary {
 fragment ReviewRow_ReviewItem on ReviewItem {
   state
   confidence
+  components {
+    alignment
+    sharpness
+    prior
+    acoustic
+  }
   cause
+  boundaries {
+    slot
+    lowConfidence
+    alternatives {
+      position
+      score
+    }
+    otherTakesMedian
+  }
+  recommendation
   entry {
     ...EntryValues_SettingEntry
   }

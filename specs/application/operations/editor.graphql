@@ -85,15 +85,25 @@ query PreviewBulkEdit($lease: ProjectLease!, $edit: BulkEditInput!) {
       revision
       editor {
         bulkEditPreview(edit: $edit) {
-          affected
-          samples {
-            entry
-            before {
-              ...Boundaries_EntryBoundaries
+          __typename
+          ... on BulkEditPreview {
+            affected
+            samples {
+              entry
+              before {
+                ...Boundaries_EntryBoundaries
+              }
+              after {
+                ...Boundaries_EntryBoundaries
+              }
             }
-            after {
-              ...Boundaries_EntryBoundaries
+          }
+          ... on InvalidRequest {
+            violations {
+              field
+              code
             }
+            ...ProblemNotice_Problem
           }
         }
       }

@@ -82,6 +82,9 @@ scalar PlaybackId
 "編集の区間。 操作のモードを持つ。 project のデータではない（`TR-EDT-03`）。"
 scalar EditingSessionId
 
+"作り方の見本（`Catalog.methodPresets`）。 project を作るときに選ぶ。"
+scalar MethodPresetId
+
 # ## 値
 #
 # GraphQL の Int は 32 bit で、超えうる量だけを scalar にする。 wire では JSON の数で、
@@ -92,6 +95,13 @@ scalar ByteCount
 
 "マスターのレート（`ApplicationInfo.masterSampleRate`）で数えた標本の数。 0 以上の整数。"
 scalar SampleCount
+
+"""
+マスターのレートで数えた標本位置。 符号つきの整数で、負もありうる。 原点は欄の説明が言う。
+位置どうしの差にも使う。 JSON の数で運び、2^53 まで正確に届く（`DEC-PLT-042`）。
+0 以上の長さと数は `SampleCount` で、位置と混ぜない。
+"""
+scalar SamplePosition
 
 scalar DateTime @specifiedBy(url: "https://www.rfc-editor.org/rfc/rfc3339")
 
@@ -313,7 +323,10 @@ type MutationReceipt {
 
 # ## 共通の形
 
-"一覧の窓。 `limit` の上限は `ContractLimits.maxWindow`。 超えたら InvalidRequest。"
+"""
+一覧の窓。 `limit` の上限は `ContractLimits.maxWindow` で、公開してある。 上限を超えた要求と
+負の値は consumer の欠陥なので、結果ではなく要求の誤りとして `errors[]` で断る（`DEC-PLT-038`）。
+"""
 input WindowInput {
   offset: Int!
   limit: Int!
@@ -465,7 +478,7 @@ type Catalog {
 }
 
 type MethodPreset {
-  id: ID!
+  id: MethodPresetId!
   method: RecordingMethod!
   label: String!
   summary: String!
@@ -496,9 +509,15 @@ type AudioEnvironment {
   outputRoute: OutputRoute!
 }
 
+"選べる入力デバイス（`TR-REC-03`）。"
 type InputDevice {
   id: DeviceId!
   name: String!
+  "OS の既定の入力か。"
+  isDefault: Boolean!
+  "デバイスのネイティブのレート（Hz）。 マスターのレートとは別（`TR-REC-02`）。"
+  nativeSampleRate: Int!
+  channelCount: Int!
 }
 
 enum OutputRoute {
@@ -604,8 +623,8 @@ type RecordingRow {
   hardMoraCount: Int!
   "この行を読むと録れる対象。"
   targets: [RecordingTarget!]!
-  "世代順。 採用していないものも含む（`TR-REC-21`）。"
-  takes: [Take!]!
+  "世代順。 採用していないものも含む（`TR-REC-21`）。 窓で読む。"
+  takes(window: WindowInput!): TakePage!
   "採用しているテイク。 まだ無ければ null。"
   adoptedTake: TakeId
 }
@@ -653,6 +672,12 @@ type TransitionTarget {
 "行末の母音が消えていく区間。"
 type EndingTarget {
   vowel: String!
+}
+
+type TakePage {
+  total: Int!
+  offset: Int!
+  items: [Take!]!
 }
 
 type Take {
@@ -897,8 +922,77 @@ type ReviewItem {
   entry: SettingEntry!
   state: ReviewState!
   confidence: Float!
-  "低確信度の主因（`TR-ALN-26`）。 内訳を持たなければ null。"
-  cause: String
+  "確信度の4成分（`TR-ALN-26` (3)）。 推定していなければ null。"
+  components: ConfidenceComponents
+  """
+  低確信度の主因（`TR-ALN-26` (3)）。 どの成分も閾値を下回っていなければ null。
+  用語を出さない言い換えは画面が持つ。
+  """
+  cause: ConfidenceCause
+  "5値ごとの根拠（`TR-ALN-26` (2)(4)(5)）。 `BoundarySlot` の順に1件ずつ。 推定していなければ空。"
+  boundaries: [BoundaryEvidence!]!
+  "勧める手（`TR-ALN-26` (6)）。 推定していなければ null。"
+  recommendation: ReviewRecommendation
+}
+
+# 要件の「経路確信度」は `alignment` と呼ぶ。 `path` で終わる名前はファイルのパスと
+# 見分けられないので、欄に使わない（`check-schema`）。
+"""
+確信度の4成分（`TR-ALN-24`）。 どれも 0〜1 で、高いほど良い向きに揃えてある。
+合成した値は `ReviewItem.confidence`。
+"""
+type ConfidenceComponents {
+  "アライメントの経路の確からしさ。 退避の経路は経路を持たないので null。 0 は「測れない」ではない。"
+  alignment: Float
+  "境界の鋭さ。"
+  sharpness: Float!
+  "事前分布からの逸脱の裏返し。"
+  prior: Float!
+  "音響の異常の裏返し。"
+  acoustic: Float!
+}
+
+"低確信度の主因。 閾値を下回った成分のうち、いちばん低いもの。"
+enum ConfidenceCause {
+  "アライメントの解が競っている。"
+  ALIGNMENT
+  "境界が曖昧。"
+  SHARPNESS
+  "期待した位置や、他のテイクと違う。"
+  PRIOR
+  "音が割れている、または小さすぎる。"
+  ACOUSTIC
+}
+
+"5値の1つぶんの確認の根拠（`TR-ALN-26`）。"
+type BoundaryEvidence {
+  slot: BoundarySlot!
+  "低確信度か（`TR-ALN-26` (2)）。"
+  lowConfidence: Boolean!
+  "次善の境界の候補（`TR-ALN-26` (4)）。 スコアの高い順。 件数の上限は要件が持つ。"
+  alternatives: [BoundaryCandidate!]!
+  """
+  他のテイクでの同じ値の中央値（`TR-ALN-26` (5)）。 このテイクの標本位置に写してある。
+  比べられるテイクが足りなければ null。
+  """
+  otherTakesMedian: SamplePosition
+}
+
+type BoundaryCandidate {
+  "テイクの先頭からの標本位置。"
+  position: SamplePosition!
+  "高いほど確からしい。"
+  score: Float!
+}
+
+"勧める手（`TR-ALN-26` (6)）。"
+enum ReviewRecommendation {
+  "推定した値をそのまま採る。"
+  ACCEPT_ESTIMATE
+  "低確信度の値を候補に差し替える。 候補は `BoundaryEvidence.alternatives` の先頭。"
+  USE_ALTERNATIVE
+  "値を直さずに録り直す（`REQ-ALN-009`）。"
+  RERECORD
 }
 
 enum ReviewState {
@@ -933,7 +1027,7 @@ type EntryBoundaries {
 
 type Boundary {
   "負もありうる。 オーバーラップは左ブランクより前に置ける。"
-  position: Int!
+  position: SamplePosition!
   "人が固定した（`INV-ALN-002`）。"
   pinned: Boolean!
 }
@@ -956,7 +1050,7 @@ type EditorFacet {
   "制約違反の件数（`TR-EDT-43`）。"
   violationCount: Int!
   "一括編集を確定せずに当てた結果（`TR-EDT-28`）。 project を変えない。"
-  bulkEditPreview(edit: BulkEditInput!): BulkEditPreview!
+  bulkEditPreview(edit: BulkEditInput!): BulkEditPreviewResult!
   "undo と redo（`TR-EDT-25`）。 編集の区間ではなく project に属する。"
   history: EditHistory!
 }
@@ -1022,10 +1116,14 @@ enum EntryScopeKind {
   SELECTION
 }
 
+"値の変え方。 `mode` で決め、ABSOLUTE は `position`、OFFSET は `delta`、RATIO は `ratio` を読む。"
 input ValueChangeInput {
   mode: ValueChangeMode!
-  "ABSOLUTE と OFFSET は標本、RATIO は比。"
-  amount: Float!
+  "テイクの先頭からの標本位置。"
+  position: SamplePosition
+  "標本の差。 負もありうる。"
+  delta: SamplePosition
+  ratio: Float
 }
 
 enum ValueChangeMode {
@@ -1033,6 +1131,10 @@ enum ValueChangeMode {
   OFFSET
   RATIO
 }
+
+# 一括編集の中身は人が打つので、予期できる形で不正になりうる。 窓の誤りと違って consumer の
+# 欠陥ではないので、結果で返す（`DEC-PLT-038`）。
+union BulkEditPreviewResult = BulkEditPreview | InvalidRequest
 
 type BulkEditPreview {
   affected: Int!
@@ -1511,7 +1613,7 @@ input CreateProjectInput {
   operationId: OperationId!
   displayName: String!
   "`Catalog.methodPresets` の `id`。"
-  preset: ID!
+  preset: MethodPresetId!
   "収録音高（MIDI）。"
   tones: [Int!]!
   "綴りの規則（`DEC-SYN-013`）。 無ければ同梱の既定。 あとから変える道は無い。"
@@ -2089,7 +2191,7 @@ input MoveBoundaryInput {
   entry: EntryId!
   slot: BoundarySlot!
   "テイクの先頭からの標本位置。"
-  position: Int!
+  position: SamplePosition!
   gesture: EditGesture!
 }
 
@@ -2633,7 +2735,7 @@ type JobAlreadyFinished implements Problem {
 type Subscription {
   "project の変更の通知。 落とさない。 欠けたら Query で取り直す。"
   projectEvents(lease: ProjectLease!, after: EventCursor): ProjectEvent!
-  "仕事1件の今の状態と、以後の変化。"
+  "仕事1件の今の状態と、以後の変化。 無い仕事と、保持の期間を過ぎた仕事は ReferenceNotFound。"
   jobEvents(lease: ProjectLease!, job: JobId!, after: EventCursor): JobEvent!
   "待っている仕事の数（`TR-SYN-33`）。 捨ててよく、再送しない。"
   jobQueue(lease: ProjectLease!): JobQueueEvent!
@@ -2655,7 +2757,7 @@ type EventGap {
   resumeAfter: EventCursor!
 }
 
-union JobEvent = JobUpdated | EventGap | ProjectLeaseExpired
+union JobEvent = JobUpdated | EventGap | ProjectLeaseExpired | ReferenceNotFound
 
 "最初の1件は今の状態。"
 type JobUpdated {

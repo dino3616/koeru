@@ -31,7 +31,7 @@ subscription WatchJob($lease: ProjectLease!, $job: JobId!, $after: EventCursor) 
     ... on EventGap {
       resumeAfter
     }
-    ... on ProjectLeaseExpired {
+    ... on Problem {
       ...ProblemNotice_Problem
     }
   }

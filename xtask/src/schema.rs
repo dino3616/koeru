@@ -31,9 +31,12 @@ const CAPABILITIES: &str = "specs/application/capabilities.toml";
 
 /// 古くなりうる入力と、そのとき返す結果。
 ///
-/// 貸与は閉じれば死に、版は進み、操作の識別子は使い回されうる。 どれも利用者の手で
-/// 普通に起きることなので、`errors[]` ではなく結果として返す（`DEC-PLT-038`）。
-/// これを取る root の欄は、対になる型を結果の union に持つ。
+/// 貸与は閉じれば死に、版は進み、操作の識別子は使い回されうる。 仕事は保持の期間を
+/// 過ぎると消える。 どれも利用者の手で普通に起きることなので、`errors[]` ではなく
+/// 結果として返す（`DEC-PLT-038`）。 これを取る root の欄は、対になる型を結果の union に持つ。
+///
+/// 識別子を一般に `ReferenceNotFound` と対にしない。 デバイスが消えたら `DeviceUnavailable`、
+/// 鳴り終えた再生は `PlaybackAlreadyEnded` のように、欄ごとに言い方が違う。
 const STALE: &[(&str, &str)] = &[
     ("ProjectLease", "ProjectLeaseExpired"),
     ("InputLeaseId", "InputLeaseEnded"),
@@ -41,6 +44,7 @@ const STALE: &[(&str, &str)] = &[
     ("Revision", "RevisionConflict"),
     ("OperationId", "OperationIdReused"),
     ("EventCursor", "EventGap"),
+    ("JobId", "ReferenceNotFound"),
 ];
 
 /// パスを指す名前の語尾（`08-graphql-application-contract.md` の §12）。
@@ -50,6 +54,10 @@ const PATH_SUFFIXES: &[&str] = &["path", "dir", "directory", "folder"];
 
 /// 組み込みの scalar。 識別子の欄にこれを使わない（`DEC-RCL-017`）。
 const PLAIN_SCALARS: &[&str] = &["String", "Int", "Float", "Boolean"];
+
+/// 組み込みの `ID`。 どの欄にも使わない。 識別子は種類ごとの scalar にする（`DEC-PLT-042`）。
+/// 1つでも `ID` にすると、別の種類の識別子を渡しても文書の検証が通る。
+const BUILT_IN_ID: &str = "ID";
 
 /// `@deprecated` の理由を書かなかったときに入る既定の文。
 const DEFAULT_DEPRECATION: &str = "No longer supported";
@@ -271,7 +279,8 @@ fn is_screaming(s: &str) -> bool {
 ///
 /// 形を揃えるのは、fragment と生成する型の名前がここから機械的に決まるため（§8）。
 /// パスは host の権限を契約へ持ち込む（§12）。 識別子を文字列にすると、エイリアスや
-/// 結合した文字列がそのまま鍵になる（`DEC-RCL-017`）。
+/// 結合した文字列がそのまま鍵になる（`DEC-RCL-017`）。 組み込みの `ID` は種類を
+/// 区別しない（[`BUILT_IN_ID`]）。
 fn lint_names(schema: &Schema, out: &mut Vec<String>) {
     let src = &schema.sources;
     // 欄・引数・input の欄を集めてから見る。 (持ち主, 名前, 型, 場所)。
@@ -335,7 +344,12 @@ fn lint_names(schema: &Schema, out: &mut Vec<String>) {
             && PLAIN_SCALARS.contains(&inner)
         {
             out.push(format!(
-                "{at}{owner}.{name}: 識別子を {inner} にしない。 ID か専用の scalar にする"
+                "{at}{owner}.{name}: 識別子を {inner} にしない。 種類ごとの scalar にする"
+            ));
+        }
+        if inner == BUILT_IN_ID {
+            out.push(format!(
+                "{at}{owner}.{name}: 組み込みの ID を使わない。 種類ごとの scalar にする"
             ));
         }
         if (name == "key" || name.ends_with("Key")) && inner == "String" {
@@ -1054,6 +1068,31 @@ costs = ['cheap-read', 'durable-write']
     }
 
     #[test]
+    fn 仕事を指す_root_の欄は見つからないことを結果で返す() {
+        // 仕事は保持の期間を過ぎると消える。 消えた仕事を観測し始めても `errors[]` にしない。
+        let job = |members: &str| {
+            format!(
+                "{BASE}\nscalar JobId\ntype Job {{ id: JobId! }}\n\
+                 type ReferenceNotFound implements Problem {{ code: String! class: FailureClass! }}\n\
+                 union JobEvent = {members}\n\
+                 extend type Subscription {{ jobEvents(lease: ProjectLease!, job: JobId!): JobEvent! }}\n"
+            )
+        };
+        let errors = lint(&job("Job | ProjectLeaseExpired"));
+        assert!(
+            mentions(
+                &errors,
+                "Subscription.jobEvents: 古くなりうる入力を取るので、結果の union に `ReferenceNotFound`"
+            ),
+            "{errors:?}"
+        );
+        assert_eq!(
+            lint(&job("Job | ProjectLeaseExpired | ReferenceNotFound")),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
     fn root_の結果を_null_にしない() {
         let errors = lint(&with(
             "thing(lease: ProjectLease!): ThingResult!",
@@ -1110,6 +1149,29 @@ costs = ['cheap-read', 'durable-write']
         ));
         assert!(
             mentions(&errors, "Thing.aliasKey: 文字列を鍵にしない"),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn 組み込みの_id_をどこにも使わない() {
+        // 欄の名前によらない。 `thing: ID!` も、別の種類の識別子を受け取れてしまう。
+        let errors = lint(&with("id: ThingId!", "id: ID!"));
+        assert!(
+            mentions(&errors, "Thing.id: 組み込みの ID を使わない"),
+            "{errors:?}"
+        );
+        let errors = lint(&with("  thing: ThingId!\n", "  thing: ID!\n"));
+        assert!(
+            mentions(&errors, "RenameThingInput.thing: 組み込みの ID を使わない"),
+            "{errors:?}"
+        );
+        let errors = lint(&with(
+            "thing(lease: ProjectLease!): ThingResult!",
+            "thing(lease: ProjectLease!, near: [ID!]): ThingResult!",
+        ));
+        assert!(
+            mentions(&errors, "Query.thing.near: 組み込みの ID を使わない"),
             "{errors:?}"
         );
     }
