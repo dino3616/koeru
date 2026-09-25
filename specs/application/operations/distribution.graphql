@@ -1,0 +1,181 @@
+# 配布。 配布に出す値を読み書きし、書き出しの計画を作ってから確定する。
+#
+# 画像の中身は選んだときだけ運ぶ。 在り処は返らない（`TR-PKG-45`）。
+
+query DistributionOverview($lease: ProjectLease!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      distribution {
+        settings {
+          distributionName
+          profile
+          author
+          version
+          portraitOpacity
+          portraitHeight
+          terms
+        }
+        icon {
+          byteLength
+          mediaType
+        }
+        portrait {
+          byteLength
+          mediaType
+        }
+        readiness {
+          ...ExportGate_ExportReadiness
+        }
+        releases {
+          id
+          version
+          method
+          aliasCount
+          validation
+          archiveName
+          releasedAt
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment ExportGate_ExportReadiness on ExportReadiness {
+  mayExport
+  availableProfiles
+  fileCount
+  aliasCount
+  exportableMethods
+  missingTargets {
+    id
+    renderedAlias
+  }
+  requiredTableKnown
+  settingsReviewed
+  findings {
+    code
+    file
+    alias
+    row
+    detail
+  }
+  unencodable {
+    place
+    label
+    chars
+    suggestion
+    row
+  }
+  downgrades {
+    method
+    duplicatedBytes
+  }
+  materials {
+    nonNfcNames
+    clippedTakes {
+      row
+      take
+      clippedRuns
+    }
+  }
+}
+
+query DistributionIcon($lease: ProjectLease!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      distribution {
+        icon {
+          mediaType
+          content
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation SaveDistributionSettings($input: SaveDistributionSettingsInput!) {
+  saveDistributionSettings(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on DistributionSettingsSaved {
+        settings {
+          distributionName
+          profile
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation PrepareExport($input: PrepareExportInput!) {
+  prepareExport(input: $input) {
+    outcome {
+      __typename
+      ... on ExportPrepared {
+        plan {
+          id
+          basedOn
+          method
+          profile
+          fileCount
+          aliasCount
+          totalBytes
+          normalizedNames
+        }
+      }
+      ... on ExportBlocked {
+        readiness {
+          ...ExportGate_ExportReadiness
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation CommitExport(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $plan: ExportPlanId!
+) {
+  commitExport(input: { lease: $lease, operationId: $operationId, plan: $plan }) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on ReleasePublished {
+        release {
+          id
+          archiveName
+          aliasCount
+          releasedAt
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

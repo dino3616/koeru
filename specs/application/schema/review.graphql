@@ -1,0 +1,301 @@
+# 確認（`Project.review`）。 確認待ちとその根拠を読み、1件ずつ確定し、個別確認をやめ、
+# 書き出し前に検証する。 エントリと5値の形は編集（`editor.graphql`）と共有する。
+
+# ## 読み
+
+type ReviewFacet {
+  mode: ReviewMode!
+  summary: ReviewSummary!
+  "確認待ちが先、済んだものが後ろ（`TR-ALN-26`）。"
+  queue(window: WindowInput!): ReviewPage!
+  "モデルが変わって古くなった推定を持つ行（`TR-ALN-29`）。"
+  outdatedRows: [RowId!]!
+}
+
+"確認のやり方（`TR-ALN-25`）。"
+enum ReviewMode {
+  INDIVIDUAL
+  BATCH
+  SUGGEST_RERECORD
+}
+
+type ReviewSummary {
+  pending: Int!
+  "検証で止まっている件数（`TR-ALN-20`）。"
+  blocked: Int!
+  estimatedSeconds: Int!
+  budgetSeconds: Int!
+  "上限を超えているか。 超えるまで個別確認をやめられない（`INV-ALN-004`）。"
+  exceedsBudget: Boolean!
+  "切り出しが1つも取れていない行。 確認には現れないが書き出しは止まる。"
+  missing: Int!
+  "テイクをまたいで重なっている対象。"
+  conflicting: Int!
+  "まだ推定していないエントリ。"
+  unestimated: Int!
+  "確認を飛ばせる経路を必ず出す方式か（`TR-ALN-28`）。"
+  allowsSkipping: Boolean!
+  reach: String!
+  "画面はこれを見る。 件数から組み立て直さない。"
+  mayExport: Boolean!
+}
+
+type ReviewPage {
+  total: Int!
+  offset: Int!
+  items: [ReviewItem!]!
+}
+
+type ReviewItem {
+  entry: SettingEntry!
+  state: ReviewState!
+  "4成分を合成した確信度。 0〜1。 推定していなければ null（0 は「確信が無い」であって「推定していない」ではない）。"
+  confidence: Float
+  "確信度の4成分（`TR-ALN-26` (3)）。 推定していなければ null。"
+  components: ConfidenceComponents
+  """
+  低確信度の主因（`TR-ALN-26` (3)）。 どの成分も閾値を下回っていなければ null。
+  用語を出さない言い換えは画面が持つ。
+  """
+  cause: ConfidenceCause
+  "5値ごとの根拠（`TR-ALN-26` (2)(4)(5)）。 `BoundarySlot` の順に1件ずつ。 推定していなければ空。"
+  boundaries: [BoundaryEvidence!]!
+  "勧める手（`TR-ALN-26` (6)）。 推定していなければ null。"
+  recommendation: ReviewRecommendation
+}
+
+# 要件の「経路確信度」は `alignment` と呼ぶ。 `path` で終わる名前はファイルのパスと
+# 見分けられないので、欄に使わない（`check-schema`）。
+"""
+確信度の4成分（`TR-ALN-24`）。 どれも 0〜1 で、高いほど良い向きに揃えてある。
+合成した値は `ReviewItem.confidence`。
+"""
+type ConfidenceComponents {
+  "アライメントの経路の確からしさ。 退避の経路は経路を持たないので null。 0 は「測れない」ではない。"
+  alignment: Float
+  "境界の鋭さ。"
+  sharpness: Float!
+  "事前分布からの逸脱の裏返し。"
+  prior: Float!
+  "音響の異常の裏返し。"
+  acoustic: Float!
+}
+
+"低確信度の主因。 閾値を下回った成分のうち、いちばん低いもの。"
+enum ConfidenceCause {
+  "アライメントの解が競っている。"
+  ALIGNMENT
+  "境界が曖昧。"
+  SHARPNESS
+  "期待した位置や、他のテイクと違う。"
+  PRIOR
+  "音が割れている、または小さすぎる。"
+  ACOUSTIC
+}
+
+"5値の1つぶんの確認の根拠（`TR-ALN-26`）。"
+type BoundaryEvidence {
+  slot: BoundarySlot!
+  "低確信度か（`TR-ALN-26` (2)）。"
+  lowConfidence: Boolean!
+  "次善の境界の候補（`TR-ALN-26` (4)）。 スコアの高い順。 件数の上限は要件が持つ。"
+  alternatives: [BoundaryCandidate!]!
+  """
+  他のテイクでの同じ値の中央値（`TR-ALN-26` (5)）。 このテイクの標本位置に写してある。
+  比べられるテイクが足りなければ null。
+  """
+  otherTakesMedian: SamplePosition
+}
+
+type BoundaryCandidate {
+  "テイクの先頭からの標本位置。"
+  position: SamplePosition!
+  "高いほど確からしい。"
+  score: Float!
+}
+
+"勧める手（`TR-ALN-26` (6)）。"
+enum ReviewRecommendation {
+  "推定した値をそのまま採る。"
+  ACCEPT_ESTIMATE
+  "低確信度の値を候補に差し替える。 候補は `BoundaryEvidence.alternatives` の先頭。"
+  USE_ALTERNATIVE
+  "値を直さずに録り直す（`REQ-ALN-009`）。"
+  RERECORD
+}
+
+enum ReviewState {
+  NOT_ESTIMATED
+  AUTO_CONFIRMED
+  IN_QUEUE
+  BLOCKED
+}
+
+"""
+エントリ（原音設定の1件）。 エイリアスは表現で、鍵ではない（`DEC-RCL-017`）。
+"""
+type SettingEntry {
+  id: EntryId!
+  alias: String!
+  target: RecordingTarget!
+  take: TakeId!
+  row: RowId!
+  boundaries: EntryBoundaries!
+}
+
+# oto.ini と同じ相対のミリ秒で運ばない。 左ブランクを動かしても他の値の位置が変わらない
+# （`DEC-EDT-004`）。
+"5値。 どれもテイクの先頭からの標本位置（`TR-EDT-01`）。"
+type EntryBoundaries {
+  offset: Boundary!
+  consonant: Boundary!
+  cutoff: Boundary!
+  preutterance: Boundary!
+  overlap: Boundary!
+}
+
+type Boundary {
+  "負もありうる。 オーバーラップは左ブランクより前に置ける。"
+  position: SamplePosition!
+  "人が固定した（`INV-ALN-002`）。"
+  pinned: Boolean!
+}
+
+enum BoundarySlot {
+  OFFSET
+  CONSONANT
+  CUTOFF
+  PREUTTERANCE
+  OVERLAP
+}
+
+# ## 意図
+
+extend type Mutation {
+  "1件を確かめて確定する（`REQ-ALN-008`）。"
+  confirmEntry(input: ConfirmEntryInput!): ConfirmEntryPayload!
+  "確認待ちをまとめて確定する（`REQ-ALN-010`）。"
+  confirmPendingEntries(input: ConfirmPendingEntriesInput!): ConfirmPendingEntriesPayload!
+  "個別確認をやめる（`REQ-ALN-010`, `INV-ALN-004`）。"
+  switchReviewMode(input: SwitchReviewModeInput!): SwitchReviewModePayload!
+  "値を直すのではなく録り直す（`REQ-ALN-009`）。"
+  requestRetake(input: RequestRetakeInput!): RequestRetakePayload!
+  "書き出し前の検証（`TR-ALN-20`）。 直せるものは直し、直せないものは止める。"
+  validateEntries(input: ValidateEntriesInput!): ValidateEntriesPayload!
+}
+
+# 確認と境界の編集は編集の区間（`EditingSessionId`）を要る。 閉じた上級モードから遅れて
+# 届いた編集を値で断る。 確認の画面も区間を開いてから操作する（`DEC-EDT-004`）。
+input ConfirmEntryInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+  entry: EntryId!
+}
+
+type ConfirmEntryPayload {
+  receipt: MutationReceipt!
+  outcome: ConfirmEntryOutcome!
+}
+
+union ConfirmEntryOutcome =
+  | EntryConfirmed
+  | RevisionConflict
+  | ReferenceNotFound
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type EntryConfirmed {
+  entry: SettingEntry!
+}
+
+input ConfirmPendingEntriesInput {
+  lease: ProjectLease!
+  session: EditingSessionId!
+  operationId: OperationId!
+  baseRevision: Revision!
+}
+
+type ConfirmPendingEntriesPayload {
+  receipt: MutationReceipt!
+  outcome: ConfirmPendingEntriesOutcome!
+}
+
+union ConfirmPendingEntriesOutcome =
+  | PendingEntriesConfirmed
+  | ActionRejected
+  | RevisionConflict
+  | EditingSessionEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type PendingEntriesConfirmed {
+  confirmed: Int!
+}
+
+input SwitchReviewModeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  mode: ReviewMode!
+}
+
+type SwitchReviewModePayload {
+  receipt: MutationReceipt!
+  outcome: SwitchReviewModeOutcome!
+}
+
+union SwitchReviewModeOutcome =
+  | ReviewModeSwitched
+  | ActionRejected
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type ReviewModeSwitched {
+  mode: ReviewMode!
+}
+
+input RequestRetakeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  baseRevision: Revision!
+  entry: EntryId!
+}
+
+type RequestRetakePayload {
+  receipt: MutationReceipt!
+  outcome: RequestRetakeOutcome!
+}
+
+union RequestRetakeOutcome =
+  | RetakeRequested
+  | RevisionConflict
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type RetakeRequested {
+  row: RecordingRow!
+}
+
+input ValidateEntriesInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+}
+
+type ValidateEntriesPayload {
+  receipt: MutationReceipt!
+  outcome: ValidateEntriesOutcome!
+}
+
+union ValidateEntriesOutcome =
+  | EntriesValidated
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type EntriesValidated {
+  repaired: Int!
+  "直せずに書き出しを止めているエントリ。"
+  blocked: [EntryId!]!
+}

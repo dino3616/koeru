@@ -1,0 +1,185 @@
+# 曲。 曲バンクを読み、ファイルから取り込み、キーを決め、録音リストを詰め直し、歌わせる。
+
+query Repertoire($lease: ProjectLease!, $notes: WindowInput!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      repertoire {
+        bank {
+          ...SongCard_Song
+          notes(window: $notes) {
+            total
+            items {
+              id
+              lyric
+              tone {
+                name
+              }
+              ticks
+            }
+          }
+          plan {
+            covers
+            unreachable
+            estimatedSeconds
+            rows {
+              id
+              prompt
+              unitCount
+            }
+          }
+        }
+        previewLatency {
+          case
+          count
+          medianMs
+          budgetMs
+          verdict
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment SongCard_Song on Song {
+  id
+  title
+  inBank
+  license
+  noteCount
+  singability
+  singable
+  coverage {
+    covered
+    required
+    missingUnits
+    missingRows
+    estimatedSeconds
+  }
+  key {
+    transpose
+    recommendedTranspose
+    nearRecordedTones
+    rescuingTone {
+      name
+    }
+  }
+}
+
+query InspectSongFile($file: FileInput!) {
+  songFileDrafts(input: { file: $file }) {
+    __typename
+    ... on SongFileDrafts {
+      drafts {
+        titleHint
+        noteCount
+        lowest {
+          name
+        }
+        highest {
+          name
+        }
+      }
+    }
+    ... on Problem {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation ImportSongs($input: ImportSongsInput!) {
+  importSongs(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SongsImported {
+        songs {
+          ...SongCard_Song
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation TransposeSong($input: TransposeSongInput!) {
+  transposeSong(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SongTransposed {
+        song {
+          ...SongCard_Song
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation RepackRecordingList($input: RepackRecordingListInput!) {
+  repackRecordingList(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on RecordingListRepacked {
+        addedRows
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation SingSong($lease: ProjectLease!, $song: SongId!) {
+  singSong(input: { lease: $lease, song: $song }) {
+    outcome {
+      __typename
+      ... on SongPlaybackStarted {
+        playback
+        phrases
+        droppedPhrases
+        durationMs
+        pitchRegionSwitches {
+          note
+          from {
+            name
+          }
+          to {
+            name
+          }
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+subscription WatchPlayback($playback: PlaybackId!) {
+  playbackEvents(playback: $playback) {
+    __typename
+    ... on PlaybackProgress {
+      positionMs
+    }
+    ... on PlaybackEnded {
+      reason
+    }
+  }
+}

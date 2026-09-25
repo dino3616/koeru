@@ -15,3 +15,6 @@ workspace = true
 # workspace で既に使っている版で、新しい crate は入らない。
 serde_json.workspace = true
 toml = "1.1.6"
+# `check-schema` が canonical SDL と operation を、Rust の実装とも画面とも独立に
+# 検査する（`DEC-PLT-040`）。 koeru-* を引かないので、native も submodule も要らない。
+apollo-compiler = "1.33.0"

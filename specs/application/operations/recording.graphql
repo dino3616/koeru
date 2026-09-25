@@ -1,0 +1,293 @@
+# 収録。 入力を開き、行を録り、テイクを確定し、採用を切り替える。
+#
+# 確定は解析の保留や失敗と別に返る（`DEC-PLT-038`）。 包絡は Subscription で、
+# 画面が引きに行かない（`DEC-PLT-036`）。
+
+query RecordingSession(
+  $lease: ProjectLease!
+  $upcoming: WindowInput!
+  $takes: WindowInput!
+) {
+  audio {
+    __typename
+    ... on AudioEnvironment {
+      inputDevices {
+        id
+        name
+        isDefault
+        nativeSampleRate
+        channelCount
+      }
+      outputRoute
+    }
+    ... on Problem {
+      ...ProblemNotice_Problem
+    }
+  }
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      voice {
+        ...VoiceRings_VoiceSummary
+      }
+      recording {
+        ...RecordingHeader_RecordingFacet
+        order {
+          mode
+          upcoming(window: $upcoming) {
+            total
+            offset
+            items {
+              ...RowCard_RecordingRow
+            }
+          }
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment RecordingHeader_RecordingFacet on RecordingFacet {
+  remaining {
+    seconds
+    rows
+  }
+  byTone {
+    tone {
+      name
+    }
+    done
+    total
+  }
+  chosenDevice
+  input {
+    id
+    device
+    processing
+    gainControl
+    gainDrift {
+      savedGain
+      currentGain
+    }
+    channels {
+      mixed
+      channel
+      mayMix
+    }
+    lastGuideLeakCheck {
+      leaking
+    }
+  }
+  activeCapture {
+    id
+    row
+  }
+  space {
+    sufficient
+    rowsThatFit
+    requiredBytes
+    availableBytes
+  }
+  autoAdvanceMs
+}
+
+fragment RowCard_RecordingRow on RecordingRow {
+  id
+  prompt
+  state
+  unitCount
+  moraCount
+  hardMoraCount
+  adoptedTake
+  targets {
+    id
+    renderedAlias
+    tone {
+      name
+    }
+    shape {
+      __typename
+      ... on CvTarget {
+        kana
+        position
+        precedingVowel
+      }
+      ... on TransitionTarget {
+        vowel
+        consonant
+      }
+      ... on EndingTarget {
+        vowel
+      }
+    }
+  }
+  takes(window: $takes) {
+    total
+    offset
+    items {
+      ...TakeSummary_Take
+    }
+  }
+}
+
+fragment TakeSummary_Take on Take {
+  id
+  row
+  generation
+  recordedAt
+  durationMs
+  validity
+  capture {
+    prerollMs
+    discontinuities
+    peakDbfs
+    clippedRuns
+    hasRequiredMargins
+  }
+  analysis {
+    __typename
+    ... on AnalysisReady {
+      confidence
+      staleModel
+    }
+    ... on AnalysisPending {
+      job
+    }
+    ... on Problem {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation ArmInput(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $device: DeviceId!
+) {
+  armInput(
+    input: { lease: $lease, operationId: $operationId, device: $device }
+  ) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on InputArmed {
+        input {
+          id
+          processing
+          gainControl
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation StartTake($lease: ProjectLease!, $input: InputLeaseId!, $row: RowId) {
+  startTake(input: { lease: $lease, input: $input, row: $row }) {
+    outcome {
+      __typename
+      ... on TakeStarted {
+        capture {
+          id
+          row
+          startedAt
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation FinishTake(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $capture: CaptureId!
+) {
+  finishTake(
+    input: { lease: $lease, operationId: $operationId, capture: $capture }
+  ) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on TakeCommitted {
+        take {
+          ...TakeSummary_Take
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation AdoptTake($input: AdoptTakeInput!) {
+  adoptTake(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on TakeAdopted {
+        row {
+          id
+          adoptedTake
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+subscription WatchInputEnvelope($input: InputLeaseId!) {
+  inputEnvelope(input: $input) {
+    __typename
+    ... on InputEnvelopeFrame {
+      position
+      steps {
+        low
+        high
+      }
+      clippedRuns
+      prerollMs
+      dropped
+    }
+    ... on InputLeaseEnded {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+query TakeWaveform($input: WaveformWindowInput!) {
+  waveformWindow(input: $input) {
+    __typename
+    ... on WaveformWindow {
+      take
+      columns {
+        low
+        high
+      }
+    }
+    ... on Problem {
+      ...ProblemNotice_Problem
+    }
+  }
+}

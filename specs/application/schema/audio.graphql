@@ -1,0 +1,349 @@
+# 音声の入出力。 入力デバイスを選んでストリームを開き、確かめ、校正する。 録れたものと
+# 音高を鳴らし、止める。 包絡と再生の経過は Subscription で流す（`DEC-PLT-036`）。
+
+# ## 読み
+
+extend type Query {
+  "音声の入出力。 project に属さない。"
+  audio: AudioEnvironmentResult!
+}
+
+union AudioEnvironmentResult =
+  | AudioEnvironment
+  | CapabilityUnavailable
+  | DeviceUnavailable
+
+type AudioEnvironment {
+  inputDevices: [InputDevice!]!
+  "出力先の種別（`TR-REC-24`）。 ドライバの申告で、回り込みが無いことの根拠にしない。"
+  outputRoute: OutputRoute!
+}
+
+"選べる入力デバイス（`TR-REC-03`）。"
+type InputDevice {
+  id: DeviceId!
+  name: String!
+  "OS の既定の入力か。"
+  isDefault: Boolean!
+  "デバイスのネイティブのレート（Hz）。 マスターのレートとは別（`TR-REC-02`）。"
+  nativeSampleRate: Int!
+  channelCount: Int!
+}
+
+enum OutputRoute {
+  HEADPHONES
+  SPEAKERS
+  UNKNOWN
+}
+
+type InputLease {
+  id: InputLeaseId!
+  device: DeviceId!
+  "OS 側の音声加工（`TR-REC-11`）。"
+  processing: MicProcessing!
+  "ゲインをどこで触れるか（`TR-REC-14`）。"
+  gainControl: GainControl!
+  "保存してある校正と、いまのゲインの差（`TR-REC-15`）。 差が無ければ null。 勝手に戻さない。"
+  gainDrift: GainDrift
+  channels: ChannelSource!
+  "最後に確かめた回り込み（`TR-REC-24`）。 確かめていなければ null。"
+  lastGuideLeakCheck: GuideLeakCheck
+}
+
+enum MicProcessing {
+  STANDARD
+  VOICE_ISOLATION
+  WIDE_SPECTRUM
+  "判定できなかった。 加工が無いことの根拠にしない。"
+  UNKNOWN
+}
+
+enum GainControl {
+  HARDWARE
+  "校正に使わない（`TR-REC-14`）。"
+  SOFTWARE
+  UNAVAILABLE
+}
+
+type GainDrift {
+  savedGain: Float!
+  currentGain: Float!
+}
+
+"どこからモノラルを作るか（`TR-REC-06`）。"
+type ChannelSource {
+  mixed: Boolean!
+  "混ぜていないときに使っている1本。"
+  channel: Int
+  "本人が混ぜることを選べるか。"
+  mayMix: Boolean!
+}
+
+type GuideLeakCheck {
+  correlation: Float!
+  lagMs: Float!
+  leaking: Boolean!
+}
+
+# ## 意図
+
+extend type Mutation {
+  "マイクを選んでストリームを開く（`TR-REC-03`）。 選んだことは音源に残る。"
+  armInput(input: ArmInputInput!): ArmInputPayload!
+  "入力が届いているかを確かめる（`TR-REC-17`）。 成否ではなくピークを見る。"
+  probeInput(input: ProbeInputInput!): ProbeInputPayload!
+  "入力レベルを校正する（`TR-REC-14`）。 関門にしない。"
+  calibrateInput(input: CalibrateInputInput!): CalibrateInputPayload!
+  "保存してあるゲインへ戻す（`TR-REC-15`）。 本人が選んだときだけ。"
+  restoreSavedGain(input: RestoreSavedGainInput!): RestoreSavedGainPayload!
+  "全チャンネルを混ぜる（`TR-REC-06`）。"
+  mixInputChannels(input: MixInputChannelsInput!): MixInputChannelsPayload!
+  "ガイドを鳴らしながら録って、回り込みを確かめる（`TR-REC-24`）。"
+  checkGuideLeak(input: CheckGuideLeakInput!): CheckGuideLeakPayload!
+  "音高を鳴らす（`TR-REC-23`）。 回り込みを確かめていなければ鳴らさない。"
+  playGuidePitch(input: PlayGuidePitchInput!): PlayGuidePitchPayload!
+  "録れたものをそのまま鳴らす（`TR-REC-43`）。 合成を通さない。"
+  playTake(input: PlayTakeInput!): PlayTakePayload!
+  "テイクを指定した音高で鳴らす。"
+  auditionTake(input: AuditionTakeInput!): AuditionTakePayload!
+  stopPlayback(input: StopPlaybackInput!): StopPlaybackPayload!
+}
+
+input ArmInputInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  device: DeviceId!
+}
+
+type ArmInputPayload {
+  receipt: MutationReceipt!
+  outcome: ArmInputOutcome!
+}
+
+union ArmInputOutcome =
+  | InputArmed
+  | DeviceUnavailable
+  | ResourceBusy
+  | CapabilityUnavailable
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type InputArmed {
+  input: InputLease!
+}
+
+input ProbeInputInput {
+  input: InputLeaseId!
+  durationMs: Int!
+}
+
+type ProbeInputPayload {
+  outcome: ProbeInputOutcome!
+}
+
+union ProbeInputOutcome = InputProbed | InputLeaseEnded | DeviceUnavailable
+
+type InputProbed {
+  peak: Float!
+  "入力が届いていると判定したか。 届いていないまま収録を始めない（`INV-REC-103`）。"
+  alive: Boolean!
+}
+
+input CalibrateInputInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  input: InputLeaseId!
+  durationMs: Int!
+}
+
+type CalibrateInputPayload {
+  receipt: MutationReceipt!
+  outcome: CalibrateInputOutcome!
+}
+
+union CalibrateInputOutcome =
+  | InputCalibrated
+  | InputLeaseEnded
+  | DeviceUnavailable
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type InputCalibrated {
+  "決めたゲイン（0〜1）。 触れなければ null。"
+  gain: Float
+  control: GainControl!
+  "最後に測ったピーク（dBFS）。 無音なら null。"
+  peakDbfs: Float
+  "目標の範囲に入ったか。 入らなくても収録に進める。"
+  settled: Boolean!
+}
+
+input RestoreSavedGainInput {
+  input: InputLeaseId!
+}
+
+type RestoreSavedGainPayload {
+  outcome: RestoreSavedGainOutcome!
+}
+
+union RestoreSavedGainOutcome =
+  | SavedGainRestored
+  | ActionRejected
+  | InputLeaseEnded
+  | DeviceUnavailable
+
+type SavedGainRestored {
+  gain: Float!
+}
+
+input MixInputChannelsInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  input: InputLeaseId!
+}
+
+type MixInputChannelsPayload {
+  receipt: MutationReceipt!
+  outcome: MixInputChannelsOutcome!
+}
+
+union MixInputChannelsOutcome =
+  | InputChannelsMixed
+  | ActionRejected
+  | InputLeaseEnded
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type InputChannelsMixed {
+  channels: ChannelSource!
+}
+
+input CheckGuideLeakInput {
+  input: InputLeaseId!
+  "鳴らす音高（MIDI）。"
+  tone: Int!
+}
+
+type CheckGuideLeakPayload {
+  outcome: CheckGuideLeakOutcome!
+}
+
+union CheckGuideLeakOutcome = GuideLeakChecked | InputLeaseEnded | DeviceUnavailable
+
+type GuideLeakChecked {
+  check: GuideLeakCheck!
+}
+
+input PlayGuidePitchInput {
+  input: InputLeaseId!
+  tone: Int!
+}
+
+type PlayGuidePitchPayload {
+  outcome: PlayGuidePitchOutcome!
+}
+
+union PlayGuidePitchOutcome =
+  | PlaybackStarted
+  | ActionRejected
+  | InputLeaseEnded
+  | DeviceUnavailable
+
+type PlaybackStarted {
+  playback: PlaybackId!
+  durationMs: Float!
+}
+
+input PlayTakeInput {
+  lease: ProjectLease!
+  take: TakeId!
+}
+
+type PlayTakePayload {
+  outcome: PlayTakeOutcome!
+}
+
+union PlayTakeOutcome =
+  | PlaybackStarted
+  | ReferenceNotFound
+  | DeviceUnavailable
+  | ProjectLeaseExpired
+
+input AuditionTakeInput {
+  lease: ProjectLease!
+  take: TakeId!
+  "鳴らしたい音高（MIDI）。 収録音高ではない。"
+  tone: Int!
+  lengthMs: Float!
+}
+
+type AuditionTakePayload {
+  outcome: AuditionTakeOutcome!
+}
+
+union AuditionTakeOutcome =
+  | PlaybackStarted
+  | ReferenceNotFound
+  | ActionRejected
+  | EngineFailed
+  | DeviceUnavailable
+  | ProjectLeaseExpired
+
+input StopPlaybackInput {
+  playback: PlaybackId!
+}
+
+type StopPlaybackPayload {
+  outcome: StopPlaybackOutcome!
+}
+
+union StopPlaybackOutcome = PlaybackStopped | PlaybackAlreadyEnded
+
+type PlaybackStopped {
+  playback: PlaybackId!
+}
+
+"止める前に鳴り終わっていた。 失敗ではない。"
+type PlaybackAlreadyEnded {
+  playback: PlaybackId!
+}
+
+# ## 観測
+
+extend type Subscription {
+  "入力の包絡（`TR-REC-43`）。 捨ててよい。 詰まったら古い観測を捨て、新しいものを送る。"
+  inputEnvelope(input: InputLeaseId!): InputEnvelopeEvent!
+  "再生の経過。 捨ててよく、再送しない。"
+  playbackEvents(playback: PlaybackId!): PlaybackEvent!
+}
+
+union InputEnvelopeEvent = InputEnvelopeFrame | InputLeaseEnded
+
+type InputEnvelopeFrame {
+  "この貸与で数えた標本の通算。 進んでいないフレームは送らない。"
+  position: SampleCount!
+  "目盛りごと。 割り切れない本数へ畳まない。"
+  steps: [EnvelopeStep!]!
+  "この貸与で、フルスケールに達した回数（`TR-REC-16`）。 画面に数えさせない。"
+  clippedRuns: Int!
+  "溜まっているプリロール（`TR-REC-19`）。"
+  prerollMs: Float!
+  "前のフレームから、詰まって捨てた観測の数。"
+  dropped: Int!
+}
+
+union PlaybackEvent = PlaybackProgress | PlaybackEnded
+
+type PlaybackProgress {
+  positionMs: Float!
+}
+
+type PlaybackEnded {
+  reason: PlaybackEndReason!
+}
+
+enum PlaybackEndReason {
+  COMPLETED
+  STOPPED
+  DEVICE_LOST
+}

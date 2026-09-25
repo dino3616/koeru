@@ -1,0 +1,151 @@
+# project の一覧・作成・開閉。
+#
+# 開くことは明示の意図で、返った貸与を以後の読みの変数に取る（`DEC-PLT-037`）。
+
+query Library {
+  application {
+    version
+    contractHash
+    masterSampleRate
+    limits {
+      maxWindow
+    }
+  }
+  library {
+    projects {
+      __typename
+      ... on ProjectSummary {
+        ...ProjectCard_ProjectSummary
+      }
+      ... on UnreadableProject {
+        id
+        # 読めた project の `displayName` は null にならない。 同じ名前で型の違う欄を
+        # 1つの選択に並べられないので、別名で受ける。
+        knownName: displayName
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+fragment ProjectCard_ProjectSummary on ProjectSummary {
+  id
+  displayName
+  method
+  rowCount
+  voice {
+    ...VoiceRings_VoiceSummary
+  }
+}
+
+query NewProjectChoices($toneCount: Int!) {
+  catalog {
+    methodPresets(toneCount: $toneCount) {
+      id
+      method
+      label
+      summary
+      rowCount
+      estimatedSeconds
+      passes
+      reach
+      reading
+    }
+    toneSuggestions {
+      label
+      why
+      tones {
+        midi
+        name
+      }
+    }
+    toneOptions {
+      midi
+      name
+    }
+  }
+}
+
+mutation CreateProject($input: CreateProjectInput!) {
+  createProject(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on ProjectCreated {
+        project {
+          ...ProjectCard_ProjectSummary
+        }
+      }
+      ... on InvalidRequest {
+        violations {
+          field
+          code
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation OpenProject($project: ProjectId!) {
+  openProject(input: { project: $project }) {
+    outcome {
+      __typename
+      ... on ProjectOpened {
+        lease
+        project {
+          revision
+          displayName
+          method
+          notices {
+            kind
+            ... on RulesFileRestored {
+              keptAs
+            }
+          }
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation DismissProjectNotice(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $kind: ProjectNoticeKind!
+) {
+  dismissProjectNotice(
+    input: { lease: $lease, operationId: $operationId, kind: $kind }
+  ) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation CloseProject($lease: ProjectLease!) {
+  closeProject(input: { lease: $lease }) {
+    outcome {
+      __typename
+      ... on ProjectClosed {
+        project
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

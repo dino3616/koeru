@@ -1,0 +1,371 @@
+# KOERU が consumer に約束する application の言葉（`DEC-PLT-035`）。
+#
+# Rust の型からも画面の部品からも作らない。 読みは Query、利用者の意図は Mutation、
+# 続いていく観測は Subscription（`DEC-PLT-036`）。 product の規則は FSL と meta が
+# 持ち、ここは語彙・形・予期できる結果だけを持つ。 規則は description に写さず、ID で引く。
+#
+# 契約は `schema/` の下のファイルすべてで1つになる。 このファイルは領域をまたいで使う語彙を
+# 持ち、領域の語彙はそれぞれのファイルが持つ。 root の型の本体は `project.graphql` にあり、
+# ほかの領域は `extend type` で自分の欄を足す。
+#
+# 何を持つか、変え方、旧コマンドからの移行表は `../README.md`。
+# 検査は `cargo xtask check-schema`。
+#
+# 語彙の選び方は `DEC-PLT-042`（識別子・量・ファイル・名前・互換の窓）と `DEC-EDT-004`（5値と
+# 編集の区間）が持つ。
+
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+# ## 識別子
+#
+# 取り違えると別のものを指す識別子は、それぞれ別の scalar にする（`DEC-PLT-034`）。
+# operation の検査で、テイクの識別子を行の欄へ渡すと落ちる。 wire ではどれも文字列で、
+# consumer は中身を解釈しない。 表示文・エイリアス・並びの位置から作らない（`DEC-RCL-017`）。
+# 組み込みの `ID` にまとめない（`DEC-PLT-042`）。
+
+"永続する project。 表示名を変えても、開き直しても変わらない。"
+scalar ProjectId
+
+"""
+開いた project への貸与。 閉じて開き直すと別の値になり、同じ値を二度と振らない。
+画面の mount では作り直さない（`DEC-PLT-037`）。
+"""
+scalar ProjectLease
+
+"project の版。 等しいかだけを比べ、大小を比べない。"
+scalar Revision
+
+"""
+呼び出し側が振る、確定を伴う意図の識別子（`DEC-PLT-035`）。
+同じ値・同じ要求には同じ受領証を、同じ値・違う要求には衝突を返す。
+"""
+scalar OperationId
+
+"Subscription を続きから読むための位置。"
+scalar EventCursor
+
+"録音リストの行。 読み上げる文字列でも並びの位置でもない。"
+scalar RowId
+
+"録る対象（`DEC-RCL-017`）。 構造の鍵から導くので、エイリアスを改名しても変わらない。"
+scalar TargetId
+
+"録音を始めてから、確定するか捨てるまでの1回。 テイクとは別。"
+scalar CaptureId
+
+"確定したテイク。 同じ音でも、別の録音なら別のテイク。"
+scalar TakeId
+
+"エントリ（原音設定の1件）。"
+scalar EntryId
+
+scalar SongId
+
+scalar NoteId
+
+scalar JobId
+
+scalar ReleaseId
+
+"書き出しの計画。 確定するまで project を変えない。"
+scalar ExportPlanId
+
+"入力デバイスの永続識別子（`TR-REC-03`）。"
+scalar DeviceId
+
+"開いている入力ストリームへの貸与。 包絡・プリロール・収録はこれに属する。"
+scalar InputLeaseId
+
+"鳴らしている1回。"
+scalar PlaybackId
+
+"編集の区間。 操作のモードを持つ。 project のデータではない（`TR-EDT-03`）。"
+scalar EditingSessionId
+
+"作り方の見本（`Catalog.methodPresets`）。 project を作るときに選ぶ。"
+scalar MethodPresetId
+
+# ## 値
+#
+# GraphQL の Int は 32 bit で、超えうる量だけを scalar にする。 wire では JSON の数で、
+# 2^53 まで正確に届く。 `Float` で運ばない（`DEC-PLT-042`）。
+
+"バイト数。 0 以上の整数。"
+scalar ByteCount
+
+"マスターのレート（`ApplicationInfo.masterSampleRate`）で数えた標本の数。 0 以上の整数。"
+scalar SampleCount
+
+"""
+マスターのレートで数えた標本位置。 符号つきの整数で、負もありうる。 原点は欄の説明が言う。
+位置どうしの差にも使う。 JSON の数で運び、2^53 まで正確に届く（`DEC-PLT-042`）。
+0 以上の長さと数は `SampleCount` で、位置と混ぜない。
+"""
+scalar SamplePosition
+
+scalar DateTime @specifiedBy(url: "https://www.rfc-editor.org/rfc/rfc3339")
+
+# ファイルの中身は base64 で運ぶ。 パスは契約に入れない。 大きさが転送の予算を超えると
+# 測れたら、host が発行する不透明な許可へ移すことを見直す（`DEC-PLT-042`）。
+"ファイルの中身そのもの。 base64 で運ぶ。"
+scalar Base64Bytes
+
+# ## 予期できる結果（`DEC-PLT-038`）
+#
+# 呼び出し側が分岐する結果は payload の union で返す。 `errors[]` は不正な文書・
+# 実装の欠陥・想定外の不変条件の破れだけで、null の伝播を状態の代わりにしない。
+
+"呼び出し側の次の手。"
+enum CallerAction {
+  FIX_INPUT
+  MEET_CONDITION
+  REFRESH
+  NOTHING
+  SHOW_RECEIPT
+  WAIT
+  RECONNECT
+  GRANT
+  RETRY_SAME
+  FREE_SPACE
+  RECOVER
+  USE_AVAILABLE
+  REBUILD
+  REPORT
+}
+
+"失敗の分類。 内部の不変条件の破れはここに無く、`errors[]` に出る。"
+enum FailureClass {
+  INVALID_INPUT
+  REJECTED
+  CONFLICT
+  CANCELLED
+  ALREADY_COMMITTED
+  BUSY
+  DEVICE_UNAVAILABLE
+  TRANSIENT_IO
+  STORAGE
+  CORRUPT
+  UNSUPPORTED
+  ENGINE_FAILED
+}
+
+"確定の状態。"
+enum CommitState {
+  NOT_STARTED
+  NOT_COMMITTED
+  COMMITTED
+  UNKNOWN
+}
+
+"""
+予期できる失敗の共通の形。 consumer は `code` と `class` と `actions` で分岐し、
+`message` を解析しない。 `message` は固定の文で、利用者のデータを含まない。
+"""
+interface Problem {
+  "点区切りの固定の文字列。 変えることは契約の変更になる。"
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"project への貸与がもう生きていない。 閉じた、開き直した、別の project に切り替えた。"
+type ProjectLeaseExpired implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"入力への貸与がもう生きていない。 デバイスを選び直した、外れた、project を閉じた。"
+type InputLeaseEnded implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"編集の区間がもう閉じている。 閉じた区間の遅れて届いた操作は当てない。"
+type EditingSessionEnded implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"読んだ版が古い。 最新を読み直す。 古い要求を当て直さない。"
+type RevisionConflict implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  expected: Revision!
+  actual: Revision!
+}
+
+"同じ操作の識別子で、違う要求が来た。 payload の受領証は先に処理した操作のもの。"
+type OperationIdReused implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  operationId: OperationId!
+}
+
+"入力が不正。 直さずに送り直しても同じ結果になる。"
+type InvalidRequest implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  violations: [InputViolation!]!
+}
+
+type InputViolation {
+  "入力の中の場所。 欄の名前を . でつなぐ。"
+  field: String!
+  code: String!
+}
+
+"要求は正しいが、今の状態では受けられない。 足りない条件は `code` が示す。"
+type ActionRejected implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"指したものが、この版に無い。"
+type ReferenceNotFound implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"混んでいる。 待つか、明示してやり直す。"
+type ResourceBusy implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"マイクや出力が使えない。 無音を録音として扱わない。"
+type DeviceUnavailable implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  "どのデバイスか分かるときだけ。"
+  device: DeviceId
+}
+
+"容量が足りない、または権限が無い。 確定したものと受領証は守る。"
+type StorageProblem implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"この環境では使えない。 使える能力だけを使う。"
+type CapabilityUnavailable implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"保存されたものが壊れている、または確定したか分からない。 自動で正常化しない。"
+type RecoveryRequired implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"外部エンジン（アライナ・合成）の失敗。 元のデータは残る。"
+type EngineFailed implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+}
+
+"""
+確定を伴う意図の受領証（`DEC-PLT-035`）。 応答が失われても、同じ `operationId` で
+同じ受領証が返る。
+"""
+type MutationReceipt {
+  operationId: OperationId!
+  commit: CommitState!
+  "処理したあとの版。 確定しなかったときは、処理した時点の版。"
+  revision: Revision!
+  "先に処理した操作の受領証を返したか。"
+  replayed: Boolean!
+}
+
+"続きが欠けた。 Query で取り直してから `resumeAfter` の続きを読む。"
+type EventGap {
+  resumeAfter: EventCursor!
+}
+
+# ## 共通の形
+
+"""
+一覧の窓。 `limit` の上限は `ContractLimits.maxWindow` で、公開してある。 上限を超えた要求と
+負の値は consumer の欠陥なので、結果ではなく要求の誤りとして `errors[]` で断る（`DEC-PLT-038`）。
+"""
+input WindowInput {
+  offset: Int!
+  limit: Int!
+}
+
+# 名前は曲の題の候補を作るためだけに入れる。 ディレクトリを含めず、トレースに載せない
+# （`DEC-PLT-042`）。
+"consumer が選んだファイル。"
+input FileInput {
+  "題の候補を作るための名前。 ディレクトリを含めない。"
+  name: String!
+  content: Base64Bytes!
+}
+
+"音高（`TR-REC-25`）。 画面に出すのは `name` で、MIDI 番号は出さない。"
+type Tone {
+  midi: Int!
+  name: String!
+}
+
+"作り方。"
+enum RecordingMethod {
+  SINGLE
+  SEQUENTIAL
+  CVVC
+  MULTI_PITCH_SEQUENTIAL
+}
+
+"上と下の組。 畳まずにそのまま渡す。"
+type EnvelopeStep {
+  low: Float!
+  high: Float!
+}

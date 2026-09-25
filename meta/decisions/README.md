@@ -39,6 +39,7 @@
 | [DEC-ALN-018](DEC-ALN-018.toml) | 無声破裂音の分岐の事後検証 | 無声破裂音の閉鎖は直前の母音と比べて検証し、閾値は実測までの仮置きにする | accepted |
 | [DEC-ALN-019](DEC-ALN-019.toml) | 録り直しで残す固定値 | 録り直したテイクへは、固定した値を発声の始まりに合わせて写す。揃えられないときは絶対位置のまま写して確認へ戻す | accepted |
 | [DEC-EDT-003](DEC-EDT-003.toml) | 違反と確認済み | 上級モードの自動確認済みに「制約違反が残っていない場合に限る」を課す | accepted |
+| [DEC-EDT-004](DEC-EDT-004.toml) | 契約の上の5値と編集の区間 | 契約の上の5値はテイク先頭からの標本位置で運び、確認と境界の編集には編集の区間を要る | accepted |
 | [DEC-PKG-001](DEC-PKG-001.toml) | 完成 | 完成状態と手渡し状態を直交させる | accepted |
 | [DEC-PKG-002](DEC-PKG-002.toml) | 周波数表 | `.frq` は録音時に作る | accepted |
 | [DEC-PKG-003](DEC-PKG-003.toml) | 手渡し | 手渡しは配布パッケージの生成までとし、配布の場や発見機能は持たない | accepted |
@@ -90,13 +91,14 @@
 | [DEC-PLT-032](DEC-PLT-032.toml) | 画面遷移の持ち場 | 画面遷移は Motion の AnimateView が持ち、CSS には root の抑止だけ残す | accepted |
 | [DEC-PLT-033](DEC-PLT-033.toml) | 開発環境の調達 | 開発ツールは Nix の devShell で揃える。Nix を第一級の前提開発環境とする | accepted |
 | [DEC-PLT-034](DEC-PLT-034.toml) | アーキテクチャの境界 | 意味を決める所と確定する所を分け、寿命ごとの実行域に載せる | accepted |
-| [DEC-PLT-035](DEC-PLT-035.toml) | 画面と Rust の契約の正本 | consumer への契約は specs/application/schema.graphql を正本にし、process 内で実行する。Rust の型から契約を生成しない | accepted |
+| [DEC-PLT-035](DEC-PLT-035.toml) | 画面と Rust の契約の正本 | consumer への契約は specs/application/schema/ の SDL（領域ごとのファイル）を正本にし、process 内で実行する。Rust の型から契約を生成しない | accepted |
 | [DEC-PLT-036](DEC-PLT-036.toml) | 画面へ流し続けるものの経路 | 画面へ流し続けるものは GraphQL Subscription にする。用途ごとの Channel を契約にしない | accepted |
 | [DEC-PLT-037](DEC-PLT-037.toml) | 読みの取り回し | 画面が読むものは部品の近くの fragment で宣言し、経路が1つの operation に束ねる。結果の寿命は TanStack Query が持つ | accepted |
 | [DEC-PLT-038](DEC-PLT-038.toml) | 失敗の分類と伝え方 | 失敗は「呼び出し側の次の手」と「確定したかどうか」で分類する。予期できる結果は失敗にせず、失敗の記録は持ち主が1回だけ型で出す | accepted |
 | [DEC-PLT-039](DEC-PLT-039.toml) | 検査が通ったことの意味 | テストは危険ごとに最も安い検出点を選び、必須の suite は meta に登録して実行した件数で判定する。前提を欠いたら黙って return しない | accepted |
 | [DEC-PLT-040](DEC-PLT-040.toml) | GraphQL の実装と検査の道具 | GraphQL は async-graphql で process 内で実行し、apollo-compiler で SDL と operation を検査し、画面の型は graphql-codegen の client-preset で作る | accepted |
 | [DEC-PLT-041](DEC-PLT-041.toml) | 移行で推し量らない | 行の並びから録る対象へ写せないエントリがあれば、移行を止めて元の台帳と控えを残し、そのプロジェクトは開かない | accepted |
+| [DEC-PLT-042](DEC-PLT-042.toml) | 契約の語彙の初版 | 識別子は種類ごとの scalar、32 bit を超える量は専用の scalar、ファイルは名前（ディレクトリなし）と base64 の中身で運ぶ。名前と互換の窓は公開の前に見直す | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -140,4 +142,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-130 件。
+132 件。

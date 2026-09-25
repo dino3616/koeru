@@ -1,0 +1,62 @@
+schema = 'decision'
+id = 'DEC-PLT-042'
+constraint_label = '契約の語彙の初版'
+constraint = 'consumer への契約（`specs/application/schema/`）で、取り違えると別のものを指す値が型で区別され、利用者のデータとパスが必要な分しか入らないこと'
+title = '識別子は種類ごとの scalar、32 bit を超える量は専用の scalar、ファイルは名前（ディレクトリなし）と base64 の中身で運ぶ。名前と互換の窓は公開の前に見直す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '取り違えを型で落とす語彙にする（識別子と大きな量は専用の scalar、ファイルは名前と base64）',
+  'GraphQL の組み込みの型だけで書く（ID・Float・String）',
+]
+selected = '取り違えを型で落とす語彙にする（識別子と大きな量は専用の scalar、ファイルは名前と base64）'
+rationale = '''
+canonical SDL（`DEC-PLT-035`）の初版を書いたとき、語彙のうち人が決めるものに仮の選択を
+置いていた。 チャットで1点ずつ決めてもらった。
+
+## 決めたこと
+
+- **識別子は種類ごとの scalar。** `TakeId` / `RowId` / `EntryId` / `TargetId` など。 テイクの ID を
+  行の ID の欄へ渡すと、文書の検証（画面の型検査も）で落ちる。 Rust の `koeru_model::id` と揃う。
+  `TargetId` は録る対象の構造から導き、綴りの改名で変わらない（`DEC-RCL-017`）
+- **32 bit を超えうる量は専用の scalar。** `ByteCount` と `SampleCount`（マスターのレートで数える）。
+  GraphQL の `Int` はバイト数なら 2GB、標本数なら 44100Hz で約 13.5 時間で溢れる。 送るのは
+  JSON の数のまま（2^53 まで正確）
+- **ファイルの中身は base64 で運ぶ**（`Base64Bytes`）。 今の「中身を送る」形のまま、数値の配列より
+  小さい。 大きさが問題になると測れたら、転送の経路（T10）で見直す
+- **選んだファイルの名前は契約に入れてよい。** 曲の題の候補を作るためだけに使う。 ディレクトリは
+  含めず、トレースには載せない（`AGENTS.md` の禁止事項3）。 パスは契約のどこにも入れない
+- **名前と説明の言語は今のまま。** 説明は日本語、読みの面は `…Facet`。 画面だけが使う間は変えても
+  壊れないので、外部の consumer に公開する前にまとめて見直す
+- **互換の窓は、同梱の版どうしだけ。** 画面と同じ版の consumer しかいない間は、SDL と実装を
+  同じ版で揃えればよい。 外部の consumer を公開するときに、窓の長さと契約の hash を決め直す
+- **能力は約 24、費用の区分は `light-write` / `durable-write` を足した語彙。** operation の manifest が
+  選んだ欄の能力を足し合わせる。 MCP などの consumer の範囲が決まったら見直す
+- 設計資料（`08-graphql-application-contract.md`）の例と違う形を2つ採る。 `project` は null ではなく
+  `Project | ProjectLeaseExpired` を返す（lease が切れたことを値で返す、`DEC-PLT-038`）。 ジョブは
+  root の `job(id)` ではなく `Project.jobs` の下に置く（ジョブの寿命はプロジェクトの lease に属する）
+
+書き出し前の NFC 化の扱い（今は副作用を持つ）は T08 で、一括編集の残りの種類（`TR-EDT-27`）の
+入力の形は T13 で決める。
+
+## 採らなかったもの
+
+組み込みの型だけで書く案は GraphQL の慣習どおりで設計が軽い。 ただし取り違えは実行時に
+「見つからない」として初めて分かり、単位や整数かどうかは説明文に頼ることになる。
+'''
+review_triggers = [
+  '外部の consumer（MCP など）に契約を公開すると決めたとき（名前・言語・互換の窓・能力を見直す）',
+  'base64 で運ぶファイルの大きさが転送の予算を超えると測れたとき',
+  'scalar の中身の形（文字列か数か）を consumer が扱えないと分かったとき',
+]
+affects_requirements = [
+  'TR-RCL-12',
+  'TR-SYN-30',
+]
+affects_decisions = [
+  'DEC-PLT-035',
+  'DEC-PLT-036',
+  'DEC-PLT-038',
+  'DEC-RCL-017',
+  'DEC-TEL-001',
+]

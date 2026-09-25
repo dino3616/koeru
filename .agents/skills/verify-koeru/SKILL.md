@@ -198,8 +198,12 @@ cargo xtask check-budgets       # 配分の合計が上限を超えていない�
 cargo xtask check-coverage      # 全要件に技術が当たっているか
 cargo xtask check-references          # 文書とコメントの ID 参照が実体に解決するか
 cargo xtask index-decisions --check   # 判断記録の索引が古くないか
+cargo xtask check-schema        # canonical SDL と見本の operation と能力の表（DEC-PLT-035）
 cargo xtask check-profile <ID>  # 未決の論点がリリースを塞いでいないか
 ```
+
+`check-schema` は `specs/application/` だけを読み、Rust の実装も画面も組み立てない。
+何を落とすかは [specs/application/README.md](../../../specs/application/README.md)。
 
 ## レビューに入る前に、触れた契約を出す
 

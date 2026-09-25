@@ -11,11 +11,13 @@
 //! - `touched`        変更が触れた ID を、レビューに要る本文ごと出す
 //! - `check-portfolio` 試験の target がどれも `meta/suites/` に登録されているか（[`receipt`]）
 //! - `test-receipt`   試験を走らせて件数を登録と突き合わせ、受領証を書く（[`receipt`]）
+//! - `check-schema`   canonical SDL と operation と能力の表を検査する（[`schema`]）
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 mod receipt;
+mod schema;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -54,8 +56,9 @@ const SKIPPED_DIRS: &[&str] = &[
 ///
 /// `nix` が入っているのは `flake.nix` が判断記録を引くから（`DEC-PLT-033`）。
 /// 入れないと、あの中の `DEC-*` と `TR-*` だけが検査されないまま残る
-/// ——参照できないものは検査できない（`meta/README.md`）。
-const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "nix"];
+/// ——参照できないものは検査できない（`meta/README.md`）。 `graphql` も同じで、
+/// canonical SDL の description は規則を写さずに ID で引く（`DEC-PLT-035`）。
+const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "nix", "graphql"];
 
 /// `touched` が本文として読む拡張子。
 ///
@@ -63,7 +66,7 @@ const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "nix"];
 /// 実体に解決するかを見るが、こちらは**変更が何に触れたか**を出すので、
 /// ID を引いているものは形を問わず読む——配色の CSS も workflow も引いている。
 const TOUCHED_EXT: &[&str] = &[
-    "md", "rs", "ts", "tsx", "fsl", "css", "yml", "yaml", "json", "toml", "nix",
+    "md", "rs", "ts", "tsx", "fsl", "css", "yml", "yaml", "json", "toml", "nix", "graphql",
 ];
 
 /// 判断記録の索引。`index-decisions` が書く。
@@ -79,8 +82,10 @@ const DECISION_INDEX: &str = "meta/decisions/README.md";
 ///
 /// 文書は逆で、引用は箇条書きの行そのものにある。同じ幅で広げると隣の項目まで入る
 /// ——`AGENTS.md` を1行直しただけで、前後の箇条書きが引く ID が全部出た。
+///
+/// SDL はコードの側。 引用は欄の上の description か、型の頭にある。
 const DIFF_SCOPES: &[(usize, &[&str])] = &[
-    (25, &["*.rs", "*.ts", "*.tsx"]),
+    (25, &["*.rs", "*.ts", "*.tsx", "*.graphql"]),
     (
         3,
         &[
@@ -306,6 +311,7 @@ fn main() -> ExitCode {
         },
         Some("index-decisions") => index_decisions(&root, &entries, rep),
         Some("check-portfolio") => receipt::check_portfolio(&root, &entries, rep),
+        Some("check-schema") => schema::check_schema(&root, rep),
         Some("test-receipt") => receipt::test_receipt(&root, &entries, &args[1..], rep),
         // 既定は `main`。PR レビューは main との差分を見るので、引数なしで足りる。
         Some("touched") => touched(
@@ -340,7 +346,7 @@ fn main() -> ExitCode {
         }
         _ => {
             println!(
-                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements\n  touched [<base>]\n  check-portfolio|test-receipt [--runner cargo|bun]>"
+                "使い方: cargo xtask <check-meta|check-budgets|check-coverage\n  check-references|check-profile <ID>\n  index-decisions|next-id <接頭辞>|dump-requirements\n  touched [<base>]\n  check-portfolio|test-receipt [--runner cargo|bun]\n  check-schema>"
             );
             ExitCode::FAILURE
         }

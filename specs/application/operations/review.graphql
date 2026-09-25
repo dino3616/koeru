@@ -1,0 +1,171 @@
+# 確認。 確認待ちを読み、1件ずつ確定し、個別確認をやめ、書き出し前に検証する。
+#
+# エントリは識別子で指す。 エイリアスでは指さない（`DEC-RCL-017`）。
+
+query ReviewQueue($lease: ProjectLease!, $window: WindowInput!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      revision
+      review {
+        mode
+        summary {
+          ...ReviewGate_ReviewSummary
+        }
+        queue(window: $window) {
+          total
+          offset
+          items {
+            ...ReviewRow_ReviewItem
+          }
+        }
+        outdatedRows
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment ReviewGate_ReviewSummary on ReviewSummary {
+  pending
+  blocked
+  estimatedSeconds
+  budgetSeconds
+  exceedsBudget
+  missing
+  conflicting
+  unestimated
+  allowsSkipping
+  reach
+  mayExport
+}
+
+fragment ReviewRow_ReviewItem on ReviewItem {
+  state
+  confidence
+  components {
+    alignment
+    sharpness
+    prior
+    acoustic
+  }
+  cause
+  boundaries {
+    slot
+    lowConfidence
+    alternatives {
+      position
+      score
+    }
+    otherTakesMedian
+  }
+  recommendation
+  entry {
+    ...EntryValues_SettingEntry
+  }
+}
+
+fragment EntryValues_SettingEntry on SettingEntry {
+  id
+  alias
+  take
+  row
+  target {
+    id
+    tone {
+      name
+    }
+  }
+  boundaries {
+    ...Boundaries_EntryBoundaries
+  }
+}
+
+fragment Boundaries_EntryBoundaries on EntryBoundaries {
+  offset {
+    position
+    pinned
+  }
+  consonant {
+    position
+    pinned
+  }
+  cutoff {
+    position
+    pinned
+  }
+  preutterance {
+    position
+    pinned
+  }
+  overlap {
+    position
+    pinned
+  }
+}
+
+mutation ConfirmEntry($input: ConfirmEntryInput!) {
+  confirmEntry(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on EntryConfirmed {
+        entry {
+          ...EntryValues_SettingEntry
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation SwitchReviewMode(
+  $lease: ProjectLease!
+  $operationId: OperationId!
+  $mode: ReviewMode!
+) {
+  switchReviewMode(
+    input: { lease: $lease, operationId: $operationId, mode: $mode }
+  ) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on ReviewModeSwitched {
+        mode
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation ValidateEntries($lease: ProjectLease!, $operationId: OperationId!) {
+  validateEntries(input: { lease: $lease, operationId: $operationId }) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on EntriesValidated {
+        repaired
+        blocked
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
