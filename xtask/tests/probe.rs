@@ -272,3 +272,33 @@ fn 知らない_runner_は_1件も数えない() {
     let receipt = fx.receipt("nope", platform, backend);
     assert_eq!(receipt["suites"].as_array().expect("配列").len(), 0);
 }
+
+// ## package_name — ディレクトリ名と `[package] name` が違う crate
+//
+// crate を `fixture-dir/` に置き、`[package] name = "fx"` にする。 直す前は
+// `cargo test --message-format=json` の `package_id`
+// （`path+file:///…/fixture-dir#0.0.0` の形）からディレクトリ名 `fixture-dir` を
+// package 名として読んでいたため、登録した `package = 'fx'` とかみ合わず
+// 「どの suite にも登録されていない」になっていた（`xtask/src/probe/receipt.rs`
+// の `package_names_by_manifest` が今の直し）。
+
+#[test]
+fn ディレクトリ名と_package_名が違っても_test_receipt_は_binary_を見つける() {
+    let fx = Fixture::new("dirname-mismatch");
+    fx.cargo_crate("fixture-dir", "fx", LIB_TWO_TESTS);
+    fx.write(
+        "meta/suites/cargo.toml",
+        &portfolio(&[suite("SUITE-FX-106", "fx", "lib", "min_cases = 2")]),
+    );
+    let run = fx.run(&["test-receipt"]);
+    assert!(
+        !run.stdout.contains("登録されていない"),
+        "package 名の読み違いで登録が外れた: {}",
+        run.stdout
+    );
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    let (platform, backend) = platform_and_backend();
+    let receipt = fx.receipt("cargo", platform, backend);
+    assert_eq!(receipt["suites"][0]["suite"], "SUITE-FX-106");
+    assert_eq!(receipt["suites"][0]["result"], "passed");
+}

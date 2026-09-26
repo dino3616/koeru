@@ -426,5 +426,5 @@ runner = 'cargo'
 package = 'xtask'
 target = 'probe'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 5
+min_cases = 6
 contracts = ['DEC-PLT-039']

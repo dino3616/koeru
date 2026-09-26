@@ -61,8 +61,9 @@ pub(crate) fn suites(entries: &[Entry], rep: &mut Report) -> Vec<ProbeDefinition
     out
 }
 
-/// 試験を持ちうる target（`cargo metadata` から）。 (package, target) の組。
-fn cargo_targets(root: &Path) -> Result<BTreeSet<(String, String)>, String> {
+/// `cargo metadata --no-deps` の生の JSON。 target の一覧と package 名の両方が要るので、
+/// 呼び出しは1箇所にまとめる。
+fn cargo_metadata(root: &Path) -> Result<serde_json::Value, String> {
     let out = Command::new("cargo")
         .args(["metadata", "--no-deps", "--format-version", "1"])
         .current_dir(root)
@@ -71,8 +72,12 @@ fn cargo_targets(root: &Path) -> Result<BTreeSet<(String, String)>, String> {
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned());
     }
-    let meta: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| format!("cargo metadata を読めない: {e}"))?;
+    serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata を読めない: {e}"))
+}
+
+/// 試験を持ちうる target（`cargo metadata` から）。 (package, target) の組。
+fn cargo_targets(root: &Path) -> Result<BTreeSet<(String, String)>, String> {
+    let meta = cargo_metadata(root)?;
     let mut set = BTreeSet::new();
     for pkg in meta["packages"].as_array().into_iter().flatten() {
         let name = pkg["name"].as_str().unwrap_or_default().to_owned();
@@ -97,6 +102,27 @@ fn cargo_targets(root: &Path) -> Result<BTreeSet<(String, String)>, String> {
         }
     }
     Ok(set)
+}
+
+/// crate のディレクトリ → package 名の表（`cargo metadata` の `manifest_path` から）。
+///
+/// `cargo test --message-format=json` の `package_id` は cargo の版で形が割れる
+/// （`path+file:///…/koeru-core#0.0.0` と `koeru-core 0.0.0 (path+file:///…)`）。
+/// 前者はディレクトリ名を package 名として読むしかないが、crate のディレクトリ名と
+/// `[package] name` が違うとそれは実際の package 名と一致しない。 `cargo metadata` は
+/// 両方の版で `manifest_path` を持つので、そちらから引ける表を先に作り、
+/// 表に無いときだけ [`package_name`] の文字列読みに落ちる。
+fn package_names_by_manifest(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
+    let meta = cargo_metadata(root)?;
+    let mut map = BTreeMap::new();
+    for pkg in meta["packages"].as_array().into_iter().flatten() {
+        let name = pkg["name"].as_str().unwrap_or_default();
+        let manifest = pkg["manifest_path"].as_str().unwrap_or_default();
+        if !name.is_empty() && !manifest.is_empty() {
+            map.insert(PathBuf::from(manifest), name.to_owned());
+        }
+    }
+    Ok(map)
 }
 
 /// 試験の target がどれも、ちょうど1つの suite に登録されているか。
@@ -162,6 +188,9 @@ struct Executable {
 }
 
 fn build_executables(root: &Path) -> Result<Vec<Executable>, String> {
+    // `package_id` の文字列読みが外れる crate（ディレクトリ名と package 名が違う）を、
+    // `cargo metadata` の実体で補う。
+    let names = package_names_by_manifest(root)?;
     let out = Command::new("cargo")
         .args([
             "test",
@@ -206,8 +235,12 @@ fn build_executables(root: &Path) -> Result<Vec<Executable>, String> {
             format!("bin:{name}")
         };
         let manifest = PathBuf::from(msg["manifest_path"].as_str().unwrap_or_default());
+        let package = names
+            .get(&manifest)
+            .cloned()
+            .unwrap_or_else(|| package_name(&msg["package_id"]));
         exes.push(Executable {
-            package: package_name(&msg["package_id"]),
+            package,
             target,
             path: PathBuf::from(exe),
             dir: manifest.parent().map(Path::to_path_buf).unwrap_or_default(),
@@ -219,7 +252,9 @@ fn build_executables(root: &Path) -> Result<Vec<Executable>, String> {
 /// `package_id` から crate の名前を取り出す。
 ///
 /// 形は cargo の版で2通りある。 `path+file:///…/koeru-core#0.0.0` と
-/// `koeru-core 0.0.0 (path+file:///…)`。
+/// `koeru-core 0.0.0 (path+file:///…)`。 前者はディレクトリ名を package 名として
+/// 読むので、ディレクトリ名と `[package] name` が違う crate では外れる。
+/// [`package_names_by_manifest`] の表に無いときだけ、ここへ落ちる保険。
 fn package_name(id: &serde_json::Value) -> String {
     let id = id.as_str().unwrap_or_default();
     if let Some((head, _)) = id.split_once(' ') {
