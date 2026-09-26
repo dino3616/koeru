@@ -71,13 +71,11 @@ fn part_of(path: &Path) -> PathBuf {
 
 /// プロジェクトの根からの相対パス。 台帳のテイクと予定はこの形で場所を持つ。
 ///
-/// OS に依らず `/` 区切りに揃える。 揃えないと、Windows で書いた台帳を他 OS で
-/// 開いたときに区切りがファイル名の一部と見なされ、また台帳の突き合わせが
-/// スラッシュの向きで食い違う。
+/// 区切りは台帳の表記に揃える（[`crate::db::ledger_path`]）。
 #[must_use]
 pub fn rel_path(root: &Path, path: &Path) -> String {
-    let rel = path.strip_prefix(root).unwrap_or(path);
-    rel.to_string_lossy().replace('\\', "/")
+    let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
+    crate::db::ledger_path(&rel).into_owned()
 }
 
 /// 予定の場所に何があるかを見る。
@@ -314,23 +312,41 @@ mod tests {
 
     #[test]
     fn ファイルの無い予定の場所も使い直さない() {
-        let root = tmp("free-intent");
-        let (mut l, rows, sid) = ledger(&root);
-        let dir = root.join("audio");
-        let capture = CaptureId::generate();
-        let rel = format!("audio/{}_1.wav", rows[0]);
-        l.declare_capture(&NewIntent {
-            capture: &capture,
-            row_id: &rows[0],
-            session_id: sid,
-            rel_path: &rel,
-            declared_at: "t",
-        })
-        .expect("書ける");
-        l.mark_leftover(&capture, Leftover::Abandoned, "t")
-            .expect("印を付けられる");
-        let got = free_take_path(&mut l, &root, &dir, &rows[0], 1).expect("決められる");
-        assert_eq!(got, dir.join(format!("{}_2.wav", rows[0])));
+        // 予定の場所をどちらの区切りで書いても同じ。 Windows では `\` で書いた場所を
+        // `/` で比べて食い違い、`_1` を使い直した。
+        for sep in ["/", "\\"] {
+            let root = tmp("free-intent");
+            let (mut l, rows, sid) = ledger(&root);
+            let dir = root.join("audio");
+            let capture = CaptureId::generate();
+            let rel = format!("audio{sep}{}_1.wav", rows[0]);
+            l.declare_capture(&NewIntent {
+                capture: &capture,
+                row_id: &rows[0],
+                session_id: sid,
+                rel_path: &rel,
+                declared_at: "t",
+            })
+            .expect("書ける");
+            l.mark_leftover(&capture, Leftover::Abandoned, "t")
+                .expect("印を付けられる");
+            let got = free_take_path(&mut l, &root, &dir, &rows[0], 1).expect("決められる");
+            assert_eq!(got, dir.join(format!("{}_2.wav", rows[0])), "区切り {sep}");
+        }
+    }
+
+    #[test]
+    fn 相対パスは区切りを揃える() {
+        let root = Path::new("/lib/p");
+        assert_eq!(
+            rel_path(root, &root.join("audio").join("G3").join("x_1.wav")),
+            "audio/G3/x_1.wav"
+        );
+        // Windows の区切りが名前に残っていても揃える。
+        assert_eq!(
+            rel_path(root, &root.join("audio\\G3\\x_1.wav")),
+            "audio/G3/x_1.wav"
+        );
     }
 
     #[test]
