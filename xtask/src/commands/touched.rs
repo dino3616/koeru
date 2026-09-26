@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use super::index_decisions::DECISION_INDEX;
 use crate::diagnostic::Report;
 use crate::knowledge::{Entry, fsl_sites, id_index, id_tokens, list_of, str_of};
-use crate::repo::{SKIPPED_DIRS, git, nul_paths};
+use crate::repo::{RepoView, SKIPPED_DIRS, diff_files, git, nul_paths};
 
 /// `touched` が本文として読む拡張子。
 ///
@@ -89,8 +89,8 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
     let mut changed: BTreeSet<String> = BTreeSet::new();
 
     for spec in [range.as_str(), "HEAD"] {
-        match git(root, &["diff", "--name-only", "-z", spec]) {
-            Ok(out) => changed.extend(nul_paths(&out)),
+        match diff_files(root, spec) {
+            Ok(files) => changed.extend(files),
             Err(e) => {
                 rep.error(e);
                 return rep.finish("touched");
@@ -160,6 +160,19 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
     let base_rev = git(root, &["merge-base", base, "HEAD"])
         .map(|x| x.trim().to_owned())
         .unwrap_or_else(|_| base.to_owned());
+    /*
+     * `base...HEAD` の新しい側は HEAD の本文、`HEAD`（作業ツリー）の新しい側は
+     * 作業ツリーの本文。**以前はどちらも作業ツリーの本文（`own_now`）で引いていた。**
+     * `base...HEAD` の新しい側は HEAD の版であって作業ツリーではないので、
+     * コミット後に同じファイルをさらに書き換えていると行番号がずれ、別の項目に
+     * 引かれるか、どの項目にも当たらず取りこぼす。**踏んだ。** 版ごとに読み分ける。
+     *
+     * 版が解決できない（`base_rev` が壊れている等）ときは、その版の本文を
+     * 空として扱う——以前の `git show` の `unwrap_or_default()` と同じ寛容さ。
+     */
+    let head_view = RepoView::revision(root, "HEAD").ok();
+    let base_view = RepoView::revision(root, &base_rev).ok();
+    let working_view = RepoView::working_tree(root);
     let mut rewritten: BTreeSet<&str> = BTreeSet::new();
     for rel in changed
         .iter()
@@ -179,11 +192,14 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
             }
             continue;
         }
-        let now = fs::read_to_string(root.join(rel)).unwrap_or_default();
-        let own_now = owners(&now);
-        for (spec, rev) in [(range.as_str(), base_rev.as_str()), ("HEAD", "HEAD")] {
-            let was = git(root, &["show", &format!("{rev}:{rel}")]).unwrap_or_default();
-            let own_was = owners(&was);
+        let own_now = owners_at(Some(&working_view), rel);
+        let own_head = owners_at(head_view.as_ref(), rel);
+        // 新しい側の項目は、diff の相手が誰かで変える（上のコメントのとおり）。
+        for (spec, old_view, new_owners) in [
+            (range.as_str(), &base_view, &own_head),
+            ("HEAD", &head_view, &own_now),
+        ] {
+            let own_was = owners_at(old_view.as_ref(), rel);
             let Ok(diff) = git(root, &["diff", "-U0", spec, "--", rel]) else {
                 continue;
             };
@@ -192,7 +208,7 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
                     continue;
                 };
                 // 消した側と残る側の両方を見る。消しただけの hunk は長さ 0。
-                for (mark, owners, note) in [('-', &own_was, "削除"), ('+', &own_now, "書き換え")]
+                for (mark, owners, note) in [('-', &own_was, "削除"), ('+', new_owners, "書き換え")]
                 {
                     let Some((at, len)) = hunk_span(rest, mark) else {
                         continue;
@@ -333,6 +349,17 @@ fn owners(text: &str) -> Vec<(usize, String)> {
             Some((n + 1, rest[..end].to_owned()))
         })
         .collect()
+}
+
+/// `view` にある `rel` の中身から、行の持ち主を引く。
+///
+/// 版が無い（解決できなかった）・パスが無い・読めない、はどれも空扱いにする。
+/// 新規追加や、その版にまだ無いファイルを、項目0件として自然に畳むため。
+fn owners_at(view: Option<&RepoView>, rel: &str) -> Vec<(usize, String)> {
+    let text = view
+        .and_then(|v| v.read(rel).ok().flatten())
+        .unwrap_or_default();
+    owners(&text)
 }
 
 /// その行が属する項目。

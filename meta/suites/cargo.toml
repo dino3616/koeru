@@ -403,6 +403,20 @@ target = 'bin:xtask'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 0
 
+# `RepoView` は `repo` が private module なので、`tests/` からは直接呼べない。
+# 単体試験は `xtask/src/repo/view.rs` の `#[cfg(test)]`（`SUITE-XTASK-001` に乗る）。
+# ここに置くのは、binary の出力からしか確かめられないもの——`touched` の行番号の
+# 不具合の退行試験。
+[[suite]]
+id = 'SUITE-XTASK-004'
+title = 'touched が base...HEAD の新しい側を HEAD の版の本文で引く（行番号のずれの退行試験）'
+runner = 'cargo'
+package = 'xtask'
+target = 'repo_view'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 1
+contracts = ['DEC-PLT-039']
+
 # 一時ディレクトリに組んだ小さなリポジトリへ binary を叩き、各コマンドの出力と終了コードを
 # 固定する。 `test-receipt` と `check-portfolio` は fixture の crate を cargo で組み立て、
 # `touched` は fixture の中で git を使う。
