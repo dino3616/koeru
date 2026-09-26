@@ -242,7 +242,7 @@ runner = 'cargo'
 package = 'koeru-app'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 44
+min_cases = 49
 
 [[suite]]
 id = 'SUITE-APP-002'
