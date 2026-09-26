@@ -383,3 +383,16 @@ target = 'bin:xtask'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 37
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
+
+# 一時ディレクトリに組んだ小さなリポジトリへ binary を叩き、各コマンドの出力と終了コードを
+# 固定する。 `test-receipt` と `check-portfolio` は fixture の crate を cargo で組み立て、
+# `touched` は fixture の中で git を使う。
+[[suite]]
+id = 'SUITE-XTASK-002'
+title = 'xtask の各コマンドの振る舞い（fixture のリポジトリに対する出力と終了コード）'
+runner = 'cargo'
+package = 'xtask'
+target = 'commands'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 21
+contracts = ['DEC-PLT-039']
