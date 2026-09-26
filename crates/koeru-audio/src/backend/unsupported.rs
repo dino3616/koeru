@@ -16,6 +16,7 @@
 
 use std::path::PathBuf;
 
+use crate::stats::{CaptureStats, PlaybackStats};
 use crate::{DeviceId, DeviceInfo, ring};
 
 /// この OS ではまだ書いていない。
@@ -40,8 +41,7 @@ pub type CaptureError = UnsupportedError;
 /// 再生の失敗。
 pub type PlaybackError = UnsupportedError;
 
-/// 全チャンネルを混ぜる（`TR-REC-06`）。
-pub const MIX_ALL: usize = usize::MAX;
+pub use crate::rt::MIX_ALL;
 
 /// 開けたキャプチャの条件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +81,11 @@ impl Capture {
     #[must_use]
     pub const fn render_errors(&self) -> usize {
         0
+    }
+    /// 数えたものの写し。
+    #[must_use]
+    pub fn stats(&self) -> CaptureStats {
+        CaptureStats::default()
     }
     /// チャンネルごとの RMS（`TR-REC-06`）。
     #[must_use]
@@ -148,6 +153,11 @@ impl Playback {
     #[must_use]
     pub const fn starved(&self) -> usize {
         0
+    }
+    /// 数えたものの写し。
+    #[must_use]
+    pub fn stats(&self) -> PlaybackStats {
+        PlaybackStats::default()
     }
     /// 止める。
     ///

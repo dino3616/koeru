@@ -82,13 +82,13 @@ contracts = ['TR-SYN-12', 'TR-SYN-36', 'DEC-SYN-010']
 
 [[suite]]
 id = 'SUITE-AUDIO-001'
-title = 'koeru-audio の unit 試験（収録セッションの状態機械、リング、WAV）'
+title = 'koeru-audio の unit 試験（収録セッションの状態機械、リング、コールバックの中身と数え方、WAV）'
 runner = 'cargo'
 package = 'koeru-audio'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 40
-contracts = ['DEC-REC-007']
+min_cases = 64
+contracts = ['DEC-REC-007', 'TR-REC-40']
 
 [[suite]]
 id = 'SUITE-AUDIO-002'
