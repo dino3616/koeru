@@ -8,7 +8,7 @@ use std::process::ExitCode;
 use super::index_decisions::DECISION_INDEX;
 use crate::diagnostic::Report;
 use crate::knowledge::{Entry, fsl_sites, id_index, id_tokens, list_of, str_of};
-use crate::repo::{SKIPPED_DIRS, git, nul_paths};
+use crate::repo::{RepoView, SKIPPED_DIRS, diff_files, git, nul_paths};
 
 /// `touched` が本文として読む拡張子。
 ///
@@ -89,8 +89,8 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
     let mut changed: BTreeSet<String> = BTreeSet::new();
 
     for spec in [range.as_str(), "HEAD"] {
-        match git(root, &["diff", "--name-only", "-z", spec]) {
-            Ok(out) => changed.extend(nul_paths(&out)),
+        match diff_files(root, spec) {
+            Ok(files) => changed.extend(files),
             Err(e) => {
                 rep.error(e);
                 return rep.finish("touched");
@@ -160,6 +160,9 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
     let base_rev = git(root, &["merge-base", base, "HEAD"])
         .map(|x| x.trim().to_owned())
         .unwrap_or_else(|_| base.to_owned());
+    let head_view = RepoView::revision(root, "HEAD").ok();
+    let base_view = RepoView::revision(root, &base_rev).ok();
+    let working_view = RepoView::working_tree(root);
     let mut rewritten: BTreeSet<&str> = BTreeSet::new();
     for rel in changed
         .iter()
@@ -179,11 +182,9 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
             }
             continue;
         }
-        let now = fs::read_to_string(root.join(rel)).unwrap_or_default();
-        let own_now = owners(&now);
-        for (spec, rev) in [(range.as_str(), base_rev.as_str()), ("HEAD", "HEAD")] {
-            let was = git(root, &["show", &format!("{rev}:{rel}")]).unwrap_or_default();
-            let own_was = owners(&was);
+        let own_now = owners_at(Some(&working_view), rel);
+        for (spec, old_view) in [(range.as_str(), &base_view), ("HEAD", &head_view)] {
+            let own_was = owners_at(old_view.as_ref(), rel);
             let Ok(diff) = git(root, &["diff", "-U0", spec, "--", rel]) else {
                 continue;
             };
@@ -333,6 +334,17 @@ fn owners(text: &str) -> Vec<(usize, String)> {
             Some((n + 1, rest[..end].to_owned()))
         })
         .collect()
+}
+
+/// `view` にある `rel` の中身から、行の持ち主を引く。
+///
+/// 版が無い（解決できなかった）・パスが無い・読めない、はどれも空扱いにする。
+/// 新規追加や、その版にまだ無いファイルを、項目0件として自然に畳むため。
+fn owners_at(view: Option<&RepoView>, rel: &str) -> Vec<(usize, String)> {
+    let text = view
+        .and_then(|v| v.read(rel).ok().flatten())
+        .unwrap_or_default();
+    owners(&text)
 }
 
 /// その行が属する項目。
