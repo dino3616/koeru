@@ -273,7 +273,34 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// 録る前の予定（`DEC-REC-010`）。 テイクではない。
+    capture_intents (id) {
+        id -> Integer,
+        capture_id -> Text,
+        row_id -> Text,
+        session_id -> Integer,
+        rel_path -> Text,
+        declared_at -> Text,
+        state -> Text,
+        closed_at -> Nullable<Text>,
+        take_id -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    /// テイクを確定した操作の受領証（`DEC-PLT-035`）。
+    commit_receipts (operation_id) {
+        operation_id -> Text,
+        capture_id -> Text,
+        take_id -> Integer,
+        committed_at -> Text,
+    }
+}
+
 diesel::joinable!(song_notes -> songs (song_id));
+diesel::joinable!(capture_intents -> sessions (session_id));
+diesel::joinable!(commit_receipts -> takes (take_id));
 
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(row_aliases -> rows (row_id));
@@ -307,4 +334,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     take_fingerprints,
     distribution,
     presamp_snapshot,
+    capture_intents,
+    commit_receipts,
 );

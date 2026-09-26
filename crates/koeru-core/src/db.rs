@@ -14,14 +14,16 @@
 //! 逆にすると、ファイルの無い行が DB に残る。テイクは録音という
 //! 「やり直しが高い操作」の成果物なので、行だけが残って音が無い状態は復旧できない。
 //!
-//! この向きは [`Ledger::commit_take`] が構造的に保証する。確定済みのパスを
-//! 受け取ってからしか呼べない。
+//! 録音は、録る前に予定を1行書いてから始める（`DEC-REC-010`）。 テイクの行は
+//! [`Ledger::commit_capture`] が予定を閉じ、受領証を残すのと同じトランザクションで足す。
+//! 手順と FSL の手の対応は [`intent`] にある。
 //!
 //! ## 孤児
 //!
 //! rename が済んでコミット前に落ちると、確定済みの WAV があるのに行が無い状態が残る
 //! （`DEC-REC-004` が決めた順序の帰結）。[`Ledger::find_orphans`] が見つけて
-//! 復旧候補として提示する。本人が採るか捨てるまで消さない。
+//! 復旧候補として提示する。本人が採るか捨てるまで消さない。 どの行・どの収録セッションの
+//! 録音かは、孤児が持つ予定から引く（`crate::capture::verify`）。
 
 use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
 use crate::calibration::Calibration;
@@ -43,6 +45,13 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use koeru_model::id::{RowId, TakeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+pub mod intent;
+
+pub use intent::{
+    Answer, CaptureId, CaptureIntent, Commit, CommitRequest, IntentState, Leftover, NewIntent,
+    OperationId, Receipt,
+};
 
 /// 無音のピークを表す値（dBFS）。
 ///
@@ -81,6 +90,26 @@ pub enum LedgerError {
     /// 指定したテイクが台帳に無い。
     #[error("テイクが台帳に無い")]
     UnknownTake,
+
+    /// 録音に使っている予定がもうある（単一の書き手、`DEC-REC-010`）。
+    #[error("録音中の予定がすでにある")]
+    CaptureAlreadyOpen,
+
+    /// 指定した録音の予定が台帳に無い。
+    #[error("録音の予定が台帳に無い")]
+    UnknownCapture,
+
+    /// 予定がもう録音に使われていない。 閉じたか、落ちたあとの検証が印を付けた。
+    #[error("録音の予定がもう開いていない")]
+    CaptureNotOpen,
+
+    /// 予定は書きかけしか持っていない。 確定した WAV が無いのでテイクにできない。
+    #[error("確定した録音が無い")]
+    CaptureNotFinalized,
+
+    /// 予定の状態の表記を知らない。 推し量って読まない。
+    #[error("録音の予定の状態が読めない")]
+    UnknownIntentState,
 }
 
 impl koeru_failure::Failure for LedgerError {
@@ -91,6 +120,11 @@ impl koeru_failure::Failure for LedgerError {
             Self::Migration => "ledger.migration_failed",
             Self::UnknownRow => "ledger.unknown_row",
             Self::UnknownTake => "ledger.unknown_take",
+            Self::CaptureAlreadyOpen => "ledger.capture_already_open",
+            Self::UnknownCapture => "ledger.unknown_capture",
+            Self::CaptureNotOpen => "ledger.capture_not_open",
+            Self::CaptureNotFinalized => "ledger.capture_not_finalized",
+            Self::UnknownIntentState => "ledger.unknown_intent_state",
         }
     }
 
@@ -116,9 +150,14 @@ impl koeru_failure::Failure for LedgerError {
             } => Class::TransientIo,
             Self::Db { .. } => Class::Internal,
             // 開けない台帳・適用できないスキーマは、そのプロジェクトを開けないということ。
-            Self::Open { .. } | Self::Migration => Class::Corrupt,
+            // 知らない状態の表記も同じ。 読める形に倒すと、閉じた予定を開いたものとして扱いうる。
+            Self::Open { .. } | Self::Migration | Self::UnknownIntentState => Class::Corrupt,
             // 指した行やテイクが無いのは、読んだものが古い。
-            Self::UnknownRow | Self::UnknownTake => Class::Conflict,
+            Self::UnknownRow | Self::UnknownTake | Self::UnknownCapture | Self::CaptureNotOpen => {
+                Class::Conflict
+            }
+            // 録音を終えてから始める。 書きかけしか無いものは、回復を経ないとテイクにできない。
+            Self::CaptureAlreadyOpen | Self::CaptureNotFinalized => Class::Rejected,
         }
     }
 }
@@ -252,6 +291,52 @@ fn insert_rows(
         }
     }
     Ok(inserted)
+}
+
+/// テイクの行を1つ足す。 返すのはテイクの ID。 呼び出し側のトランザクションの中で呼ぶ。
+///
+/// 有効なテイクなら採用を新しい方へ切り替える。過去のテイクは残る（`TR-REC-21`）。
+/// 無効なテイクは採用を動かさない（[`Ledger::commit_invalid_take`]）。
+fn insert_take_row(c: &mut SqliteConnection, t: &FinalizedTake, valid: bool) -> QueryResult<i32> {
+    let generation: i32 = takes::table
+        .filter(takes::row_id.eq(&t.row_id))
+        .select(diesel::dsl::max(takes::generation))
+        .first::<Option<i32>>(c)?
+        .unwrap_or(0)
+        + 1;
+    diesel::insert_into(takes::table)
+        .values((
+            takes::row_id.eq(&t.row_id),
+            takes::session_id.eq(t.session_id),
+            takes::rel_path.eq(&t.rel_path),
+            takes::frames.eq(t.frames),
+            takes::recorded_at.eq(&t.recorded_at),
+            takes::invalid.eq(i32::from(!valid)),
+            takes::generation.eq(generation),
+        ))
+        .execute(c)?;
+    let id: i32 = takes::table
+        .select(takes::id)
+        .order(takes::id.desc())
+        .first(c)?;
+    if !valid {
+        return Ok(id);
+    }
+
+    diesel::insert_into(adopted_takes::table)
+        .values((
+            adopted_takes::row_id.eq(&t.row_id),
+            adopted_takes::take_id.eq(id),
+        ))
+        .on_conflict(adopted_takes::row_id)
+        .do_update()
+        .set(adopted_takes::take_id.eq(id))
+        .execute(c)?;
+
+    diesel::update(rows::table.filter(rows::id.eq(&t.row_id)))
+        .set(rows::state.eq(RowState::Recorded.as_str()))
+        .execute(c)?;
+    Ok(id)
 }
 
 fn db(op: &'static str) -> impl FnOnce(diesel::result::Error) -> LedgerError {
@@ -590,17 +675,26 @@ impl Ledger {
     ///
     /// 返すのは `(行 ID, その行が生むエイリアス)`。 除外した行は入らない——
     /// 本人が外したものを組み直しで戻さない。
+    ///
+    /// 開いている予定を持つ行も入らない。 録音中の行、孤児や書きかけを持って残った行を
+    /// 組み直しで消すと、孤児がどの行の録音だったかを示せなくなる（`DEC-REC-010`）。
     pub fn untaken_rows(
         &mut self,
         tone: i32,
         origin: RowOrigin,
     ) -> Result<Vec<(String, BTreeSet<String>)>> {
+        use crate::schema::capture_intents;
         let ids: Vec<String> = rows::table
             .filter(rows::tone.eq(tone))
             .filter(rows::origin.eq(origin.as_str()))
             .filter(rows::state.eq(RowState::Unrecorded.as_str()))
             .filter(diesel::dsl::not(diesel::dsl::exists(
                 takes::table.filter(takes::row_id.eq(rows::id)),
+            )))
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                capture_intents::table
+                    .filter(capture_intents::row_id.eq(rows::id))
+                    .filter(capture_intents::state.eq_any(intent::OPEN_STATES)),
             )))
             .order(rows::ordinal.asc())
             .select(rows::id)
@@ -751,16 +845,21 @@ impl Ledger {
             .map_err(db("last_device"))
     }
 
-    /// 確定済みのテイクを台帳へ載せる。
+    /// 確定済みのテイクを、録る前の予定を経ずに台帳へ載せる。
     ///
     /// 呼べるのは fsync と rename が済んだあとだけ（`DEC-REC-004`）。
     /// 世代は行ごとに単調に増える。採用テイクを新しい方へ切り替える（`TR-REC-21`）。
+    ///
+    /// **録音はここを通らない。** 録音は [`Self::declare_capture`] で予定を書いてから始め、
+    /// [`Self::commit_capture`] で閉じる。 ここは予定を書けない取り込みと試験の入口で、
+    /// 閉じた予定と受領証をテイクの行と同じ一手で作る——予定を閉じずにテイクが増える道を
+    /// 残さない（`project-storage.fsl` の `TakeGrowsOnlyByClosingIntent`）。
     #[tracing::instrument(skip(self, t), fields(row = %t.row_id, frames = t.frames))]
     pub fn commit_take(&mut self, t: &FinalizedTake) -> Result<i32> {
         self.insert_take(t, true)
     }
 
-    /// 取りこぼしたテイクを、無効として台帳へ載せる（`TR-REC-07`）。
+    /// 取りこぼしたテイクを、予定を経ずに無効として台帳へ載せる（`TR-REC-07`）。
     ///
     /// 採用は動かさない。 FSL の `discard_invalid_take` は、そのテイクを数えず、
     /// 前に採用していたテイクをそのまま残す。
@@ -774,59 +873,27 @@ impl Ledger {
     }
 
     fn insert_take(&mut self, t: &FinalizedTake, valid: bool) -> Result<i32> {
+        self.require_row(&t.row_id)?;
+        self.conn
+            .transaction(|c| {
+                let id = insert_take_row(c, t, valid)?;
+                intent::close_undeclared(c, t, id)?;
+                Ok(id)
+            })
+            .map_err(db("commit_take"))
+    }
+
+    /// 行が台帳にあることを確かめる。
+    fn require_row(&mut self, row_id: &str) -> Result<()> {
         let exists: i64 = rows::table
-            .filter(rows::id.eq(&t.row_id))
+            .filter(rows::id.eq(row_id))
             .count()
             .get_result(&mut self.conn)
             .map_err(db("row_exists"))?;
         if exists == 0 {
             return Err(LedgerError::UnknownRow);
         }
-
-        self.conn
-            .transaction(|c| {
-                let generation: i32 = takes::table
-                    .filter(takes::row_id.eq(&t.row_id))
-                    .select(diesel::dsl::max(takes::generation))
-                    .first::<Option<i32>>(c)?
-                    .unwrap_or(0)
-                    + 1;
-                diesel::insert_into(takes::table)
-                    .values((
-                        takes::row_id.eq(&t.row_id),
-                        takes::session_id.eq(t.session_id),
-                        takes::rel_path.eq(&t.rel_path),
-                        takes::frames.eq(t.frames),
-                        takes::recorded_at.eq(&t.recorded_at),
-                        takes::invalid.eq(i32::from(!valid)),
-                        takes::generation.eq(generation),
-                    ))
-                    .execute(c)?;
-                let id: i32 = takes::table
-                    .select(takes::id)
-                    .order(takes::id.desc())
-                    .first(c)?;
-                if !valid {
-                    return Ok(id);
-                }
-
-                // 採用を新しい方へ切り替える。過去のテイクは残る（`TR-REC-21`）。
-                diesel::insert_into(adopted_takes::table)
-                    .values((
-                        adopted_takes::row_id.eq(&t.row_id),
-                        adopted_takes::take_id.eq(id),
-                    ))
-                    .on_conflict(adopted_takes::row_id)
-                    .do_update()
-                    .set(adopted_takes::take_id.eq(id))
-                    .execute(c)?;
-
-                diesel::update(rows::table.filter(rows::id.eq(&t.row_id)))
-                    .set(rows::state.eq(RowState::Recorded.as_str()))
-                    .execute(c)?;
-                Ok(id)
-            })
-            .map_err(db("commit_take"))
+        Ok(())
     }
 
     /// 取りこぼしを検出したテイクを無効にする（`TR-REC-07`）。
