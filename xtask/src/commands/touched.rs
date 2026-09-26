@@ -160,6 +160,16 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
     let base_rev = git(root, &["merge-base", base, "HEAD"])
         .map(|x| x.trim().to_owned())
         .unwrap_or_else(|_| base.to_owned());
+    /*
+     * `base...HEAD` の新しい側は HEAD の本文、`HEAD`（作業ツリー）の新しい側は
+     * 作業ツリーの本文。**以前はどちらも作業ツリーの本文（`own_now`）で引いていた。**
+     * `base...HEAD` の新しい側は HEAD の版であって作業ツリーではないので、
+     * コミット後に同じファイルをさらに書き換えていると行番号がずれ、別の項目に
+     * 引かれるか、どの項目にも当たらず取りこぼす。**踏んだ。** 版ごとに読み分ける。
+     *
+     * 版が解決できない（`base_rev` が壊れている等）ときは、その版の本文を
+     * 空として扱う——以前の `git show` の `unwrap_or_default()` と同じ寛容さ。
+     */
     let head_view = RepoView::revision(root, "HEAD").ok();
     let base_view = RepoView::revision(root, &base_rev).ok();
     let working_view = RepoView::working_tree(root);
@@ -183,7 +193,12 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
             continue;
         }
         let own_now = owners_at(Some(&working_view), rel);
-        for (spec, old_view) in [(range.as_str(), &base_view), ("HEAD", &head_view)] {
+        let own_head = owners_at(head_view.as_ref(), rel);
+        // 新しい側の項目は、diff の相手が誰かで変える（上のコメントのとおり）。
+        for (spec, old_view, new_owners) in [
+            (range.as_str(), &base_view, &own_head),
+            ("HEAD", &head_view, &own_now),
+        ] {
             let own_was = owners_at(old_view.as_ref(), rel);
             let Ok(diff) = git(root, &["diff", "-U0", spec, "--", rel]) else {
                 continue;
@@ -193,7 +208,7 @@ pub(crate) fn touched(root: &Path, entries: &[Entry], base: &str, mut rep: Repor
                     continue;
                 };
                 // 消した側と残る側の両方を見る。消しただけの hunk は長さ 0。
-                for (mark, owners, note) in [('-', &own_was, "削除"), ('+', &own_now, "書き換え")]
+                for (mark, owners, note) in [('-', &own_was, "削除"), ('+', new_owners, "書き換え")]
                 {
                     let Some((at, len)) = hunk_span(rest, mark) else {
                         continue;
