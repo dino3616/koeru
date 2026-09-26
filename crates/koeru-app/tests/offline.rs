@@ -354,6 +354,9 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "found",
     // 見つかった件数。数だけ。
     "frames",
+    // ライブラリを置いたファイルシステムの種類（`storage::FsKind::as_str`、
+    // `DEC-PKG-016`）。固定の語彙で、置き場所そのものではない。
+    "fs_kind",
     "id",
     "in_bank",
     "index",
@@ -373,6 +376,9 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "rate_hz",
     "reason",
     // 打ち切りや失敗の理由。`as_str` / `kind()` が返す固定語に限る。
+    // ライブラリの置き場所の移し替えの結果（`relocate::Relocation::as_str`、
+    // `DEC-PKG-016`）。固定の語彙で、パスそのものではない。
+    "relocation",
     "ring_capacity",
     "row",
     // 同梱の録音リストの行を指す。利用者の創作物ではないので載せてよい

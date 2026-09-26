@@ -55,3 +55,9 @@ koeru-synth = { path = "../koeru-synth" }
 # 保存先の残量を引く（REQ-REC-110）。libc は rust-lang org。
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
+
+# ライブラリの置き場所がネットワーク上・FAT 系かを見分ける（`DEC-PKG-016`）。
+# 生の Win32 API だけを呼び、抽象レイヤは持たない（`DEC-REC-001` と同じ方針）。
+# microsoft org、MIT。版は Tauri が引く 0.61 系に揃える。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
