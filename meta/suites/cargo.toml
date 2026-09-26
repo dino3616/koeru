@@ -92,13 +92,13 @@ contracts = ['DEC-REC-010', 'DEC-REC-004', 'TR-REC-28', 'DEC-PLT-035']
 
 [[suite]]
 id = 'SUITE-AUDIO-001'
-title = 'koeru-audio の unit 試験（収録セッションの状態機械、リング、WAV）'
+title = 'koeru-audio の unit 試験（収録セッションの状態機械、リング、コールバックの中身と数え方、WAV）'
 runner = 'cargo'
 package = 'koeru-audio'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 40
-contracts = ['DEC-REC-007']
+min_cases = 64
+contracts = ['DEC-REC-007', 'TR-REC-40']
 
 [[suite]]
 id = 'SUITE-AUDIO-002'
@@ -386,10 +386,32 @@ min_cases = 0
 
 [[suite]]
 id = 'SUITE-XTASK-001'
-title = 'xtask の unit 試験（差分の走査、受領証の読み方、canonical SDL の規則）'
+title = 'xtask の unit 試験（差分の走査、受領証の読み方、canonical SDL の規則、診断の書き出し）'
+runner = 'cargo'
+package = 'xtask'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 39
+contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
+
+[[suite]]
+id = 'SUITE-XTASK-003'
+title = 'xtask の起動口。試験を持たない'
 runner = 'cargo'
 package = 'xtask'
 target = 'bin:xtask'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 37
-contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
+min_cases = 0
+
+# 一時ディレクトリに組んだ小さなリポジトリへ binary を叩き、各コマンドの出力と終了コードを
+# 固定する。 `test-receipt` と `check-portfolio` は fixture の crate を cargo で組み立て、
+# `touched` は fixture の中で git を使う。
+[[suite]]
+id = 'SUITE-XTASK-002'
+title = 'xtask の各コマンドの振る舞い（fixture のリポジトリに対する出力と終了コード）'
+runner = 'cargo'
+package = 'xtask'
+target = 'commands'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 21
+contracts = ['DEC-PLT-039']

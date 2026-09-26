@@ -136,14 +136,19 @@ fn 録音してテイクのファイルを作る() {
     cap.disarm();
 
     // ## 取りこぼしの判定（`TR-REC-07`）
-    let dropped = consumer.dropped();
-    let jumps = cap.discontinuities();
+    let stats = cap.stats();
     println!(
-        "捨て {dropped} / 飛び {jumps} / レンダ失敗 {}",
-        cap.render_errors()
+        "捨て {} / 飛び {} / レンダ失敗 {} / 受け取り {} フレーム",
+        stats.dropped, stats.discontinuities, stats.render_errors, stats.frames
     );
+    assert_eq!(
+        stats.dropped,
+        consumer.dropped(),
+        "写しの捨てた数はリングの数と同じ"
+    );
+    assert!(stats.frames > 0, "コールバックが来ている");
 
-    if dropped > 0 || jumps > 0 {
+    if stats.dropped > 0 || stats.discontinuities > 0 {
         println!("取りこぼしがあるのでテイクを無効にする（TR-REC-07）");
         take.discard().expect("捨てられる");
         s.finish_take().expect("状態は進める");

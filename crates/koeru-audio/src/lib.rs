@@ -13,18 +13,30 @@
 //! - [`backend`] — OS の API を叩き、出来事を [`session::Session`] へ渡す
 //!
 //! 状態機械を純粋にしてあるのは、ハードウェアなしで契約を検査できるようにするため。
+//! コールバックの中身も同じ理由で、OS に触らない部分（`rt`、[`ring`]、[`stats`]）を
+//! バックエンドの外に置き、確保しないことと並行性をハードウェアなしで試験する。
 
+#[cfg(test)]
+mod alloc_guard;
 pub mod backend;
 pub mod device;
 pub mod error;
 pub mod resample;
 pub mod ring;
+// 呼ぶのはバックエンドのコールバックだけ。 書いていない OS にはまだ呼ぶ側が無く、試験だけが呼ぶ。
+#[cfg_attr(
+    any(not(target_os = "macos"), koeru_force_unsupported_backend),
+    allow(dead_code)
+)]
+mod rt;
 pub mod session;
+pub mod stats;
 pub mod wav;
 
 pub use device::{DeviceId, DeviceInfo, RedactedName};
 pub use error::SessionError;
 pub use session::{Device, Effects, Gain, Liveness, Session};
+pub use stats::{CaptureStats, PlaybackStats};
 
 #[cfg(test)]
 mod contract_tests {

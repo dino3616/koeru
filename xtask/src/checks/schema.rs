@@ -23,7 +23,8 @@ use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::validation::{DiagnosticList, Valid};
 use apollo_compiler::{Name, Schema};
 
-use crate::{Report, list_of, str_of};
+use crate::diagnostic::Report;
+use crate::knowledge::{list_of, str_of};
 
 /// 契約は領域ごとのファイルに分かれていて、この下の `*.graphql` すべてで1つになる。
 const SCHEMA: &str = "specs/application/schema";

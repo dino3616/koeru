@@ -22,3 +22,8 @@ tracing.workspace = true
 block2.workspace = true
 objc2.workspace = true
 objc2-av-foundation.workspace = true
+
+# リングの push / pop の交差を網羅する（`ring.rs` の「並行性の検査」）。
+# `--cfg loom` を立てた試験の組み立てにだけ入り、製品には入らない。 tokio-rs、MIT。
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7.2"

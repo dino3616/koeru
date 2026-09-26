@@ -15,7 +15,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use crate::{Entry, Report, list_of, str_of, with_schema};
+use crate::diagnostic::Report;
+use crate::knowledge::{Entry, list_of, str_of, with_schema};
+use crate::repo::git;
 
 /// 1件の suite の登録。
 #[derive(Debug, Clone)]
@@ -597,8 +599,8 @@ fn write_receipt(
     ctx: &Context,
     verdicts: &[Verdict],
 ) -> Result<PathBuf, String> {
-    let sha = crate::git(root, &["rev-parse", "HEAD"]).unwrap_or_default();
-    let dirty = crate::git(root, &["status", "--porcelain"]).is_ok_and(|s| !s.trim().is_empty());
+    let sha = git(root, &["rev-parse", "HEAD"]).unwrap_or_default();
+    let dirty = git(root, &["status", "--porcelain"]).is_ok_and(|s| !s.trim().is_empty());
     let suites: Vec<serde_json::Value> = verdicts
         .iter()
         .map(|v| {
