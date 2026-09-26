@@ -1,37 +1,44 @@
 //! `cargo xtask check-profile <PROFILE-ID>`
+//!
+//! X03 の `KnowledgeSnapshot` へ載せ替えた最初の消費者。 `with_schema` / `str_of` /
+//! `list_of` で `toml::Table` を直接触っていたのを、型つきの `Record` の口だけで書く。
+//! 出力は1字も変えていない。
 
 use std::process::ExitCode;
 
 use crate::diagnostic::Report;
-use crate::knowledge::{Entry, list_of, str_of, with_schema};
+use crate::knowledge::{Entry, Id, KnowledgeSnapshot, Record};
 
 pub(crate) fn check_profile(entries: &[Entry], profile_id: &str, mut rep: Report) -> ExitCode {
-    let Some(profile) =
-        with_schema(entries, "profile").find(|e| str_of(&e.table, "id") == Some(profile_id))
+    // 重複 ID の診断はここでは要らない——`check-profile` はプロファイルと問いの
+    // 集まりしか見ず、重複の検出は `check-meta` の役目のまま（`dump_requirements` が
+    // `requirements(entries).1` を捨てているのと同じ扱い）。
+    let (snapshot, _) = KnowledgeSnapshot::from_entries(entries);
+
+    let Some(profile) = snapshot
+        .by_schema("profile")
+        .find(|r| r.id().is_some_and(|id| id.as_str() == profile_id))
     else {
         rep.error(format!("`{profile_id}` というプロファイルが無い"));
         return rep.finish("check-profile");
     };
 
-    let blocking: Vec<&Entry> = with_schema(entries, "question")
-        .filter(|e| str_of(&e.table, "status") == Some("open"))
-        .filter(|e| {
-            list_of(&e.table, "blocks_profiles")
-                .iter()
-                .any(|p| p == profile_id)
-        })
+    let blocking: Vec<&Record> = snapshot
+        .by_schema("question")
+        .filter(|r| r.str("status") == Some("open"))
+        .filter(|r| r.strs("blocks_profiles").iter().any(|p| p == profile_id))
         .collect();
 
     rep.note(format!(
         "{profile_id}: FSL の要求 {} 件 / 決定 {} 件 / 予算 {} 件",
-        list_of(&profile.table, "includes_fsl").len(),
-        list_of(&profile.table, "decisions").len(),
-        list_of(&profile.table, "budgets").len()
+        profile.strs("includes_fsl").len(),
+        profile.strs("decisions").len(),
+        profile.strs("budgets").len()
     ));
 
     for q in &blocking {
-        let id = str_of(&q.table, "id").unwrap_or("?");
-        let title = str_of(&q.table, "title").unwrap_or("");
+        let id = q.id().map_or("?", Id::as_str);
+        let title = q.str("title").unwrap_or("");
         rep.error(format!(
             "{id} が未決のまま {profile_id} を塞いでいる: {title}"
         ));
