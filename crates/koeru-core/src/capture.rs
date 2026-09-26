@@ -70,12 +70,14 @@ fn part_of(path: &Path) -> PathBuf {
 }
 
 /// プロジェクトの根からの相対パス。 台帳のテイクと予定はこの形で場所を持つ。
+///
+/// OS に依らず `/` 区切りに揃える。 揃えないと、Windows で書いた台帳を他 OS で
+/// 開いたときに区切りがファイル名の一部と見なされ、また台帳の突き合わせが
+/// スラッシュの向きで食い違う。
 #[must_use]
 pub fn rel_path(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
+    let rel = path.strip_prefix(root).unwrap_or(path);
+    rel.to_string_lossy().replace('\\', "/")
 }
 
 /// 予定の場所に何があるかを見る。

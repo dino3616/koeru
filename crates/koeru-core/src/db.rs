@@ -304,11 +304,12 @@ fn insert_take_row(c: &mut SqliteConnection, t: &FinalizedTake, valid: bool) -> 
         .first::<Option<i32>>(c)?
         .unwrap_or(0)
         + 1;
+    let rel_path = t.rel_path.replace('\\', "/");
     diesel::insert_into(takes::table)
         .values((
             takes::row_id.eq(&t.row_id),
             takes::session_id.eq(t.session_id),
-            takes::rel_path.eq(&t.rel_path),
+            takes::rel_path.eq(&rel_path),
             takes::frames.eq(t.frames),
             takes::recorded_at.eq(&t.recorded_at),
             takes::invalid.eq(i32::from(!valid)),
@@ -1519,10 +1520,14 @@ impl Ledger {
             .load::<String>(&mut self.conn)
             .map_err(db("known_paths"))?
             .into_iter()
+            .map(|p| p.replace('\\', "/"))
             .collect();
         Ok(on_disk
             .iter()
-            .filter(|p| !known.contains(*p))
+            .filter(|p| {
+                let norm = p.replace('\\', "/");
+                !known.contains(&norm)
+            })
             .cloned()
             .collect())
     }

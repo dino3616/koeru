@@ -402,12 +402,13 @@ pub(super) fn close_undeclared(
     take_id: i32,
 ) -> QueryResult<()> {
     let capture = CaptureId::generate();
+    let rel_path = t.rel_path.replace('\\', "/");
     diesel::insert_into(capture_intents::table)
         .values((
             capture_intents::capture_id.eq(capture.as_str()),
             capture_intents::row_id.eq(&t.row_id),
             capture_intents::session_id.eq(t.session_id),
-            capture_intents::rel_path.eq(&t.rel_path),
+            capture_intents::rel_path.eq(&rel_path),
             capture_intents::declared_at.eq(&t.recorded_at),
             capture_intents::state.eq(IntentState::Committed.as_str()),
             capture_intents::closed_at.eq(&t.recorded_at),
@@ -437,6 +438,13 @@ impl Ledger {
     #[tracing::instrument(skip(self, n), fields(row = %n.row_id))]
     pub fn declare_capture(&mut self, n: &NewIntent<'_>) -> Result<()> {
         self.require_row(n.row_id)?;
+        let normalized_path;
+        let rel_path = if n.rel_path.contains('\\') {
+            normalized_path = n.rel_path.replace('\\', "/");
+            &normalized_path
+        } else {
+            n.rel_path
+        };
         self.conn
             .transaction::<_, Tx, _>(|c| {
                 let busy: i64 = capture_intents::table
@@ -451,7 +459,7 @@ impl Ledger {
                         capture_intents::capture_id.eq(n.capture.as_str()),
                         capture_intents::row_id.eq(n.row_id),
                         capture_intents::session_id.eq(n.session_id),
-                        capture_intents::rel_path.eq(n.rel_path),
+                        capture_intents::rel_path.eq(rel_path),
                         capture_intents::declared_at.eq(n.declared_at),
                         capture_intents::state.eq(IntentState::Open.as_str()),
                     ))
@@ -645,13 +653,14 @@ impl Ledger {
     /// 台帳を読めない。
     pub fn path_is_taken(&mut self, rel_path: &str) -> Result<bool> {
         use crate::schema::takes;
+        let normalized = rel_path.replace('\\', "/");
         let by_intent: i64 = capture_intents::table
-            .filter(capture_intents::rel_path.eq(rel_path))
+            .filter(capture_intents::rel_path.eq(&normalized))
             .count()
             .get_result(&mut self.conn)
             .map_err(db("path_is_taken"))?;
         let by_take: i64 = takes::table
-            .filter(takes::rel_path.eq(rel_path))
+            .filter(takes::rel_path.eq(&normalized))
             .count()
             .get_result(&mut self.conn)
             .map_err(db("path_is_taken"))?;
