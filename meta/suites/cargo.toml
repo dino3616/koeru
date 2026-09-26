@@ -88,6 +88,17 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 5
 contracts = ['DEC-REC-010', 'DEC-REC-004', 'TR-REC-28', 'DEC-PLT-035']
 
+[[suite]]
+id = 'SUITE-CORE-005'
+title = 'ライブラリの置き場所の移し替え（Roaming から Local、両方に中身がある、回復の各状態）'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'library_relocation'
+platforms = ['macos', 'linux', 'windows']
+# symlink を使う試験1件は unix だけで走る（Windows は cfg で外れる）。
+min_cases = 6
+contracts = ['DEC-PKG-016', 'TR-PKG-37']
+
 # ## koeru-audio
 
 [[suite]]
