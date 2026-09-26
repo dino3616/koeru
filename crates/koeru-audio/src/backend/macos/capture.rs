@@ -15,12 +15,17 @@
 //! ロックフリーのリングバッファへの書き込みだけ。
 //! メモリ確保・解放、ロック獲得、ファイル I/O、ログ出力を一切行わない。
 //! 取りこぼしはレイテンシより優先して検出する。
+//!
+//! CoreAudio に触るのは受け取るところまで。 チャンネルの選び方と数え方は
+//! OS に依らない側（`crate::rt`、`crate::stats`）にあり、そちらで確保しないことを試験する。
 
 use super::sys;
 use crate::ring;
+use crate::rt::{self, ChannelEnergy, Route};
+use crate::stats::{CaptureCounters, CaptureStats};
 use std::os::raw::c_void;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// キャプチャの失敗。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -101,12 +106,10 @@ struct Shared {
     /// 書くには `&mut` が要る（`ring` の「端点は1つずつ」）。 コールバックへ渡るのは
     /// `&Shared` なので、ここから `&mut` を取り出せるように `UnsafeCell` に置く。
     producer: std::cell::UnsafeCell<ring::Producer>,
-    /// 直前のコールバックの末尾サンプル位置。連続性の判定に使う。
-    last_end: AtomicU64,
-    /// タイムスタンプが飛んだ回数。xrun の検出（`TR-REC-07`）。
-    discontinuities: AtomicUsize,
-    /// `AudioUnitRender` が失敗した回数。
-    render_errors: AtomicUsize,
+    /// リングが捨てた数を、コールバックの外から読む口。
+    ring_meter: ring::Meter,
+    /// タイムスタンプの飛び、レンダの失敗、受け取ったフレーム数（`TR-REC-07`）。
+    counters: CaptureCounters,
     /// レンダ先のバッファ。事前確保済みで、実行中は伸縮しない。
     scratch: Box<[std::cell::UnsafeCell<f32>]>,
     /// 1フレームあたりのチャンネル数。
@@ -116,22 +119,11 @@ struct Shared {
     /// どのチャンネルをモノラルの元にするか（`TR-REC-06`）。
     /// [`MIX_ALL`] なら全チャンネルの平均。
     source: AtomicUsize,
-    /// チャンネルごとの二乗和。校正で「有意な信号を持つ側」を選ぶために測る（`TR-REC-06`）。
-    ///
-    /// f64 を CAS で積むとコールバックの中でループになるので、
-    /// 固定小数へ直して `fetch_add` する。 RMS の比較には十分な精度。
-    channel_energy: Box<[AtomicU64]>,
-    /// 上に積んだフレーム数。
-    energy_frames: AtomicU64,
+    /// チャンネルごとの二乗和（`TR-REC-06`）。
+    energy: ChannelEnergy,
 }
 
-/// 全チャンネルを混ぜる（`TR-REC-06`）。
-///
-/// 既定にしない。 L+R の平均は、片側にしか信号が無いときに 6dB 損をする。
-pub const MIX_ALL: usize = usize::MAX;
-
-/// 二乗和を積むときの倍率。
-const ENERGY_SCALE: f64 = 1_048_576.0;
+pub use crate::rt::MIX_ALL;
 
 // SAFETY: scratch と producer へはコールバックだけが触れる。 CoreAudio は1つのユニットの
 // 入力コールバックを重ねて呼ばない（デバイスの IO スレッドが順に呼ぶ）。 `build` が置いた
@@ -322,20 +314,15 @@ fn build(
     scratch.resize_with(scratch_len, || std::cell::UnsafeCell::new(0.0_f32));
     let shared = Arc::new(Shared {
         unit,
+        ring_meter: producer.meter(),
         producer: std::cell::UnsafeCell::new(producer),
-        last_end: AtomicU64::new(u64::MAX),
-        discontinuities: AtomicUsize::new(0),
-        render_errors: AtomicUsize::new(0),
+        counters: CaptureCounters::default(),
         scratch: scratch.into_boxed_slice(),
         channels: channels as usize,
         armed: AtomicBool::new(false),
         // 既定は先頭チャンネル。 混ぜない（`TR-REC-06`）。
         source: AtomicUsize::new(0),
-        channel_energy: (0..channels as usize)
-            .map(|_| AtomicU64::new(0))
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        energy_frames: AtomicU64::new(0),
+        energy: ChannelEnergy::new(channels as usize),
     });
 
     let cb = sys::AURenderCallbackStruct {
@@ -411,9 +398,12 @@ unsafe extern "C" fn input_callback(
     let need = (frames as usize) * shared.channels;
     if need > shared.scratch.len() {
         // 事前確保を超えた。確保し直さない。 取りこぼしとして数える。
-        shared.render_errors.fetch_add(1, Ordering::Relaxed);
+        shared.counters.render_failed();
         return sys::kAudioHardwareNoError;
     }
+    // レンダ先の先頭。 要素1つの参照から取ると、そのポインタは要素1つぶんしか指せない。
+    // 列全体から取る。
+    let scratch = std::cell::UnsafeCell::raw_get(shared.scratch.as_ptr());
 
     // 非インターリーブなので、チャンネルごとにバッファを指す。
     // AudioBufferList は事前確保済み領域の上に組み立てる。
@@ -421,7 +411,7 @@ unsafe extern "C" fn input_callback(
     let max_buffers = (list_storage.len() - size_of::<sys::AudioBufferListHeader>())
         / size_of::<sys::AudioBuffer>();
     if shared.channels > max_buffers {
-        shared.render_errors.fetch_add(1, Ordering::Relaxed);
+        shared.counters.render_failed();
         return sys::kAudioHardwareNoError;
     }
     let list = list_storage.as_mut_ptr();
@@ -436,7 +426,8 @@ unsafe extern "C" fn input_callback(
         size_of::<sys::AudioBufferListHeader>().next_multiple_of(align_of::<sys::AudioBuffer>());
     for ch in 0..shared.channels {
         let at = base + ch * size_of::<sys::AudioBuffer>();
-        let data = shared.scratch[ch * frames as usize].get();
+        // SAFETY: ch * frames + frames <= need <= scratch.len() なので確保した範囲の中。
+        let data = unsafe { scratch.add(ch * frames as usize) };
         // SAFETY: 上で max_buffers を確かめてあるので範囲内。
         unsafe {
             list.add(at)
@@ -461,79 +452,31 @@ unsafe extern "C" fn input_callback(
         )
     };
     if status != sys::kAudioHardwareNoError {
-        shared.render_errors.fetch_add(1, Ordering::Relaxed);
+        shared.counters.render_failed();
         return sys::kAudioHardwareNoError;
     }
 
     // タイムスタンプの連続性を見る（`TR-REC-07` の xrun 検出）。
     // SAFETY: time_stamp は CoreAudio が渡した有効なポインタ。
     let start = unsafe { (*time_stamp).mSampleTime };
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let start_u = start.max(0.0) as u64;
-    let prev_end = shared.last_end.load(Ordering::Relaxed);
-    if prev_end != u64::MAX && start_u != prev_end {
-        shared.discontinuities.fetch_add(1, Ordering::Relaxed);
-    }
-    shared
-        .last_end
-        .store(start_u + u64::from(frames), Ordering::Relaxed);
+    shared.counters.slice(start, frames);
 
-    let n = frames as usize;
-
-    // チャンネルごとの二乗和を積む（`TR-REC-06` の「有意な信号を持つチャンネル」を選ぶ）。
-    // 収録していない間も積む。校正はストリームを開いたまま行うので、ここが唯一の経路。
-    for ch in 0..shared.channels {
-        // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
-        let data =
-            unsafe { std::slice::from_raw_parts(shared.scratch[ch * n].get().cast_const(), n) };
-        let sum: f64 = data.iter().map(|v| f64::from(*v) * f64::from(*v)).sum();
-        #[allow(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "サンプルは -1.0..=1.0 付近。倍率を掛けても u64 に収まる"
-        )]
-        let scaled = (sum * ENERGY_SCALE) as u64;
-        if let Some(slot) = shared.channel_energy.get(ch) {
-            slot.fetch_add(scaled, Ordering::Relaxed);
-        }
-    }
-    shared
-        .energy_frames
-        .fetch_add(frames.into(), Ordering::Relaxed);
-
-    if !shared.armed.load(Ordering::Relaxed) {
-        return sys::kAudioHardwareNoError; // 収録していないので捨てる
-    }
-
-    // SAFETY: producer へはこのコールバックだけが触れ、CoreAudio はこのユニットの
-    // 入力コールバックを重ねて呼ばない（`Shared` の `Sync` の理由）。
+    // SAFETY: scratch[..need] は直前の AudioUnitRender が書いた領域で、確保した範囲の中
+    // （先頭で need <= scratch.len() を確かめた）。 `UnsafeCell<f32>` は `f32` と同じ配置。
+    // scratch へはこのコールバックだけが触れ、CoreAudio はこのユニットの入力コールバックを
+    // 重ねて呼ばない（`Shared` の `Sync` の理由）ので、この `&mut` はほかと重ならない。
+    // AudioUnitRender へ渡したポインタは、呼び出しが返った時点でもう使われない。
+    let input = unsafe { std::slice::from_raw_parts_mut(scratch, need) };
+    // SAFETY: producer へはこのコールバックだけが触れる（同上）。
     // ここで取った `&mut` はこの呼び出しの中でしか生きない。
     let producer = unsafe { &mut *shared.producer.get() };
 
-    // 選んだチャンネルだけをリングへ流す（`TR-REC-06`）。
-    // L+R の平均を既定にしない。片側にしか信号が無いときに 6dB 損をする。
-    let source = shared.source.load(Ordering::Relaxed);
-    if source == MIX_ALL && shared.channels > 1 {
-        // 混ぜるのは、全チャンネルに有意な信号があると本人が選んだときだけ。
-        // 事前確保した最後のチャンネル領域を作業場に使う——ここでは確保しない。
-        // SAFETY: scratch は channels*max_frames ぶん確保してあり、コールバックだけが触る。
-        let out = unsafe { std::slice::from_raw_parts_mut(shared.scratch[0].get(), n) };
-        for (i, slot) in out.iter_mut().enumerate() {
-            let mut acc = *slot;
-            for ch in 1..shared.channels {
-                // SAFETY: 同上。ch*n+i は確保済みの範囲。
-                acc += unsafe { *shared.scratch[ch * n + i].get() };
-            }
-            *slot = acc / shared.channels as f32;
-        }
-        producer.push_or_drop(out);
-    } else {
-        let ch = source.min(shared.channels.saturating_sub(1));
-        // SAFETY: scratch[ch*n..(ch+1)*n] は直前の AudioUnitRender が書いた領域。
-        let picked =
-            unsafe { std::slice::from_raw_parts(shared.scratch[ch * n].get().cast_const(), n) };
-        producer.push_or_drop(picked);
-    }
+    let route = Route {
+        channels: shared.channels,
+        source: shared.source.load(Ordering::Relaxed),
+        armed: shared.armed.load(Ordering::Relaxed),
+    };
+    rt::deliver(input, frames as usize, route, &shared.energy, producer);
 
     sys::kAudioHardwareNoError
 }
@@ -547,7 +490,7 @@ impl Capture {
 
     /// 収録を始める。ここからリングへ流れる。
     pub fn arm(&self) {
-        self.shared.last_end.store(u64::MAX, Ordering::Relaxed);
+        self.shared.counters.restart_clock();
         self.shared.armed.store(true, Ordering::Release);
     }
 
@@ -559,13 +502,23 @@ impl Capture {
     /// タイムスタンプが飛んだ回数。0 でなければ取りこぼしがある（`TR-REC-07`）。
     #[must_use]
     pub fn discontinuities(&self) -> usize {
-        self.shared.discontinuities.load(Ordering::Relaxed)
+        self.shared.counters.discontinuities()
     }
 
     /// `AudioUnitRender` が失敗した回数。
     #[must_use]
     pub fn render_errors(&self) -> usize {
-        self.shared.render_errors.load(Ordering::Relaxed)
+        self.shared.counters.render_errors()
+    }
+
+    /// コールバックが数えたものの写し（[`crate::stats`]）。
+    ///
+    /// リングが捨てた数も入る。 リングの読み出し側を別のスレッドへ渡したあとでも読める。
+    #[must_use]
+    pub fn stats(&self) -> CaptureStats {
+        self.shared
+            .counters
+            .snapshot(self.shared.ring_meter.dropped())
     }
 
     /// チャンネルごとの RMS（`TR-REC-06`）。
@@ -573,27 +526,11 @@ impl Capture {
     /// 積んできたぶん全部の平均。 測り直したいときは [`Capture::reset_channel_rms`]。
     #[must_use]
     pub fn channel_rms(&self) -> Vec<f32> {
-        let frames = self.shared.energy_frames.load(Ordering::Relaxed);
-        if frames == 0 {
-            return vec![0.0; self.shared.channels];
-        }
-        self.shared
-            .channel_energy
-            .iter()
-            .map(|e| {
-                let sum = e.load(Ordering::Relaxed) as f64 / ENERGY_SCALE;
-                #[allow(clippy::cast_possible_truncation, reason = "RMS は 0.0..=1.0 付近")]
-                let v = (sum / frames as f64).sqrt() as f32;
-                v
-            })
-            .collect()
+        self.shared.energy.rms()
     }
 
     pub fn reset_channel_rms(&self) {
-        for e in &self.shared.channel_energy {
-            e.store(0, Ordering::Relaxed);
-        }
-        self.shared.energy_frames.store(0, Ordering::Relaxed);
+        self.shared.energy.reset();
     }
 
     /// モノラルの元にするチャンネルを決める（`TR-REC-06`）。

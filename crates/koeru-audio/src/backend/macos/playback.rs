@@ -30,6 +30,8 @@ use std::time::Duration;
 
 use super::sys;
 use crate::ring;
+use crate::rt::{End, fill};
+use crate::stats::PlaybackStats;
 
 /// 継ぎ足す再生のリングが持てる長さ（ミリ秒）。
 ///
@@ -202,6 +204,12 @@ impl Playback {
         self.shared.starved.load(Ordering::Relaxed)
     }
 
+    /// 流したフレーム数と枯渇の回数の写し。 実時間の外で読む（[`crate::stats`]）。
+    #[must_use]
+    pub fn stats(&self) -> PlaybackStats {
+        self.shared.stats()
+    }
+
     /// いま何フレーム目まで流したか。進捗表示に使う。
     #[must_use]
     pub fn position(&self) -> usize {
@@ -223,6 +231,13 @@ impl Shared {
     fn buffered(&self) -> usize {
         let played = self.played.load(Ordering::Acquire);
         self.queued.load(Ordering::Acquire).saturating_sub(played)
+    }
+
+    fn stats(&self) -> PlaybackStats {
+        PlaybackStats {
+            played: self.played.load(Ordering::Acquire),
+            underruns: self.starved.load(Ordering::Relaxed),
+        }
     }
 }
 
@@ -523,47 +538,6 @@ unsafe extern "C" fn render(
     0
 }
 
-/// 1回のレンダーで、リングから写したもの。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Filled {
-    /// リングから写したフレーム数。残りは無音で埋めてある。
-    frames: usize,
-    end: End,
-}
-
-/// 埋めきれたか。 埋めきれなかったなら、なぜか。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum End {
-    /// 全部リングから埋まった。
-    Full,
-    /// もう継ぎ足さないと宣言されていて、末尾まで流し終えた。
-    Done,
-    /// まだ続きが来る予定なのに足りなかった。 枯渇として数える（`TR-SYN-03`）。
-    Starved,
-}
-
-/// リングから `out` を埋める。 足りないぶんは無音にする。
-///
-/// 確保も解放もロックもしない（`TR-REC-40`）。 コールバックの本体で、
-/// CoreAudio なしで試せるように切り出してある。
-///
-/// `sealed` は**リングを読む前に**読んだ値を渡す。 継ぎ足しは書いてから閉じるので、
-/// 閉じたのを見てから読めば、書いたものは全部見える。 読んだあとで見ると、
-/// その間に書き足して閉じたぶんを残したまま、流し終えたことになる。
-fn fill(consumer: &mut ring::Consumer, out: &mut [f32], sealed: bool) -> Filled {
-    let frames = consumer.pop(out);
-    // 埋めないと直前のバッファの中身が鳴る。
-    out[frames..].fill(0.0);
-    let end = if frames == out.len() {
-        End::Full
-    } else if sealed {
-        End::Done
-    } else {
-        End::Starved
-    };
-    Filled { frames, end }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,64 +545,6 @@ mod tests {
     /// 通し番号の音。 どこまで流れたかを値で見分ける。
     fn ramp(from: usize, n: usize) -> Vec<f32> {
         (from..from + n).map(|i| i as f32).collect()
-    }
-
-    #[test]
-    fn 足りないぶんは無音で埋める() {
-        let (mut p, mut c) = ring::channel(16);
-        p.push(&[1.0, 2.0, 3.0]);
-        let mut out = [9.0_f32; 5];
-        let got = fill(&mut c, &mut out, true);
-        assert_eq!(out, [1.0, 2.0, 3.0, 0.0, 0.0], "直前の中身を残さない");
-        assert_eq!(got.frames, 3);
-    }
-
-    #[test]
-    fn 埋めきれれば終わりでも枯渇でもない() {
-        let (mut p, mut c) = ring::channel(16);
-        p.push(&[1.0, 2.0, 3.0]);
-        let mut out = [0.0_f32; 3];
-        assert_eq!(
-            fill(&mut c, &mut out, false),
-            Filled {
-                frames: 3,
-                end: End::Full
-            }
-        );
-    }
-
-    /// 継ぎ足しが来る予定なら枯渇、もう来ないなら流し終えた（`TR-SYN-03`）。
-    #[test]
-    fn 足りないときは閉じていれば終わり閉じていなければ枯渇() {
-        let (mut p, mut c) = ring::channel(16);
-        let mut out = [0.0_f32; 4];
-
-        p.push(&[1.0]);
-        assert_eq!(fill(&mut c, &mut out, false).end, End::Starved);
-
-        p.push(&[2.0]);
-        assert_eq!(fill(&mut c, &mut out, true).end, End::Done);
-    }
-
-    /// 容量が2の冪でなくても、環をまたいで順に流れる（`DEC-REC-007`）。
-    #[test]
-    fn 容量が2の冪でなくても環をまたいで順に流れる() {
-        let (mut p, mut c) = ring::channel(301); // **2の冪ではない。** 実効容量 300
-        let mut out = vec![0.0_f32; 128];
-        let mut written = 0;
-        let mut read = 0;
-        while read < 301 * 5 {
-            written += p.push(&ramp(written, 97));
-            let got = fill(&mut c, &mut out, false);
-            for v in &out[..got.frames] {
-                assert!(
-                    (*v - read as f32).abs() < f32::EPSILON,
-                    "{read} フレーム目で順序が壊れた: {v}"
-                );
-                read += 1;
-            }
-            assert!(out[got.frames..].iter().all(|v| *v == 0.0), "残りは無音");
-        }
     }
 
     /// 流したフレーム数だけ位置が進み、まだ鳴らしていない長さが減る。
@@ -664,6 +580,27 @@ mod tests {
         assert!(
             !shared.done.load(Ordering::Acquire),
             "閉じていないので終わらない"
+        );
+    }
+
+    /// コールバックの本体は、進み具合を書くところまで含めて確保しない（`TR-REC-40`）。
+    /// 数えたものは写しで読める。
+    #[test]
+    fn コールバックの本体は確保せず数えたものは写しで読める() {
+        let (shared, mut render) = prepare(&ramp(0, 10), stream_capacity(0, 100), false);
+        let mut out = [0.0_f32; 4];
+        let ((), n) = crate::alloc_guard::count(|| {
+            for _ in 0..4 {
+                render.render(&mut out); // 4, 4, 2 と枯渇, 0 と枯渇
+            }
+        });
+        assert_eq!(n, 0);
+        assert_eq!(
+            shared.stats(),
+            PlaybackStats {
+                played: 10,
+                underruns: 2,
+            }
         );
     }
 

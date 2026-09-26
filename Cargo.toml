@@ -15,8 +15,10 @@ repository = "https://github.com/dino3616/koeru"
 # 手元で「書いていない OS 向けの組み立て」を検査するためのフラグ。
 # cargo の feature にしないのは、feature が加算的であるべきで、
 # --all-features で挙動が変わるものを混ぜると macOS の CI がスタブを検査しはじめるため。
+# loom は koeru-audio のリングを Loom のモデルで検査するときだけ立てる（`ring.rs`）。
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(koeru_force_unsupported_backend)',
+  'cfg(loom)',
 ] }
 unsafe_op_in_unsafe_fn = "deny"
 unreachable_pub = "warn"
