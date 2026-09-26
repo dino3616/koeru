@@ -13,6 +13,7 @@ pub use koeru_model::{
 };
 
 pub mod analysis;
+pub mod capture;
 pub mod db;
 pub mod frq;
 pub mod handoff;

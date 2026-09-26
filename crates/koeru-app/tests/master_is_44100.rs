@@ -76,7 +76,8 @@ fn record_at(device_rate_hz: u32) -> wav::Wav {
         producer.push_or_drop(c);
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    pump.start_take(path.clone()).expect("始められる");
+    pump.start_take(path.clone(), pump.position())
+        .expect("始められる");
 
     let body = tone(440.0, device_rate_hz, 1000);
     for c in body.chunks(1024) {

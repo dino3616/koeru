@@ -13,6 +13,13 @@
 //! 常に直近 [`PREROLL_CAPACITY_MS`] を持ち回し、開始の指示で
 //! [`PREROLL_MS`] ぶんを先に書き込む。終了の指示のあとも [`TAIL_MS`] ぶん書き続ける。
 //!
+//! # 遡る起点は指示の時点
+//!
+//! 起点は [`Pump::position`] で指示を受けた時点に取り、[`Pump::start_take`] へ渡す。
+//! 排出スレッドが開始を受け取った時点から遡ると、そのあいだに台帳へ予定を書く時間
+//! （`DEC-REC-010`）のぶんだけ起点が後ろへずれ、遡ったはずの 500ms が欠ける。
+//! 位置は通算のフレーム数で持つ（`DEC-REC-007`）。
+//!
 //! # 時計を使わない
 //!
 //! 末尾の延長はフレーム数で数える。壁時計で測ると、排出が詰まったときに
@@ -31,7 +38,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -126,10 +133,12 @@ pub struct Finished {
 enum Cmd {
     Start {
         path: PathBuf,
+        /// 指示を受けた時点のリングの位置（[`Pump::position`]）。 ここから遡る。
+        from: u64,
         reply: Sender<Result<(), wav::WavError>>,
     },
     Finish {
-        reply: Sender<Result<Finished, wav::WavError>>,
+        reply: Sender<Result<Finished, PumpError>>,
     },
 }
 
@@ -148,6 +157,8 @@ pub struct Pump {
     /// 検査のあいだだけ、流れてきたものを丸ごと溜める（`TR-REC-24`）。
     /// 録音とは別の経路。 テイクの中身には混ぜない。
     probe: Arc<Mutex<Option<Vec<f32>>>>,
+    /// リングへ入れた通算フレーム数（マスターの時間軸）。
+    position: Arc<AtomicU64>,
     rate_hz: u32,
 }
 
@@ -169,6 +180,13 @@ pub enum PumpError {
     /// ファイルの書き込みに失敗した。
     #[error("テイクの書き込みに失敗した")]
     Wav(#[from] wav::WavError),
+
+    /// rename は済んだが、置き場所のディレクトリを fsync できなかった。
+    ///
+    /// WAV は確定した名前でそこにある。 ただ電源を失うと名前ごと消えうるので、
+    /// 台帳には載せない（`DEC-REC-004`）。
+    #[error("テイクの置き場所を永続化できなかった")]
+    SyncDir(#[source] std::io::Error),
 }
 
 impl koeru_failure::Failure for PumpError {
@@ -176,6 +194,7 @@ impl koeru_failure::Failure for PumpError {
         match self {
             Self::Gone => "pump.gone",
             Self::Wav(e) => e.code(),
+            Self::SyncDir(_) => "pump.sync_dir_failed",
         }
     }
 
@@ -184,6 +203,7 @@ impl koeru_failure::Failure for PumpError {
             // 排出スレッドは収録の寿命のあいだ生きている前提。
             Self::Gone => koeru_failure::Class::Internal,
             Self::Wav(e) => e.class(),
+            Self::SyncDir(e) => koeru_failure::io_class(e),
         }
     }
 }
@@ -202,6 +222,7 @@ impl Pump {
         let envelope = Arc::new(Mutex::new(Envelope::default()));
         let recent_peak = Arc::new(Mutex::new(0.0_f32));
         let probe = Arc::new(Mutex::new(None));
+        let position = Arc::new(AtomicU64::new(0));
 
         let handle = std::thread::spawn({
             let stop = Arc::clone(&stop);
@@ -210,6 +231,7 @@ impl Pump {
                 envelope: Arc::clone(&envelope),
                 peak: Arc::clone(&recent_peak),
                 probe: Arc::clone(&probe),
+                position: Arc::clone(&position),
             };
             move || run(consumer, device_rate_hz, &cmd_rx, &stop, &shared)
         });
@@ -222,9 +244,18 @@ impl Pump {
             envelope,
             recent_peak,
             probe,
+            position,
             // 保持しているのは変換後のフレーム。 デバイスのレートで割ると狂う。
             rate_hz: MASTER_RATE_HZ,
         }
+    }
+
+    /// いまのリングの位置。 リングへ入れた通算フレーム数（マスターの時間軸）。
+    ///
+    /// 録音の指示を受けたらまずここを読み、[`Self::start_take`] へ渡す（`TR-REC-19`）。
+    #[must_use]
+    pub fn position(&self) -> u64 {
+        self.position.load(Ordering::Acquire)
     }
 
     /// いま保持しているプリロールの長さ（ミリ秒）。
@@ -295,26 +326,33 @@ impl Pump {
             .map_or_else(|_| Vec::new(), |mut g| g.take().unwrap_or_default())
     }
 
-    /// テイクを始める。プリロールぶんを先に書き込む。
+    /// テイクを始める。 `from`（指示を受けた時点の [`Self::position`]）から
+    /// [`PREROLL_MS`] 遡った位置を頭にし、そこから今までのぶんを先に書き込む。
     ///
     /// レートは受け取らない。 マスターは常に 44100（`TR-REC-01`, `TR-REC-02`）で、
     /// 呼び出し側が別の値を渡せると、そこが壊れる口になる。
-    pub fn start_take(&self, path: PathBuf) -> Result<(), PumpError> {
+    pub fn start_take(&self, path: PathBuf, from: u64) -> Result<(), PumpError> {
         let (tx, rx) = channel();
         self.cmd
-            .send(Cmd::Start { path, reply: tx })
+            .send(Cmd::Start {
+                path,
+                from,
+                reply: tx,
+            })
             .map_err(|_| PumpError::Gone)?;
         rx.recv().map_err(|_| PumpError::Gone)??;
         Ok(())
     }
 
     /// テイクを終える。指示のあと [`TAIL_MS`] ぶん書いてから確定する。
+    ///
+    /// 確定は WAV の fsync・rename と、置き場所のディレクトリの fsync まで。
     pub fn finish_take(&self) -> Result<Finished, PumpError> {
         let (tx, rx) = channel();
         self.cmd
             .send(Cmd::Finish { reply: tx })
             .map_err(|_| PumpError::Gone)?;
-        Ok(rx.recv().map_err(|_| PumpError::Gone)??)
+        rx.recv().map_err(|_| PumpError::Gone)?
     }
 }
 
@@ -335,7 +373,7 @@ struct Recording {
     preroll_frames: usize,
     /// 終了の指示を受けたあと、あと何フレーム書くか。
     tail_left: Option<usize>,
-    reply: Option<Sender<Result<Finished, wav::WavError>>>,
+    reply: Option<Sender<Result<Finished, PumpError>>>,
 }
 
 /// 排出スレッドと外側で分け合うもの。
@@ -350,6 +388,8 @@ struct Shared {
     peak: Arc<Mutex<f32>>,
     /// 検査のための収集（`TR-REC-24`）。
     probe: Arc<Mutex<Option<Vec<f32>>>>,
+    /// リングへ入れた通算フレーム数（[`Pump::position`]）。
+    position: Arc<AtomicU64>,
 }
 
 fn run(
@@ -397,25 +437,27 @@ fn run(
     // 割れた回数（`TR-REC-16`）。塊の切れ目で連続を切らないよう持ち越す。
     let mut clip = koeru_core::analysis::FullScaleCounter::default();
     let mut rec: Option<Recording> = None;
+    // リングへ入れた通算フレーム数。 `ring_buf` が持つのは `[total - len, total)`。
+    let mut total = 0_u64;
 
     while !stop.load(Ordering::Acquire) {
         // ## 指示
         match cmd.try_recv() {
-            Ok(Cmd::Start { path, reply }) => {
+            Ok(Cmd::Start { path, from, reply }) => {
                 match wav::PartialTake::create(&path, MASTER_RATE_HZ) {
                     Ok(mut part) => {
-                        // 押した瞬間より前の音を先に書く（`TR-REC-19`）。
-                        let n = preroll_want.min(ring_buf.len());
-                        let head: Vec<f32> = ring_buf.iter().rev().take(n).rev().copied().collect();
-                        let written = part.write(&head);
+                        // 押した瞬間より前の音を先に書く（`TR-REC-19`）。 指示のあとに
+                        // 流れてきたぶんも、もう録音の中身なので続けて書く。
+                        let head = head_from(&ring_buf, total, from, preroll_want as u64);
+                        let written = part.write(&head.samples);
                         if let Err(e) = written {
                             let _ = reply.send(Err(e));
                         } else {
                             rec = Some(Recording {
                                 part,
                                 path,
-                                samples: head,
-                                preroll_frames: n,
+                                samples: head.samples,
+                                preroll_frames: head.preroll_frames,
                                 tail_left: None,
                                 reply: None,
                             });
@@ -470,6 +512,8 @@ fn run(
         while ring_buf.len() > cap {
             ring_buf.pop_front();
         }
+        total += got.len() as u64;
+        shared.position.store(total, Ordering::Release);
         if let Ok(mut g) = shared.held.lock() {
             *g = ring_buf.len();
         }
@@ -519,7 +563,7 @@ fn run(
             if take_n > 0 {
                 if let Err(e) = r.part.write(&got[..take_n]) {
                     if let Some(reply) = r.reply.take() {
-                        let _ = reply.send(Err(e));
+                        let _ = reply.send(Err(e.into()));
                     }
                     rec = None;
                     continue;
@@ -542,7 +586,42 @@ fn run(
     }
 }
 
+/// 録音の頭。
+struct Head {
+    samples: Vec<f32>,
+    /// そのうち指示より前のフレーム数（`TR-REC-19` のプリロール）。
+    preroll_frames: usize,
+}
+
+/// リングから録音の頭を切り出す。 `ring` は通算で `[total - len, total)` を持ち、
+/// `from` は指示を受けた時点の位置。 `from - preroll` から今までを返す。
+///
+/// 遡る先がもうリングに無ければ、残っている最も古いところから。 指示から排出スレッドが
+/// 開始を受け取るまでがリングの長さを超えたときだけ起き、そのときは記録して進む。
+fn head_from(ring: &VecDeque<f32>, total: u64, from: u64, preroll: u64) -> Head {
+    let from = from.min(total);
+    let oldest = total - ring.len() as u64;
+    let begin = from.saturating_sub(preroll).max(oldest);
+    if from.saturating_sub(preroll) < oldest {
+        tracing::warn!(
+            held = ring.len(),
+            want = preroll + (total - from),
+            "指示の時点まで遡れない"
+        );
+    }
+    let skip = usize::try_from(begin - oldest).unwrap_or(usize::MAX);
+    Head {
+        samples: ring.iter().skip(skip).copied().collect(),
+        preroll_frames: usize::try_from(from.saturating_sub(begin)).unwrap_or(0),
+    }
+}
+
 /// 確定させて、待っている呼び出し元へ返す。
+///
+/// 確定は WAV の fsync と rename、そのあと置き場所のディレクトリの fsync。
+/// ディレクトリを fsync しないと、電源を失ったときに rename ごと消えうる。
+/// 止められたときの確定（台帳には載らず孤児になる）も同じ手順を通す——孤児も
+/// 本人が採るまで残す録音（`REQ-REC-006`）。
 fn finalize(rec: &mut Option<Recording>) {
     let Some(r) = rec.take() else { return };
     let Recording {
@@ -553,12 +632,125 @@ fn finalize(rec: &mut Option<Recording>) {
         reply,
         ..
     } = r;
-    let result = part.finalize().map(|p| Finished {
-        path: if p.as_os_str().is_empty() { path } else { p },
-        samples,
-        preroll_frames,
+    let result = part.finalize().map_err(PumpError::from).and_then(|p| {
+        let p = if p.as_os_str().is_empty() { path } else { p };
+        if let Some(dir) = p.parent() {
+            koeru_core::project::sync_dir(dir).map_err(PumpError::SyncDir)?;
+        }
+        Ok(Finished {
+            path: p,
+            samples,
+            preroll_frames,
+        })
     });
     if let Some(reply) = reply {
         let _ = reply.send(result);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ring(total: u64, len: u64) -> VecDeque<f32> {
+        #[allow(clippy::cast_precision_loss, reason = "試験の値は小さい")]
+        (total - len..total).map(|i| i as f32).collect()
+    }
+
+    #[test]
+    fn 指示の位置から遡り_そのあとのぶんも続けて書く() {
+        // 通算 1000 フレームまで入っていて、リングは直近 600 を持つ。 指示は 900 の時点。
+        let head = head_from(&ring(1000, 600), 1000, 900, 200);
+        assert_eq!(head.preroll_frames, 200);
+        assert_eq!(
+            head.samples.first().copied(),
+            Some(700.0),
+            "900 から 200 遡る"
+        );
+        assert_eq!(
+            head.samples.last().copied(),
+            Some(999.0),
+            "指示のあとも欠けない"
+        );
+        assert_eq!(head.samples.len(), 300);
+    }
+
+    /// 排出スレッドが開始を受け取った時点から遡ると、指示から受け取るまでのぶん
+    /// （台帳へ予定を書く時間）だけ頭がずれる。 起点は渡された位置で決まる。
+    #[test]
+    fn 遅れて受け取っても頭は動かない() {
+        let now = head_from(&ring(900, 900), 900, 900, 200);
+        let late = head_from(&ring(1400, 1000), 1400, 900, 200);
+        assert_eq!(now.samples.first().copied(), Some(700.0));
+        assert_eq!(late.samples.first().copied(), Some(700.0));
+        assert_eq!(now.preroll_frames, late.preroll_frames);
+    }
+
+    #[test]
+    fn リングの長さを超えて遅れたら残っているところから() {
+        let head = head_from(&ring(2000, 600), 2000, 900, 200);
+        assert_eq!(head.samples.first().copied(), Some(1400.0));
+        assert_eq!(head.preroll_frames, 0);
+    }
+
+    #[test]
+    fn 溜まりきる前は溜まったぶんだけ遡る() {
+        let head = head_from(&ring(100, 100), 100, 100, 200);
+        assert_eq!(head.samples.first().copied(), Some(0.0));
+        assert_eq!(head.preroll_frames, 100);
+    }
+
+    /// 本物の排出スレッドで、指示の位置を渡してから遅れて始めても頭が動かない。
+    ///
+    /// 流す値は通算の位置そのもの。 テイクの先頭の値を見れば、どこから遡ったかが分かる。
+    #[test]
+    fn 排出スレッドは渡された位置から遡る() {
+        use std::time::{Duration, Instant};
+
+        let (mut tx, rx) = koeru_audio::ring::channel(1 << 16);
+        let pump = Pump::start(rx, MASTER_RATE_HZ);
+        // マイクと同じく、止めるまで流し続ける。 末尾の延長（`TAIL_MS`）はフレームで数えるので、
+        // 流れが止まると確定しない。
+        let feeding = Arc::new(AtomicBool::new(true));
+        let feeder = std::thread::spawn({
+            let feeding = Arc::clone(&feeding);
+            move || {
+                let mut next = 0_u32;
+                while feeding.load(Ordering::Acquire) {
+                    #[allow(clippy::cast_precision_loss, reason = "2^24 までは正確")]
+                    let v: Vec<f32> = (next..next + 512).map(|i| i as f32).collect();
+                    next += u32::try_from(tx.push(&v)).unwrap_or(0);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+        });
+        let wait_until = |pos: u64| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while pump.position() < pos {
+                assert!(Instant::now() < deadline, "排出が進まない");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        };
+
+        wait_until(30_000);
+        let from = pump.position();
+        // 予定を書いているあいだにも音は流れてくる。
+        wait_until(from + 10_000);
+
+        let dir = std::env::temp_dir().join(format!("koeru-pump-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("作れる");
+        let path = dir.join("head_1.wav");
+        pump.start_take(path.clone(), from).expect("始められる");
+        let finished = pump.finish_take().expect("確定できる");
+        feeding.store(false, Ordering::Release);
+        feeder.join().expect("止まる");
+
+        let preroll = u64::from(MASTER_RATE_HZ) * PREROLL_MS / 1000;
+        assert_eq!(finished.preroll_frames as u64, preroll);
+        #[allow(clippy::cast_precision_loss, reason = "2^24 までは正確")]
+        let want = (from - preroll) as f32;
+        assert_eq!(finished.samples.first().copied(), Some(want));
+        assert!(path.exists(), "確定した名前で置かれる");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

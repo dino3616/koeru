@@ -37,7 +37,12 @@ use koeru_audio::{DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};
 use koeru_core::channel::{self, Source};
-use koeru_core::db::{FinalizedTake, Ledger, SessionSnapshot, koeru_oto};
+#[cfg(any(test, feature = "test-hooks"))]
+use koeru_core::db::FinalizedTake;
+use koeru_core::db::{
+    Answer, CaptureId, Commit, CommitRequest, Ledger, NewIntent, OperationId, Receipt,
+    SessionSnapshot, koeru_oto,
+};
 use koeru_core::frq;
 use koeru_core::guide::{self, GuideSpec};
 use koeru_core::inventory::UnitSet;
@@ -368,6 +373,30 @@ struct Open {
     /// 本人が閉じるまで持つ。 画面は経路を移るたびに開き直すが、同じ音源なら
     /// ここを通らないので、1度きりの応答で返すと移った先で消える。
     presamp_restored: Option<String>,
+    /// 開いたときの検証が見つけた、落ちたあとに残った録音（`TR-REC-28`）。
+    captures: koeru_core::capture::Report,
+}
+
+/// 録音している1回。 台帳の予定と同じ識別子を持つ（`DEC-REC-010`）。
+#[derive(Debug, Clone)]
+struct ActiveCapture {
+    row_id: String,
+    capture: CaptureId,
+}
+
+/// 録音を確定する要求の結果（`DEC-PLT-035`、`DEC-PLT-038`）。
+#[derive(Debug)]
+pub enum Finish {
+    /// この要求でテイクを確定した。
+    Committed {
+        result: Box<TakeResult>,
+        receipt: Receipt,
+    },
+    /// 確定せずに答えた。 送り直し・識別子の使い回し・もう閉じた録音で、テイクは増えていない。
+    Answered(Answer),
+    /// 落ちたあとに残った録音（孤児・書きかけ）。 本人が採るか捨てるまで確定しない
+    /// （`TR-REC-28`）。
+    RecoveryRequired,
 }
 
 /// 1つのテイクの結果。
@@ -549,8 +578,8 @@ pub struct Studio {
     /// 排出スレッド。収録画面にいる間ずっと回っている（`TR-REC-19`）。
     pump: Option<Pump>,
     session: Session,
-    /// 録音中の行。
-    recording: Option<String>,
+    /// 録音中の1回。
+    recording: Option<ActiveCapture>,
     /// 収録開始時点の取りこぼし数。このテイクの中で増えたぶんだけを見る（`TR-REC-07`）。
     xrun_baseline: usize,
     /// ガイドのフレーズ開始が、録音の何サンプル目に相当するか（`TR-REC-26`）。
@@ -959,8 +988,10 @@ impl Studio {
     ///
     /// 収録中は移らせない。 途中のテイクを捨てるしかなくなるが、
     /// 排出スレッドは止められると書きかけを確定させる（`pump` の
-    /// 「書きかけを捨てない」）。台帳に載らない WAV だけが残り、
-    /// それを掃除する経路はまだ無い（`Ledger::find_orphans` は呼ばれていない）。
+    /// 「書きかけを捨てない」）。台帳に載らない WAV が孤児として残る。
+    ///
+    /// 開くときに、落ちたあとに残ったものを見て回る（`koeru_core::capture::verify`）。
+    /// 孤児は予定と突き合わせて [`Self::capture_report`] に並べるだけで、採りも消しもしない。
     #[tracing::instrument(skip(self))]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
         if let Some(open) = &self.open {
@@ -978,6 +1009,19 @@ impl Studio {
         }
         let dir = self.library.open_project(id)?;
         let mut ledger = Ledger::open(dir.db_path())?;
+        // 落ちたときに録音に使っていた予定へ印を付け、孤児を予定と突き合わせる（`TR-REC-28`）。
+        // 見て回れなくても開く。 読めるものまで読めなくしない。 印を付けられなかった予定が
+        // 残っていれば、次の録音の予定を書くところで断られる。
+        let captures =
+            koeru_core::capture::verify(&mut ledger, dir.root(), &dir.audio_dir(), &now_rfc3339())
+                .unwrap_or_else(|e| {
+                    koeru_failure::record_failure(
+                        &e,
+                        koeru_failure::Outcome::NotCommitted,
+                        "capture.verify",
+                    );
+                    koeru_core::capture::Report::default()
+                });
         // 確認キューは開くときに組み直す（`crate::review`）。
         // 遷移をやり直すのではなく、書いてあった状態をそのまま載せる。
         let (review, review_takes) = crate::review::load(&mut ledger)?;
@@ -1008,8 +1052,21 @@ impl Studio {
             review,
             review_takes,
             presamp_restored,
+            captures,
         });
         Ok(())
+    }
+
+    /// 開いたときの検証が見つけた、落ちたあとに残った録音（`TR-REC-28`）。
+    ///
+    /// 孤児はどの行・どの収録セッションの録音かを予定から示す。 画面へはまだ出していない
+    /// ——新しい操作を tauri-specta に足さず（`DEC-PLT-035`）、consumer の契約の経路で出す。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない。
+    pub fn capture_report(&self) -> Result<koeru_core::capture::Report> {
+        Ok(self.opened()?.captures.clone())
     }
 
     /// 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
@@ -2257,9 +2314,13 @@ impl Studio {
     /// `finish_take` が採用を新しい方へ切り替える。過去のテイクは非採用として残り、
     /// [`Self::adopt_take`] でいつでも戻せる。
     ///
+    /// 書きかけを開く前に、どの行をどの収録セッションで録るかを台帳へ予定として書く
+    /// （`DEC-REC-010`）。 途中で落ちても、残った WAV がどの録音かを予定から示せる。
+    ///
     /// # Errors
     ///
-    /// 収録中、ストリームが開いていない、その行が無い、残量が足りない。
+    /// 収録中、ストリームが開いていない、その行が無い、残量が足りない、
+    /// 落ちたときの予定に印を付けられずに残っている。
     #[tracing::instrument(skip(self))]
     pub fn start_take_for(&mut self, row_id: &str) -> Result<String> {
         if self.recording.is_some() {
@@ -2272,7 +2333,17 @@ impl Studio {
         // ストリームが開いていることだけ確かめる。 レートは持ち回さない——
         // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
         self.capture.as_ref().ok_or_else(no_stream)?;
-        let audio_dir = self.opened()?.dir.audio_dir();
+        // 遡る起点は指示の時点で取る（`TR-REC-19`）。 このあと台帳を読み、予定を書くので、
+        // 排出スレッドが開始を受け取った時点から遡ると、そのぶん語頭が欠ける。
+        let from = self.pump.as_ref().ok_or_else(no_stream)?.position();
+        let (root, audio_dir, session_id) = {
+            let open = self.opened()?;
+            (
+                open.dir.root().to_path_buf(),
+                open.dir.audio_dir(),
+                open.session_id,
+            )
+        };
         let row_id = row_id.to_owned();
         // **知らない行では始めない。** 名前を打ち間違えたまま録ると、
         // 台帳に載らないファイルができる。
@@ -2299,7 +2370,15 @@ impl Studio {
         } else {
             audio_dir.clone()
         };
-        let path = dir.join(format!("{row_id}_{generation}.wav"));
+        // 孤児・書きかけ・予定が持つ名前を避ける。 同じ名前へ rename すると孤児を上書きする。
+        let path = koeru_core::capture::free_take_path(
+            &mut self.opened_mut()?.ledger,
+            &root,
+            &dir,
+            &row_id,
+            generation,
+        )
+        .map_err(AppError::from_failure)?;
 
         // 残りが1テイクぶんを割ったら、次を始めさせない（`TR-REC-41`）。
         // 進行中のテイクは最後まで録りきるので、止めるのはここだけ。
@@ -2320,6 +2399,31 @@ impl Studio {
             );
         }
 
+        // 録る前に予定を書く（`DEC-REC-010`）。 どの行を、どの収録セッションで録るか。
+        let capture = CaptureId::generate();
+        self.opened_mut()?.ledger.declare_capture(&NewIntent {
+            capture: &capture,
+            row_id: &row_id,
+            session_id,
+            rel_path: &koeru_core::capture::rel_path(&root, &path),
+            declared_at: &now_rfc3339(),
+        })?;
+        // ここから先で始められなければ、予定に場所を見て印を付ける。 付けないと予定が
+        // 録音中のまま残り、次の録音の予定を書けない。
+        if let Err(e) = self.begin_capture(path, from) {
+            self.settle_capture(&capture);
+            return Err(e);
+        }
+
+        self.recording = Some(ActiveCapture {
+            row_id: row_id.clone(),
+            capture,
+        });
+        Ok(row_id)
+    }
+
+    /// 予定を書いたあと、状態機械を進めて書きかけを開く。
+    fn begin_capture(&mut self, path: PathBuf, from: u64) -> Result<()> {
         self.session.start_take()?;
         // ここで取りこぼしの基準を取る。 このテイクの中で増えたぶんだけを見る
         //（`TR-REC-07` は「1テイクの中で1フレームでも欠落したら」と定めている）。
@@ -2331,11 +2435,26 @@ impl Studio {
         self.pump
             .as_ref()
             .ok_or_else(no_stream)?
-            .start_take(path)
-            .map_err(AppError::from_failure)?;
+            .start_take(path, from)
+            .map_err(AppError::from_failure)
+    }
 
-        self.recording = Some(row_id.clone());
-        Ok(row_id)
+    /// 確定できなかった録音の予定へ、場所に残ったものを見て印を付ける
+    /// （`koeru_core::capture::settle`）。
+    ///
+    /// 呼び出し側の失敗をそのまま返させるため、ここの失敗は記録だけする。
+    fn settle_capture(&mut self, capture: &CaptureId) {
+        let Ok(open) = self.opened_mut() else { return };
+        let root = open.dir.root().to_path_buf();
+        if let Err(e) =
+            koeru_core::capture::settle(&mut open.ledger, &root, capture, &now_rfc3339())
+        {
+            koeru_failure::record_failure(
+                &e,
+                koeru_failure::Outcome::NotCommitted,
+                "capture.settle",
+            );
+        }
     }
 
     /// 収録を止めて、テイクを確定させる。
@@ -2352,29 +2471,84 @@ impl Studio {
     /// （`DEC-PLT-038`）。 一度は失敗として返していて、保存済みの録音が
     /// 「録れなかった」と見え、録り直すと同じ行に2本残った。
     ///
+    /// 今の画面は操作の識別子を送ってこないので、ここで振る（[`Self::finish_capture`]）。
+    ///
     /// # Errors
     ///
     /// 確定の前に落ちたとき。 ファイルの確定より後・台帳より前に落ちたら、
     /// 確定した WAV は孤児として残る（`REQ-REC-006`）。消さない。
     #[tracing::instrument(skip(self))]
     pub fn finish_take(&mut self) -> Result<TakeResult> {
+        let capture = self
+            .recording
+            .as_ref()
+            .map(|r| r.capture.clone())
+            .ok_or_else(|| AppError::new("app.not_recording", Class::Rejected, "収録していない"))?;
+        match self.finish_capture(&OperationId::generate(), &capture)? {
+            Finish::Committed { result, .. } => Ok(*result),
+            // 振ったばかりの識別子と録音中の予定なので、受領証も孤児も無い。
+            Finish::Answered(_) | Finish::RecoveryRequired => Err(AppError::new(
+                "app.capture_not_committed",
+                Class::Internal,
+                "録音を確定できなかった",
+            )),
+        }
+    }
+
+    /// 操作の識別子を付けて、録音を止めてテイクを確定させる（`DEC-PLT-035`）。
+    ///
+    /// 同じ識別子の送り直しには、録音がもう止まっていても受領証で答え、テイクを増やさない
+    /// （`project-storage.fsl` の `retry_commit`）。 同じ識別子で別の録音を指したら、
+    /// 先の受領証を返して何もしない。
+    ///
+    /// 録音していない予定を指したら、落ちたあとに残った録音なので [`Finish::RecoveryRequired`]。
+    /// 確定の途中で失敗したら、予定に場所を見て印を付けてから失敗を返す——孤児になった
+    /// WAV は次の検証を待たずに予定と結びつき、次の録音も始められる。
+    ///
+    /// # Errors
+    ///
+    /// 予定が無い、確定の前に落ちた（[`Self::finish_take`] と同じ）。
+    #[tracing::instrument(skip(self, operation, capture))]
+    pub fn finish_capture(
+        &mut self,
+        operation: &OperationId,
+        capture: &CaptureId,
+    ) -> Result<Finish> {
+        // 送り直しは録音が止まったあとに来る。 「録音していない」と断る前に受領証で答える。
+        if let Some(answer) = self.opened_mut()?.ledger.answer_retry(operation, capture)? {
+            return Ok(Finish::Answered(answer));
+        }
+        if !self
+            .recording
+            .as_ref()
+            .is_some_and(|active| active.capture == *capture)
+        {
+            return Ok(Finish::RecoveryRequired);
+        }
+        self.capture.as_ref().ok_or_else(no_stream)?;
+        // ここから先で返るときは、予定を録音中のまま残さない（`settle_capture`）。
         let row_id = self
             .recording
             .take()
-            .ok_or_else(|| AppError::new("app.not_recording", Class::Rejected, "収録していない"))?;
-
-        self.capture.as_ref().ok_or_else(no_stream)?;
+            .map(|active| active.row_id)
+            .unwrap_or_default();
         let guide_offset = self.guide_offset_at_start.take();
         // 台帳に載る前の失敗は、どこで落ちても何も確定していない。
         let not_committed = |e: AppError| e.with_outcome(koeru_failure::Outcome::NotCommitted);
 
         // 指示のあとも `TAIL_MS` ぶん書く（`TR-REC-19`）。ここで待つ。
-        let finished = self
+        let stopped = self
             .pump
             .as_ref()
-            .ok_or_else(no_stream)?
-            .finish_take()
-            .map_err(|e| not_committed(e.into()))?;
+            .ok_or_else(no_stream)
+            .and_then(|p| p.finish_take().map_err(AppError::from));
+        let finished = match stopped {
+            Ok(f) => f,
+            Err(e) => {
+                self.settle_capture(capture);
+                return Err(not_committed(e));
+            }
+        };
 
         // 取りこぼしは、このテイクの中で増えたぶんだけを見る。
         let discontinuities = self
@@ -2386,35 +2560,32 @@ impl Studio {
         // ## ここまででファイルは確定している。台帳はこの先
         //
         // 台帳に載らなければ、確定した WAV は孤児になる（`REQ-REC-006`）。
-        self.session
-            .finish_take()
-            .map_err(|e| not_committed(e.into()))?;
-        let (root, session_id) = {
-            let open = self.opened().map_err(not_committed)?;
-            (open.dir.root().to_path_buf(), open.session_id)
-        };
-        let rel = finished
-            .path
-            .strip_prefix(&root)
-            .unwrap_or(&finished.path)
-            .to_string_lossy()
-            .into_owned();
-        let take = FinalizedTake {
-            row_id: row_id.clone(),
-            session_id,
-            rel_path: rel,
-            frames: i64::try_from(finished.samples.len()).unwrap_or(i64::MAX),
-            recorded_at: now_rfc3339(),
-        };
+        if let Err(e) = self.session.finish_take() {
+            self.settle_capture(capture);
+            return Err(not_committed(e.into()));
+        }
         let invalidated = discontinuities > 0;
-        let ledger = &mut self.opened_mut().map_err(not_committed)?.ledger;
-        let committed = if invalidated {
+        if invalidated {
             tracing::warn!(discontinuities, "取りこぼしたテイクを無効として載せる");
-            ledger.commit_invalid_take(&take)
-        } else {
-            ledger.commit_take(&take)
+        }
+        // 行・収録セッション・WAV の場所は予定が持っている。 予定を閉じ、受領証を残すのも
+        // テイクの行と同じ一手（`project-storage.fsl` の ASSUME-9）。
+        let committed = self.opened_mut()?.ledger.commit_capture(&CommitRequest {
+            operation,
+            capture,
+            frames: i64::try_from(finished.samples.len()).unwrap_or(i64::MAX),
+            recorded_at: &now_rfc3339(),
+            valid: !invalidated,
+        });
+        let receipt = match committed {
+            Ok(Commit::Committed(r)) => r,
+            Ok(Commit::Answered(a)) => return Ok(Finish::Answered(a)),
+            Err(e) => {
+                self.settle_capture(capture);
+                return Err(not_committed(e.into()));
+            }
         };
-        let take_id = committed.map_err(|e| not_committed(e.into()))?;
+        let take_id = receipt.take_id;
 
         // ## ここから先は派生物。落ちてもテイクは確定している
         let facts = TakeFacts {
@@ -2440,7 +2611,7 @@ impl Studio {
         // 押されたときには、もう出来ている。
         self.prerender_songs();
 
-        Ok(TakeResult {
+        let result = TakeResult {
             take_id,
             row_id,
             duration_ms,
@@ -2453,6 +2624,10 @@ impl Studio {
             metrics: derived.metrics,
             preroll_ms: finished.preroll_frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
             followup,
+        };
+        Ok(Finish::Committed {
+            result: Box::new(result),
+            receipt,
         })
     }
 

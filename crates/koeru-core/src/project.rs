@@ -897,12 +897,21 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn fsync_dir(path: &Path) -> Result<()> {
+    sync_dir(path)?;
+    Ok(())
+}
+
 /// ディレクトリエントリを永続化する。
 ///
 /// ファイルを fsync しても、ディレクトリを fsync しないと rename が飛ぶ。
 /// Windows にはディレクトリを開く経路が無いので、そこでは何もしない
 /// （NTFS のメタデータ更新はジャーナルで守られる）。
-fn fsync_dir(path: &Path) -> Result<()> {
+///
+/// # Errors
+///
+/// ディレクトリを開けない、fsync が失敗した。
+pub fn sync_dir(path: &Path) -> std::io::Result<()> {
     #[cfg(not(windows))]
     {
         fs::File::open(path)?.sync_all()?;

@@ -66,7 +66,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 147
+min_cases = 163
 
 [[suite]]
 id = 'SUITE-CORE-002'
@@ -77,6 +77,16 @@ target = 'phonemizer_parity'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 3
 contracts = ['TR-SYN-12', 'TR-SYN-36', 'DEC-SYN-010']
+
+[[suite]]
+id = 'SUITE-CORE-003'
+title = '録音の保存の手順を段ごとに落として開き直す（本物の SQLite と子プロセスの kill）'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'capture_storage'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 5
+contracts = ['DEC-REC-010', 'DEC-REC-004', 'TR-REC-28', 'DEC-PLT-035']
 
 # ## koeru-audio
 
@@ -232,7 +242,7 @@ runner = 'cargo'
 package = 'koeru-app'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 44
+min_cases = 49
 
 [[suite]]
 id = 'SUITE-APP-002'
