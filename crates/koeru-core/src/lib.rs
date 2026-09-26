@@ -19,7 +19,6 @@ pub mod frq;
 pub mod handoff;
 pub mod project;
 pub mod release;
-pub mod relocate;
 pub mod schema;
 pub mod subbank;
 pub mod text;

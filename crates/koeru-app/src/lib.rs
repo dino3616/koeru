@@ -35,13 +35,6 @@ pub use studio::Studio;
 pub struct LibraryBoot {
     /// ライブラリを置いたファイルシステムの種類。
     pub fs_kind: storage::FsKind,
-    /// Roaming から Local への移し替えの結果。
-    ///
-    /// macOS と Linux は Roaming と Local を区別しないので、移し替えを試みない
-    /// （`None`）。Windows は移し替えを試みる。呼べて値が返れば `Some`、
-    /// 呼び出し自体が失敗したら `None`——その場合は `old`（Roaming）を開いて
-    /// 起動を続ける（`crate::run` の「解釈で決めたもの」）。
-    pub relocation: Option<koeru_core::relocate::Relocation>,
 }
 
 /// 画面へ渡すコマンドの一覧。
@@ -138,9 +131,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
 /// ライブラリはアプリ管理のデータディレクトリ配下に置く（`TR-PKG-37`）。
 /// 利用者に保存先を選ばせない（`TR-PKG-45`）。
 ///
-/// **Windows だけ、既定の置き場所が Roaming から Local へ変わる**（`DEC-PKG-016`）。
-/// macOS と Linux は Tauri の `app_data_dir` と `app_local_data_dir` が同じパスを
-/// 指す（Tauri の実装で確かめた）ので、この分岐に入らない。
+/// 置き場所は `app_local_data_dir`（`DEC-PKG-016`）。 Windows で `app_data_dir` は
+/// Roaming を指し、ネットワーク上に置かれうる。 macOS と Linux は2つが同じパスを指す。
 ///
 /// # Panics
 ///
@@ -159,37 +151,11 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             use tauri::Manager as _;
-            let old = app
-                .path()
-                .app_data_dir()
-                .expect("アプリのデータディレクトリを取れること")
-                .join("library");
-            let new = app
+            let root = app
                 .path()
                 .app_local_data_dir()
                 .expect("アプリのローカルデータディレクトリを取れること")
                 .join("library");
-
-            // `old == new` なら macOS / Linux。 移し替えを試みる意味が無い
-            // （壊すものが無い代わりに、直せるものも無い）。
-            let (root, relocation) = if old == new {
-                (new, None)
-            } else {
-                match koeru_core::relocate::relocate_library(&old, &new) {
-                    Ok(r) => (new, Some(r)),
-                    Err(e) => {
-                        // 移し替えの失敗で起動を止めない。 `old`（Roaming）を
-                        // 開いて続ける——暫定の解釈（「解釈で決めたもの」参照）。
-                        // 詳細な原因はここでは畳まない。code と分類だけを記録する。
-                        koeru_failure::record_failure(
-                            &e,
-                            koeru_failure::Outcome::NotStarted,
-                            "library_relocate",
-                        );
-                        (old, None)
-                    }
-                }
-            };
 
             let fs_kind = storage::filesystem_kind(&root);
             if !fs_kind.is_promised() {
@@ -200,18 +166,8 @@ pub fn run() {
                     "ライブラリがネットワーク上か FAT 系のファイルシステムにある"
                 );
             }
-            if let Some(r) = relocation {
-                tracing::info!(
-                    relocation = r.as_str(),
-                    "ライブラリの置き場所の移し替えを確かめた"
-                );
-            }
-
             let mut studio = Studio::open(root).expect("ライブラリを開けること");
-            studio.boot = LibraryBoot {
-                fs_kind,
-                relocation,
-            };
+            studio.boot = LibraryBoot { fs_kind };
             app.manage(commands::AppState::new(studio));
             Ok(())
         })
