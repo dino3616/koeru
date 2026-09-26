@@ -88,6 +88,16 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 5
 contracts = ['DEC-REC-010', 'DEC-REC-004', 'TR-REC-28', 'DEC-PLT-035']
 
+[[suite]]
+id = 'SUITE-CORE-004'
+title = '台帳の移行を「控え→別の世代へ写す→確かめる→切り替える」で行う（本物の SQLite）'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'ledger_migration'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 8
+contracts = ['DEC-PLT-041', 'DEC-PKG-017']
+
 # ## koeru-audio
 
 [[suite]]

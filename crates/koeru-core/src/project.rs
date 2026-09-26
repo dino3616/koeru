@@ -87,6 +87,23 @@ pub enum ProjectError {
     /// 古い順に消すので、小さい連番で取ると、取ったばかりの控えが最も古いものとして消える。
     #[error("控えの連番が最新の控えより古い")]
     SnapshotOutOfOrder,
+
+    /// 移行の途中で台帳の操作が失敗した（[`crate::db::migrate_ledger`] 以外の経路）。
+    #[error("台帳の移行操作が失敗した")]
+    MigrationDb(#[source] crate::db::LedgerError),
+
+    /// バイナリの知らない版が当たっている台帳（`DEC-PLT-041`）。 何も書かずに断る。
+    ///
+    /// 壊れてはいない——新しいビルドが書いたものをこのビルドが読めないだけ
+    /// （[`ProjectError::ManifestVersion`] と同じ扱い）。
+    #[error("台帳が新しい版で作られている")]
+    MigrationNewer,
+
+    /// 稼働中の台帳、または「別の世代」の写しの `-wal` を切り詰めきれなかった。
+    ///
+    /// 他の接続がまだ握っている可能性がある。 何も書かずに止める。
+    #[error("台帳の書き込みが残っている")]
+    MigrationWalRemains,
 }
 
 impl koeru_failure::Failure for ProjectError {
@@ -101,6 +118,9 @@ impl koeru_failure::Failure for ProjectError {
             Self::DbCopy(_) => "project.db_copy",
             Self::SnapshotLabel => "project.snapshot_label",
             Self::SnapshotOutOfOrder => "project.snapshot_out_of_order",
+            Self::MigrationDb(_) => "project.migration_db_failed",
+            Self::MigrationNewer => "project.migration_newer",
+            Self::MigrationWalRemains => "project.migration_wal_remains",
         }
     }
 
@@ -115,10 +135,14 @@ impl koeru_failure::Failure for ProjectError {
             | Self::ManifestVersion { .. }
             | Self::NotAProjectDir
             | Self::UnknownMethod { .. } => Class::Corrupt,
-            Self::DbCopy(e) => koeru_failure::Failure::class(e),
+            Self::DbCopy(e) | Self::MigrationDb(e) => koeru_failure::Failure::class(e),
             Self::SnapshotLabel => Class::InvalidInput,
             // 最新の控えを読み直してから連番を振り直す。
             Self::SnapshotOutOfOrder => Class::Conflict,
+            // 新しいビルドが書いたものは壊れていない。このビルドが読めないだけ。
+            Self::MigrationNewer => Class::Unsupported,
+            // 他の接続が握っている可能性がある。 待ってから再試行する。
+            Self::MigrationWalRemains => Class::Busy,
         }
     }
 }
@@ -380,6 +404,29 @@ impl Manifest {
             derived_from,
         })
     }
+}
+
+/// 台帳の移行（`ProjectDir::migrate_ledger`）の結果（`DEC-PLT-041`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationOutcome {
+    /// 既に今の版だった、または台帳がまだ無い新規だった。 何もしていない。
+    AlreadyCurrent,
+    /// 控え → 別の世代へ写す → 確かめる → 切り替える、を経て今の版にした。
+    Migrated,
+}
+
+/// 前回の移行が失敗した記録（`<project>/migration-failed.toml`）。
+///
+/// パスも名前も持たない——載せてよいのは code と移行前後の版だけ（`DEC-PLT-041`）。
+/// 次に移行が成功したら消す。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationFailureRecord {
+    /// 失敗した操作の code（`koeru_failure::Failure::code`）。
+    pub code: String,
+    /// 失敗した時点で当たっていた最後の版。 台帳がまだ無い新規なら `None`。
+    pub from: Option<String>,
+    /// バイナリが知っている、移行先の版。
+    pub to: String,
 }
 
 /// プロジェクトのディレクトリ。
@@ -668,6 +715,154 @@ impl ProjectDir {
         out.sort();
         Ok(out)
     }
+
+    fn migrating_db_path(&self) -> PathBuf {
+        self.root.join("project.db.migrating")
+    }
+
+    fn migration_backup_dir(&self) -> PathBuf {
+        self.root.join("migration-backup")
+    }
+
+    fn migration_backup_staging_dir(&self) -> PathBuf {
+        self.root.join("migration-backup.part")
+    }
+
+    fn migration_failed_path(&self) -> PathBuf {
+        self.root.join("migration-failed.toml")
+    }
+
+    /// 前回の移行がなぜ失敗したか。 無ければ `None`。
+    ///
+    /// 読めなくても `None`。 一覧（`Studio::library`）のためだけの読みで、
+    /// 壊れていても一覧の他の行を巻き込まない。
+    #[must_use]
+    pub fn migration_failure(&self) -> Option<MigrationFailureRecord> {
+        let text = fs::read_to_string(self.migration_failed_path()).ok()?;
+        let doc: DocumentMut = text.parse().ok()?;
+        let code = doc.get("code")?.as_str()?.to_owned();
+        let to = doc.get("to")?.as_str()?.to_owned();
+        let from = doc
+            .get("from")
+            .and_then(toml_edit::Item::as_str)
+            .map(str::to_owned);
+        Some(MigrationFailureRecord { code, from, to })
+    }
+
+    /// 失敗の code と移行前後の版だけを残す。 パスも名前も書かない（`DEC-PLT-041`）。
+    fn write_migration_failure(&self, code: &str, from: Option<&str>, to: &str) -> Result<()> {
+        let mut doc = DocumentMut::new();
+        doc["code"] = value(code);
+        if let Some(f) = from {
+            doc["from"] = value(f);
+        }
+        doc["to"] = value(to);
+        write_atomically(&self.migration_failed_path(), doc.to_string().as_bytes())
+    }
+
+    /// 移行が成功したら消す（`DEC-PLT-041`）。 無ければ何もしない。
+    fn clear_migration_failure(&self) -> Result<()> {
+        remove_file_if_present(&self.migration_failed_path())
+    }
+
+    /// 前回の途中の残り（`project.db.migrating`、`migration-backup.part`）を片付ける。
+    ///
+    /// `migrate_ledger` が呼ぶたびの頭で呼ぶ。 `project.db` にも `migration-backup/`
+    /// （出し終えた控え）にも触らない——片付けるのは書きかけだけ。
+    fn cleanup_migration_leftovers(&self) -> Result<()> {
+        let migrating = self.migrating_db_path();
+        remove_file_if_present(&wal_sidecar_path(&migrating))?;
+        remove_file_if_present(&shm_sidecar_path(&migrating))?;
+        remove_file_if_present(&migrating)?;
+        remove_dir_if_present(&self.migration_backup_staging_dir())?;
+        Ok(())
+    }
+
+    /// 台帳を「控え → 別の世代へ写す → 確かめる → 切り替える」の手順で移行する
+    /// （`DEC-PLT-041`）。
+    ///
+    /// 呼ぶたびに、前回の途中の残りを先に片付ける（[`Self::cleanup_migration_leftovers`]）。
+    /// `Current`（またはまだ台帳が無い新規）なら何もしない。`Newer`（バイナリの知らない版）は
+    /// [`ProjectError::MigrationNewer`] で断り、何も書かない。
+    ///
+    /// 写せない・確かめに落ちるときは、`project.db` に触れないまま止め、失敗の code を
+    /// [`Self::migration_failure`] が読む記録へ残す（次に移行が成功したら消す）。
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectError::MigrationNewer`]、[`ProjectError::MigrationWalRemains`]
+    /// （`-wal` を切り詰めきれない）、[`ProjectError::DbCopy`]（写せない）、
+    /// [`ProjectError::MigrationDb`]（状態が読めない、適用や確かめが失敗した）、
+    /// 入出力の失敗。
+    #[tracing::instrument(skip(self))]
+    pub fn migrate_ledger(&self) -> Result<MigrationOutcome> {
+        self.cleanup_migration_leftovers()?;
+
+        let state =
+            crate::db::migration_state(&self.db_path()).map_err(ProjectError::MigrationDb)?;
+        match state {
+            crate::db::MigrationState::Fresh | crate::db::MigrationState::Current => {
+                return Ok(MigrationOutcome::AlreadyCurrent);
+            }
+            crate::db::MigrationState::Newer => return Err(ProjectError::MigrationNewer),
+            crate::db::MigrationState::Pending => {}
+        }
+
+        // 失敗の記録に載せる版のヒント。 これから当てるので、今のうちに読んでおく。
+        let from = crate::db::latest_applied_version(&self.db_path())
+            .map_err(ProjectError::MigrationDb)?;
+        let to = crate::db::latest_known_version().map_err(ProjectError::MigrationDb)?;
+
+        if let Err(e) = self.migrate_ledger_steps() {
+            let code = koeru_failure::Failure::code(&e).to_owned();
+            // 失敗の記録は最後の手当て。 書けなくても、起きた失敗はそのまま返す。
+            let _ = self.write_migration_failure(&code, from.as_deref(), &to);
+            let _ = self.cleanup_migration_leftovers();
+            return Err(e);
+        }
+        self.clear_migration_failure()?;
+        Ok(MigrationOutcome::Migrated)
+    }
+
+    /// [`Self::migrate_ledger`] が状態を `Pending` と確かめたあとに呼ぶ実際の手順。
+    fn migrate_ledger_steps(&self) -> Result<()> {
+        // 稼働中の台帳を切り詰める。 古い `-wal` が新しい台帳へ当たると壊れる。
+        crate::db::checkpoint_wal(&self.db_path()).map_err(ProjectError::MigrationDb)?;
+        if wal_has_content(&self.db_path())? {
+            return Err(ProjectError::MigrationWalRemains);
+        }
+
+        // 控え。 まだ前の控えは消さない——別の世代への切り替えが済んでから消す
+        // （控えは常に1つ、`DEC-PKG-017`）。
+        let backup_staging = self.migration_backup_staging_dir();
+        remove_dir_if_present(&backup_staging)?;
+        fs::create_dir(&backup_staging)?;
+        crate::db::write_consistent_copy(&self.db_path(), &backup_staging.join("project.db"))
+            .map_err(ProjectError::DbCopy)?;
+        sync_file(&backup_staging.join("project.db"))?;
+        fsync_dir(&backup_staging)?;
+
+        // 別の世代。
+        let migrating = self.migrating_db_path();
+        remove_file_if_present(&migrating)?;
+        crate::db::write_consistent_copy(&self.db_path(), &migrating)
+            .map_err(ProjectError::DbCopy)?;
+        sync_file(&migrating)?;
+        crate::db::migrate_and_validate(&migrating).map_err(ProjectError::MigrationDb)?;
+        // `journal_mode = DELETE` にしてから閉じているので、無いはず（`-wal` は空でなく無い）。
+        if wal_sidecar_path(&migrating).exists() {
+            return Err(ProjectError::MigrationWalRemains);
+        }
+        sync_file(&migrating)?;
+
+        // 切り替え。
+        fs::rename(&migrating, self.db_path())?;
+        fsync_dir(&self.root)?;
+        remove_dir_if_present(&self.migration_backup_dir())?;
+        fs::rename(&backup_staging, self.migration_backup_dir())?;
+        fsync_dir(&self.root)?;
+        Ok(())
+    }
 }
 
 /// 控えのディレクトリ名 `{seq:06}-{label}` から連番を読む。 その形でなければ `None`。
@@ -876,6 +1071,39 @@ fn remove_dir_if_present(path: &Path) -> Result<()> {
     match fs::remove_dir_all(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
         _ => Ok(()),
+    }
+}
+
+/// ファイルがあれば消す。 無ければ何もしない。
+fn remove_file_if_present(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
+}
+
+/// SQLite の `-wal` サイドカーの場所。 拡張子の置き換えではなく末尾へ足す
+/// （`project.db` → `project.db-wal`）。
+fn wal_sidecar_path(db_path: &Path) -> PathBuf {
+    let mut s = db_path.as_os_str().to_owned();
+    s.push("-wal");
+    PathBuf::from(s)
+}
+
+/// SQLite の `-shm` サイドカーの場所。
+fn shm_sidecar_path(db_path: &Path) -> PathBuf {
+    let mut s = db_path.as_os_str().to_owned();
+    s.push("-shm");
+    PathBuf::from(s)
+}
+
+/// `-wal` に中身が残っているか。 無ければ `false`
+/// （`wal_checkpoint(TRUNCATE)` は空にするだけで、ファイル自体は残すことがある）。
+fn wal_has_content(db_path: &Path) -> Result<bool> {
+    match fs::metadata(wal_sidecar_path(db_path)) {
+        Ok(m) => Ok(m.len() > 0),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e.into()),
     }
 }
 
