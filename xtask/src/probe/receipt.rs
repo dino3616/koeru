@@ -8,6 +8,9 @@
 //!
 //! 数えるのは libtest の安定版の出力（`--list` の `: test` 行と、`test result:` の要約行）。
 //! 形が変わったら読めずに落ちる。黙って 0 件にしない。
+//!
+//! Probe の定義・実行環境・実行結果の型は [`super::model`] が持つ。ここはそれを cargo と
+//! bun の実際の起動へつなぐだけ。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -15,94 +18,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use super::model::{Counts, ExecutionContext, NotRunReason, ProbeDefinition, Receipt, Status};
 use crate::diagnostic::Report;
-use crate::knowledge::{Entry, list_of, str_of, with_schema};
-use crate::repo::git;
-
-/// 1件の suite の登録。
-#[derive(Debug, Clone)]
-pub(crate) struct Suite {
-    pub(crate) id: String,
-    runner: String,
-    package: String,
-    target: String,
-    platforms: Vec<String>,
-    backends: Vec<String>,
-    min_cases: u64,
-    manual: u64,
-}
-
-impl Suite {
-    fn from_table(t: &toml::Table) -> Result<Self, String> {
-        let id = str_of(t, "id").ok_or("id が無い")?.to_owned();
-        let need = |k: &str| {
-            str_of(t, k)
-                .map(str::to_owned)
-                .ok_or_else(|| format!("{id}: `{k}` が無い"))
-        };
-        let int = |k: &str| t.get(k).and_then(toml::Value::as_integer);
-        let backends = list_of(t, "backends");
-        Ok(Self {
-            runner: need("runner")?,
-            package: need("package")?,
-            target: need("target")?,
-            platforms: list_of(t, "platforms"),
-            backends: if backends.is_empty() {
-                vec!["native".into(), "unsupported".into()]
-            } else {
-                backends
-            },
-            min_cases: int("min_cases")
-                .and_then(|n| u64::try_from(n).ok())
-                .ok_or_else(|| format!("{id}: `min_cases` が無い、または負"))?,
-            manual: int("manual")
-                .and_then(|n| u64::try_from(n).ok())
-                .unwrap_or(0),
-            id,
-        })
-    }
-
-    /// この環境で件数を求めるか。
-    fn applies(&self, ctx: &Context) -> bool {
-        self.platforms.iter().any(|p| p == ctx.platform)
-            && self.backends.iter().any(|b| b == ctx.backend)
-    }
-}
-
-/// 実行した環境。
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Context {
-    platform: &'static str,
-    backend: &'static str,
-}
-
-impl Context {
-    fn detect() -> Self {
-        let platform = std::env::consts::OS;
-        // 音声のバックエンドは macOS にしか無い。 他の OS と、強制した組み立ては
-        // 「書いていない OS」の席が選ばれる。
-        let forced = std::env::var("RUSTFLAGS")
-            .unwrap_or_default()
-            .contains("koeru_force_unsupported_backend");
-        let backend = if platform == "macos" && !forced {
-            "native"
-        } else {
-            "unsupported"
-        };
-        Self { platform, backend }
-    }
-}
+use crate::knowledge::{Entry, with_schema};
 
 const PLATFORMS: [&str; 3] = ["macos", "linux", "windows"];
 const BACKENDS: [&str; 2] = ["native", "unsupported"];
 const RUNNERS: [&str; 2] = ["cargo", "bun"];
 
 /// `meta/suites/` の登録を読んで、形を確かめる。
-pub(crate) fn suites(entries: &[Entry], rep: &mut Report) -> Vec<Suite> {
+pub(crate) fn suites(entries: &[Entry], rep: &mut Report) -> Vec<ProbeDefinition> {
     let mut out = Vec::new();
     for e in with_schema(entries, "test-portfolio") {
         for t in e.items() {
-            match Suite::from_table(&t) {
+            match ProbeDefinition::from_suite(&t) {
                 Ok(s) => {
                     for p in &s.platforms {
                         if !PLATFORMS.contains(&p.as_str()) {
@@ -221,15 +150,6 @@ pub(crate) fn check_portfolio(root: &Path, entries: &[Entry], mut rep: Report) -
         rep.error("suite が1件も無い。`meta/suites/` を確かめる");
     }
     rep.finish("check-portfolio")
-}
-
-/// 1本の試験 binary の件数。
-#[derive(Debug, Default, Clone, Copy)]
-struct Counts {
-    discovered: u64,
-    passed: u64,
-    failed: u64,
-    ignored: u64,
 }
 
 /// 組み立てた試験 binary（`cargo test --no-run` の JSON から）。
@@ -369,21 +289,11 @@ fn libtest_counts(stdout: &str) -> Option<Counts> {
     })
 }
 
-/// suite ごとの判定。
-#[derive(Debug)]
-struct Verdict {
-    suite: String,
-    package: String,
-    target: String,
-    counts: Counts,
-    /// この環境で件数を求めたか。 求めないなら記録だけ。
-    applies: bool,
-    problems: Vec<String>,
-}
-
-fn judge(s: &Suite, counts: Counts, ctx: &Context) -> Verdict {
+/// 件数から、床割れ・無視過多・件数不一致を集める。 `status` の判定はここでは
+/// 決めない——bun の runner は「終了コードだけが失敗」を、この一覧が空だったときに
+/// 限って足すので、その判定より前に呼ぶ。
+fn collect_problems(s: &ProbeDefinition, counts: &Counts, applies: bool) -> Vec<String> {
     let mut problems = Vec::new();
-    let applies = s.applies(ctx);
     let executed = counts.passed + counts.failed;
     if counts.failed > 0 {
         problems.push(format!("{} 件が失敗した", counts.failed));
@@ -407,14 +317,40 @@ fn judge(s: &Suite, counts: Counts, ctx: &Context) -> Verdict {
             counts.discovered, counts.ignored
         ));
     }
-    Verdict {
-        suite: s.id.clone(),
+    problems
+}
+
+/// 件数と問題の一覧から [`Receipt`] を組む。 `status` は問題が確定したあとに決める。
+fn make_receipt(
+    s: &ProbeDefinition,
+    counts: Counts,
+    applies: bool,
+    problems: Vec<String>,
+) -> Receipt {
+    let status = if !problems.is_empty() {
+        Status::Failed
+    } else if applies {
+        Status::Passed
+    } else {
+        Status::NotApplicable
+    };
+    Receipt {
+        probe: s.id.clone(),
         package: s.package.clone(),
         target: s.target.clone(),
-        counts,
         applies,
+        status,
+        actual_work: counts.passed + counts.failed,
+        counts,
         problems,
     }
+}
+
+/// suite ごとの判定。
+fn judge(s: &ProbeDefinition, counts: Counts, ctx: &ExecutionContext) -> Receipt {
+    let applies = s.applies(ctx);
+    let problems = collect_problems(s, &counts, applies);
+    make_receipt(s, counts, applies, problems)
 }
 
 /// `cargo xtask test-receipt [--runner cargo|bun]`
@@ -428,43 +364,49 @@ pub(crate) fn test_receipt(
         .windows(2)
         .find(|w| w[0] == "--runner")
         .map_or("cargo", |w| w[1].as_str());
-    let ctx = Context::detect();
-    let suites = suites(entries, &mut rep);
-    let verdicts = match runner {
-        "cargo" => cargo_verdicts(root, &suites, &ctx, &mut rep),
-        "bun" => bun_verdicts(root, &suites, &ctx, &mut rep),
+    let ctx = ExecutionContext::detect(root);
+    let probes = suites(entries, &mut rep);
+    let receipts = match runner {
+        "cargo" => cargo_receipts(root, &probes, &ctx, &mut rep),
+        "bun" => bun_receipts(root, &probes, &ctx, &mut rep),
         other => {
             rep.error(format!("runner の `{other}` を知らない（cargo か bun）"));
             Vec::new()
         }
     };
-    for v in &verdicts {
+    for v in &receipts {
         for p in &v.problems {
-            rep.error(format!("{}（{} の {}）: {p}", v.suite, v.package, v.target));
+            rep.error(format!("{}（{} の {}）: {p}", v.probe, v.package, v.target));
         }
     }
-    let executed: u64 = verdicts
-        .iter()
-        .map(|v| v.counts.passed + v.counts.failed)
-        .sum();
-    let ignored: u64 = verdicts.iter().map(|v| v.counts.ignored).sum();
+    // `NotRun`（組み立たなかった suite）はここまでで Report の誤りとして報告済み。
+    // 受領証にも要約の件数にも積まない——今のところ「見つからなかった」ことは
+    // その誤りの行だけで表す。
+    let countable: Vec<Receipt> = receipts.into_iter().filter(Receipt::countable).collect();
+    let executed: u64 = countable.iter().map(|v| v.actual_work).sum();
+    let ignored: u64 = countable.iter().map(|v| v.counts.ignored).sum();
     rep.note(format!(
         "{} / {} / {runner}: suite {} 件、実行 {executed} 件、無視 {ignored} 件",
         ctx.platform,
         ctx.backend,
-        verdicts.len()
+        countable.len()
     ));
-    if verdicts.is_empty() {
+    if countable.is_empty() {
         rep.error("1件も数えられなかった");
     }
-    match write_receipt(root, runner, &ctx, &verdicts) {
+    match write_receipt(root, runner, &ctx, &countable) {
         Ok(path) => rep.note(format!("受領証: {}", path.display())),
         Err(e) => rep.error(format!("受領証を書けない: {e}")),
     }
     rep.finish("test-receipt")
 }
 
-fn cargo_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report) -> Vec<Verdict> {
+fn cargo_receipts(
+    root: &Path,
+    probes: &[ProbeDefinition],
+    ctx: &ExecutionContext,
+    rep: &mut Report,
+) -> Vec<Receipt> {
     let exes = match build_executables(root) {
         Ok(e) => e,
         Err(e) => {
@@ -472,7 +414,7 @@ fn cargo_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report
             return Vec::new();
         }
     };
-    let by_key: BTreeMap<(&str, &str), &Suite> = suites
+    let by_key: BTreeMap<(&str, &str), &ProbeDefinition> = probes
         .iter()
         .filter(|s| s.runner == "cargo")
         .map(|s| ((s.package.as_str(), s.target.as_str()), s))
@@ -480,23 +422,23 @@ fn cargo_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report
     let mut seen = BTreeSet::new();
     let mut out = Vec::new();
     for exe in &exes {
-        let Some(suite) = by_key.get(&(exe.package.as_str(), exe.target.as_str())) else {
+        let Some(probe) = by_key.get(&(exe.package.as_str(), exe.target.as_str())) else {
             rep.error(format!(
                 "{} の {} がどの suite にも登録されていない",
                 exe.package, exe.target
             ));
             continue;
         };
-        seen.insert(suite.id.clone());
+        seen.insert(probe.id.clone());
         let counts =
             discover(exe).and_then(|discovered| run(exe).map(|c| Counts { discovered, ..c }));
         match counts {
-            Ok(c) => out.push(judge(suite, c, ctx)),
-            Err(e) => rep.error(format!("{}: {e}", suite.id)),
+            Ok(c) => out.push(judge(probe, c, ctx)),
+            Err(e) => rep.error(format!("{}: {e}", probe.id)),
         }
     }
     // この環境で数えるはずの suite が、組み立てにも出てこなかった。
-    for s in suites
+    for s in probes
         .iter()
         .filter(|s| s.runner == "cargo" && s.applies(ctx))
     {
@@ -505,15 +447,21 @@ fn cargo_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report
                 "{}: {} の {} の試験 binary が組み立たなかった",
                 s.id, s.package, s.target
             ));
+            out.push(Receipt::not_run(s, NotRunReason::BuildFailed));
         }
     }
     out
 }
 
 /// UI の story 試験。 vitest の要約行（`Tests  207 passed (207)`）を読む。
-fn bun_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report) -> Vec<Verdict> {
+fn bun_receipts(
+    root: &Path,
+    probes: &[ProbeDefinition],
+    ctx: &ExecutionContext,
+    rep: &mut Report,
+) -> Vec<Receipt> {
     let mut out = Vec::new();
-    for s in suites.iter().filter(|s| s.runner == "bun") {
+    for s in probes.iter().filter(|s| s.runner == "bun") {
         let dir = root.join(&s.package);
         let res = Command::new("bun")
             .args(["run", &s.target])
@@ -531,11 +479,12 @@ fn bun_verdicts(root: &Path, suites: &[Suite], ctx: &Context, rep: &mut Report) 
         print!("{stdout}");
         match vitest_counts(&stdout) {
             Some(c) => {
-                let mut v = judge(s, c, ctx);
-                if !output.status.success() && v.problems.is_empty() {
-                    v.problems.push("bun が失敗を返した".into());
+                let applies = s.applies(ctx);
+                let mut problems = collect_problems(s, &c, applies);
+                if !output.status.success() && problems.is_empty() {
+                    problems.push("bun が失敗を返した".into());
                 }
-                out.push(v);
+                out.push(make_receipt(s, c, applies, problems));
             }
             None => rep.error(format!(
                 "{}: vitest の要約行（`Tests …`）が無い。形が変わったか、途中で落ちた",
@@ -593,19 +542,21 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// 受領証を `target/receipts/` に書く。 CI では job の要約にも出す。
+///
+/// `NotRun` は呼び出し側（[`test_receipt`]）がすでに除いているので、ここに来る
+/// 受領証は `Passed` / `Failed` / `NotApplicable`（と、まだ実際には作らない
+/// `Skipped`）だけになる。
 fn write_receipt(
     root: &Path,
     runner: &str,
-    ctx: &Context,
-    verdicts: &[Verdict],
+    ctx: &ExecutionContext,
+    receipts: &[Receipt],
 ) -> Result<PathBuf, String> {
-    let sha = git(root, &["rev-parse", "HEAD"]).unwrap_or_default();
-    let dirty = git(root, &["status", "--porcelain"]).is_ok_and(|s| !s.trim().is_empty());
-    let suites: Vec<serde_json::Value> = verdicts
+    let suites: Vec<serde_json::Value> = receipts
         .iter()
         .map(|v| {
             serde_json::json!({
-                "suite": v.suite,
+                "suite": v.probe,
                 "package": v.package,
                 "target": v.target,
                 "applies": v.applies,
@@ -613,14 +564,20 @@ fn write_receipt(
                 "passed": v.counts.passed,
                 "failed": v.counts.failed,
                 "ignored": v.counts.ignored,
-                "result": if !v.problems.is_empty() { "failed" } else if v.applies { "passed" } else { "not-applicable" },
+                "result": match v.status {
+                    Status::Passed => "passed",
+                    Status::Failed => "failed",
+                    Status::NotApplicable => "not-applicable",
+                    Status::Skipped => "skipped",
+                    Status::NotRun(_) => "not-run",
+                },
                 "problems": v.problems,
             })
         })
         .collect();
     let receipt = serde_json::json!({
-        "git": sha.trim(),
-        "dirty": dirty,
+        "git": ctx.git_sha,
+        "dirty": ctx.dirty,
         "platform": ctx.platform,
         "backend": ctx.backend,
         "runner": runner,
@@ -637,18 +594,18 @@ fn write_receipt(
             "### 受領証（{} / {} / {runner}）\n\n| suite | target | 実行 | 無視 | 結果 |\n|---|---|---|---|---|\n",
             ctx.platform, ctx.backend
         );
-        for v in verdicts {
-            let result = if !v.problems.is_empty() {
-                "失敗"
-            } else if v.applies {
-                "通過"
-            } else {
-                "対象外"
+        for v in receipts {
+            let result = match v.status {
+                Status::Failed => "失敗",
+                Status::Passed => "通過",
+                Status::NotApplicable => "対象外",
+                Status::Skipped => "無視",
+                Status::NotRun(_) => "未実行",
             };
             let _ = writeln!(
                 md,
                 "| {} | {} {} | {} | {} | {result} |",
-                v.suite,
+                v.probe,
                 v.package,
                 v.target,
                 v.counts.passed + v.counts.failed,
@@ -666,6 +623,7 @@ fn write_receipt(
 
 #[cfg(test)]
 mod tests {
+    use super::super::model::Prerequisites;
     use super::*;
 
     #[test]
@@ -698,8 +656,8 @@ mod tests {
         assert!(vitest_counts("no summary").is_none());
     }
 
-    fn suite(min: u64, manual: u64) -> Suite {
-        Suite {
+    fn probe(min: u64, manual: u64) -> ProbeDefinition {
+        ProbeDefinition {
             id: "SUITE-X-001".into(),
             runner: "cargo".into(),
             package: "p".into(),
@@ -708,29 +666,69 @@ mod tests {
             backends: vec!["native".into(), "unsupported".into()],
             min_cases: min,
             manual,
+            prerequisites: Prerequisites::default(),
         }
     }
 
-    const CTX: Context = Context {
-        platform: "linux",
-        backend: "unsupported",
-    };
+    const CTX_PLATFORM: &str = "linux";
+    const CTX_BACKEND: &str = "unsupported";
+
+    fn ctx() -> ExecutionContext {
+        ExecutionContext {
+            platform: CTX_PLATFORM,
+            backend: CTX_BACKEND,
+            git_sha: String::new(),
+            dirty: false,
+            runner_version: None,
+        }
+    }
 
     #[test]
     fn 実行が0件なら通さない() {
-        let v = judge(&suite(1, 0), Counts::default(), &CTX);
+        let ctx = ctx();
+        let v = judge(&probe(1, 0), Counts::default(), &ctx);
         assert!(!v.problems.is_empty(), "0件で通った");
+        assert_eq!(v.status, Status::Failed);
     }
 
     #[test]
     fn 登録より多く無視したら通さない() {
+        let ctx = ctx();
         let c = Counts {
             discovered: 3,
             passed: 2,
             failed: 0,
             ignored: 1,
         };
-        assert!(!judge(&suite(1, 0), c, &CTX).problems.is_empty());
-        assert!(judge(&suite(1, 1), c, &CTX).problems.is_empty());
+        assert!(!judge(&probe(1, 0), c, &ctx).problems.is_empty());
+        assert!(judge(&probe(1, 1), c, &ctx).problems.is_empty());
+    }
+
+    #[test]
+    fn 対象外は問題が無ければ_not_applicable() {
+        let ctx = ExecutionContext {
+            platform: "windows",
+            backend: "unsupported",
+            git_sha: String::new(),
+            dirty: false,
+            runner_version: None,
+        };
+        let c = Counts {
+            discovered: 2,
+            passed: 2,
+            failed: 0,
+            ignored: 0,
+        };
+        let v = judge(&probe(2, 0), c, &ctx);
+        assert!(!v.applies);
+        assert_eq!(v.status, Status::NotApplicable);
+    }
+
+    #[test]
+    fn 組み立たない_suite_は_not_run_として区別できる() {
+        let s = probe(1, 0);
+        let r = Receipt::not_run(&s, NotRunReason::BuildFailed);
+        assert_eq!(r.status, Status::NotRun(NotRunReason::BuildFailed));
+        assert!(!r.countable());
     }
 }

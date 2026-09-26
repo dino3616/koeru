@@ -415,3 +415,16 @@ target = 'commands'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 21
 contracts = ['DEC-PLT-039']
+
+# `Passed` / `Failed` / `NotApplicable` / `NotRun` の区別が、実際にその区別どおりに
+# 現れるかを見る（X04）。 commands.rs（X00・X01）とは別ファイル——あちらは出力を
+# 1バイトも変えないことを見る試験で、こちらは Probe / Receipt の境目を見る試験。
+[[suite]]
+id = 'SUITE-XTASK-005'
+title = 'test-receipt が Passed / Failed / NotApplicable / NotRun を区別する（fixture の crate を cargo で組み立てる）'
+runner = 'cargo'
+package = 'xtask'
+target = 'probe'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 5
+contracts = ['DEC-PLT-039']
