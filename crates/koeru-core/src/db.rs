@@ -109,6 +109,12 @@ pub struct GapRecord {
 /// マイグレーションを実行ファイルへ埋め込む。外部ファイルに依存しない（`TR-PLT-20`）。
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
+/// [`Ledger::open_reader`] の busy timeout（ミリ秒）。
+///
+/// 書き手が短いトランザクションを持つ間だけ待つ。 短いトランザクションの
+/// 「短い」は録音1テイクの確定程度で、5秒あれば十分に余裕がある。
+const READER_BUSY_TIMEOUT_MS: u32 = 5_000;
+
 /// 台帳の操作が失敗した理由。
 #[derive(Debug, thiserror::Error)]
 pub enum LedgerError {
@@ -253,6 +259,44 @@ impl koeru_failure::Failure for LedgerError {
 }
 
 type Result<T> = std::result::Result<T, LedgerError>;
+
+/// project の版（`DEC-PLT-043`）。
+///
+/// 全表への AFTER トリガーが進める（`project_revision` の migration）。 1回の
+/// 書き込みトランザクションが複数の行を触ると2以上進むことがあるので、
+/// **大小や差分を比較には使わない。** 等しいかだけを比べる
+/// （`specs/application/schema/shared.graphql` の `Revision`、「等しいかだけを比べ、
+/// 大小を比べない」）。`Ord` / `PartialOrd` を実装しないことでこれを型に強制する。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Revision(i64);
+
+impl Revision {
+    /// GraphQL の `Revision` scalar として運ぶための表現（`koeru-runtime` が使う）。
+    ///
+    /// **転送だけに使う。** 比較は等値だけで行い、この値の大小を条件分岐に使わない。
+    #[must_use]
+    pub const fn as_i64(self) -> i64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for Revision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// `project_revision` の1行を読む。 [`Ledger::revision`] と
+/// [`LedgerSnapshot::revision`] の両方から呼ぶ。
+fn read_revision(conn: &mut SqliteConnection) -> Result<Revision> {
+    use crate::schema::project_revision;
+    project_revision::table
+        .find(1)
+        .select(project_revision::value)
+        .first::<i64>(conn)
+        .map(Revision)
+        .map_err(db("project_revision"))
+}
 
 /// 曲を1つ入れる。同じ id なら差し替える。 [`Ledger::put_song`] と
 /// [`Ledger::put_songs`] が同じトランザクションの中で呼ぶ。
@@ -886,6 +930,415 @@ fn build_take(row: (i32, String, String, i64, i32, i32, Option<f64>, String)) ->
     }
 }
 
+// ## コミット済みの読み
+//
+// ここから下は、書き手（[`Ledger`]）と読み取り専用のスナップショット
+// （[`LedgerSnapshot`]）の両方から呼べる読みだけを、`&mut SqliteConnection` を
+// 受け取る自由関数として持つ（T05a、`DEC-PLT-043`）。 `Ledger` 側は今までどおりの
+// シグネチャで委譲するだけにする——`koeru-app` を直さずに済ませる。
+//
+// ここに置くのは、`Studio::rows_with_takes` / `Studio::voice_state` /
+// `open_project` の確認キュー組み直し / `songs_in_bank` / `take(id)` が
+// 実際に呼んでいる読みだけ（推移的な依存を含む）。書き込みを要る読み
+// （綴りの表が無ければ既定を書く、など）はここに含めない——スナップショットは
+// 読むだけで、書き手を経ずに副作用を起こさない。
+
+/// 収録済みの単位集合。 設定した音高のすべてで録れているものだけ。
+///
+/// 音高の中では、採用テイクを持つ行の単位の和集合として導出する
+/// （`TR-RCL-18`。二重に保持しない）。 音高を跨いでは積を取る——
+/// 被覆は（エイリアス, 収録音高）の組で持つ（`TR-RCL-26`）。
+fn covered_units(conn: &mut SqliteConnection) -> Result<BTreeSet<String>> {
+    let rows: Vec<(i32, String)> = row_units::table
+        .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
+        .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(row_units::row_id)))
+        .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+        .filter(takes::invalid.eq(0))
+        .select((rows::tone, row_units::kana))
+        .load(conn)
+        .map_err(db("covered_units"))?;
+    let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+    for (tone, kana) in rows {
+        by_tone.entry(tone).or_default().insert(kana);
+    }
+    // 1テイクも録っていない音高は空集合として数える。 台帳に現れないので、
+    // `by_tone` の値だけで積を取ると、その音高が判定から漏れる。
+    let mut tones = recording_tones(conn)?.into_iter();
+    let Some(first) = tones.next() else {
+        return Ok(BTreeSet::new());
+    };
+    let mut out = by_tone.remove(&first).unwrap_or_default();
+    for t in tones {
+        let here = by_tone.get(&t);
+        out.retain(|k| here.is_some_and(|s| s.contains(k)));
+    }
+    Ok(out)
+}
+
+/// このプロジェクトの収録音高（MIDI、`TR-REC-25`）。
+///
+/// 行が名乗っている音高の集合。 プロジェクト作成時に確定し、途中で増減しない
+/// （`TR-REC-25` の「1プロジェクトで収録する音高の集合はプロジェクト作成時に
+/// 確定させ、収録途中に増減させない」）。単音階なら1つ。
+fn recording_tones(conn: &mut SqliteConnection) -> Result<Vec<i32>> {
+    let mut v = rows::table
+        .select(rows::tone)
+        .distinct()
+        .load::<i32>(conn)
+        .map_err(db("recording_tones"))?;
+    v.sort_unstable();
+    Ok(v)
+}
+
+/// 五十音の行ごとの被覆（`DEC-PLT-025` の環）。
+///
+/// 並びは五十音順（`crate::inventory::KANA_ROWS`）。 録音リストの並びで返さない
+/// ——あれは presamp から機械的に導いた順で、内側から 母音・ち・ぎ・つ・ぴ……
+/// となり、**どの環がどの行かを人が数えられない。**
+///
+/// **音素ではなく行で畳む。** 音素だと 28 本になり、同心の線がその密度では
+/// 閉じ具合を読めない（`crate::inventory::kana_row`）。
+///
+/// 行の名前は返さない。 環に要るのは順番と数だけで、行の名前は
+/// 画面に出す文字列ではない（`TR-REC-18`）。
+///
+/// 五十音の行に属さない単位は、最後にまとめて1本の環になる。 拡張セットの
+/// ヴだけが当たる。落とさないのは、分母が合わなくなるため。
+fn coverage_by_kana_row(conn: &mut SqliteConnection) -> Result<Vec<(u32, u32)>> {
+    let all = row_units::table
+        .select((row_units::consonant, row_units::kana))
+        .load::<(String, String)>(conn)
+        .map_err(db("coverage_by_kana_row"))?;
+    let covered = covered_units(conn)?;
+
+    let mut counts: std::collections::HashMap<String, (u32, u32)> =
+        std::collections::HashMap::new();
+    // 同じ仮名を二度数えない。 行が2つ同じ単位を生むことはありうるが、
+    // 被覆は単位の集合なので（`TR-RCL-19`）、環の分母も集合で数える。
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    // 五十音の行に入らないものの並び。初出の順で足す。
+    let mut orphans: Vec<String> = Vec::new();
+
+    for (consonant, kana) in all {
+        if !seen.insert(kana.clone()) {
+            continue;
+        }
+        let key = crate::inventory::kana_row(&consonant).map_or_else(
+            || {
+                if !orphans.contains(&consonant) {
+                    orphans.push(consonant.clone());
+                }
+                consonant.clone()
+            },
+            ToOwned::to_owned,
+        );
+        let slot = counts.entry(key).or_insert((0, 0));
+        slot.1 += 1;
+        if covered.contains(&kana) {
+            slot.0 += 1;
+        }
+    }
+
+    Ok(crate::inventory::KANA_ROWS
+        .iter()
+        .map(|r| (*r).to_owned())
+        .chain(orphans)
+        .filter_map(|k| counts.get(&k).copied())
+        .collect())
+}
+
+/// 音高ごとの収録済みエイリアス（`TR-RCL-26`）。
+///
+/// > 収録済み単位は (エイリアス, 収録音高) の組で管理する
+///
+/// 音高を跨いで混ぜない。 1音高だけ録り終えても、音域の広い曲は歌えない。
+fn covered_aliases_by_tone(conn: &mut SqliteConnection) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+    let rows: Vec<(i32, String)> = row_aliases::table
+        .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+        .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
+        .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+        .filter(takes::invalid.eq(0))
+        .select((rows::tone, row_aliases::alias))
+        .load(conn)
+        .map_err(db("covered_aliases_by_tone"))?;
+    let mut out: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+    for (tone, alias) in rows {
+        out.entry(tone).or_default().insert(alias);
+    }
+    Ok(out)
+}
+
+/// 行 ID から収録音高を引く表（`TR-ALN-22`）。
+///
+/// 一貫性補正の集団を音階内に閉じるために要る。 1件ずつ問い合わせると、
+/// テイクの数だけ往復する。
+fn row_tones(conn: &mut SqliteConnection) -> Result<BTreeMap<String, i32>> {
+    rows::table
+        .select((rows::id, rows::tone))
+        .load::<(String, i32)>(conn)
+        .map(|v| v.into_iter().collect())
+        .map_err(db("row_tones"))
+}
+
+/// 採用テイクの観測（`DEC-PLT-027` の声の色）。
+///
+/// 採用しているものだけを見る。 非採用まで混ぜると、切り替えても色が
+/// 変わらない——採用の切り替えは「声の表情を選ぶ」操作なので
+/// （`DEC-PLT-025`）、色が動かないと選んだことにならない。
+///
+/// `rate_hz` は F0 のフレーム長を出すためだけに要る。
+fn adopted_voice(
+    conn: &mut SqliteConnection,
+    rate_hz: u32,
+) -> Result<Vec<crate::voice::TakeVoice>> {
+    let rows = take_analysis::table
+        .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(take_analysis::take_id)))
+        .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+        .filter(takes::invalid.eq(0))
+        .select((
+            take_analysis::f0,
+            take_analysis::centroid_hz,
+            take_analysis::hop_size,
+        ))
+        .load::<(Vec<u8>, Option<f64>, i32)>(conn)
+        .map_err(db("adopted_voice"))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(f0, centroid_hz, hop)| crate::voice::TakeVoice {
+            f0: bytes_to_f64s(&f0),
+            centroid_hz,
+            frame_ms: f64::from(hop.max(1)) * 1000.0 / f64::from(rate_hz.max(1)),
+        })
+        .collect())
+}
+
+/// 全部の行と、それぞれのテイク（`TR-REC-21`, `TR-RCL-25`）。
+///
+/// 録り直しの入口。 未収録しか返さない読みとは別に、一度録った行も選べるように
+/// これを使う。
+fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
+    // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
+    let rows = rows::table
+        .order(rows::ordinal.asc())
+        .select((rows::id, rows::text, rows::state))
+        .load::<(String, String, String)>(conn)
+        .map_err(db("rows_with_takes.rows"))?;
+
+    let takes = takes::table
+        .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
+        .order((takes::row_id.asc(), takes::generation.asc()))
+        .select((
+            takes::id,
+            takes::row_id,
+            takes::rel_path,
+            takes::frames,
+            takes::invalid,
+            takes::generation,
+            take_analysis::peak.nullable(),
+            takes::recorded_at,
+        ))
+        .load::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(conn)
+        .map_err(db("rows_with_takes.takes"))?;
+
+    let adopted = adopted_takes::table
+        .select((adopted_takes::row_id, adopted_takes::take_id))
+        .load::<(String, i32)>(conn)
+        .map_err(db("rows_with_takes.adopted"))?;
+
+    let units = row_units::table
+        .select(row_units::row_id)
+        .load::<String>(conn)
+        .map_err(db("rows_with_takes.units"))?;
+
+    let mut by_row: std::collections::HashMap<String, Vec<Take>> = std::collections::HashMap::new();
+    for raw in takes {
+        let take = build_take(raw);
+        by_row.entry(take.row_id.clone()).or_default().push(take);
+    }
+    let adopted: std::collections::HashMap<String, i32> = adopted.into_iter().collect();
+
+    let mut unit_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for row_id in units {
+        *unit_counts.entry(row_id).or_default() += 1;
+    }
+
+    Ok(rows
+        .into_iter()
+        .map(|(row_id, text, state)| RowTakes {
+            takes: by_row.remove(&row_id).unwrap_or_default(),
+            adopted: adopted.get(&row_id).copied(),
+            state: RowState::parse(&state),
+            units: unit_counts.get(&row_id).copied().unwrap_or(0),
+            row_id,
+            text,
+        })
+        .collect())
+}
+
+/// 曲を読む。 `in_bank_only` ならバンクの中だけ。
+fn songs_query(
+    conn: &mut SqliteConnection,
+    in_bank_only: bool,
+) -> Result<Vec<(String, Song, bool)>> {
+    let mut query = songs::table.into_boxed();
+    if in_bank_only {
+        query = query.filter(songs::in_bank.eq(1));
+    }
+    let heads = query
+        .order(songs::added_at.asc())
+        .select((
+            songs::id,
+            songs::title,
+            songs::source,
+            songs::license,
+            songs::tempo_bpm,
+            songs::default_portamento_ms,
+            songs::in_bank,
+            songs::transpose,
+        ))
+        .load::<(String, String, String, String, f64, f64, i32, i32)>(conn)
+        .map_err(db("songs"))?;
+
+    let mut out = Vec::with_capacity(heads.len());
+    for (id, title, source, license, tempo_bpm, default_portamento_ms, in_bank, transpose) in heads
+    {
+        let notes = song_notes::table
+            .filter(song_notes::song_id.eq(&id))
+            .order(song_notes::ordinal.asc())
+            .select((
+                song_notes::lyric,
+                song_notes::midi,
+                song_notes::ticks,
+                song_notes::rest_ticks,
+            ))
+            .load::<(String, i32, i32, i32)>(conn)
+            .map_err(db("songs"))?;
+        out.push((
+            id,
+            Song {
+                title,
+                notes: notes
+                    .into_iter()
+                    .map(|(lyric, midi, ticks, rest_ticks)| Note {
+                        lyric,
+                        midi,
+                        ticks: u32::try_from(ticks).unwrap_or(0),
+                        rest_ticks: u32::try_from(rest_ticks).unwrap_or(0),
+                    })
+                    .collect(),
+                provenance: Provenance { source, license },
+                tempo_bpm,
+                default_portamento_ms,
+                transpose,
+            },
+            in_bank == 1,
+        ));
+    }
+    Ok(out)
+}
+
+/// 曲バンクの中身（`TR-RCL-12`）。
+///
+/// バンクが空でも成立する。 そのとき進捗はカバレッジだけで読む。
+fn songs_in_bank(conn: &mut SqliteConnection) -> Result<Vec<(String, Song)>> {
+    Ok(songs_query(conn, true)?
+        .into_iter()
+        .map(|(id, song, _)| (id, song))
+        .collect())
+}
+
+/// テイクを1件引く。無ければ `None`。
+fn take(conn: &mut SqliteConnection, take_id: i32) -> Result<Option<Take>> {
+    takes::table
+        .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
+        .filter(takes::id.eq(take_id))
+        .select((
+            takes::id,
+            takes::row_id,
+            takes::rel_path,
+            takes::frames,
+            takes::invalid,
+            takes::generation,
+            take_analysis::peak.nullable(),
+            takes::recorded_at,
+        ))
+        .first::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(conn)
+        .optional()
+        .map_err(db("take"))
+        .map(|o| o.map(build_take))
+}
+
+/// 採用テイクに紐づく oto を、確認の状態ごと全部（`TR-ALN-25`）。
+///
+/// 採用していないテイクは出さない。 書き出しに出るのは採用したものだけで、
+/// 非採用の世代まで確認キューへ入れると、録り直すたびにキューが伸びる。
+///
+/// 並びはエイリアス順で常に同じ（`TR-ALN-29` の決定性）。
+fn adopted_otos(conn: &mut SqliteConnection) -> Result<Vec<OtoEntry>> {
+    oto_values::table
+        .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+        .inner_join(takes::table.on(takes::id.eq(oto_values::take_id)))
+        .order(oto_values::alias.asc())
+        .select((
+            oto_values::take_id,
+            oto_values::alias,
+            adopted_takes::row_id,
+            takes::frames,
+            oto_values::offset_ms,
+            oto_values::consonant_ms,
+            oto_values::cutoff_ms,
+            oto_values::preutterance_ms,
+            oto_values::overlap_ms,
+            oto_values::confidence,
+            oto_values::state,
+            oto_values::pinned_offset,
+            oto_values::pinned_consonant,
+            oto_values::pinned_cutoff,
+            oto_values::pinned_preutterance,
+            oto_values::pinned_overlap,
+            oto_values::conf_path,
+            oto_values::conf_sharpness,
+            oto_values::conf_prior,
+            oto_values::conf_acoustic,
+            oto_values::branch_mismatch,
+        ))
+        .load::<OtoEntryRow>(conn)
+        .map_err(db("adopted_otos"))
+        .map(|v| v.into_iter().map(OtoEntry::from).collect())
+}
+
+/// 確認の進み方（`TR-ALN-25`）。
+fn review_state(conn: &mut SqliteConnection) -> Result<ReviewStateRow> {
+    review_state::table
+        .filter(review_state::id.eq(1))
+        .select((
+            review_state::mode,
+            review_state::over_budget,
+            review_state::exported,
+        ))
+        .first::<(String, i32, i32)>(conn)
+        .map_err(db("review_state"))
+        .map(|(mode, over_budget, exported)| ReviewStateRow {
+            mode,
+            over_budget: over_budget != 0,
+            exported: exported != 0,
+        })
+}
+
+/// 綴りの表の写し（`TR-SYN-36`, `DEC-SYN-013`）。 作ったときに書いたもの。
+///
+/// 無ければ `None`。 写しを持つ前に作ったプロジェクトで、台帳の綴りは
+/// 同梱の既定の表で書かれている。
+fn presamp_snapshot(conn: &mut SqliteConnection) -> Result<Option<String>> {
+    presamp_snapshot::table
+        .filter(presamp_snapshot::id.eq(1))
+        .select(presamp_snapshot::text)
+        .first::<String>(conn)
+        .optional()
+        .map_err(db("presamp_snapshot"))
+}
+
 /// プロジェクトの台帳。
 pub struct Ledger {
     conn: SqliteConnection,
@@ -940,6 +1393,58 @@ impl Ledger {
     /// メモリ上に開く。テスト用。
     pub fn open_in_memory() -> Result<Self> {
         Self::open(":memory:")
+    }
+
+    /// いまの版（`DEC-PLT-043`）。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    pub fn revision(&mut self) -> Result<Revision> {
+        read_revision(&mut self.conn)
+    }
+
+    /// 読み取り専用の接続を別に開く（`DEC-PLT-043`）。
+    ///
+    /// 書き手（この `Ledger`）とは別の SQLite 接続を持つ。 WAL モードなので、
+    /// 書き手のコミットを待たずに読める（`TR-REC-27` と同じ理由）。
+    ///
+    /// **今の版の台帳だけを開く。** [`Ledger::open`] と違い、マイグレーションを
+    /// 一切当てない——読み取り専用の接続に書く手段が無いのに当てようとして
+    /// 断られるだけでは済まず、`Fresh` な（まだ何も版が無い）台帳は当てるべき
+    /// スキーマそのものが無い。`Pending` ／ `Fresh` は
+    /// [`LedgerError::MigrationPending`] で断る。移行は
+    /// [`crate::project::ProjectDir::migrate_ledger`] を先に呼ぶのが次の手
+    /// （`DEC-PLT-041`）。`Newer` は [`LedgerError::MigrationNewer`]。
+    ///
+    /// # Errors
+    ///
+    /// 開けない、移行が要る／新しすぎる、状態を読む問い合わせが失敗する。
+    #[tracing::instrument(skip(path))]
+    pub fn open_reader(path: impl AsRef<Path>) -> Result<LedgerReader> {
+        let url = path.as_ref().to_string_lossy().into_owned();
+        let mut conn =
+            SqliteConnection::establish(&url).map_err(|source| LedgerError::Open { source })?;
+        // 読み手が書けないようにする。 万が一 diesel の型が書き込みを組み立てても、
+        // SQLite 側で断られる。
+        diesel::sql_query("PRAGMA query_only = ON")
+            .execute(&mut conn)
+            .map_err(db("query_only"))?;
+        // 書き手が短いトランザクションを持つ間の待ち合わせぶん。 無くすと、
+        // 書き手のコミットと重なった瞬間に `SQLITE_BUSY` へ倒れる。
+        diesel::sql_query(format!("PRAGMA busy_timeout = {READER_BUSY_TIMEOUT_MS}"))
+            .execute(&mut conn)
+            .map_err(db("busy_timeout"))?;
+        match migration_state_of(&mut conn)? {
+            MigrationState::Current => {}
+            // 何も版が無ければ読める中身も無い。移行が要る場合と同じ扱いにする
+            // ——専用の変種は増やさない。
+            MigrationState::Fresh | MigrationState::Pending => {
+                return Err(LedgerError::MigrationPending);
+            }
+            MigrationState::Newer => return Err(LedgerError::MigrationNewer),
+        }
+        Ok(LedgerReader { conn })
     }
 
     /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。 出どころはフルリスト。
@@ -1309,30 +1814,7 @@ impl Ledger {
     /// ——残りの音高は1本も録っていないのに。単音階では和と積が同じなので、
     /// 単音階の試験では見えなかった。
     pub fn covered_units(&mut self) -> Result<BTreeSet<String>> {
-        let rows: Vec<(i32, String)> = row_units::table
-            .inner_join(rows::table.on(rows::id.eq(row_units::row_id)))
-            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(row_units::row_id)))
-            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
-            .filter(takes::invalid.eq(0))
-            .select((rows::tone, row_units::kana))
-            .load(&mut self.conn)
-            .map_err(db("covered_units"))?;
-        let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
-        for (tone, kana) in rows {
-            by_tone.entry(tone).or_default().insert(kana);
-        }
-        // 1テイクも録っていない音高は空集合として数える。 台帳に現れないので、
-        // `by_tone` の値だけで積を取ると、その音高が判定から漏れる。
-        let mut tones = self.recording_tones()?.into_iter();
-        let Some(first) = tones.next() else {
-            return Ok(BTreeSet::new());
-        };
-        let mut out = by_tone.remove(&first).unwrap_or_default();
-        for t in tones {
-            let here = by_tone.get(&t);
-            out.retain(|k| here.is_some_and(|s| s.contains(k)));
-        }
-        Ok(out)
+        covered_units(&mut self.conn)
     }
 
     /// 収録済みのエイリアス集合（`TR-RCL-18`, `TR-PKG-22`）。
@@ -1438,19 +1920,7 @@ impl Ledger {
     ///
     /// 音高を跨いで混ぜない。 1音高だけ録り終えても、音域の広い曲は歌えない。
     pub fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
-        let rows: Vec<(i32, String)> = row_aliases::table
-            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
-            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
-            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
-            .filter(takes::invalid.eq(0))
-            .select((rows::tone, row_aliases::alias))
-            .load(&mut self.conn)
-            .map_err(db("covered_aliases_by_tone"))?;
-        let mut out: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
-        for (tone, alias) in rows {
-            out.entry(tone).or_default().insert(alias);
-        }
-        Ok(out)
+        covered_aliases_by_tone(&mut self.conn)
     }
 
     /// いまの録る順（`TR-SYN-19`）。
@@ -1505,11 +1975,7 @@ impl Ledger {
     /// 一貫性補正の集団を音階内に閉じるために要る。 1件ずつ問い合わせると、
     /// テイクの数だけ往復する。
     pub fn row_tones(&mut self) -> Result<BTreeMap<String, i32>> {
-        rows::table
-            .select((rows::id, rows::tone))
-            .load::<(String, i32)>(&mut self.conn)
-            .map(|v| v.into_iter().collect())
-            .map_err(db("row_tones"))
+        row_tones(&mut self.conn)
     }
 
     /// その行のテイク数（`TR-RCL-25`）。世代番号の採番に使う。
@@ -1634,13 +2100,7 @@ impl Ledger {
     /// （`TR-REC-25` の「1プロジェクトで収録する音高の集合はプロジェクト作成時に
     /// 確定させ、収録途中に増減させない」）。単音階なら1つ。
     pub fn recording_tones(&mut self) -> Result<Vec<i32>> {
-        let mut v = rows::table
-            .select(rows::tone)
-            .distinct()
-            .load::<i32>(&mut self.conn)
-            .map_err(db("recording_tones"))?;
-        v.sort_unstable();
-        Ok(v)
+        recording_tones(&mut self.conn)
     }
 
     /// 五十音の行ごとの被覆（`DEC-PLT-025` の環）。
@@ -1663,46 +2123,7 @@ impl Ledger {
     /// 台帳を読めないとき。
     #[tracing::instrument(skip(self))]
     pub fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
-        let all = row_units::table
-            .select((row_units::consonant, row_units::kana))
-            .load::<(String, String)>(&mut self.conn)
-            .map_err(db("coverage_by_kana_row"))?;
-        let covered = self.covered_units()?;
-
-        let mut counts: std::collections::HashMap<String, (u32, u32)> =
-            std::collections::HashMap::new();
-        // 同じ仮名を二度数えない。 行が2つ同じ単位を生むことはありうるが、
-        // 被覆は単位の集合なので（`TR-RCL-19`）、環の分母も集合で数える。
-        let mut seen: BTreeSet<String> = BTreeSet::new();
-        // 五十音の行に入らないものの並び。初出の順で足す。
-        let mut orphans: Vec<String> = Vec::new();
-
-        for (consonant, kana) in all {
-            if !seen.insert(kana.clone()) {
-                continue;
-            }
-            let key = crate::inventory::kana_row(&consonant).map_or_else(
-                || {
-                    if !orphans.contains(&consonant) {
-                        orphans.push(consonant.clone());
-                    }
-                    consonant.clone()
-                },
-                ToOwned::to_owned,
-            );
-            let slot = counts.entry(key).or_insert((0, 0));
-            slot.1 += 1;
-            if covered.contains(&kana) {
-                slot.0 += 1;
-            }
-        }
-
-        Ok(crate::inventory::KANA_ROWS
-            .iter()
-            .map(|r| (*r).to_owned())
-            .chain(orphans)
-            .filter_map(|k| counts.get(&k).copied())
-            .collect())
+        coverage_by_kana_row(&mut self.conn)
     }
 
     /// 採用テイクの観測（`DEC-PLT-027` の声の色）。
@@ -1718,26 +2139,7 @@ impl Ledger {
     /// 台帳を読めないとき。
     #[tracing::instrument(skip(self))]
     pub fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
-        let rows = take_analysis::table
-            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(take_analysis::take_id)))
-            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
-            .filter(takes::invalid.eq(0))
-            .select((
-                take_analysis::f0,
-                take_analysis::centroid_hz,
-                take_analysis::hop_size,
-            ))
-            .load::<(Vec<u8>, Option<f64>, i32)>(&mut self.conn)
-            .map_err(db("adopted_voice"))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|(f0, centroid_hz, hop)| crate::voice::TakeVoice {
-                f0: bytes_to_f64s(&f0),
-                centroid_hz,
-                frame_ms: f64::from(hop.max(1)) * 1000.0 / f64::from(rate_hz.max(1)),
-            })
-            .collect())
+        adopted_voice(&mut self.conn, rate_hz)
     }
 
     /// その行が未収録なら、読み上げるテキストを返す（`TR-REC-18`）。
@@ -1779,64 +2181,7 @@ impl Ledger {
     /// 台帳を読めないとき。
     #[tracing::instrument(skip(self))]
     pub fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
-        // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
-        let rows = rows::table
-            .order(rows::ordinal.asc())
-            .select((rows::id, rows::text, rows::state))
-            .load::<(String, String, String)>(&mut self.conn)
-            .map_err(db("rows_with_takes.rows"))?;
-
-        let takes = takes::table
-            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
-            .order((takes::row_id.asc(), takes::generation.asc()))
-            .select((
-                takes::id,
-                takes::row_id,
-                takes::rel_path,
-                takes::frames,
-                takes::invalid,
-                takes::generation,
-                take_analysis::peak.nullable(),
-                takes::recorded_at,
-            ))
-            .load::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(&mut self.conn)
-            .map_err(db("rows_with_takes.takes"))?;
-
-        let adopted = adopted_takes::table
-            .select((adopted_takes::row_id, adopted_takes::take_id))
-            .load::<(String, i32)>(&mut self.conn)
-            .map_err(db("rows_with_takes.adopted"))?;
-
-        let units = row_units::table
-            .select(row_units::row_id)
-            .load::<String>(&mut self.conn)
-            .map_err(db("rows_with_takes.units"))?;
-
-        let mut by_row: std::collections::HashMap<String, Vec<Take>> =
-            std::collections::HashMap::new();
-        for raw in takes {
-            let take = build_take(raw);
-            by_row.entry(take.row_id.clone()).or_default().push(take);
-        }
-        let adopted: std::collections::HashMap<String, i32> = adopted.into_iter().collect();
-
-        let mut unit_counts: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
-        for row_id in units {
-            *unit_counts.entry(row_id).or_default() += 1;
-        }
-
-        Ok(rows
-            .into_iter()
-            .map(|(row_id, text, state)| RowTakes {
-                takes: by_row.remove(&row_id).unwrap_or_default(),
-                adopted: adopted.get(&row_id).copied(),
-                state: RowState::parse(&state),
-                units: unit_counts.get(&row_id).copied().unwrap_or(0),
-                row_id,
-                text,
-            })
-            .collect())
+        rows_with_takes(&mut self.conn)
     }
 
     /// 台帳が知らない確定済みファイルを見つける（`DEC-REC-004` の孤児）。
@@ -2376,11 +2721,7 @@ impl Ledger {
     /// バンクが空でも成立する。 そのとき進捗はカバレッジだけで読む。
     #[tracing::instrument(skip(self))]
     pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
-        Ok(self
-            .songs(true)?
-            .into_iter()
-            .map(|(id, song, _)| (id, song))
-            .collect())
+        songs_in_bank(&mut self.conn)
     }
 
     /// 取り込んだ曲すべて（`TR-RCL-12`）。バンクに入っているかを添える。
@@ -2389,67 +2730,7 @@ impl Ledger {
     /// どこからも見えなくなり、戻す道が無くなる。
     #[tracing::instrument(skip(self))]
     pub fn all_songs(&mut self) -> Result<Vec<(String, Song, bool)>> {
-        self.songs(false)
-    }
-
-    /// 曲を読む。 `in_bank_only` ならバンクの中だけ。
-    fn songs(&mut self, in_bank_only: bool) -> Result<Vec<(String, Song, bool)>> {
-        let mut query = songs::table.into_boxed();
-        if in_bank_only {
-            query = query.filter(songs::in_bank.eq(1));
-        }
-        let heads = query
-            .order(songs::added_at.asc())
-            .select((
-                songs::id,
-                songs::title,
-                songs::source,
-                songs::license,
-                songs::tempo_bpm,
-                songs::default_portamento_ms,
-                songs::in_bank,
-                songs::transpose,
-            ))
-            .load::<(String, String, String, String, f64, f64, i32, i32)>(&mut self.conn)
-            .map_err(db("songs"))?;
-
-        let mut out = Vec::with_capacity(heads.len());
-        for (id, title, source, license, tempo_bpm, default_portamento_ms, in_bank, transpose) in
-            heads
-        {
-            let notes = song_notes::table
-                .filter(song_notes::song_id.eq(&id))
-                .order(song_notes::ordinal.asc())
-                .select((
-                    song_notes::lyric,
-                    song_notes::midi,
-                    song_notes::ticks,
-                    song_notes::rest_ticks,
-                ))
-                .load::<(String, i32, i32, i32)>(&mut self.conn)
-                .map_err(db("songs"))?;
-            out.push((
-                id,
-                Song {
-                    title,
-                    notes: notes
-                        .into_iter()
-                        .map(|(lyric, midi, ticks, rest_ticks)| Note {
-                            lyric,
-                            midi,
-                            ticks: u32::try_from(ticks).unwrap_or(0),
-                            rest_ticks: u32::try_from(rest_ticks).unwrap_or(0),
-                        })
-                        .collect(),
-                    provenance: Provenance { source, license },
-                    tempo_bpm,
-                    default_portamento_ms,
-                    transpose,
-                },
-                in_bank == 1,
-            ));
-        }
-        Ok(out)
+        songs_query(&mut self.conn, false)
     }
 
     /// 曲をバンクから外す／戻す（`TR-RCL-12`）。
@@ -2551,23 +2832,7 @@ impl Ledger {
     /// テイクを1件引く。無ければ `None`。
     #[tracing::instrument(skip(self), fields(take_id))]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
-        takes::table
-            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
-            .filter(takes::id.eq(take_id))
-            .select((
-                takes::id,
-                takes::row_id,
-                takes::rel_path,
-                takes::frames,
-                takes::invalid,
-                takes::generation,
-                take_analysis::peak.nullable(),
-                takes::recorded_at,
-            ))
-            .first::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(&mut self.conn)
-            .optional()
-            .map_err(db("take"))
-            .map(|o| o.map(build_take))
+        take(&mut self.conn, take_id)
     }
 
     /// テイクに紐づく oto の5値を引く。まだ無ければ `None`。
@@ -2789,36 +3054,7 @@ impl Ledger {
     ///
     /// 並びはエイリアス順で常に同じ（`TR-ALN-29` の決定性）。
     pub fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
-        oto_values::table
-            .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
-            .inner_join(takes::table.on(takes::id.eq(oto_values::take_id)))
-            .order(oto_values::alias.asc())
-            .select((
-                oto_values::take_id,
-                oto_values::alias,
-                adopted_takes::row_id,
-                takes::frames,
-                oto_values::offset_ms,
-                oto_values::consonant_ms,
-                oto_values::cutoff_ms,
-                oto_values::preutterance_ms,
-                oto_values::overlap_ms,
-                oto_values::confidence,
-                oto_values::state,
-                oto_values::pinned_offset,
-                oto_values::pinned_consonant,
-                oto_values::pinned_cutoff,
-                oto_values::pinned_preutterance,
-                oto_values::pinned_overlap,
-                oto_values::conf_path,
-                oto_values::conf_sharpness,
-                oto_values::conf_prior,
-                oto_values::conf_acoustic,
-                oto_values::branch_mismatch,
-            ))
-            .load::<OtoEntryRow>(&mut self.conn)
-            .map_err(db("adopted_otos"))
-            .map(|v| v.into_iter().map(OtoEntry::from).collect())
+        adopted_otos(&mut self.conn)
     }
 
     /// 無声破裂音の分岐不一致の印を書く（`TR-ALN-16`, `DEC-ALN-018`）。
@@ -3081,20 +3317,7 @@ impl Ledger {
 
     /// 確認の進み方（`TR-ALN-25`）。
     pub fn review_state(&mut self) -> Result<ReviewStateRow> {
-        review_state::table
-            .filter(review_state::id.eq(1))
-            .select((
-                review_state::mode,
-                review_state::over_budget,
-                review_state::exported,
-            ))
-            .first::<(String, i32, i32)>(&mut self.conn)
-            .map_err(db("review_state"))
-            .map(|(mode, over_budget, exported)| ReviewStateRow {
-                mode,
-                over_budget: over_budget != 0,
-                exported: exported != 0,
-            })
+        review_state(&mut self.conn)
     }
 
     /// 綴りの表の写し（`TR-SYN-36`, `DEC-SYN-013`）。 作ったときに書いたもの。
@@ -3102,12 +3325,7 @@ impl Ledger {
     /// 無ければ `None`。 写しを持つ前に作ったプロジェクトで、台帳の綴りは
     /// 同梱の既定の表で書かれている。
     pub fn presamp_snapshot(&mut self) -> Result<Option<String>> {
-        presamp_snapshot::table
-            .filter(presamp_snapshot::id.eq(1))
-            .select(presamp_snapshot::text)
-            .first::<String>(&mut self.conn)
-            .optional()
-            .map_err(db("presamp_snapshot"))
+        presamp_snapshot(&mut self.conn)
     }
 
     /// 綴りの表の写しを書く（`DEC-SYN-013`）。
@@ -3182,6 +3400,186 @@ impl Ledger {
                     aligner,
                 })
             })
+    }
+}
+
+/// 書き手とは別の、読み取り専用の SQLite 接続（`DEC-PLT-043`）。
+///
+/// [`Ledger::open_reader`] で開く。 それ自体はまだ何も固定しない——
+/// [`LedgerReader::snapshot`] を呼んで初めて、読み取りトランザクションが始まり
+/// 版が1つに決まる。 T05b（`koeru-runtime`）がこれをプールして使い回す。
+///
+/// **プロジェクトの migration の切り替え（`ProjectDir::migrate_ledger`）の前に
+/// 必ず閉じること。** SQLite の接続を持ったままだと、Windows は書きかけの
+/// 台帳の上へ rename できず `PermissionDenied` で断られる（T04d-1 の
+/// Windows 試験が実際に踏んだ）。
+pub struct LedgerReader {
+    conn: SqliteConnection,
+}
+
+// `Ledger` と同じ理由（パスやクエリが入りうる接続の中身を出さない）。
+impl std::fmt::Debug for LedgerReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LedgerReader { .. }")
+    }
+}
+
+impl LedgerReader {
+    /// 読み取りトランザクションを始め、その場で版を固定する（`DEC-PLT-043`）。
+    ///
+    /// `BEGIN DEFERRED` は、実際には最初の読み取りが走るまで WAL の読み取り版を
+    /// 確定しない（SQLite の deferred transaction）。 直後に `project_revision` を
+    /// 読むのはそのためで、ここが「このスナップショットが以後ずっと見る版」を
+    /// 確定させる最初の一手になる。 これより後に書き手がコミットしても、
+    /// このスナップショットの読みには映らない。
+    ///
+    /// diesel の `Connection::transaction` はクロージャの中でしか使えず、
+    /// 呼び出しをまたいで居続けるスナップショットには合わない。 そのため
+    /// ここだけ手で `BEGIN` / `ROLLBACK` を発行する——[`LedgerSnapshot`] が
+    /// 公開する読みは、内側で diesel の `.transaction(...)` を呼ばない
+    /// （呼ぶとネストした `BEGIN` になり、SQLite が断る）。
+    ///
+    /// # Errors
+    ///
+    /// 読み取りトランザクションを開始できない、`project_revision` を読めない。
+    #[tracing::instrument(skip(self), fields(revision = tracing::field::Empty))]
+    pub fn snapshot(mut self) -> Result<LedgerSnapshot> {
+        diesel::sql_query("BEGIN DEFERRED")
+            .execute(&mut self.conn)
+            .map_err(db("begin_snapshot"))?;
+        let revision = match read_revision(&mut self.conn) {
+            Ok(r) => r,
+            Err(e) => {
+                // 版を読めなかったのに読み取りトランザクションだけ残さない。
+                let _ = diesel::sql_query("ROLLBACK").execute(&mut self.conn);
+                return Err(e);
+            }
+        };
+        tracing::Span::current().record("revision", revision.as_i64());
+        Ok(LedgerSnapshot {
+            reader: Some(self),
+            revision,
+        })
+    }
+}
+
+/// 1つの版に固定して読む、コミット済みの一時点（`DEC-PLT-043`）。
+///
+/// [`LedgerReader::snapshot`] が読み取りトランザクションを開いた時点の
+/// `project_revision` を持ち回る。 書き手がその後どれだけコミットしても、
+/// このスナップショットが公開する読みには映らない——同じ `query` の中で
+/// `recording` が R42、`review` が R43 になることを防ぐ
+/// （`docs/reports/architecture/08-graphql-application-contract.md` §5）。
+///
+/// [`Self::close`] を呼ぶと読み取りトランザクションを終え、[`LedgerReader`] を
+/// 呼び出し側へ返す（T05b がプールして使い回す）。 呼ばずに drop しても、
+/// [`Drop`] がロールバックする——スナップショットを握ったまま応答を送り忘れても、
+/// 読み手の接続が塞がったままにならない。
+pub struct LedgerSnapshot {
+    // `close` へ渡す・`Drop` で片付けるために `Option` で持つ。
+    // 通常の操作では常に `Some`——`None` になるのは `close` の中の一瞬だけ。
+    reader: Option<LedgerReader>,
+    revision: Revision,
+}
+
+impl std::fmt::Debug for LedgerSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LedgerSnapshot { .. }")
+    }
+}
+
+impl LedgerSnapshot {
+    /// このスナップショットが固定した版。
+    #[must_use]
+    pub const fn revision(&self) -> Revision {
+        self.revision
+    }
+
+    /// 読み取りトランザクションを終え、[`LedgerReader`] を返す（再利用のため）。
+    pub fn close(mut self) -> LedgerReader {
+        // `reader` は `close` の外では常に `Some`。
+        #[allow(clippy::expect_used)]
+        let mut reader = self.reader.take().expect("close は一度しか呼ばれない");
+        let _ = diesel::sql_query("ROLLBACK").execute(&mut reader.conn);
+        reader
+    }
+
+    fn conn(&mut self) -> &mut SqliteConnection {
+        // `close` を経ていないので、`Drop` もまだ走っていない。
+        #[allow(clippy::expect_used)]
+        &mut self
+            .reader
+            .as_mut()
+            .expect("スナップショットは close するまで生きている")
+            .conn
+    }
+
+    /// 全部の行と、それぞれのテイク（`TR-REC-21`, `TR-RCL-25`）。 [`Ledger::rows_with_takes`] と同じ版。
+    pub fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
+        rows_with_takes(self.conn())
+    }
+
+    /// 五十音の行ごとの被覆。 [`Ledger::coverage_by_kana_row`] と同じ版。
+    pub fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
+        coverage_by_kana_row(self.conn())
+    }
+
+    /// 音高ごとの収録済みエイリアス。 [`Ledger::covered_aliases_by_tone`] と同じ版。
+    pub fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+        covered_aliases_by_tone(self.conn())
+    }
+
+    /// このプロジェクトの収録音高。 [`Ledger::recording_tones`] と同じ版。
+    pub fn recording_tones(&mut self) -> Result<Vec<i32>> {
+        recording_tones(self.conn())
+    }
+
+    /// 採用テイクの観測。 [`Ledger::adopted_voice`] と同じ版。
+    pub fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
+        adopted_voice(self.conn(), rate_hz)
+    }
+
+    /// 曲バンクの中身。 [`Ledger::songs_in_bank`] と同じ版。
+    pub fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
+        songs_in_bank(self.conn())
+    }
+
+    /// テイクを1件引く。無ければ `None`。 [`Ledger::take`] と同じ版。
+    pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
+        take(self.conn(), take_id)
+    }
+
+    /// 採用テイクに紐づく oto を、確認の状態ごと全部。 [`Ledger::adopted_otos`] と同じ版。
+    pub fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
+        adopted_otos(self.conn())
+    }
+
+    /// 確認の進み方。 [`Ledger::review_state`] と同じ版。
+    pub fn review_state(&mut self) -> Result<ReviewStateRow> {
+        review_state(self.conn())
+    }
+
+    /// 行 ID から収録音高を引く表。 [`Ledger::row_tones`] と同じ版。
+    pub fn row_tones(&mut self) -> Result<BTreeMap<String, i32>> {
+        row_tones(self.conn())
+    }
+
+    /// 綴りの表の写し。 [`Ledger::presamp_snapshot`] と同じ版。
+    pub fn presamp_snapshot(&mut self) -> Result<Option<String>> {
+        presamp_snapshot(self.conn())
+    }
+}
+
+impl Drop for LedgerSnapshot {
+    /// `close` を呼ばずに drop されても、読み取りトランザクションを残さない。
+    ///
+    /// 失敗しても panic しない——drop の中で `?` は使えないので、結果を捨てる。
+    /// 万が一 `ROLLBACK` が失敗しても、接続はこのあとどのみち drop されるので
+    /// 実害は無い。
+    fn drop(&mut self) {
+        if let Some(reader) = self.reader.as_mut() {
+            let _ = diesel::sql_query("ROLLBACK").execute(&mut reader.conn);
+        }
     }
 }
 
@@ -3521,6 +3919,59 @@ mod tests {
         l.install_reclist(&list, 60).expect("書き込める");
         let sid = l.start_session(&session()).expect("セッションを始められる");
         (l, sid, list)
+    }
+
+    /// `Ledger::open_reader` はファイルの台帳しか開けない（`:memory:` は接続ごとに
+    /// 別の空 DB になり、書き手と読み手で中身を共有できない）。
+    fn tmp_project_db(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static N: AtomicU32 = AtomicU32::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let d = std::env::temp_dir().join(format!(
+            "koeru-core-db-tests-{}-{tag}-{n}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("一時ディレクトリを作れること");
+        d.join("project.db")
+    }
+
+    /// [`Revision`] は等値だけで比べる（`DEC-PLT-043`）。 書き込むたびに違う値になり、
+    /// `as_i64` / `Display` は転送のための表現をそのまま返す。
+    #[test]
+    fn revisionは等値だけで比べられる() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let r0 = l.revision().expect("読める");
+        assert_eq!(r0, r0);
+
+        let list = generate_single(UnitSet::Core, 3).expect("生成できる");
+        l.install_reclist(&list, 60).expect("書き込める");
+        let r1 = l.revision().expect("読める");
+        assert_ne!(r1, r0, "書き込みで版が変わること");
+        assert_eq!(format!("{r1}"), r1.as_i64().to_string());
+    }
+
+    /// `Ledger::open_reader` が開く接続は `PRAGMA query_only = ON` を持つので、
+    /// SQLite 自身が書き込みを断る——`LedgerSnapshot` が書きの口を公開していない
+    /// ことに加え、接続そのものが書けない（`DEC-PLT-043`）。
+    #[test]
+    fn 読み手の接続はquery_onlyで書き込めない() {
+        let path = tmp_project_db("reader-query-only");
+        {
+            Ledger::open(&path).expect("開ける");
+        }
+        let reader = Ledger::open_reader(&path).expect("開ける");
+        let mut snap = reader.snapshot().expect("読める");
+        let err = diesel::sql_query(
+            "INSERT INTO calibrations (device_id, control, peak_dbfs, settled, measured_at) \
+             VALUES ('x', 'manual', -6.0, 1, 't')",
+        )
+        .execute(&mut snap.reader.as_mut().expect("close する前は必ず Some").conn)
+        .expect_err("query_only で書けないこと");
+        // SQLite は `SQLITE_READONLY` を返す。 diesel の分類名は版によって揺れうる
+        // ので、ここでは「エラーであること」だけを見る——分類そのものより、
+        // 書けなかったという事実が確認したいこと。
+        drop(err);
     }
 
     #[test]

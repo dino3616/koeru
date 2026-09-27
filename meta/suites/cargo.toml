@@ -95,8 +95,18 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'ledger_migration'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 8
-contracts = ['DEC-PLT-041', 'DEC-PKG-017']
+min_cases = 9
+contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043']
+
+[[suite]]
+id = 'SUITE-CORE-005'
+title = '版のトリガーと読み取り専用スナップショットの一貫性（本物の SQLite と WAL）'
+runner = 'cargo'
+package = 'koeru-core'
+target = 'read_snapshot'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 9
+contracts = ['DEC-PLT-043', 'DEC-PLT-035', 'DEC-PLT-041']
 
 # ## koeru-audio
 

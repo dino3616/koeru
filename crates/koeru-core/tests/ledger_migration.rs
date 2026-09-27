@@ -25,6 +25,22 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    project_revision (id) {
+        id -> Integer,
+        value -> BigInt,
+    }
+}
+
+diesel::table! {
+    sqlite_master (name) {
+        name -> Text,
+        #[sql_name = "type"]
+        kind -> Text,
+        tbl_name -> Text,
+    }
+}
+
 fn tmp(tag: &str) -> PathBuf {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(0);
@@ -384,4 +400,83 @@ fn 新規の台帳はledger_openが全部当てる() {
         dir.migrate_ledger().expect("何もしないこと"),
         MigrationOutcome::AlreadyCurrent
     );
+}
+
+/// `project_revision` を持つ表以外の、台帳の全表（`DEC-PLT-043`）。
+///
+/// `sqlite_master` から機械的に読む。 手で並べた一覧と突き合わせない——
+/// 一覧を足し忘れる形の見落としを、この試験自身が再現してしまう。
+fn business_tables(conn: &mut SqliteConnection) -> Vec<String> {
+    sqlite_master::table
+        .filter(sqlite_master::kind.eq("table"))
+        .select(sqlite_master::name)
+        .load::<String>(conn)
+        .expect("sqlite_master を読めること")
+        .into_iter()
+        .filter(|n| {
+            n != "project_revision"
+                && n != "__diesel_schema_migrations"
+                && !n.starts_with("sqlite_")
+        })
+        .collect()
+}
+
+/// その表に立っている `rev_<table>_*` トリガーの本数。
+fn revision_trigger_count(conn: &mut SqliteConnection, table: &str) -> i64 {
+    sqlite_master::table
+        .filter(sqlite_master::kind.eq("trigger"))
+        .filter(sqlite_master::tbl_name.eq(table))
+        .filter(sqlite_master::name.like(format!("rev_{table}_%")))
+        .count()
+        .get_result(conn)
+        .expect("sqlite_master を読めること")
+}
+
+/// 前の版から移行すると、`project_revision` が種を持って現れ、
+/// 既存の全表にちょうど3本ずつ（ins/upd/del）のトリガーが揃うこと（`DEC-PLT-043`）。
+///
+/// 移行前に入れた行は、移行そのもの（DDL）ではトリガーを遡って発火させない
+/// ——`value` は種のままの 0 で、以後の書き込みで初めて動き出す。
+#[test]
+fn 移行後にproject_revisionと全表のトリガーが揃う() {
+    let dir = new_project("revision-migration");
+    {
+        let mut conn = pending_one_migration_short(&dir.db_path());
+        insert_row(&mut conn, "r1");
+    }
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+    assert_eq!(count_rows(&dir.db_path()), 1, "移行前に入れた行が残ること");
+
+    let mut conn =
+        SqliteConnection::establish(&dir.db_path().to_string_lossy()).expect("開けること");
+    let value: i64 = project_revision::table
+        .find(1)
+        .select(project_revision::value)
+        .first(&mut conn)
+        .expect("project_revision の種があること");
+    assert_eq!(value, 0, "移行そのものはトリガーを遡って発火させないこと");
+
+    let tables = business_tables(&mut conn);
+    assert!(tables.len() >= 20, "表の数が少なすぎる: {tables:?}");
+    let missing: Vec<&String> = tables
+        .iter()
+        .filter(|t| revision_trigger_count(&mut conn, t) != 3)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "トリガーが3本揃っていない表がある: {missing:?}"
+    );
+
+    // 書き込めば実際に進む。
+    insert_row(&mut conn, "r2");
+    let after: i64 = project_revision::table
+        .find(1)
+        .select(project_revision::value)
+        .first(&mut conn)
+        .expect("読めること");
+    assert!(after > value, "書き込みで版が進むこと");
 }
