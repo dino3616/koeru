@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 mod process;
 mod view;
 
-pub(crate) use view::{RepoView, diff_files};
+pub(crate) use view::{RepoView, RevisionRef, diff_files};
 
 pub(crate) const META_DIR: &str = "meta";
 pub(crate) const SPEC_DIR: &str = "specs";

@@ -1,36 +1,50 @@
 //! meta を読む。
 
-use std::fs;
 use std::path::Path;
 
 use super::model::{Entry, SHAPES, str_of};
 use crate::diagnostic::Report;
-use crate::repo::META_DIR;
+use crate::repo::{META_DIR, RepoView};
 
-/// meta を読む。**形を名乗らないファイル、名乗った形と中身が合わないファイルは、
-/// 読み飛ばさずに落とす。** 黙って0件になる経路を作らないため。
+/// meta を読む。 作業ツリーだけを読む、[`load_view`] への薄い包み。
+///
+/// 版を選ばず読めれば足りる既存の消費者は、ここだけを呼べばよい。 出す診断・
+/// `Entry` の中身は、作業ツリーを渡した [`load_view`] と1バイトも変えない
+/// ——`xtask/tests/commands.rs` がそれを固定している。
 pub(crate) fn load(root: &Path, rep: &mut Report) -> Vec<Entry> {
-    let mut paths = Vec::new();
-    let mut stack = vec![root.join(META_DIR)];
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = fs::read_dir(&dir) else { continue };
-        for e in rd.filter_map(Result::ok) {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "toml") {
-                paths.push(p);
-            }
-        }
-    }
-    paths.sort();
+    load_view(&RepoView::working_tree(root), rep)
+}
+
+/// `view` の版（作業ツリー、または任意の git の版）から meta を読む。
+///
+/// **形を名乗らないファイル、名乗った形と中身が合わないファイルは、
+/// 読み飛ばさずに落とす。** 黙って0件になる経路を作らないため。
+///
+/// 旧い版を読むと、今の `SHAPES` に無い schema（廃止済み・改名済み）に
+/// 出会うことがある。 それも「知らない schema」として診断へ積むだけで、
+/// 読み込み全体は止めない——`SemanticGraph::build`（X05）が旧い版を graph に
+/// することを諦めずに済むように。
+pub(crate) fn load_view(view: &RepoView, rep: &mut Report) -> Vec<Entry> {
+    let root = view.root();
+    let mut rels: Vec<String> = view
+        .walk(META_DIR)
+        .into_iter()
+        .filter(|rel| rel.ends_with(".toml"))
+        .collect();
+    rels.sort();
 
     let mut out = Vec::new();
-    for path in paths {
+    for rel in rels {
+        // `Entry::path` は root 込みのまま持つ——作業ツリーを渡したときに、
+        // 既存コマンドの診断文言（`path.display()`）を1文字も変えないため。
+        let path = root.join(&rel);
         let file = path.display().to_string();
-        let Ok(text) = fs::read_to_string(&path) else {
-            rep.error(format!("{file}: 読めない"));
-            continue;
+        let text = match view.read(&rel) {
+            Ok(Some(text)) => text,
+            Ok(None) | Err(_) => {
+                rep.error(format!("{file}: 読めない"));
+                continue;
+            }
         };
         let table = match text.parse::<toml::Table>() {
             Ok(t) => t,
@@ -49,7 +63,7 @@ pub(crate) fn load(root: &Path, rep: &mut Report) -> Vec<Entry> {
             rep.error(format!("{file}: 知らない schema `{schema}`"));
             continue;
         };
-        let dir = path
+        let dir = Path::new(&rel)
             .parent()
             .and_then(Path::file_name)
             .and_then(|s| s.to_str())
@@ -61,7 +75,12 @@ pub(crate) fn load(root: &Path, rep: &mut Report) -> Vec<Entry> {
             ));
             continue;
         }
-        out.push(Entry { path, shape, table });
+        out.push(Entry {
+            path,
+            shape,
+            table,
+            text,
+        });
     }
 
     for e in &out {

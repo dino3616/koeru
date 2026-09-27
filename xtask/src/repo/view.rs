@@ -36,9 +36,8 @@ impl std::fmt::Display for ViewError {
 
 /// この view が指しているものそのもの。
 ///
-/// **今はまだ試験だけが呼ぶ。** `identity` の消費者（X03・X04）はこの先に乗る。
+/// `SemanticGraph::build`（X05）が、graph を作った版を記録するのに持つ。
 #[derive(Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum RevisionRef {
     /// 作業ツリー。 `head` は直近のコミット、`dirty` は未コミットの変更
     /// （未追跡のファイルも含む）があるか。
@@ -82,6 +81,16 @@ impl RepoView {
         })
     }
 
+    /// この view が読んでいる、リポジトリの根。
+    ///
+    /// `knowledge::load_view`（X05）が、記録の出どころを組み立てるのに使う。
+    /// 版を選んでも根は変わらない——版の違いは `read` / `walk` の中身にだけ出る。
+    pub(crate) fn root(&self) -> &Path {
+        match self {
+            RepoView::WorkingTree { root } | RepoView::Revision { root, .. } => root,
+        }
+    }
+
     /// `rel` の中身。 無ければ `None`。
     pub(crate) fn read(&self, rel: &str) -> Result<Option<String>, ViewError> {
         match self {
@@ -108,8 +117,8 @@ impl RepoView {
     /// 同じ規則になる（走査対象に正本が無いディレクトリだから、というのが `SKIPPED_DIRS`
     /// 自身の理由で、それはどちらの版を読んでいても変わらない）。
     ///
-    /// **今はまだ試験だけが呼ぶ。** 消費者（X03・X04）はこの先に乗る。
-    #[allow(dead_code)]
+    /// `knowledge::load_view` / `knowledge::fsl_sites_view`（X05）が meta と FSL を
+    /// 読むのに使う。
     pub(crate) fn walk(&self, dir: &str) -> Vec<String> {
         match self {
             RepoView::WorkingTree { root } => walk_working_tree(root, dir),
@@ -119,8 +128,8 @@ impl RepoView {
 
     /// この view が指しているものそのもの。
     ///
-    /// **今はまだ試験だけが呼ぶ。** 消費者（X03・X04）はこの先に乗る。
-    #[allow(dead_code)]
+    /// `SemanticGraph::build`（X05）が呼ぶ。 版が分からなくても致命的ではない
+    /// ——呼び出し側は `Result` を捨てて `None` として続けてよい。
     pub(crate) fn identity(&self) -> Result<RevisionRef, ViewError> {
         match self {
             RepoView::Revision { sha, .. } => Ok(RevisionRef::Revision { sha: sha.clone() }),
