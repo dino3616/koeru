@@ -316,6 +316,15 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    /// project の版（`DEC-PLT-043`）。 1行だけで、他の全表への AFTER トリガーが進める。
+    /// 大小・差分に意味は無い（`specs/application/schema/shared.graphql` の `Revision`）。
+    project_revision (id) {
+        id -> Integer,
+        value -> BigInt,
+    }
+}
+
 diesel::joinable!(song_notes -> songs (song_id));
 diesel::joinable!(capture_intents -> sessions (session_id));
 diesel::joinable!(commit_receipts -> takes (take_id));
