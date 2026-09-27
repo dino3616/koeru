@@ -19,6 +19,7 @@
 //! - [`diagnostic`] — 検査の結果を集めることと、人に見せることの境界
 //! - `repo` — リポジトリの根、走査から外す場所、git の呼び出し
 //! - `knowledge` — meta と FSL を読んだもの。 形の宣言、読み込み、ID の拾い方
+//! - `graph` — `KnowledgeSnapshot` から作る typed graph、diff（X05）
 //! - `checks` — 合否を返す検査（`check-*`）
 //! - `commands` — 合否を主にしないコマンド（ID の払い出し、索引、書き出し、差分の案内）
 //! - `probe` — 試験を走らせて件数を数えるもの
@@ -34,3 +35,10 @@ mod commands;
 mod knowledge;
 mod probe;
 mod repo;
+
+// X05: 語彙の登録は D00、消費は D01・X06・X07 が担う。 それまで production
+// からは呼ばれない——通常の組み立てでは、単体試験（`#[cfg(test)]`）を除いて
+// 到達しない dead code に見える。 `mod.rs` の再輸出も、消費者が付くまでは
+// 誰も使わない import に見える。
+#[allow(dead_code, unused_imports)]
+mod graph;

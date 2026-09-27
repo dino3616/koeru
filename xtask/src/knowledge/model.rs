@@ -149,6 +149,14 @@ pub(crate) struct Entry {
     pub(crate) path: PathBuf,
     pub(crate) shape: &'static Shape,
     pub(crate) table: toml::Table,
+    /// ファイルの生の本文。
+    ///
+    /// `snapshot::id_lines` が行番号を引くのに使う。 版から読んだ `Entry`
+    /// （`load_view` が git の版から作ったもの）では、作業ツリーのファイルを
+    /// 読み直さずに済ませるために持つ——版によって作業ツリーと中身が違うので、
+    /// ここで一度読んだ本文を後段が使い回さないと、旧い版の記録に今の作業
+    /// ツリーの行番号が付く。
+    pub(crate) text: String,
 }
 
 impl Entry {

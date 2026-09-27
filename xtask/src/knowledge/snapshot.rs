@@ -9,34 +9,36 @@
 //! [`Provenance::index`] が言う——収集ファイルの中の何番目かで、1件1ファイルの記録なら無い。
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::fsl::fsl_sites;
+use super::fsl::fsl_sites_view;
 use super::ids::Id;
 use super::model::{Entry, list_of, str_of};
+use crate::repo::RepoView;
 
 /// 記録の出どころ。
 ///
-/// 今の唯一の消費者（`check-profile`）は出どころを見ない。 診断の場所を
-/// 名指したい次の消費者（X05 の graph diff、X06 の migration、`touched` の
-/// 載せ替え）のために持つ口で、今は試験だけが引く。
-#[allow(dead_code)]
+/// `check-profile` は出どころを見ない。 X05 の graph 構築が、node / edge の
+/// provenance を作るのに `path` / `line` を読む（`graph::build::provenance_of`）。
 #[derive(Debug, Clone)]
 pub(crate) struct Provenance {
     path: PathBuf,
     /// 収集ファイルの中の何番目か（0始まり）。1件1ファイルの記録なら無い。
+    ///
+    /// 今はまだ試験だけが読む。
+    #[allow(dead_code)]
     index: Option<usize>,
     /// `id = '…'` の行番号。 安く取れる場合だけ持つ——1ファイルにつき読み直しは1回。
     line: Option<usize>,
 }
 
-#[allow(dead_code)]
 impl Provenance {
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
+    /// 今はまだ試験だけが呼ぶ。
+    #[allow(dead_code)]
     pub(crate) fn index(&self) -> Option<usize> {
         self.index
     }
@@ -78,8 +80,6 @@ impl Fields<'_> {
 pub(crate) struct Record {
     id: Option<Id>,
     schema: &'static str,
-    // 出どころを見る消費者はまだいない（[`Provenance`] を参照）。
-    #[allow(dead_code)]
     provenance: Provenance,
     fields: toml::Table,
 }
@@ -100,28 +100,35 @@ impl Record {
     }
 }
 
-// `schema` / `provenance` / `int` / `bool` / `tables` は、`check-profile` より先の
-// 消費者（コレクションの由来を区別したい X05、数値・論理値の欄を読みたい D07a/D07b）
-// が使う。 今は試験だけが呼ぶ。
-#[allow(dead_code)]
 impl Record {
+    /// この記録の schema。 X05 の graph 構築が、`Registry` の node 種類・
+    /// relation 規則をどの記録に適用するかを選ぶのに読む。
     pub(crate) fn schema(&self) -> &'static str {
         self.schema
     }
 
+    /// この記録の出どころ。 X05 の graph 構築が node / edge の provenance を
+    /// 作るのに読む。
     pub(crate) fn provenance(&self) -> &Provenance {
         &self.provenance
     }
 
+    /// 今はまだ試験だけが呼ぶ。 数値の欄を読みたい消費者（D07a/D07b）が使う。
+    #[allow(dead_code)]
     pub(crate) fn int(&self, key: &str) -> Option<i64> {
         self.fields.get(key).and_then(toml::Value::as_integer)
     }
 
+    /// 今はまだ試験だけが呼ぶ。 論理値の欄を読みたい消費者（D07a/D07b）が使う。
+    #[allow(dead_code)]
     pub(crate) fn bool(&self, key: &str) -> Option<bool> {
         self.fields.get(key).and_then(toml::Value::as_bool)
     }
 
     /// 入れ子の表の配列（`[[allocations]]` / `[[derived]]` のような entity_arrays）。
+    ///
+    /// 今はまだ試験だけが呼ぶ。 コレクションの由来を区別したい消費者（D07a/D07b）が使う。
+    #[allow(dead_code)]
     pub(crate) fn tables(&self, key: &str) -> Vec<Fields<'_>> {
         self.fields
             .get(key)
@@ -134,6 +141,16 @@ impl Record {
             })
             .unwrap_or_default()
     }
+
+    /// 記録の欄を決定的に文字列化したもの。 `toml::Table` そのものは公開しない
+    /// ——上の層へ表を漏らさないという境界（`knowledge` の purity）を保ったまま、
+    /// X05 の graph diff が「内容が変わったか」を比べられるようにする。
+    ///
+    /// `toml::Table` は既定で `BTreeMap` 実装（`preserve_order` feature を
+    /// 有効にしていない）なので、キーの並びはすでに決定的。
+    pub(crate) fn canonical_fields(&self) -> String {
+        toml::to_string(&self.fields).unwrap_or_default()
+    }
 }
 
 /// meta と FSL を読んだ、型つきの読みモデル。
@@ -144,11 +161,12 @@ impl Record {
 #[derive(Debug, Default)]
 pub(crate) struct KnowledgeSnapshot {
     records: Vec<Record>,
-    // ID からの索引と FSL の索引は、`get` / `contains_id` / `fsl_ids` / `fsl_site`
-    // からしか読まない。 その4つはまだ試験だけが呼ぶ（下の `impl` を見る）。
+    // ID からの索引は `get` / `contains_id` からしか読まない。 どちらも
+    // 今はまだ試験だけが呼ぶ（下の `impl` を見る）。
     #[allow(dead_code)]
     by_id: BTreeMap<Id, usize>,
-    #[allow(dead_code)]
+    // FSL の索引は `fsl_ids` / `fsl_site` が読む（X05 の graph 構築、FSL の ID を
+    // node にする registry のとき）。
     fsl_sites: BTreeMap<Id, String>,
 }
 
@@ -160,7 +178,7 @@ impl KnowledgeSnapshot {
         let mut dups = Vec::new();
 
         for e in entries {
-            let lines = id_lines(&e.path);
+            let lines = id_lines(&e.text);
 
             if e.shape.entity.is_some() {
                 push_record(
@@ -203,42 +221,55 @@ impl KnowledgeSnapshot {
 }
 
 // `check-profile` より先の消費者が使う口。 FSL の索引・全件反復・ID の有無だけを
-// 見る絞り込みは、schema を1つ選ぶ `by_schema` では書けない（X05 のグラフ構築、
-// X06 の migration の突き合わせ、D00 の legacy adapter が必要になる）。
-// 今は試験だけが呼ぶ。
-#[allow(dead_code)]
+// 見る絞り込みは、schema を1つ選ぶ `by_schema` では書けない。
 impl KnowledgeSnapshot {
-    /// FSL の ID と出どころ（`specs/` の原文から拾ったもの）も合わせて持つ。
+    /// FSL の ID と出どころ（作業ツリーの `specs/` の原文から拾ったもの）も
+    /// 合わせて持つ。 版を選びたい消費者（X05 の graph 構築）は
+    /// [`Self::with_fsl_view`] を呼ぶ。
     ///
-    /// `fsl_ids` / `fsl_sites` はそのまま残す（`mod.rs` の再輸出）。 これはそれを
-    /// 型つきの ID で引けるようにする、snapshot 側の薄い上乗せ。
-    pub(crate) fn with_fsl(mut self, root: &Path) -> Self {
-        self.fsl_sites = fsl_sites(root)
+    /// 今はまだ試験だけが呼ぶ。
+    #[allow(dead_code)]
+    pub(crate) fn with_fsl(self, root: &Path) -> Self {
+        self.with_fsl_view(&RepoView::working_tree(root))
+    }
+
+    /// `view` の版から、FSL の ID と出どころも合わせて持つ。
+    pub(crate) fn with_fsl_view(mut self, view: &RepoView) -> Self {
+        self.fsl_sites = fsl_sites_view(view)
             .into_iter()
             .filter_map(|(id, site)| id.parse::<Id>().ok().map(|id| (id, site)))
             .collect();
         self
     }
 
-    /// meta と FSL の両方を持つ snapshot を一度に作る。
+    /// meta と FSL の両方を持つ snapshot を一度に作る。 作業ツリー限定。
+    ///
+    /// 今はまだ試験だけが呼ぶ。
+    #[allow(dead_code)]
     pub(crate) fn build(root: &Path, entries: &[Entry]) -> (Self, Vec<String>) {
         let (snapshot, dups) = Self::from_entries(entries);
         (snapshot.with_fsl(root), dups)
     }
 
+    /// 全件。 X05 のグラフ構築が node を作るのに読む。
     pub(crate) fn records(&self) -> impl Iterator<Item = &Record> {
         self.records.iter()
     }
 
+    /// 今はまだ試験だけが呼ぶ。
+    #[allow(dead_code)]
     pub(crate) fn get(&self, id: &Id) -> Option<&Record> {
         self.by_id.get(id).map(|&i| &self.records[i])
     }
 
+    /// 今はまだ試験だけが呼ぶ。
+    #[allow(dead_code)]
     pub(crate) fn contains_id(&self, id: &Id) -> bool {
         self.by_id.contains_key(id)
     }
 
-    /// FSL の ID の一覧。
+    /// FSL の ID の一覧。 X05 のグラフ構築が、FSL の ID も node にする
+    /// registry のときに読む。
     pub(crate) fn fsl_ids(&self) -> impl Iterator<Item = &Id> {
         self.fsl_sites.keys()
     }
@@ -284,12 +315,10 @@ fn push_record(
 
 /// ファイルの中の `id = '…'` / `id = "…"` を、行番号に引けるようにする。
 ///
-/// `toml::Table` は行番号を持たないので、ここでだけもう一度読む。 1ファイルにつき
-/// 1回の読み直しで足りる——収集ファイルの項目ごとに読み直さない。
-fn id_lines(path: &Path) -> BTreeMap<String, usize> {
-    let Ok(text) = fs::read_to_string(path) else {
-        return BTreeMap::new();
-    };
+/// `toml::Table` は行番号を持たないので、`Entry::text`（`load_view` がすでに
+/// 読んだ本文）から数え直す。 ここで改めてファイルを読み直さない
+/// ——版から読んだ `Entry` では、作業ツリーを読み直すと版と合わない行番号になる。
+fn id_lines(text: &str) -> BTreeMap<String, usize> {
     let mut out = BTreeMap::new();
     for (n, line) in text.lines().enumerate() {
         let Some(rest) = line.trim().strip_prefix("id") else {
@@ -306,6 +335,7 @@ fn id_lines(path: &Path) -> BTreeMap<String, usize> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
