@@ -568,6 +568,14 @@ pub struct VoiceState {
 #[derive(Debug)]
 pub struct Studio {
     library: Library,
+    /// 起動時にライブラリの置き場所について分かったこと（`DEC-PKG-016`）。
+    ///
+    /// `open` は `library_root` だけを受け取り、この欄の既定は「まだ調べていない」。
+    /// 呼び出し側（`crate::run`）が `library_root` を決める過程で既に調べているので、
+    /// `open` が返した直後に `pub(crate)` の可視性で直接書き込む。 `open` の引数も
+    /// メソッドも増やさない——studio.rs は他の変更と並行して触られるので、
+    /// ここに触れる面を1つに絞る。
+    pub(crate) boot: crate::LibraryBoot,
     /// 使うアライナ（`TR-ALN-03`, `DEC-ALN-008`）。
     ///
     /// MFA のモデルが読めれば MFA、読めなければ退避経路。
@@ -708,6 +716,7 @@ impl Studio {
     pub fn open(library_root: PathBuf) -> Result<Self> {
         Ok(Self {
             library: Library::open(library_root)?,
+            boot: crate::LibraryBoot::default(),
             // 起動時に1度だけ選ぶ（`TGT-ALN-004`。テイクごとに 96MiB を読み直さない）。
             // モデルが無いのはビルドの失敗（`DEC-ALN-016`）。ここで止める。
             aligner: crate::align::Chosen::detect()?,
@@ -733,6 +742,15 @@ impl Studio {
             observed: HashMap::new(),
             ever_previewed: false,
         })
+    }
+
+    /// 起動時にライブラリの置き場所について分かったこと（`DEC-PKG-016`）。
+    ///
+    /// 画面への表示はまだ持たない（表示は T09 の notices）。 ここは検出と結果の
+    /// 保持まで。
+    #[must_use]
+    pub fn boot(&self) -> crate::LibraryBoot {
+        self.boot
     }
 
     /// ライブラリの中身。manifest が読めないものも落とさず返す。

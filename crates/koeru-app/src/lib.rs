@@ -27,6 +27,16 @@ pub mod workers;
 pub use error::{AppError, Result};
 pub use studio::Studio;
 
+/// 起動時にライブラリの置き場所について分かったこと（`DEC-PKG-016`）。
+///
+/// [`Studio`] が保持し、[`Studio::boot`] で読める。 画面への表示はまだ持たない
+/// （表示は T09 の notices）。ここは検出と結果の保持まで。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LibraryBoot {
+    /// ライブラリを置いたファイルシステムの種類。
+    pub fs_kind: storage::FsKind,
+}
+
 /// 画面へ渡すコマンドの一覧。
 ///
 /// `tauri::generate_handler!` ではなくこちらを通す（`DEC-PLT-019`）。
@@ -121,6 +131,9 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
 /// ライブラリはアプリ管理のデータディレクトリ配下に置く（`TR-PKG-37`）。
 /// 利用者に保存先を選ばせない（`TR-PKG-45`）。
 ///
+/// 置き場所は `app_local_data_dir`（`DEC-PKG-016`）。 Windows で `app_data_dir` は
+/// Roaming を指し、ネットワーク上に置かれうる。 macOS と Linux は2つが同じパスを指す。
+///
 /// # Panics
 ///
 /// ブートストラップに失敗したら落ちる。ここは回復する意味が無い層。
@@ -140,10 +153,21 @@ pub fn run() {
             use tauri::Manager as _;
             let root = app
                 .path()
-                .app_data_dir()
-                .expect("アプリのデータディレクトリを取れること")
+                .app_local_data_dir()
+                .expect("アプリのローカルデータディレクトリを取れること")
                 .join("library");
-            let studio = Studio::open(root).expect("ライブラリを開けること");
+
+            let fs_kind = storage::filesystem_kind(&root);
+            if !fs_kind.is_promised() {
+                // 起動時に、約束の外にいることを知らせる（`DEC-PKG-016`）。
+                // 画面への表示はまだ無い（T09 の notices）。
+                tracing::warn!(
+                    fs_kind = fs_kind.as_str(),
+                    "ライブラリがネットワーク上か FAT 系のファイルシステムにある"
+                );
+            }
+            let mut studio = Studio::open(root).expect("ライブラリを開けること");
+            studio.boot = LibraryBoot { fs_kind };
             app.manage(commands::AppState::new(studio));
             Ok(())
         })
