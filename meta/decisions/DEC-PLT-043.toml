@@ -1,0 +1,93 @@
+schema = 'decision'
+id = 'DEC-PLT-043'
+constraint_label = '版はトリガーが進め、読みは別接続のスナップショットで固定する'
+constraint = '一つの query に含まれる project 由来の欄が、同じ一貫した時点（版）を観測すること。書く経路を足すたびに、版を進め忘れる経路が機械の検査に落ちること'
+title = 'project の版は全表への AFTER トリガーが進め、比較は等値だけに限る。coherent read は書き手とは別の読み取り専用接続が WAL の読み取りトランザクションを開いて取る'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '全表への AFTER トリガーが進める。比較は等値だけ',
+  '書く関数それぞれが呼び出しの最後で明示的に版を進める',
+  '`commit_receipts.committed_at` のようなタイムスタンプ列を版の代わりに使う',
+]
+selected = '全表への AFTER トリガーが進める。比較は等値だけ'
+rationale = '''
+T05（`03-task-dag.md` の「ProjectRuntime / coherent read session」）は、GraphQL の
+1つの query に含まれる project 由来の欄（`recording` / `review` / `repertoire` /
+`editor` / `distribution` の各 facet）が同じ版を観測することを要求する
+（`08-graphql-application-contract.md` §5、「`recording` が R42、`review` が R43 に
+なることを禁止する」）。今の `koeru-core` には版という概念そのものが無く、
+`commit_receipts.committed_at` は単なるタイムスタンプで、比較にも一貫読みの
+固定点にも使えない。T05a はこの2つ（版を持つ・一貫して読む）の貯蔵層の土台だけを
+`koeru-core` に置く。`ProjectLease` / `ProjectEpoch` と、facet の遅延解決は
+T05b（`koeru-runtime`）が別に積む。
+
+## 決めたこと
+
+### 1. 版は全表への AFTER トリガーが進める
+
+`project_revision` という1行だけの表を持ち、既存の全表（`project_revision` 自身と
+`__diesel_schema_migrations` を除く）への INSERT / UPDATE / DELETE それぞれに
+AFTER トリガーを張って `value` を進める。
+
+書く関数それぞれが呼び出しの最後で明示的に版を進める案（案2）は、書く経路を
+足したときに進め忘れても機械では検出できない——足し忘れた関数だけが黙って
+版を進めないまま動く。トリガーなら「全表にちょうど3本（ins/upd/del）ある」ことを
+`sqlite_master` から機械的に数えて検査でき（`crates/koeru-core/tests/read_snapshot.rs`、
+`tests/ledger_migration.rs`）、新しい表を足したときにトリガーを張り忘れれば
+その検査が落ちる。
+
+`commit_receipts.committed_at` を流用する案（案3）は、版と呼べるだけの一貫性が無い。
+テイクの確定以外の書き込み（oto の確認、曲バンクの編集、配布の設定など）が
+このタイムスタンプに触れないので、テイク確定をまたがない変更を版の変化として
+検出できない。
+
+**トリガーは1回の書き込みトランザクションの中で複数の行を触りうるので、1回の
+操作で版が2以上進むことがある。** 値は等しいかだけを比べ、大小や差分を比較には
+使わない（`specs/application/schema/shared.graphql` の `Revision`、「等しいかだけを
+比べ、大小を比べない」）。`koeru-core` の `Revision` 型は `Ord` / `PartialOrd` を
+実装しないことでこれを型に強制する。
+
+トリガーはコミットするトランザクションの内側で発火するので、受領証とそれが
+生んだ版は同じトランザクションで確定またはロールバックする（T04 の契約
+「receipt+revision 同 transaction」、`crates/koeru-core/tests/read_snapshot.rs` の
+「テイクの確定失敗はテイクも予定も受領証も版も戻す」）。
+
+### 2. coherent read は別の読み取り専用接続の読み取りトランザクション
+
+`ProjectReadSession`（T05b）が一つの query の間じゅう保つ一貫した読みは、書き手
+（`Ledger`）とは別の SQLite 接続（`LedgerReader`）が WAL の読み取りトランザクションを
+開いて取る（`LedgerSnapshot`）。 書き手の接続を読みにも使い回す案は検討していない
+——書き手のトランザクションと読みのトランザクションが同じ接続の中で競合し、
+録音やテイク確定の書き込みを読みが待たせる（`08-graphql-application-contract.md` の
+「resolver がDBを個別再読込する必要がない」は満たせても、「short writer mutations」
+の契約を破る）。
+
+読み取りトランザクションは `BEGIN DEFERRED` の直後に `project_revision` を読むことで
+開始する。 SQLite の deferred transaction は実際の読み取り版を最初の読み取りが
+走るまで確定しないため、ここが「このスナップショットが以後ずっと見る版」を
+固定する一手になる。 T05b はこの上に、`ReviewQueue` のような in-memory projection を
+版を添えた `Arc` スナップショットとして書き手側から公開する（immutable snapshot）。
+ここでは触れない——T05a はこの版を読める土台までを持つ。
+
+### 3. 版はプロジェクトの貸与（lease）に閉じたスコープ
+
+版の値は同じプロジェクトの同じ開いている貸与（lease）の中でだけ意味を持つ。
+復元・移行（`DEC-PLT-041`）のあとは値が一致しうるが、無害である——再度開くたびに
+T05b が新しい lease（`ProjectLease` / `ProjectEpoch`）を発行し、値の比較は同じ
+lease の中でしか行わない。 版は「lease をまたいで一意な履歴番号」ではなく、
+「同じ lease の中で、書いてから読むまでの間に変化が無かったかを見る番人」である。
+'''
+review_triggers = [
+  '巨大なテイク一括登録が単一トランザクションで数百回のトリガーを起動し、書き込みのレイテンシに無視できない影響が出ると実測されたとき（バッチ化やトリガーの間引きを検討する）',
+  'T05b の `ProjectEpoch` を跨いで版を比較する要求が実際に出たとき（lease スコープの前提が崩れるので、版に lease の識別子を織り込むかを見直す）',
+]
+affects_requirements = [
+  'TR-REC-27',
+]
+affects_decisions = [
+  'DEC-PLT-034',
+  'DEC-PLT-035',
+  'DEC-PLT-041',
+  'DEC-PLT-042',
+]
