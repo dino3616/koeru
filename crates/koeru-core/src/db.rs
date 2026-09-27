@@ -79,9 +79,32 @@ pub enum LedgerError {
         source: diesel::ConnectionError,
     },
 
-    /// マイグレーションが失敗した。
+    /// マイグレーションが失敗した。 元の失敗は捨てず `#[source]` で持つ。
     #[error("スキーマの適用が失敗した")]
-    Migration,
+    Migration {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// バイナリの知っている版のうち、まだ当たっていないものがある（`DEC-PLT-041`）。
+    ///
+    /// `Ledger::open` はここで断る。 移行は [`crate::project::ProjectDir::migrate_ledger`]
+    /// が「控え → 別の世代へ写す → 確かめる → 切り替える」の手順を経てから当てる。
+    #[error("台帳の移行が必要")]
+    MigrationPending,
+
+    /// バイナリの知らない版が当たっている（新しい版で作られた台帳、`DEC-PLT-041`）。
+    ///
+    /// 壊れてはいない——このビルドが読めないだけ（`ProjectError::ManifestVersion` と同じ扱い）。
+    /// 何も書かずに断る。
+    #[error("台帳が新しい版で作られている")]
+    MigrationNewer,
+
+    /// 移行した「別の世代」の写しが `integrity_check` か `foreign_key_check` に落ちた。
+    ///
+    /// 稼働中の台帳には触れていない。 呼び出し側は写しを消すだけでよい。
+    #[error("移行した台帳の確かめが通らない")]
+    MigrationValidation,
 
     /// 指定した行が台帳に無い。
     #[error("行が台帳に無い")]
@@ -117,7 +140,10 @@ impl koeru_failure::Failure for LedgerError {
         match self {
             Self::Db { .. } => "ledger.db_failed",
             Self::Open { .. } => "ledger.open_failed",
-            Self::Migration => "ledger.migration_failed",
+            Self::Migration { .. } => "ledger.migration_failed",
+            Self::MigrationPending => "ledger.migration_pending",
+            Self::MigrationNewer => "ledger.migration_newer",
+            Self::MigrationValidation => "ledger.migration_validation_failed",
             Self::UnknownRow => "ledger.unknown_row",
             Self::UnknownTake => "ledger.unknown_take",
             Self::CaptureAlreadyOpen => "ledger.capture_already_open",
@@ -151,7 +177,17 @@ impl koeru_failure::Failure for LedgerError {
             Self::Db { .. } => Class::Internal,
             // 開けない台帳・適用できないスキーマは、そのプロジェクトを開けないということ。
             // 知らない状態の表記も同じ。 読める形に倒すと、閉じた予定を開いたものとして扱いうる。
-            Self::Open { .. } | Self::Migration | Self::UnknownIntentState => Class::Corrupt,
+            // 移行した写しの確かめ落ちも同じ——保存されたものが壊れており、自動で正常化しない。
+            Self::Open { .. }
+            | Self::Migration { .. }
+            | Self::MigrationValidation
+            | Self::UnknownIntentState => Class::Corrupt,
+            // 移行すれば開けるので「今は受けられない」。 `ProjectDir::migrate_ledger` を
+            // 先に呼ぶのが次の手（`DEC-PLT-041`）。
+            Self::MigrationPending => Class::Rejected,
+            // 新しいビルドが書いたものは壊れていない。このビルドが読めないだけ
+            // （`ProjectError::ManifestVersion` と同じ扱い）。
+            Self::MigrationNewer => Class::Unsupported,
             // 指した行やテイクが無いのは、読んだものが古い。
             Self::UnknownRow | Self::UnknownTake | Self::UnknownCapture | Self::CaptureNotOpen => {
                 Class::Conflict
@@ -408,6 +444,216 @@ pub(crate) fn read_only_url(path: &Path) -> String {
     url
 }
 
+/// migration の状態を調べるための内部表。
+///
+/// `schema.rs` に置かないのは、これが業務データではなく、SQLite 自身
+/// （`sqlite_master`、`pragma_integrity_check`、`pragma_foreign_key_check`）と
+/// `diesel_migrations`（`__diesel_schema_migrations`）が持つ表だから。
+mod migration_introspection {
+    diesel::table! {
+        __diesel_schema_migrations (version) {
+            version -> Text,
+        }
+    }
+
+    diesel::table! {
+        sqlite_master (name) {
+            name -> Text,
+            #[sql_name = "type"]
+            kind -> Text,
+        }
+    }
+
+    diesel::table! {
+        pragma_integrity_check (integrity_check) {
+            integrity_check -> Text,
+        }
+    }
+
+    diesel::table! {
+        pragma_foreign_key_check (fkid) {
+            fkid -> BigInt,
+        }
+    }
+}
+
+/// 台帳の migration の状態（`DEC-PLT-041`）。 読み取り専用で開いて分かる範囲だけを持つ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MigrationState {
+    /// migration 表がまだ無い新規の台帳。 空のまま作られてよい。
+    Fresh,
+    /// バイナリの知っている版がすべて当たっている。
+    Current,
+    /// バイナリの知っている版のうち、まだ当たっていないものがある。 移行が要る。
+    Pending,
+    /// バイナリの知らない版が当たっている（新しい版で作られた）。
+    Newer,
+}
+
+fn migrations_table_exists(conn: &mut SqliteConnection) -> Result<bool> {
+    use migration_introspection::sqlite_master::dsl::{kind, name, sqlite_master};
+    let n: i64 = sqlite_master
+        .filter(name.eq("__diesel_schema_migrations"))
+        .filter(kind.eq("table"))
+        .count()
+        .get_result(conn)
+        .map_err(db("migrations_table_exists"))?;
+    Ok(n > 0)
+}
+
+fn applied_migration_versions(conn: &mut SqliteConnection) -> Result<BTreeSet<String>> {
+    use migration_introspection::__diesel_schema_migrations::dsl::{
+        __diesel_schema_migrations, version,
+    };
+    Ok(__diesel_schema_migrations
+        .select(version)
+        .load::<String>(conn)
+        .map_err(db("applied_migrations"))?
+        .into_iter()
+        .collect())
+}
+
+/// バイナリに埋め込まれている migration の版。
+///
+/// `EmbeddedMigrations::migrations` は埋め込みの定数を読むだけで、実際に失敗することは
+/// 無い。 それでも `?` で畳めるよう、`Ledger::open` の適用と同じ [`LedgerError::Migration`]
+/// へ写す。
+fn known_migration_versions() -> Result<BTreeSet<String>> {
+    use diesel::migration::MigrationSource;
+    let migrations: Vec<Box<dyn diesel::migration::Migration<diesel::sqlite::Sqlite>>> = MIGRATIONS
+        .migrations()
+        .map_err(|source| LedgerError::Migration { source })?;
+    Ok(migrations
+        .into_iter()
+        .map(|m| m.name().version().to_string())
+        .collect())
+}
+
+/// 開いている接続から migration の状態を読む。 書かない。
+fn migration_state_of(conn: &mut SqliteConnection) -> Result<MigrationState> {
+    if !migrations_table_exists(conn)? {
+        return Ok(MigrationState::Fresh);
+    }
+    let applied = applied_migration_versions(conn)?;
+    let known = known_migration_versions()?;
+    // 知らない版が1つでもあれば、素性の分からない未来の台帳。まず断る。
+    if applied.iter().any(|v| !known.contains(v)) {
+        return Ok(MigrationState::Newer);
+    }
+    if known.iter().any(|v| !applied.contains(v)) {
+        return Ok(MigrationState::Pending);
+    }
+    Ok(MigrationState::Current)
+}
+
+/// `path` の台帳を読み取り専用で開き、migration の状態を返す。 書かない——
+/// `Ledger::open` の前に、一覧（`Studio::library`）や移行の手順が安全に呼べる。
+///
+/// # Errors
+///
+/// 台帳を SQLite として開けない、状態を読む問い合わせが失敗する。
+pub fn migration_state(path: &Path) -> Result<MigrationState> {
+    let mut conn = SqliteConnection::establish(&read_only_url(path))
+        .map_err(|source| LedgerError::Open { source })?;
+    migration_state_of(&mut conn)
+}
+
+/// 台帳に当たっている版のうち最も新しいもの。 migration 表が無ければ `None`。
+///
+/// 読み取り専用で開く。 失敗の記録に載せる版のヒントを取るためだけに使う
+/// （`ProjectDir::migrate_ledger`）。
+///
+/// # Errors
+///
+/// 台帳を SQLite として開けない、問い合わせが失敗する。
+pub fn latest_applied_version(path: &Path) -> Result<Option<String>> {
+    let mut conn = SqliteConnection::establish(&read_only_url(path))
+        .map_err(|source| LedgerError::Open { source })?;
+    if !migrations_table_exists(&mut conn)? {
+        return Ok(None);
+    }
+    Ok(applied_migration_versions(&mut conn)?.into_iter().max())
+}
+
+/// バイナリが知っている版のうち最も新しいもの。
+///
+/// # Errors
+///
+/// 埋め込みの migration を読めない（実際には起きない。[`known_migration_versions`] 参照）。
+pub fn latest_known_version() -> Result<String> {
+    Ok(known_migration_versions()?
+        .into_iter()
+        .max()
+        .unwrap_or_default())
+}
+
+/// 稼働中の台帳を `wal_checkpoint(TRUNCATE)` で切り詰める。
+///
+/// 移行の前に呼ぶ（[`crate::project::ProjectDir::migrate_ledger`]）。 古い `-wal` が
+/// 新しい台帳へ当たると壊れるので、写す前に必ず空にする。
+///
+/// # Errors
+///
+/// 開けない、`wal_checkpoint` が失敗する。
+pub fn checkpoint_wal(path: &Path) -> Result<()> {
+    let url = path.to_string_lossy().into_owned();
+    let mut conn =
+        SqliteConnection::establish(&url).map_err(|source| LedgerError::Open { source })?;
+    diesel::sql_query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&mut conn)
+        .map_err(db("wal_checkpoint"))?;
+    Ok(())
+}
+
+/// 「別の世代」の写し（`path`）へ migration を当て、確かめる。
+///
+/// 呼び出し側が用意した写しにだけ当てる。 稼働中の台帳は直接触らない——ここで失敗しても、
+/// 呼び出し側はこのファイルを消すだけで稼働中の台帳に触れない。
+///
+/// 確かめるのは `integrity_check` と `foreign_key_check` だけ。 **`DEC-PLT-041` の
+/// 「行の並びから録る対象へ写せるか」の検査は、写す段がまだ無い今は足さない**
+/// ——写す段を実装するときに、ここへ足す場所。
+///
+/// 最後に `wal_checkpoint(TRUNCATE)` → `journal_mode = DELETE` にしてから閉じる。
+/// `-wal` / `-shm` を残さない。
+///
+/// # Errors
+///
+/// migration の適用が失敗する（[`LedgerError::Migration`]）、`integrity_check` /
+/// `foreign_key_check` が違反を報告する（[`LedgerError::MigrationValidation`]）。
+pub fn migrate_and_validate(path: &Path) -> Result<()> {
+    let url = path.to_string_lossy().into_owned();
+    let mut conn =
+        SqliteConnection::establish(&url).map_err(|source| LedgerError::Open { source })?;
+    diesel::sql_query("PRAGMA foreign_keys = ON")
+        .execute(&mut conn)
+        .map_err(db("foreign_keys"))?;
+    conn.run_pending_migrations(MIGRATIONS)
+        .map_err(|source| LedgerError::Migration { source })?;
+
+    use migration_introspection::{pragma_foreign_key_check, pragma_integrity_check};
+    let bad_integrity: i64 = pragma_integrity_check::table
+        .filter(pragma_integrity_check::integrity_check.ne("ok"))
+        .count()
+        .get_result(&mut conn)
+        .map_err(db("integrity_check"))?;
+    let bad_fk: i64 = pragma_foreign_key_check::table
+        .count()
+        .get_result(&mut conn)
+        .map_err(db("foreign_key_check"))?;
+    if bad_integrity != 0 || bad_fk != 0 {
+        return Err(LedgerError::MigrationValidation);
+    }
+
+    diesel::sql_query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&mut conn)
+        .map_err(db("wal_checkpoint"))?;
+    diesel::sql_query("PRAGMA journal_mode = DELETE")
+        .execute(&mut conn)
+        .map_err(db("journal_mode_delete"))?;
+    Ok(())
+}
+
 /// 行の出どころ（`TR-RCL-18` (g)）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowOrigin {
@@ -600,7 +846,17 @@ impl std::fmt::Debug for Ledger {
 }
 
 impl Ledger {
-    /// 開いてスキーマを適用する。
+    /// 開いてスキーマを適用する。**今の版の台帳と、まだ何も版が無い新規の台帳だけを開く**
+    /// （`DEC-PLT-041`）。
+    ///
+    /// バイナリの知っている版のうち当たっていないものがあれば
+    /// [`LedgerError::MigrationPending`] で断る——移行は
+    /// [`crate::project::ProjectDir::migrate_ledger`] の「控え → 別の世代へ写す →
+    /// 確かめる → 切り替える」を経てから当てる。ここで黙って当てると、一覧を
+    /// 出しただけで台帳が書き換わる（一覧は読み取り専用で開く）。
+    ///
+    /// バイナリの知らない版が当たっていれば [`LedgerError::MigrationNewer`] で断る。
+    /// 新しいビルドが書いたものは壊れていないので、何も書かない。
     ///
     /// WAL モードにする（`TR-REC-27`）。書き込み中に読めるようにして、
     /// 収録とバックグラウンドの解析が互いを待たないようにする。
@@ -616,8 +872,14 @@ impl Ledger {
         diesel::sql_query("PRAGMA foreign_keys = ON")
             .execute(&mut conn)
             .map_err(db("foreign_keys"))?;
+        match migration_state_of(&mut conn)? {
+            // 新規はこれまでどおり全部当てて作る。今の版は当てても何もしない。
+            MigrationState::Fresh | MigrationState::Current => {}
+            MigrationState::Pending => return Err(LedgerError::MigrationPending),
+            MigrationState::Newer => return Err(LedgerError::MigrationNewer),
+        }
         conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|_| LedgerError::Migration)?;
+            .map_err(|source| LedgerError::Migration { source })?;
         Ok(Self { conn })
     }
 
