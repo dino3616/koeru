@@ -410,7 +410,7 @@ package = 'koeru-app'
 target = 'device_loss'
 platforms = ['macos']
 backends = ['native']
-min_cases = 6
+min_cases = 7
 manual = 1
 contracts = ['TR-REC-04', 'REQ-REC-109', 'INV-REC-101', 'DEC-REC-011']
 

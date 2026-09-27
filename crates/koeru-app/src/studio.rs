@@ -1744,6 +1744,9 @@ impl Studio {
     ///
     /// ストリームはテイクごとに開閉しない（`REQ-REC-102`）。
     /// 収録画面を離れるまで持ち続ける。
+    ///
+    /// 本人が明示的に選ぶ経路。 選択を必ず作り直す
+    /// ——見失っていたデバイスの自動復帰は [`Self::on_device_returned`] が別に持つ。
     #[tracing::instrument(skip(self))]
     pub fn arm_device(&mut self, device: &DeviceId) -> Result<mac::MicrophoneMode> {
         if self.recording.is_some() {
@@ -1765,6 +1768,10 @@ impl Studio {
          * 答えてしまう。** 画面は新しく選んだほうを出したまま、録る手前の
          * 開き直しが前のデバイスを開く——**別のマイクで録れてしまう。**
          * 開けたときに下で入れ直す。
+         *
+         * 本人が選び直す経路だからこそ、ここで手放してよい。 見失っていた
+         * デバイスの自動復帰（[`Self::on_device_returned`]）はここを通らない
+         * ——再オープンに失敗しても選択を手放さない（`REQ-REC-109`）。
          */
         self.device = None;
 
@@ -1774,6 +1781,26 @@ impl Studio {
         // 既存の機械を無理に巻き戻さない。 巻き戻す遷移は仕様に無い。
         self.session = Session::new();
 
+        self.open_armed_stream(device, SelectionOrigin::Fresh)
+    }
+
+    /// 実際にストリームを開き、`CaptureLease` を組み立てる（`arm_device` の本体）。
+    ///
+    /// 呼び出し側が、ここへ入る前にデバイスの選択（`session` を `Selected` へ
+    /// 進める段取り）を済ませていることは要らない——その FSL の遷移
+    /// （`select_device` か `same_device_returned` か）は [`SelectionOrigin`] で
+    /// 指定し、ここが `mac::open` の成否を確かめたあとに行う。
+    ///
+    /// **この順序が要る。** `mac::open` は失敗しうる（実機が無い、抜けたままなど）。
+    /// 先に FSL の遷移を済ませてしまうと、失敗したときに「選択したのに開けて
+    /// いない」半端な状態が残る。 自動復帰（[`SelectionOrigin::Returned`]）は
+    /// これに頼っている——失敗しても `Lost` のまま、`self.device` も保つので、
+    /// 次にデバイス一覧が動いたときにまた試せる（`REQ-REC-109`）。
+    fn open_armed_stream(
+        &mut self,
+        device: &DeviceId,
+        origin: SelectionOrigin,
+    ) -> Result<mac::MicrophoneMode> {
         let open = self.opened_mut()?;
         // 前に決めたチャンネルを引き継ぐ（`TR-REC-06`）。テイクごとに違う経路から
         // 録った素材が混ざると、合成したときに音色が揃わない。
@@ -1783,6 +1810,7 @@ impl Studio {
             .map_or(0, |c| c.source_channel);
 
         // セッションは録音条件のスナップショット（`TR-REC-30`）。
+        // ここで失敗しても、呼び出し側の状態はまだ何も変えていない。
         let (cap, consumer) = mac::open(device, 48_000 * RING_SECONDS)?;
         let format = cap.format();
         let mode = mac::active_microphone_mode();
@@ -1812,8 +1840,12 @@ impl Studio {
         })?;
         open.session_id = session_id;
 
-        // 状態機械を手順どおりに進める。
-        self.session.select_device(device.clone())?;
+        // 状態機械を手順どおりに進める。 ここまで来れば `mac::open` は成功している
+        // ので、FSL の遷移を踏んでよい。
+        match origin {
+            SelectionOrigin::Fresh => self.session.select_device(device.clone())?,
+            SelectionOrigin::Returned => self.session.same_device_returned(device)?,
+        }
         self.session.open_stream()?;
         if mode.is_clean() {
             self.session.effects_all_disabled()?;
@@ -5282,18 +5314,26 @@ impl Studio {
     /// 自動では録音を始めない。 別のデバイスへも自動で切り替えない
     /// ——ここに来るのは同一識別子が生きているときだけ（[`device_transition`]）。
     ///
-    /// 再び開くのは既存の `arm_device` の経路（`REQ-REC-102` の手順をそのまま
-    /// 通す）。 失敗したら（実機が無い、抜けたままなど）ここで諦める——
-    /// `arm_device` は失敗の手前で `self.device` を一度 `None` にするので、
-    /// 選択そのものが失われる。 次に一覧が動いても自動では拾い直さず、
-    /// 本人が明示的に選び直す、いつもの経路に戻る。
+    /// `arm_device` は呼ばない。 あれは本人が明示的に選ぶ経路で、
+    /// 呼んだ時点で選択（`self.device`）を手放す——再オープンが実機の
+    /// 都合で失敗しうる自動復帰にそのまま使うと、失敗するたびに選択が
+    /// 失われ、二度と自動では拾い直せなくなる（**踏んだ**）。
+    ///
+    /// 代わりに [`Self::open_armed_stream`] を直接呼ぶ。 `SelectionOrigin::Returned`
+    /// を渡すので、`mac::open` が成功するまで `Session::same_device_returned` を
+    /// 呼ばない——失敗している間は `self.device` も `Session` の `Lost` も
+    /// 崩れないので、次にデバイス一覧が動いたとき（`Studio::check_device`）に
+    /// また同じ経路で試せる。 USB の抜き差しでは、一覧に出てから実際に
+    /// 開けるようになるまで間があるので、1回目の再オープンが失敗する経路が
+    /// 現実にある。
     fn on_device_returned(&mut self, id: &DeviceId) -> Result<()> {
-        tracing::info!("見失っていたデバイスが戻った");
-        // FSL の遷移をまず踏む（`REQ-REC-109` の「同一識別子のデバイスが戻ったときだけ」）。
-        // このあと `arm_device` がセッションを丸ごと作り直すので実利は薄いが、
-        // 前提をここでも検査しておく。
-        self.session.same_device_returned(id)?;
-        self.arm_device(id)?;
+        tracing::info!("見失っていたデバイスが戻ったので、再オープンを試みる");
+        if let Err(e) = self.open_armed_stream(id, SelectionOrigin::Returned) {
+            // 選択と `Lost` はここでは崩れていない（`open_armed_stream` の doc）。
+            // 次にデバイス一覧が動いたとき、また同じ経路で試せる。
+            tracing::warn!("再オープンに失敗した。次のデバイス一覧の変化を待つ");
+            return Err(e);
+        }
         self.probe_input(DEVICE_RETURN_PROBE_MS)?;
         Ok(())
     }
@@ -5386,6 +5426,19 @@ impl Studio {
             Device::Lost => "lost",
         }
     }
+}
+
+/// `Studio::open_armed_stream` に、どの FSL の遷移でストリームへ辿り着いたかを渡す。
+///
+/// `mac::open` の成否を確かめたあとにしか使わない——先に踏むと、
+/// 開けなかったときに「選択したのに開けていない」半端な状態が残る。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionOrigin {
+    /// 本人が明示的に選んだ（`arm_device`）。 `Session::select_device` を使う。
+    Fresh,
+    /// 見失っていた同じデバイスが戻った（`Studio::on_device_returned`）。
+    /// `Session::same_device_returned` を使う。
+    Returned,
 }
 
 /// 一覧の変化のあと、選択済みデバイスの生死からどちらへ動くかを決める

@@ -19,7 +19,9 @@ use koeru_audio::DeviceId;
 
 /// 実在しない識別子。 「同じ識別子で再び開く」ときに `mac::open` が
 /// `DeviceNotFound` で断ることを、実機無しでそのまま再現できる
-/// ——`on_device_returned` が実際に呼ぶ `arm_device` の失敗をここで観測する。
+/// ——`on_device_returned` が呼ぶ `open_armed_stream` の失敗をここで観測する。
+/// USB の抜き差しで、一覧に出てから実際に開けるようになるまで間がある
+/// ケースの写し（1回目の再オープンが失敗する）。
 fn missing_device() -> DeviceId {
     DeviceId::new("koeru-test-device-loss-存在しない識別子")
 }
@@ -103,7 +105,7 @@ fn 見失っている間はストリームが要る操作を専用の符号で�
 }
 
 #[test]
-fn 同じ識別子が戻ると再オープンを試みる() {
+fn 同じ識別子が戻ると再オープンを試みるが失敗しても選択を保つ() {
     let mut studio = project("returns");
     let id = missing_device();
     studio.test_select_device(&id).expect("選べる");
@@ -112,10 +114,9 @@ fn 同じ識別子が戻ると再オープンを試みる() {
     assert_eq!(studio.test_device_state(), "lost");
 
     // 同じ識別子が「生きている」と答えさせる。 実機を積んでいないので、
-    // このあと `on_device_returned` が呼ぶ `arm_device` は
-    // `DeviceNotFound` で失敗する——それでも見張りそのものは落ちない
-    // （`check_device` は失敗を返すが、呼び出し側が握りつぶしてよい設計。
-    // ここでは戻り値を見て、再オープンが試みられたことだけを確かめる）。
+    // `open_armed_stream` の `mac::open` が `DeviceNotFound` で失敗する
+    // ——USB を挿し直した直後、一覧には出たがまだ開けない、という
+    // 現実にある窓を実機無しで再現している。
     studio.test_set_device_alive(true);
     let result = studio.check_device();
     assert!(
@@ -123,12 +124,55 @@ fn 同じ識別子が戻ると再オープンを試みる() {
         "実機が無いので再オープンは失敗する。ここではそれ自体を確かめる"
     );
 
-    // `arm_device` は開く前に選択を一度手放す（本体の doc を参照）。
-    // 再オープンに失敗したので、選択が失われたまま——自動では拾い直さない。
+    // **再オープンに失敗しても選択と `Lost` を手放さない**（`REQ-REC-109`）。
+    // `same_device_returned` は `mac::open` が成功するまで呼ばない
+    // （`Studio::open_armed_stream` の doc）ので、ここで巻き戻る先が無い。
+    assert_eq!(
+        studio.test_device_state(),
+        "lost",
+        "失敗しても Lost のまま。次の一覧の変化でまた試せる"
+    );
     let (chosen_id, armed, recording) = studio.chosen_device().expect("読める");
+    assert_eq!(
+        chosen_id.as_deref(),
+        Some(id.as_str()),
+        "選択した識別子を覚えたまま"
+    );
     assert!(!armed, "実機が無いのでストリームは開いていない");
     assert!(!recording, "自動では録音を始めない");
-    let _ = chosen_id;
+}
+
+#[test]
+fn 再オープンに繰り返し失敗しても選択と_lost_を保ち続ける() {
+    // USB が挿さり直った直後、何回か一覧の変化が起きても実際に開けるように
+    // なるまで待たされる経路の写し。`check_device` を何度呼んでも、
+    // 選択（`self.device`）と `Lost` は崩れない——崩れると、実際に開けるように
+    // なったときの `check_device` がもう `Returned` を作れなくなる。
+    let mut studio = project("retries");
+    let id = missing_device();
+    studio.test_select_device(&id).expect("選べる");
+    studio.test_set_device_alive(false);
+    studio.check_device().expect("見張りは失敗しない");
+    assert_eq!(studio.test_device_state(), "lost");
+
+    studio.test_set_device_alive(true);
+    for attempt in 1..=3 {
+        assert!(
+            studio.check_device().is_err(),
+            "{attempt} 回目も実機が無いので失敗する"
+        );
+        assert_eq!(
+            studio.test_device_state(),
+            "lost",
+            "{attempt} 回目のあとも Lost"
+        );
+        let (chosen_id, _, _) = studio.chosen_device().expect("読める");
+        assert_eq!(
+            chosen_id.as_deref(),
+            Some(id.as_str()),
+            "{attempt} 回目のあとも選択を覚えている"
+        );
+    }
 }
 
 #[test]
@@ -162,8 +206,11 @@ fn 見失う前の一覧の変化では何も起こさない() {
 /// 実機で、同一デバイスを本当に抜き差しして戻ってくることを確かめる。
 ///
 /// マイクを一度取り外し、`check_device` が破棄を検知したあと、同じデバイスを
-/// 挿し直して自動で録音を再開できる状態に戻ることを見る。 自動化した手順が
-/// 無いので、手元でしか通せない（`tests/vertical_slice.rs` と同じ扱い）。
+/// 挿し直して自動で録音を再開できる状態に戻ることを見る。 再オープンが
+/// 「失敗してから成功する」経路そのものは
+/// `再オープンに繰り返し失敗しても選択と_lost_を保ち続ける` が実機無しで確かめる
+/// ——ここで見るのは、実機で最終的に本当に開き直ることだけ。
+/// 自動化した手順が無いので、手元でしか通せない（`tests/vertical_slice.rs` と同じ扱い）。
 #[test]
 #[ignore = "マイクの抜き差しが要る実機ハーネス。--ignored を付けて走らせる"]
 fn 実機での抜き差しから復帰できる() {
