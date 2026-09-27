@@ -18,6 +18,7 @@ pub mod error;
 pub mod external;
 pub mod latency;
 pub mod packaging;
+pub mod playback_lease;
 pub mod preview;
 pub mod pump;
 pub mod review;

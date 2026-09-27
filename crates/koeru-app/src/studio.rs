@@ -68,7 +68,8 @@ use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
 use crate::packaging;
-use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
+use crate::playback_lease::PlaybackLease;
+use crate::preview::{self, PhraseCache, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::review::slot_of;
 use crate::storage;
@@ -639,16 +640,14 @@ pub struct Studio {
     /// 全チャンネルに有意な信号があるか（`TR-REC-06`）。
     /// 真のときだけ、本人が「合成する」を選べる。
     may_mix: bool,
-    playback: Option<mac::Playback>,
+    /// 単一の出力枠（`DEC-REC-011`）。 音高提示・基準音・試唱・テイクの再生・
+    /// 曲の試唱が、これを取り合う。 新しい出力を始める前に必ず前を止める。
+    output: PlaybackLease,
     /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
     ///
     /// プロジェクトを開いている間だけ持つ。 素材が変われば鍵が変わるので、
     /// 明示的に捨てなくても古い結果は使われない（`TR-SYN-26`）。
     song_cache: Arc<Mutex<PhraseCache>>,
-    /// 進行中の曲の合成。落とすと止まる（`TR-SYN-27`）。
-    singing: Option<Running>,
-    /// 継ぎ足しながら鳴らしている再生（`TR-SYN-03`）。
-    playback_stream: Option<mac::Playback>,
     /// 集めた F0 系列。話者音域を見るため（`TR-SYN-22`）。
     observed_f0: Vec<Vec<f64>>,
     /// 話者音域から決めた探索下限。まだ分からなければ `None`。
@@ -765,10 +764,8 @@ impl Studio {
             gain_before: None,
             leak: None,
             may_mix: false,
-            playback: None,
+            output: PlaybackLease::new(),
             song_cache: Arc::new(Mutex::new(PhraseCache::new())),
-            singing: None,
-            playback_stream: None,
             observed_f0: Vec::new(),
             f0_floor: None,
             mipmaps: HashMap::new(),
@@ -1983,13 +1980,18 @@ impl Studio {
         self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, rate)?);
+        // 先に止める。 単一の出力枠を取り合う（`DEC-REC-011`）ので、
+        // 曲の試唱が鳴っていればここで止まる。
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, rate)?);
         Ok(())
     }
 
     /// 鳴らしながら録る。回り込みの検査にだけ使う。
     fn play_and_capture(&mut self, played: &[f32], rate: u32) -> Result<Vec<f32>> {
+        // 曲が鳴っている最中に検査すると、測るものに混じって歪む
+        // （`DEC-REC-011`）。 単一の出力枠を先に空ける。
+        self.output.stop();
         let pump = self.pump().ok_or_else(no_stream)?;
         pump.begin_probe();
         let handle = mac::play(played.to_vec(), rate)?;
@@ -2250,8 +2252,8 @@ impl Studio {
         }
         let spec = koeru_core::guide::GuideSpec::tone_reference();
         let pcm = koeru_core::guide::render(&spec, midi, MASTER_RATE_HZ);
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, MASTER_RATE_HZ)?);
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, MASTER_RATE_HZ)?);
         Ok(())
     }
 
@@ -3360,9 +3362,9 @@ impl Studio {
         let (pcm, rate) = self.render_take(take_id, midi, length_ms)?;
         let n = pcm.len();
 
-        // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, rate)?);
+        // 前の出力は止める。 重ねると何を聴いているか分からなくなる（`DEC-REC-011`）。
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, rate)?);
         Ok(n)
     }
 
@@ -4468,26 +4470,20 @@ impl Studio {
         let ms = w.samples.len() as f64 * 1000.0 / f64::from(w.rate_hz);
 
         // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
-        self.playback = None;
-        self.playback = Some(mac::play(w.samples, w.rate_hz)?);
+        self.output.stop();
+        self.output.set_clip(mac::play(w.samples, w.rate_hz)?);
         Ok(ms)
     }
 
     /// 鳴らしている音を止める（`TR-SYN-27`）。
     ///
-    /// 進行中の合成も止める。 200ms 以内に抜ける。
+    /// 進行中の合成も止める。 200ms 以内に抜ける。 合図 → 再生 → 合成の
+    /// 待ち合わせの順は `PlaybackLease`（`crate::playback_lease`）が持つ。
     pub fn stop_preview(&mut self) {
-        // 合図 → 再生 → 合成の待ち合わせの順。 合成のスレッドは、満杯のリングへの
-        // 継ぎ足しで待っていることがある。再生を先に落とせば、その待ちが抜ける。
-        // 合成を先に待つと、鳴らして空くまで待つことになる。
-        if let Some(running) = &self.singing {
-            running.cancel();
-        }
-        self.playback_stream = None;
-        self.singing = None;
-        self.playback = None;
+        self.output.stop();
         // 積んである仕事も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
-        // 前の曲のための前処理を回し続ける意味は無い。
+        // 前の曲のための前処理を回し続ける意味は無い。 これは出力の資源では
+        // なく仕事キューの後始末なので、`PlaybackLease` の外、ここで行う。
         self.workers.clear();
     }
 
@@ -4801,8 +4797,7 @@ impl Studio {
         )
         .map_err(AppError::from_failure)?;
 
-        self.playback_stream = Some(stream);
-        self.singing = Some(running);
+        self.output.set_song(stream, running);
 
         // ## 押してから鳴るまでを測る（`TR-SYN-33`）
         //

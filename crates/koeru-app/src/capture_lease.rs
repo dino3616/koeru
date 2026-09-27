@@ -20,25 +20,29 @@ use crate::pump::{Pump, native_frames_to_master};
 /// 宣言順に頼らない。 `ManuallyDrop` で自前の `Drop` を書き、`first` を必ず
 /// `second` より先に落とす。 フィールドの並びを入れ替えても順序が壊れないので、
 /// `Studio` が手作業の順序を守っていたときのように「踏む」余地が無い。
+///
+/// `pub(crate)` にしてある。 `crate::playback_lease` も同じ形（曲の試唱は
+/// 再生 → 合成の待ち合わせの順で落ちる）を要るので、ここへ寄せて2つ目を
+/// 書かない。
 #[derive(Debug)]
-struct DropFirst<A, B> {
+pub(crate) struct DropFirst<A, B> {
     first: std::mem::ManuallyDrop<A>,
     second: std::mem::ManuallyDrop<B>,
 }
 
 impl<A, B> DropFirst<A, B> {
-    const fn new(first: A, second: B) -> Self {
+    pub(crate) const fn new(first: A, second: B) -> Self {
         Self {
             first: std::mem::ManuallyDrop::new(first),
             second: std::mem::ManuallyDrop::new(second),
         }
     }
 
-    fn first(&self) -> &A {
+    pub(crate) fn first(&self) -> &A {
         &self.first
     }
 
-    fn second(&self) -> &B {
+    pub(crate) fn second(&self) -> &B {
         &self.second
     }
 }
