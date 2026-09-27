@@ -293,6 +293,20 @@ fn insert_rows(
     Ok(inserted)
 }
 
+/// 台帳に書く相対パスの表記。 OS に依らず `/` 区切りにする。
+///
+/// テイクと予定の場所は、書くときも比べるときもここを通す。 **Windows では `\` 区切りの
+/// 場所を書き、`/` 区切りで比べていた**ので、ファイルの無い予定の名前を次の録音が使い直した。
+/// 読むときは `Path::join` がどちらの区切りも受けるので、書き直さずに済む。
+#[must_use]
+pub fn ledger_path(rel: &str) -> std::borrow::Cow<'_, str> {
+    if rel.contains('\\') {
+        std::borrow::Cow::Owned(rel.replace('\\', "/"))
+    } else {
+        std::borrow::Cow::Borrowed(rel)
+    }
+}
+
 /// テイクの行を1つ足す。 返すのはテイクの ID。 呼び出し側のトランザクションの中で呼ぶ。
 ///
 /// 有効なテイクなら採用を新しい方へ切り替える。過去のテイクは残る（`TR-REC-21`）。
@@ -304,7 +318,7 @@ fn insert_take_row(c: &mut SqliteConnection, t: &FinalizedTake, valid: bool) -> 
         .first::<Option<i32>>(c)?
         .unwrap_or(0)
         + 1;
-    let rel_path = t.rel_path.replace('\\', "/");
+    let rel_path = ledger_path(&t.rel_path);
     diesel::insert_into(takes::table)
         .values((
             takes::row_id.eq(&t.row_id),
@@ -1513,21 +1527,21 @@ impl Ledger {
     ///
     /// 提示するだけ。DB へ自動で書き戻さない（`TR-REC-31` の「自動修復しない」）。
     /// 本人が採るか捨てるまで消えない。
+    ///
+    /// 比べるのは区切りを揃えた表記（[`ledger_path`]）。 この版より前に Windows で書いた
+    /// テイクは `\` 区切りで台帳に入っている。
     #[tracing::instrument(skip(self, on_disk), fields(files = on_disk.len()))]
     pub fn find_orphans(&mut self, on_disk: &[String]) -> Result<Vec<String>> {
         let known: BTreeSet<String> = takes::table
             .select(takes::rel_path)
             .load::<String>(&mut self.conn)
             .map_err(db("known_paths"))?
-            .into_iter()
-            .map(|p| p.replace('\\', "/"))
+            .iter()
+            .map(|p| ledger_path(p).into_owned())
             .collect();
         Ok(on_disk
             .iter()
-            .filter(|p| {
-                let norm = p.replace('\\', "/");
-                !known.contains(&norm)
-            })
+            .filter(|p| !known.contains(ledger_path(p).as_ref()))
             .cloned()
             .collect())
     }
