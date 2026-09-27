@@ -552,8 +552,29 @@ pub struct LibraryEntry {
     pub id: Uuid,
     /// manifest が読めなければ `None`。
     pub manifest: Option<Manifest>,
-    /// 台帳から読めた到達度。読めなければ `None`。
+    /// 台帳から読めた到達度。読めなければ `None`。 `migration` が `Current`
+    /// でないときは読まない——一覧は読み取り専用で開き、台帳を移行しない。
     pub state: Option<VoiceState>,
+    /// 台帳の migration の状態（`DEC-PLT-041`）。
+    pub migration: LibraryMigrationState,
+}
+
+/// 一覧に出す、台帳の migration の状態。 読み取り専用で開いて分かる範囲だけ。
+///
+/// 一覧はここで移行しない（`open_project` が移行する）。 `Current` のときだけ
+/// [`LibraryEntry::state`] を読む。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LibraryMigrationState {
+    /// 今の版（または台帳がまだ無い新規）。
+    Current,
+    /// バイナリの知っている版のうち、まだ当たっていないものがある。 開けば移行する。
+    Pending,
+    /// バイナリの知らない版で作られている。 このビルドでは開けない。
+    Newer,
+    /// 前回の移行が失敗した記録が残っている。 `project.db` は移行前のまま。
+    Failed { code: String },
+    /// 台帳の状態を読めなかった（開けない、壊れている）。
+    Unknown,
 }
 
 /// 音源のいまの姿。環と色に要るもの一式。
@@ -583,6 +604,14 @@ pub struct VoiceState {
 #[derive(Debug)]
 pub struct Studio {
     library: Library,
+    /// 起動時にライブラリの置き場所について分かったこと（`DEC-PKG-016`）。
+    ///
+    /// `open` は `library_root` だけを受け取り、この欄の既定は「まだ調べていない」。
+    /// 呼び出し側（`crate::run`）が `library_root` を決める過程で既に調べているので、
+    /// `open` が返した直後に `pub(crate)` の可視性で直接書き込む。 `open` の引数も
+    /// メソッドも増やさない——studio.rs は他の変更と並行して触られるので、
+    /// ここに触れる面を1つに絞る。
+    pub(crate) boot: crate::LibraryBoot,
     /// 使うアライナ（`TR-ALN-03`, `DEC-ALN-008`）。
     ///
     /// MFA のモデルが読めれば MFA、読めなければ退避経路。
@@ -723,6 +752,7 @@ impl Studio {
     pub fn open(library_root: PathBuf) -> Result<Self> {
         Ok(Self {
             library: Library::open(library_root)?,
+            boot: crate::LibraryBoot::default(),
             // 起動時に1度だけ選ぶ（`TGT-ALN-004`。テイクごとに 96MiB を読み直さない）。
             // モデルが無いのはビルドの失敗（`DEC-ALN-016`）。ここで止める。
             aligner: crate::align::Chosen::detect()?,
@@ -746,6 +776,15 @@ impl Studio {
             observed: HashMap::new(),
             ever_previewed: false,
         })
+    }
+
+    /// 起動時にライブラリの置き場所について分かったこと（`DEC-PKG-016`）。
+    ///
+    /// 画面への表示はまだ持たない（表示は T09 の notices）。 ここは検出と結果の
+    /// 保持まで。
+    #[must_use]
+    pub fn boot(&self) -> crate::LibraryBoot {
+        self.boot
     }
 
     /// ライブラリの中身。manifest が読めないものも落とさず返す。
@@ -889,9 +928,14 @@ impl Studio {
 
     /// ライブラリを、環と色まで含めて挙げる（`Q-RCL-004`）。
     ///
-    /// 音源ごとに台帳を開く。 [`Self::projects`] は manifest しか読まないので、
-    /// 到達度も環も出せない——名前と数字の行になる。開いている音源の台帳とは別に、
-    /// ここで一時的に開いて読み、閉じる。
+    /// 音源ごとに台帳を**読み取り専用で**開く（`DEC-PLT-041`）。 [`Self::projects`] は
+    /// manifest しか読まないので、到達度も環も出せない——名前と数字の行になる。
+    /// 開いている音源の台帳とは別に、ここで一時的に開いて読み、閉じる。
+    ///
+    /// **一覧では移行しない。** 台帳の migration の状態を [`LibraryEntry::migration`]
+    /// に出すだけで、`Current` のときだけ今までどおり [`LibraryEntry::state`] を読む。
+    /// 移行が要る台帳を一覧を出すだけで書き換えると、一覧を開いただけで
+    /// 全プロジェクトが黙って移行されることになる。移行するのは `open_project`。
     ///
     /// 読めない音源も落とさない。 manifest が壊れていても席は残す
     /// （`crate::studio::Studio::projects` と同じ扱い）。
@@ -916,17 +960,22 @@ impl Studio {
                     },
                     preset_of,
                 );
-                // 開いていない音源でも、綴りはその音源のものを使う（`TR-SYN-36`）。
-                // 台帳の写しから読む（`DEC-SYN-013`）。 フォルダの控えは読まない
-                // ——書き換えられたままの表で数えると、開いたときと数が変わる。
-                let state = Ledger::open(dir.db_path()).ok().and_then(|mut l| {
-                    let rules = rules_of(&mut l, preset.set).ok()?;
-                    voice_state(&mut l, &rules, preset).ok()
-                });
+                let migration = library_migration_state(&dir);
+                // 今の版のときだけ、開いていない音源でも綴りはその音源のものを使う
+                // （`TR-SYN-36`）。 台帳の写しから読む（`DEC-SYN-013`）。 フォルダの控えは
+                // 読まない——書き換えられたままの表で数えると、開いたときと数が変わる。
+                let state = matches!(migration, LibraryMigrationState::Current)
+                    .then(|| Ledger::open(dir.db_path()).ok())
+                    .flatten()
+                    .and_then(|mut l| {
+                        let rules = rules_of(&mut l, preset.set).ok()?;
+                        voice_state(&mut l, &rules, preset).ok()
+                    });
                 LibraryEntry {
                     id: dir.id(),
                     manifest,
                     state,
+                    migration,
                 }
             })
             .collect())
@@ -1005,6 +1054,10 @@ impl Studio {
     ///
     /// 開くときに、落ちたあとに残ったものを見て回る（`koeru_core::capture::verify`）。
     /// 孤児は予定と突き合わせて [`Self::capture_report`] に並べるだけで、採りも消しもしない。
+    ///
+    /// **移行はここで走らせる。** 一覧（[`Self::library`]）は読み取り専用で状態を
+    /// 出すだけで、台帳を書き換えない（`DEC-PLT-041`）。 移行できない・新しい版の
+    /// 台帳は、型のついた失敗で断って開かない。
     #[tracing::instrument(skip(self))]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
         if let Some(open) = &self.open {
@@ -1021,6 +1074,7 @@ impl Studio {
             self.disarm();
         }
         let dir = self.library.open_project(id)?;
+        dir.migrate_ledger()?;
         let mut ledger = Ledger::open(dir.db_path())?;
         // 落ちたときに録音に使っていた予定へ印を付け、孤児を予定と突き合わせる（`TR-REC-28`）。
         // 見て回れなくても開く。 読めるものまで読めなくしない。 印を付けられなかった予定が
@@ -5101,6 +5155,25 @@ fn rules_of(
         || koeru_core::presamp::Rules::builtin(set),
         |t| koeru_core::presamp::parse(&t).or_builtin(set),
     ))
+}
+
+/// ライブラリの一覧に出す migration の状態（`DEC-PLT-041`）。
+///
+/// **`Studio` の外に置く。** 開いていない音源にも呼ぶので `self` に紐づかない
+/// （`preset_of` と同じ理由）。 前回の移行が失敗した記録があれば、それを優先して出す
+/// ——台帳は移行前のままなので、状態を読んでも `Pending` にしかならない。
+fn library_migration_state(dir: &koeru_core::project::ProjectDir) -> LibraryMigrationState {
+    if let Some(failure) = dir.migration_failure() {
+        return LibraryMigrationState::Failed { code: failure.code };
+    }
+    match koeru_core::db::migration_state(&dir.db_path()) {
+        Ok(koeru_core::db::MigrationState::Fresh | koeru_core::db::MigrationState::Current) => {
+            LibraryMigrationState::Current
+        }
+        Ok(koeru_core::db::MigrationState::Pending) => LibraryMigrationState::Pending,
+        Ok(koeru_core::db::MigrationState::Newer) => LibraryMigrationState::Newer,
+        Err(_) => LibraryMigrationState::Unknown,
+    }
 }
 
 /// manifest から方式プリセットを引く（`TR-RCL-01`）。

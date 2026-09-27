@@ -357,6 +357,9 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "found",
     // 見つかった件数。数だけ。
     "frames",
+    // ライブラリを置いたファイルシステムの種類（`storage::FsKind::as_str`、
+    // `DEC-PKG-016`）。固定の語彙で、置き場所そのものではない。
+    "fs_kind",
     "id",
     "in_bank",
     "index",

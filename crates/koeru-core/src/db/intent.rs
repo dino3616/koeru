@@ -20,7 +20,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use uuid::Uuid;
 
-use super::{FinalizedTake, Ledger, LedgerError, Result, db, insert_take_row};
+use super::{FinalizedTake, Ledger, LedgerError, Result, db, insert_take_row, ledger_path};
 use crate::schema::{capture_intents, commit_receipts};
 
 /// 閉じていない予定の状態の表記。 FSL の `open` に数えるもの。
@@ -402,13 +402,13 @@ pub(super) fn close_undeclared(
     take_id: i32,
 ) -> QueryResult<()> {
     let capture = CaptureId::generate();
-    let rel_path = t.rel_path.replace('\\', "/");
+    let rel_path = ledger_path(&t.rel_path);
     diesel::insert_into(capture_intents::table)
         .values((
             capture_intents::capture_id.eq(capture.as_str()),
             capture_intents::row_id.eq(&t.row_id),
             capture_intents::session_id.eq(t.session_id),
-            capture_intents::rel_path.eq(&rel_path),
+            capture_intents::rel_path.eq(rel_path.as_ref()),
             capture_intents::declared_at.eq(&t.recorded_at),
             capture_intents::state.eq(IntentState::Committed.as_str()),
             capture_intents::closed_at.eq(&t.recorded_at),
@@ -438,13 +438,7 @@ impl Ledger {
     #[tracing::instrument(skip(self, n), fields(row = %n.row_id))]
     pub fn declare_capture(&mut self, n: &NewIntent<'_>) -> Result<()> {
         self.require_row(n.row_id)?;
-        let normalized_path;
-        let rel_path = if n.rel_path.contains('\\') {
-            normalized_path = n.rel_path.replace('\\', "/");
-            &normalized_path
-        } else {
-            n.rel_path
-        };
+        let rel_path = ledger_path(n.rel_path);
         self.conn
             .transaction::<_, Tx, _>(|c| {
                 let busy: i64 = capture_intents::table
@@ -459,7 +453,7 @@ impl Ledger {
                         capture_intents::capture_id.eq(n.capture.as_str()),
                         capture_intents::row_id.eq(n.row_id),
                         capture_intents::session_id.eq(n.session_id),
-                        capture_intents::rel_path.eq(rel_path),
+                        capture_intents::rel_path.eq(rel_path.as_ref()),
                         capture_intents::declared_at.eq(n.declared_at),
                         capture_intents::state.eq(IntentState::Open.as_str()),
                     ))
@@ -653,14 +647,17 @@ impl Ledger {
     /// 台帳を読めない。
     pub fn path_is_taken(&mut self, rel_path: &str) -> Result<bool> {
         use crate::schema::takes;
-        let normalized = rel_path.replace('\\', "/");
+        let normalized = ledger_path(rel_path).into_owned();
         let by_intent: i64 = capture_intents::table
             .filter(capture_intents::rel_path.eq(&normalized))
             .count()
             .get_result(&mut self.conn)
             .map_err(db("path_is_taken"))?;
+        // この版より前に Windows で書いたテイクは `\` 区切りで入っている。 予定の表は
+        // 書くときに揃えるので、`\` 区切りの行は持たない。
+        let legacy = normalized.replace('/', "\\");
         let by_take: i64 = takes::table
-            .filter(takes::rel_path.eq(&normalized))
+            .filter(takes::rel_path.eq_any([&normalized, &legacy]))
             .count()
             .get_result(&mut self.conn)
             .map_err(db("path_is_taken"))?;
@@ -946,6 +943,62 @@ mod tests {
         assert_eq!(l.receipts().expect("読める")[0].take_id, id);
         assert!(l.path_is_taken("audio/a_1.wav").expect("読める"));
         assert!(!l.path_is_taken("audio/a_2.wav").expect("読める"));
+    }
+
+    /// Windows で作った場所（`\` 区切り）を渡されても、台帳には `/` 区切りで書き、
+    /// どちらの区切りで引いても同じ場所として答える。 Windows の CI で、予定の場所を
+    /// `\` で書いて `/` で比べ、ファイルの無い予定の名前を次の録音が使い直した。
+    #[test]
+    fn 区切りの向きが違っても同じ場所として扱う() {
+        let (mut l, rows, sid) = ledger();
+        let capture = declare(&mut l, &rows[0], sid, "audio\\G3\\a_1.wav");
+        let intent = l.intent(&capture).expect("読める").expect("ある");
+        assert_eq!(intent.rel_path, "audio/G3/a_1.wav");
+        assert!(l.path_is_taken("audio/G3/a_1.wav").expect("読める"));
+        assert!(l.path_is_taken("audio\\G3\\a_1.wav").expect("読める"));
+
+        let id = l
+            .commit_take(&FinalizedTake {
+                row_id: rows[1].clone(),
+                session_id: sid,
+                rel_path: "audio\\G3\\b_1.wav".into(),
+                frames: 1,
+                recorded_at: "t".into(),
+            })
+            .expect("載せられる");
+        let take = l.take(id).expect("読める").expect("ある");
+        assert_eq!(take.rel_path, "audio/G3/b_1.wav");
+        assert!(
+            l.find_orphans(&["audio\\G3\\b_1.wav".to_owned()])
+                .expect("読める")
+                .is_empty(),
+            "区切りが違うだけの場所を孤児と言わない"
+        );
+    }
+
+    /// この版より前に Windows で書いたテイクは `\` 区切りで台帳に入っている。
+    /// 書き直さずに、同じ場所として引く。
+    #[test]
+    fn 前の版の区切りで入ったテイクも同じ場所として引く() {
+        use crate::schema::takes;
+        let (mut l, rows, sid) = ledger();
+        diesel::insert_into(takes::table)
+            .values((
+                takes::row_id.eq(&rows[0]),
+                takes::session_id.eq(sid),
+                takes::rel_path.eq("audio\\G3\\a_1.wav"),
+                takes::frames.eq(1_i64),
+                takes::recorded_at.eq("t"),
+                takes::generation.eq(1),
+            ))
+            .execute(&mut l.conn)
+            .expect("書ける");
+        assert!(l.path_is_taken("audio/G3/a_1.wav").expect("読める"));
+        assert!(
+            l.find_orphans(&["audio/G3/a_1.wav".to_owned()])
+                .expect("読める")
+                .is_empty()
+        );
     }
 
     #[test]
