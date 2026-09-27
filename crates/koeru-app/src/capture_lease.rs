@@ -62,19 +62,28 @@ impl<A, B> Drop for DropFirst<A, B> {
 /// キャプチャストリームと排出スレッドをまとめて持つ。
 ///
 /// `Drop` で必ず Pump → Capture の順に落ちる（[`DropFirst`]）。
+///
+/// 選択中デバイスの見張り（[`mac::DeviceWatch`]、`TR-REC-04`）も同じ寿命で持つ。
+/// こちらは `DropFirst` の外に置く——見張りが触るのは CoreAudio の
+/// システムオブジェクトへのリスナ登録で、開いているストリーム本体
+/// （`Pump` / `Capture`）とは別の資源だから、その落ちる順序と揃える必要が無い。
+/// 型で縛っているのは Pump → Capture の順だけで、見張りはどちらの前後に
+/// 落ちても構わない。
 #[derive(Debug)]
 pub struct CaptureLease {
     resources: DropFirst<Pump, mac::Capture>,
+    watch: mac::DeviceWatch,
 }
 
 impl CaptureLease {
-    /// 開いた `Capture` と、そこから読み出す `Pump` をまとめて持つ。
+    /// 開いた `Capture` と、そこから読み出す `Pump`、デバイスの見張りをまとめて持つ。
     ///
     /// 開くこと自体はここの仕事ではない——呼び出し側（`Studio::arm_device`）が
-    /// `mac::open` と `Pump::start` を済ませてから渡す。
-    pub fn new(capture: mac::Capture, pump: Pump) -> Self {
+    /// `mac::open` と `Pump::start`、`mac::watch` を済ませてから渡す。
+    pub fn new(capture: mac::Capture, pump: Pump, watch: mac::DeviceWatch) -> Self {
         Self {
             resources: DropFirst::new(pump, capture),
+            watch,
         }
     }
 
@@ -86,6 +95,14 @@ impl CaptureLease {
     #[must_use]
     pub fn pump(&self) -> &Pump {
         self.resources.first()
+    }
+
+    /// デバイス一覧が変わった回数だけを、`Studio` のロックを取らずに読むための持ち手。
+    ///
+    /// 見張りスレッド（`lib.rs`）が定期的に読む口（`TR-REC-04`）。
+    #[must_use]
+    pub fn device_list_changed_handle(&self) -> mac::DeviceListChangedHandle {
+        self.watch.device_list_changed_handle()
     }
 }
 

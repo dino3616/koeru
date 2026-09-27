@@ -392,6 +392,18 @@ target = 'bin:koeru-app'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 0
 
+[[suite]]
+id = 'SUITE-APP-015'
+title = 'デバイス消失時の破棄と、同一デバイス復帰の検知（実機）'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'device_loss'
+platforms = ['macos']
+backends = ['native']
+min_cases = 6
+manual = 1
+contracts = ['TR-REC-04', 'REQ-REC-109', 'INV-REC-101', 'DEC-REC-011']
+
 # ## xtask
 
 [[suite]]

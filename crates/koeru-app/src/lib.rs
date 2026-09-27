@@ -128,6 +128,52 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
     ])
 }
 
+/// デバイスの見張りスレッドが、一覧の変化を確かめに行く間隔（ミリ秒、`TR-REC-04`）。
+///
+/// RT コールバックではないので、多少の遅れは構わない。 短すぎると起こさなくてよい
+/// スレッドを起こし続け、長すぎると消失に気づくのが遅れる。
+const DEVICE_WATCH_POLL_MS: u64 = 220;
+
+/// デバイス一覧が変わったときだけ `Studio::check_device` を呼ぶ（`TR-REC-04`）。
+///
+/// `finish_take` が `AppState` の `studio` を数秒握ることがあるので、
+/// 変化が無い間は毎周期そこを取りに行かない——読むのはカウンタのアトミックな
+/// load 1回だけ（`commands::AppState::device_watch_count`）。
+///
+/// `stop` が立ったら抜ける。 アプリの終了（`RunEvent::Exit`）で立てる。
+fn watch_devices(handle: &tauri::AppHandle, stop: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::Ordering;
+    use tauri::Manager as _;
+
+    let mut last = 0_usize;
+    while !stop.load(Ordering::Acquire) {
+        std::thread::sleep(std::time::Duration::from_millis(DEVICE_WATCH_POLL_MS));
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
+        let Some(state) = handle.try_state::<commands::AppState>() else {
+            continue;
+        };
+        let Some(count) = state.device_watch_count() else {
+            continue; // まだ一度もデバイスを開いていない。
+        };
+        if count == last {
+            continue;
+        }
+        last = count;
+        match state.lock_studio() {
+            Ok(mut studio) => {
+                if let Err(e) = studio.check_device() {
+                    // 自動の見張りが断られただけ。 画面へは渡さず、その場で記録する
+                    // （持ち主がその場で決めて縮退する経路。`DEC-PLT-038`）。
+                    e.record("device_watch.check");
+                }
+            }
+            Err(e) => e.record("device_watch.check"),
+        }
+    }
+}
+
 /// アプリを起動する。
 ///
 /// ライブラリはアプリ管理のデータディレクトリ配下に置く（`TR-PKG-37`）。
@@ -150,30 +196,48 @@ pub fn run() {
 
     let specta_builder = builder();
 
-    tauri::Builder::default()
-        .setup(|app| {
-            use tauri::Manager as _;
-            let root = app
-                .path()
-                .app_local_data_dir()
-                .expect("アプリのローカルデータディレクトリを取れること")
-                .join("library");
+    // デバイスの見張りスレッドへの停止合図（`TR-REC-04`）。 アプリの終了で立てる。
+    let device_watch_stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-            let fs_kind = storage::filesystem_kind(&root);
-            if !fs_kind.is_promised() {
-                // 起動時に、約束の外にいることを知らせる（`DEC-PKG-016`）。
-                // 画面への表示はまだ無い（T09 の notices）。
-                tracing::warn!(
-                    fs_kind = fs_kind.as_str(),
-                    "ライブラリがネットワーク上か FAT 系のファイルシステムにある"
-                );
+    let app = tauri::Builder::default()
+        .setup({
+            let stop = std::sync::Arc::clone(&device_watch_stop);
+            move |app| {
+                use tauri::Manager as _;
+                let root = app
+                    .path()
+                    .app_local_data_dir()
+                    .expect("アプリのローカルデータディレクトリを取れること")
+                    .join("library");
+
+                let fs_kind = storage::filesystem_kind(&root);
+                if !fs_kind.is_promised() {
+                    // 起動時に、約束の外にいることを知らせる（`DEC-PKG-016`）。
+                    // 画面への表示はまだ無い（T09 の notices）。
+                    tracing::warn!(
+                        fs_kind = fs_kind.as_str(),
+                        "ライブラリがネットワーク上か FAT 系のファイルシステムにある"
+                    );
+                }
+                let mut studio = Studio::open(root).expect("ライブラリを開けること");
+                studio.boot = LibraryBoot { fs_kind };
+                app.manage(commands::AppState::new(studio));
+
+                // デバイスの着脱を見張る（`TR-REC-04`）。 `AppHandle` は
+                // `Clone` + `'static` で、スレッドから `try_state` で
+                // 引き直せる——`Studio` を直に持ち回さない。
+                let handle = app.handle().clone();
+                std::thread::spawn(move || watch_devices(&handle, &stop));
+                Ok(())
             }
-            let mut studio = Studio::open(root).expect("ライブラリを開けること");
-            studio.boot = LibraryBoot { fs_kind };
-            app.manage(commands::AppState::new(studio));
-            Ok(())
         })
         .invoke_handler(specta_builder.invoke_handler())
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Tauri を起動できること");
+
+    app.run(move |_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            device_watch_stop.store(true, std::sync::atomic::Ordering::Release);
+        }
+    });
 }

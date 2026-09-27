@@ -33,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::Channel;
 
+use koeru_audio::backend::current as mac;
 use koeru_failure::Class;
 
 use crate::error::{AppError, Result};
@@ -71,6 +72,12 @@ pub struct AppState {
     pending: Arc<Mutex<Option<crate::workers::PendingHandle>>>,
     /// 送っている流れの世代。新しく始めると、古いものが自分で止まる。
     stream: Arc<AtomicU32>,
+    /// デバイス一覧が変わった回数を読むための持ち手（`TR-REC-04`）。これも `studio` の外。
+    ///
+    /// 見張りスレッド（`lib.rs`）が定期的に読む。 `finish_take` は `studio` を
+    /// 数秒握ることがあるので、変化が無い間はロックを取らずに読みたい。
+    /// `arm_device` コマンドがストリームを開き直すたびにここを更新する。
+    device_watch: Arc<Mutex<Option<mac::DeviceListChangedHandle>>>,
 }
 
 impl AppState {
@@ -82,7 +89,29 @@ impl AppState {
             envelope: Arc::new(Mutex::new(None)),
             pending: Arc::new(Mutex::new(None)),
             stream: Arc::new(AtomicU32::new(0)),
+            device_watch: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// 見張りスレッドから、`studio` のロックを取らずに読む（`TR-REC-04`）。
+    ///
+    /// 値が無ければ、まだ一度もデバイスを開いていない。
+    #[must_use]
+    pub(crate) fn device_watch_count(&self) -> Option<usize> {
+        self.device_watch
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(mac::DeviceListChangedHandle::get)
+    }
+
+    /// 見張りスレッドから、変化を検知したときだけ `studio` のロックを取る。
+    ///
+    /// # Errors
+    ///
+    /// `Mutex` が毒されている（どこかのコマンドが panic した）。
+    pub(crate) fn lock_studio(&self) -> Result<std::sync::MutexGuard<'_, Studio>> {
+        lock(self)
     }
 }
 
@@ -806,14 +835,18 @@ pub fn chosen_device(state: State<'_, AppState>) -> Result<ChosenDeviceView> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn arm_device(state: State<'_, AppState>, device_id: String) -> Result<MicModeView> {
-    let (mode, handle) = {
+    let (mode, envelope, watch) = {
         let mut s = lock(&state)?;
         let mode = s.arm_device(&koeru_audio::DeviceId::new(device_id))?;
-        (mode, s.envelope_handle())
+        (mode, s.envelope_handle(), s.device_watch_handle())
     };
     // 包絡の持ち手を、状態ロックの外へ出しておく（`TR-REC-43`）。
     if let Ok(mut g) = state.envelope.lock() {
-        *g = handle;
+        *g = envelope;
+    }
+    // デバイスの見張りの持ち手も同じ理由で外へ出す（`TR-REC-04`）。
+    if let Ok(mut g) = state.device_watch.lock() {
+        *g = watch;
     }
     Ok(MicModeView::parse(mode.as_str()))
 }
