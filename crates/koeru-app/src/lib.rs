@@ -12,6 +12,7 @@
 //! [`studio`] が筋を組み立て、[`commands`] は Tauri へ渡すだけ。
 
 pub mod align;
+pub mod capture_lease;
 pub mod commands;
 pub mod error;
 pub mod external;

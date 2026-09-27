@@ -81,17 +81,21 @@ pub(crate) struct Route {
 /// 入りきらなければ捨てて数える（[`ring::Producer::push_or_drop`]）。
 ///
 /// 混ぜるときは `input` の先頭チャンネルの領域を作業場に使う。 ここでは確保しない。
+///
+/// 戻り値はリングへ書けたフレーム数。 収録していない間・領域が足りない間は
+/// そもそも push を試みていないので `frames` を返す（「捨ててはいない」の意味）。
+/// 呼び出し側はこれと `frames` の差を、取りこぼしの記録（`TR-REC-07`）に使える。
 pub(crate) fn deliver(
     input: &mut [f32],
     frames: usize,
     route: Route,
     energy: &ChannelEnergy,
     producer: &mut ring::Producer,
-) {
+) -> usize {
     let channels = route.channels;
     let Some(input) = input.get_mut(..frames * channels) else {
         // 呼び出し側が大きさを確かめてから渡す。 足りなければ何も流さない。
-        return;
+        return frames;
     };
 
     for (ch, data) in input.chunks_exact(frames.max(1)).enumerate() {
@@ -109,7 +113,7 @@ pub(crate) fn deliver(
     energy.frames.fetch_add(frames as u64, Ordering::Relaxed);
 
     if !route.armed {
-        return; // 収録していないので捨てる
+        return frames; // 収録していないので捨てる。「収録中の欠落」ではない。
     }
 
     // L+R の平均を既定にしない。片側にしか信号が無いときに 6dB 損をする。
@@ -123,10 +127,10 @@ pub(crate) fn deliver(
             }
             *slot = acc / channels as f32;
         }
-        producer.push_or_drop(out);
+        producer.push_or_drop(out)
     } else {
         let ch = route.source.min(channels.saturating_sub(1));
-        producer.push_or_drop(&input[ch * frames..(ch + 1) * frames]);
+        producer.push_or_drop(&input[ch * frames..(ch + 1) * frames])
     }
 }
 
@@ -328,7 +332,8 @@ mod tests {
             armed: false,
             ..route(2, 0)
         };
-        deliver(&mut input, 2, idle, &energy, &mut p);
+        let written = deliver(&mut input, 2, idle, &energy, &mut p);
+        assert_eq!(written, 2, "捨ててはいない。そもそも試みていない");
         assert!(c.is_empty(), "収録していないので流さない");
         let rms = energy.rms();
         assert!((rms[0] - 0.5).abs() < 1e-4, "{rms:?}");
@@ -344,8 +349,12 @@ mod tests {
         let (mut p, c) = ring::channel(4); // 実効容量 3
         let energy = ChannelEnergy::new(1);
         let mut input = [1.0; 5];
-        deliver(&mut input, 5, route(1, 0), &energy, &mut p);
+        let written = deliver(&mut input, 5, route(1, 0), &energy, &mut p);
         assert_eq!(c.dropped(), 2);
+        assert_eq!(
+            written, 3,
+            "書けたぶんだけ返る。呼び出し側が差から位置を計算する"
+        );
     }
 
     #[test]
@@ -353,9 +362,10 @@ mod tests {
         let (mut p, c) = ring::channel(64);
         let energy = ChannelEnergy::new(2);
         let mut input = [1.0; 3]; // 2ch × 2 フレームに足りない
-        deliver(&mut input, 2, route(2, 0), &energy, &mut p);
+        let written = deliver(&mut input, 2, route(2, 0), &energy, &mut p);
         assert!(c.is_empty());
         assert_eq!(c.dropped(), 0, "取りこぼしとは数えない");
+        assert_eq!(written, 2, "試みていないので frames をそのまま返す");
     }
 
     /// 選ぶ・混ぜる・止めている・捨てる、のどれでも確保しない（`TR-REC-40`）。

@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use crate::stats::{CaptureStats, PlaybackStats};
+use crate::stats::{CaptureStats, Gaps, PlaybackStats};
 use crate::{DeviceId, DeviceInfo, ring};
 
 /// この OS ではまだ書いていない。
@@ -86,6 +86,11 @@ impl Capture {
     #[must_use]
     pub fn stats(&self) -> CaptureStats {
         CaptureStats::default()
+    }
+    /// 記録した欠落の位置（`TR-REC-07`）。 この OS では作れないので常に空。
+    #[must_use]
+    pub fn gaps(&self) -> Gaps {
+        Gaps::default()
     }
     /// チャンネルごとの RMS（`TR-REC-06`）。
     #[must_use]

@@ -59,6 +59,26 @@ pub const TAIL_MS: u64 = 500;
 /// 1回の排出で読む長さ。
 const CHUNK: usize = 8192;
 
+/// キャプチャのネイティブレートのフレーム数を、マスター（44100 Hz）へ換算する。
+///
+/// [`Resampler`] と同じ比（`to_hz / from_hz`）で換算するだけで、実際に変換するわけでは
+/// ない——欠落の位置（`TR-REC-07`）をマスターの時間軸に大まかに揃えるための、
+/// 丸めた近似値。 位相までは持ち回さないので、pump 自身の変換結果とは
+/// 1サンプル前後ずれうる。 端数は切り捨てる。
+#[must_use]
+pub fn native_frames_to_master(native_frames: u64, device_rate_hz: u32) -> u64 {
+    if device_rate_hz == 0 {
+        return native_frames; // 換算できない。 換算前の値をそのまま返す。
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "現実のテイクの長さでは u64 に収まる"
+    )]
+    let master = (u128::from(native_frames) * u128::from(MASTER_RATE_HZ)
+        / u128::from(device_rate_hz)) as u64;
+    master
+}
+
 /// 波形の1目盛りの長さ（ミリ秒、`TR-REC-43`）。
 ///
 /// 画面の更新間隔より細かくする。 粗いと、目盛りが1つ増えるまで絵が動かない。
@@ -655,6 +675,20 @@ mod tests {
     fn ring(total: u64, len: u64) -> VecDeque<f32> {
         #[allow(clippy::cast_precision_loss, reason = "試験の値は小さい")]
         (total - len..total).map(|i| i as f32).collect()
+    }
+
+    #[test]
+    fn ネイティブレートの換算は比で決まる() {
+        // 48000 → 44100 は 8.8% 短くなる（`resample.rs` の同じ比）。
+        assert_eq!(native_frames_to_master(48_000, 48_000), 44_100);
+        assert_eq!(native_frames_to_master(0, 48_000), 0);
+        // 同じレートなら素通し。
+        assert_eq!(native_frames_to_master(1234, MASTER_RATE_HZ), 1234);
+    }
+
+    #[test]
+    fn レートが0なら換算できず元の値を返す() {
+        assert_eq!(native_frames_to_master(1234, 0), 1234);
     }
 
     #[test]

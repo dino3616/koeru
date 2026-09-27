@@ -148,7 +148,23 @@ fn 録音してテイクのファイルを作る() {
     );
     assert!(stats.frames > 0, "コールバックが来ている");
 
-    if stats.dropped > 0 || stats.discontinuities > 0 {
+    // 欠落の位置（`TR-REC-07` の「欠落の発生数と位置をメタデータに記録する」）。
+    let gaps = cap.gaps();
+    println!(
+        "欠落の記録: {} 件（溢れ {}）",
+        gaps.entries.len(),
+        gaps.overflowed
+    );
+    for g in &gaps.entries {
+        println!("  {:?} @ {}", g.kind, g.position);
+    }
+    assert!(
+        gaps.entries.len() + gaps.overflowed >= stats.discontinuities + stats.render_errors,
+        "不連続とレンダ失敗のぶんは記録されている（取りこぼしの位置は別カウント）"
+    );
+
+    // テイクの無効化は3つのどれかが増えたら（取りこぼし・不連続・レンダの失敗）。
+    if stats.dropped > 0 || stats.discontinuities > 0 || stats.render_errors > 0 {
         println!("取りこぼしがあるのでテイクを無効にする（TR-REC-07）");
         take.discard().expect("捨てられる");
         s.finish_take().expect("状態は進める");
