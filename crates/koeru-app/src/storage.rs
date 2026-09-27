@@ -271,8 +271,10 @@ mod fs_kind {
     use std::path::Path;
 
     use windows_sys::Win32::Storage::FileSystem::{
-        DRIVE_REMOTE, GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
+        GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
     };
+    // 定数だけ別のモジュールにある（windows-sys 0.61）。
+    use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
     use super::FsKind;
 

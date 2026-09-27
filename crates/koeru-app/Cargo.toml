@@ -60,4 +60,7 @@ libc = "0.2.189"
 # 生の Win32 API だけを呼び、抽象レイヤは持たない（`DEC-REC-001` と同じ方針）。
 # microsoft org、MIT。版は Tauri が引く 0.61 系に揃える。
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Storage_FileSystem",
+  "Win32_System_WindowsProgramming",
+] }
