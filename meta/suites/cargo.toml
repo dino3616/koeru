@@ -253,6 +253,38 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 3
 contracts = ['DEC-PLT-038']
 
+# ## koeru-runtime
+
+[[suite]]
+id = 'SUITE-RUNTIME-001'
+title = 'koeru-runtime の unit 試験（貸与、失敗の分類、確認キューの組み直し）'
+runner = 'cargo'
+package = 'koeru-runtime'
+target = 'lib'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 14
+contracts = ['DEC-PLT-044', 'DEC-PLT-038']
+
+[[suite]]
+id = 'SUITE-RUNTIME-002'
+title = '一貫した読みセッションと単一の書き手を、本物のプロジェクトと SQLite（WAL）で確かめる'
+runner = 'cargo'
+package = 'koeru-runtime'
+target = 'read_session'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 8
+contracts = ['DEC-PLT-044', 'DEC-PLT-043', 'DEC-PLT-034']
+
+[[suite]]
+id = 'SUITE-RUNTIME-003'
+title = 'koeru-runtime が Tauri・GraphQL・各エンジンの具体実装を引き込まない'
+runner = 'cargo'
+package = 'koeru-runtime'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 2
+contracts = ['DEC-PLT-034']
+
 # ## koeru-app
 
 [[suite]]

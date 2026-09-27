@@ -1,0 +1,29 @@
+[package]
+name = "koeru-runtime"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "KOERU の Application 層。project の単一の書き手と、一貫した読み（DEC-PLT-034）"
+
+[lints]
+workspace = true
+
+# Tauri・GraphQL・各エンジンの具体実装は持ち込まない（DEC-PLT-034）。
+# `tests/purity.rs` が見る。SQLite・ファイル・時計はここが境界なので触ってよい
+# ——`koeru-model` / `koeru-formats` の純度試験とは違う規律。
+[dependencies]
+koeru-core = { path = "../koeru-core" }
+koeru-failure = { path = "../koeru-failure" }
+koeru-model = { path = "../koeru-model" }
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+# 試験だけが本物の SQLite へ生の SQL で触る（読み手だけが読む列をわざと
+# 壊す、`tests/read_session.rs` の「lazy facet failure」）。本体のコードは
+# `koeru-core` 越しにしか SQLite へ触らない。
+diesel = { workspace = true }

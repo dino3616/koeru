@@ -1,0 +1,88 @@
+schema = 'decision'
+id = 'DEC-PLT-044'
+constraint_label = '版と投影が構造的にずれないこと'
+constraint = '台帳から導ける投影（確認キューなど）が、それを読むときの版と食い違う経路を持たないこと。書き手は単一で、貸与（epoch）は開くたびに新しい値になり、同じ値を二度と振らないこと'
+title = '台帳から導ける投影は読みセッションの中でスナップショットから遅延に組み直す。台帳の単一の書き手は koeru-runtime の ProjectRuntime へ置き、貸与そのものを世代とする'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '書き手が確認キューなどの投影を版つき Arc スナップショットとして公開する（DEC-PLT-043 の rationale が予告していた形）',
+  '台帳から導ける投影は、読みセッションが自分のスナップショットから毎回（facet を初めて呼んだときだけ）組み直す',
+]
+selected = '台帳から導ける投影は、読みセッションが自分のスナップショットから毎回（facet を初めて呼んだときだけ）組み直す'
+rationale = '''
+T05 は T05a（`koeru-core` の貯蔵層、`DEC-PLT-043`）と T05b（`koeru-runtime`）に
+分かれている。 `DEC-PLT-043` は「版を持つ・一貫して読む」の土台だけを
+`koeru-core` に置き、`ProjectLease` / `ProjectEpoch` と、複数 facet の遅延解決は
+T05b が別に積むと決めていた。この判断（T05b-1）はその積み残しを埋める。
+
+## 1. 投影は読みセッションの中で遅延に組み直す
+
+`DEC-PLT-043` の rationale 末尾は、`ReviewQueue` のような in-memory projection を
+「書き手側が版を添えた `Arc` スナップショットとして公開する」形を挙げていた
+（「ここでは触れない——T05a はこの版を読める土台までを持つ」）。 これは決定では
+なく、T05b が決めることとして開けてあった論点。
+
+ここでは書き手が公開する形を採らない。 **台帳から導ける投影は、
+[`ProjectReadSession`] が保持する読み取り専用スナップショット（`LedgerSnapshot`）
+から、facet を初めて呼んだときだけ組み直す。** 免れない不変の `Arc` は、
+台帳に無いもの——project を開いた瞬間の検証結果（`koeru_core::capture::Report`）
+——だけに限る。
+
+### 選ばなかった理由（書き手が `Arc` を公開する案）
+
+書き手が版つき投影を公開する形は、書く経路を1つ増やすたびに「その投影を
+更新し忘れる」という故障モードを持ち込む。 版を進めるトリガー（`DEC-PLT-043`）が
+機械的で足し忘れを検査できるのに対し、投影の更新はコードで書く手続きなので、
+足し忘れても検査は落ちない——`project_revision` は進むのに、公開している
+`Arc<ReviewQueue>` は古いまま、という状態が起こりうる。
+
+### 選んだ理由（読みセッションが組み直す案）
+
+読みセッションはスナップショットが固定した1つの版しか読まない
+（`LedgerReader::snapshot` の `BEGIN DEFERRED`、`DEC-PLT-043`）。 投影をそこから
+組み直せば、**版と投影が構造的にずれる経路が無い。** 「書き手が投影を
+公開し忘れた」という失敗モードそのものが存在しなくなる——組む先が
+常に「今読んでいるスナップショット」の1つしかないため。
+
+代償は組み直しのコスト（`rows_with_takes` や `adopted_otos` を読み直す）。
+これは facet ごとに遅延させ（呼ばれるまで組まない）、一度組んだら
+`Arc` を使い回す（同じセッションの中で2度読み直さない）ことで抑える。
+組み立て時間は T05 の観測性契約（`03-task-dag.md` の「snapshot construction
+duration」）どおり、facet の構築ごとに span として測り、T05 の baseline に残す。
+
+## 2. 台帳の単一の書き手は `ProjectRuntime` が持つ
+
+`DEC-PLT-034` の crate 表は `koeru-runtime` に「project の単一の writer」を
+割り当てている。 これを実装として確定する：`ProjectRuntime` が
+`Mutex<Ledger>` を1つ持ち、書き込みは貸与を確認してから短く取る
+（`docs/reports/architecture/03-task-dag.md` の「short writer mutations」）。
+貸与が閉じている・違う値の書き込みは、その場で失効として断る
+（`DEC-PLT-042` の「`project` は `Project | ProjectLeaseExpired` を返す」と
+同じ形の失敗）。
+
+`Studio` を実際にこの経路へ繋ぎ直すのは T05b-2（別の作業）。 この判断が
+確定するのは crate の持ち分と失敗の形だけで、`Studio` の書き換えはまだ無い。
+
+## 3. 貸与そのものが世代（epoch）
+
+`ProjectLease` はランダムな UUID v4 で、`ProjectRuntime::open` を呼ぶたびに
+新しい値を振る。 閉じて開き直すと別の値になり、同じ値を二度と振らない
+——view の mount/unmount や、同じ project への2つ目の consumer の接続は
+新しい貸与を作らない（`docs/reports/architecture/00-architecture-report.md` §14
+の「`ProjectEpoch` は close/reopen で変わる。view の mount/unmount や同じ
+project への consumer attach だけで…作り直さない」）。 復元・移行のあとに
+同じ UUID が出ないことは、連番ではなくランダム値を選ぶことで型として保証する
+（衝突は無視できる確率まで下がる。 連番だと、プロセスの再起動でカウンタが
+0から始まり直せば同じ値を再び振ってしまう）。
+'''
+review_triggers = [
+  'facet の組み直しコストが実測で無視できないと分かったとき（`rows_with_takes` /`adopted_otos` の読み直しが、GraphQL の応答時間の予算を圧迫する）。そのときは選ばなかった「書き手が公開する `Arc`」を、更新し忘れを検査で落とす仕組み込みで見直す',
+  '読み手接続のプールの上限（今は2）が、実測の並行 query 数に対して小さすぎる／大きすぎると分かったとき',
+  'ProjectRuntime の1 module が寿命の違う仕事を2つ以上持ち始めたとき（`DEC-PLT-034` の「第二の Studio」の兆候。review_trigger を共有する）',
+]
+affects_decisions = [
+  'DEC-PLT-034',
+  'DEC-PLT-042',
+  'DEC-PLT-043',
+]

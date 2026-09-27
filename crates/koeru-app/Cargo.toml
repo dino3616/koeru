@@ -33,6 +33,7 @@ koeru-core = { path = "../koeru-core" }
 koeru-failure = { path = "../koeru-failure" }
 koeru-model = { path = "../koeru-model" }
 koeru-package = { path = "../koeru-package" }
+koeru-runtime = { path = "../koeru-runtime" }
 koeru-synth = { path = "../koeru-synth" }
 serde.workspace = true
 serde_json.workspace = true
