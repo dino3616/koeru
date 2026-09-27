@@ -36,7 +36,7 @@ pub mod wav;
 pub use device::{DeviceId, DeviceInfo, RedactedName};
 pub use error::SessionError;
 pub use session::{Device, Effects, Gain, Liveness, Session};
-pub use stats::{CaptureStats, PlaybackStats};
+pub use stats::{CaptureStats, Gap, GapKind, Gaps, PlaybackStats};
 
 #[cfg(test)]
 mod contract_tests {

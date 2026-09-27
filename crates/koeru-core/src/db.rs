@@ -36,7 +36,7 @@ use crate::release::{NewRelease, Release, Validation, archive_name};
 use crate::schema::{
     adopted_takes, calibrations, distribution, oto_values, presamp_snapshot, recording_order,
     releases, review_state, row_aliases, row_units, rows, sessions, song_notes, songs,
-    take_analysis, take_boundaries, take_fingerprints, take_metrics, takes,
+    take_analysis, take_boundaries, take_fingerprints, take_gaps, take_metrics, takes,
 };
 use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
@@ -57,6 +57,54 @@ pub use intent::{
 ///
 /// SQLite に `-inf` は入らない。 往復させるための番人。
 const SILENT_PEAK_DBFS: f64 = -1000.0;
+
+/// テイクの中で起きた欠落の集計（`TR-REC-07`）。 位置は [`GapRecord`] が別に持つ。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TakeGapCounts {
+    /// タイムスタンプが飛んだ回数。
+    pub discontinuities: usize,
+    /// リングが満杯で捨てたサンプル数。
+    pub dropped: usize,
+    /// レンダの失敗回数。
+    pub render_errors: usize,
+    /// 欠落の固定長領域に収まらず、件数だけ数えたぶん。
+    pub overflowed: usize,
+}
+
+/// 欠落の種類（`take_gaps.kind` の表記）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GapRecordKind {
+    Dropped,
+    Discontinuity,
+    RenderError,
+}
+
+impl GapRecordKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dropped => "dropped",
+            Self::Discontinuity => "discontinuity",
+            Self::RenderError => "render_error",
+        }
+    }
+
+    /// 台帳の表記から読む。 推し量らない——知らない表記は `None`。
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "dropped" => Some(Self::Dropped),
+            "discontinuity" => Some(Self::Discontinuity),
+            "render_error" => Some(Self::RenderError),
+            _ => None,
+        }
+    }
+}
+
+/// 記録した欠落1件（`TR-REC-07`）。 位置はテイクの先頭からの、マスター（44100 Hz）標本位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GapRecord {
+    pub kind: GapRecordKind,
+    pub position: i64,
+}
 
 /// マイグレーションを実行ファイルへ埋め込む。外部ファイルに依存しない（`TR-PLT-20`）。
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -133,6 +181,10 @@ pub enum LedgerError {
     /// 予定の状態の表記を知らない。 推し量って読まない。
     #[error("録音の予定の状態が読めない")]
     UnknownIntentState,
+
+    /// 欠落の種類の表記を知らない（`take_gaps.kind`）。 推し量って読まない。
+    #[error("欠落の種類が読めない")]
+    UnknownGapKind,
 }
 
 impl koeru_failure::Failure for LedgerError {
@@ -151,6 +203,7 @@ impl koeru_failure::Failure for LedgerError {
             Self::CaptureNotOpen => "ledger.capture_not_open",
             Self::CaptureNotFinalized => "ledger.capture_not_finalized",
             Self::UnknownIntentState => "ledger.unknown_intent_state",
+            Self::UnknownGapKind => "ledger.unknown_gap_kind",
         }
     }
 
@@ -181,7 +234,8 @@ impl koeru_failure::Failure for LedgerError {
             Self::Open { .. }
             | Self::Migration { .. }
             | Self::MigrationValidation
-            | Self::UnknownIntentState => Class::Corrupt,
+            | Self::UnknownIntentState
+            | Self::UnknownGapKind => Class::Corrupt,
             // 移行すれば開けるので「今は受けられない」。 `ProjectDir::migrate_ledger` を
             // 先に呼ぶのが次の手（`DEC-PLT-041`）。
             Self::MigrationPending => Class::Rejected,
@@ -2085,12 +2139,14 @@ impl Ledger {
     /// 測った値で自動的に無効化しない。 自動無効化は取りこぼし（`TR-REC-07`）と
     /// デバイス消失（`TR-REC-04`）の2つだけで、それは呼び出し側が
     /// [`Ledger::invalidate_take`] を明示的に呼ぶ。
-    #[tracing::instrument(skip(self, m), fields(take_id))]
+    ///
+    /// 欠落の位置は保存しない。 [`Ledger::put_take_gaps`] が別に持つ。
+    #[tracing::instrument(skip(self, m, gaps), fields(take_id))]
     pub fn put_metrics(
         &mut self,
         take_id: i32,
         m: &TakeMetrics,
-        discontinuities: usize,
+        gaps: TakeGapCounts,
         preroll_frames: usize,
         guide_offset_frames: Option<i64>,
     ) -> Result<()> {
@@ -2108,10 +2164,14 @@ impl Ledger {
             take_metrics::noise_floor_rms.eq(m.noise_floor_rms),
             take_metrics::leading_margin_ms.eq(m.leading_margin_ms),
             take_metrics::trailing_margin_ms.eq(m.trailing_margin_ms),
-            take_metrics::discontinuities.eq(i32::try_from(discontinuities).unwrap_or(i32::MAX)),
+            take_metrics::discontinuities
+                .eq(i32::try_from(gaps.discontinuities).unwrap_or(i32::MAX)),
             take_metrics::preroll_frames.eq(i32::try_from(preroll_frames).unwrap_or(i32::MAX)),
             // 参考値（`TR-REC-26`）。切り出しの根拠にしない。
             take_metrics::guide_offset_frames.eq(guide_offset_frames),
+            take_metrics::dropped.eq(i32::try_from(gaps.dropped).unwrap_or(i32::MAX)),
+            take_metrics::render_errors.eq(i32::try_from(gaps.render_errors).unwrap_or(i32::MAX)),
+            take_metrics::gaps_overflowed.eq(i32::try_from(gaps.overflowed).unwrap_or(i32::MAX)),
         );
         diesel::insert_into(take_metrics::table)
             .values((take_metrics::take_id.eq(take_id), values))
@@ -2121,6 +2181,49 @@ impl Ledger {
             .execute(&mut self.conn)
             .map_err(db("put_metrics"))?;
         Ok(())
+    }
+
+    /// テイクごとの欠落の位置を保存する（`TR-REC-07`）。
+    ///
+    /// 同じテイクの記録は入れ替える。 送り直しで同じ操作をもう一度書いても増殖しない。
+    #[tracing::instrument(skip(self, entries), fields(take_id))]
+    pub fn put_take_gaps(&mut self, take_id: i32, entries: &[GapRecord]) -> Result<()> {
+        self.conn
+            .transaction(|c| {
+                diesel::delete(take_gaps::table.filter(take_gaps::take_id.eq(take_id)))
+                    .execute(c)?;
+                for (ordinal, g) in entries.iter().enumerate() {
+                    diesel::insert_into(take_gaps::table)
+                        .values((
+                            take_gaps::take_id.eq(take_id),
+                            take_gaps::ordinal.eq(i32::try_from(ordinal).unwrap_or(i32::MAX)),
+                            take_gaps::kind.eq(g.kind.as_str()),
+                            take_gaps::position.eq(g.position),
+                        ))
+                        .execute(c)?;
+                }
+                Ok(())
+            })
+            .map_err(db("put_take_gaps"))
+    }
+
+    /// そのテイクで記録した欠落（`TR-REC-07`）。 記録した順。
+    #[tracing::instrument(skip(self), fields(take_id))]
+    pub fn take_gaps_of(&mut self, take_id: i32) -> Result<Vec<GapRecord>> {
+        let rows = take_gaps::table
+            .filter(take_gaps::take_id.eq(take_id))
+            .order(take_gaps::ordinal.asc())
+            .select((take_gaps::kind, take_gaps::position))
+            .load::<(String, i64)>(&mut self.conn)
+            .map_err(db("take_gaps_of"))?;
+        rows.into_iter()
+            .map(|(kind, position)| {
+                Ok(GapRecord {
+                    kind: GapRecordKind::from_str(&kind).ok_or(LedgerError::UnknownGapKind)?,
+                    position,
+                })
+            })
+            .collect()
     }
 
     /// テイクの計測値を引く。
@@ -4357,5 +4460,96 @@ mod m5_tests {
             l.boundaries_for_take(t).expect("引ける"),
             [("あ".to_owned(), b2)]
         );
+    }
+
+    /// 欠落の3つの数を保存し、位置は別の表から読み戻せる（`TR-REC-07`）。
+    #[test]
+    fn 欠落の数と位置を保存して読み戻せる() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist(&list, 60).expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+        let t = l
+            .commit_take(&FinalizedTake {
+                row_id: list[0].id.clone(),
+                session_id: sid,
+                rel_path: "masters/a.wav".into(),
+                frames: 44_100,
+                recorded_at: "2026-09-20T12:00:01Z".into(),
+            })
+            .expect("確定できる");
+
+        let m = TakeMetrics {
+            peak_dbfs: -3.0,
+            rms: 0.1,
+            full_scale_runs: 0,
+            dc_offset: 0.0,
+            noise_floor_rms: 0.0,
+            leading_margin_ms: 200.0,
+            trailing_margin_ms: 200.0,
+        };
+        let gaps = TakeGapCounts {
+            discontinuities: 2,
+            dropped: 5,
+            render_errors: 1,
+            overflowed: 0,
+        };
+        l.put_metrics(t, &m, gaps, 22_050, None)
+            .expect("書き込める");
+
+        let (dropped, render_errors, overflowed): (i32, i32, i32) = take_metrics::table
+            .filter(take_metrics::take_id.eq(t))
+            .select((
+                take_metrics::dropped,
+                take_metrics::render_errors,
+                take_metrics::gaps_overflowed,
+            ))
+            .first(&mut l.conn)
+            .expect("引ける");
+        assert_eq!((dropped, render_errors, overflowed), (5, 1, 0));
+
+        assert!(l.take_gaps_of(t).expect("引ける").is_empty());
+        let entries = [
+            GapRecord {
+                kind: GapRecordKind::Discontinuity,
+                position: 512,
+            },
+            GapRecord {
+                kind: GapRecordKind::Dropped,
+                position: 1024,
+            },
+        ];
+        l.put_take_gaps(t, &entries).expect("書き込める");
+        assert_eq!(l.take_gaps_of(t).expect("引ける"), entries);
+
+        // 送り直しても増殖しない。入れ替わる。
+        let replaced = [GapRecord {
+            kind: GapRecordKind::RenderError,
+            position: 2048,
+        }];
+        l.put_take_gaps(t, &replaced).expect("書き込める");
+        assert_eq!(l.take_gaps_of(t).expect("引ける"), replaced);
+    }
+
+    /// `put_metrics` を一度も呼んでいないテイクでも `take_gaps_of` は空で読める
+    /// ——`take_metrics` にマイグレーションで足した3欄は `DEFAULT 0` なので、
+    /// この版より前に作った行を壊さない。
+    #[test]
+    fn 計測値の無いテイクでも欠落は空で読める() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        l.install_reclist(&list, 60).expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+        let t = l
+            .commit_take(&FinalizedTake {
+                row_id: list[0].id.clone(),
+                session_id: sid,
+                rel_path: "masters/a.wav".into(),
+                frames: 44_100,
+                recorded_at: "2026-09-20T12:00:01Z".into(),
+            })
+            .expect("確定できる");
+        // put_metrics を一度も呼んでいない行でも、take_gaps_of は空で読める。
+        assert!(l.take_gaps_of(t).expect("引ける").is_empty());
     }
 }

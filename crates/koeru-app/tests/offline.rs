@@ -309,6 +309,9 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "ceil_hz",
     "cfg",
     "discontinuities",
+    // 欠落の集計（`TR-REC-07`）。 件数だけで、位置や音源名は載せない。
+    "dropped",
+    "render_errors",
     "frame_period_ms",
     "from_ms",
     "gates",

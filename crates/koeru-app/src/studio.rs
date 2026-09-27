@@ -63,6 +63,7 @@ use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 
 use uuid::Uuid;
 
+use crate::capture_lease::{CaptureLease, TakeGap, TakeGapKind, TakeGaps, TakeGuard};
 use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
@@ -382,6 +383,8 @@ struct Open {
 struct ActiveCapture {
     row_id: String,
     capture: CaptureId,
+    /// このテイクの基準（`TR-REC-07`）。`Studio::xrun_baseline` を置き換える（T06c）。
+    guard: TakeGuard,
 }
 
 /// 録音を確定する要求の結果（`DEC-PLT-035`、`DEC-PLT-038`）。
@@ -414,10 +417,14 @@ pub struct TakeResult {
     pub oto: Option<Oto>,
     /// 境界の確信度。
     pub confidence: Option<f64>,
-    /// 取りこぼしの回数（`TR-REC-07`）。
+    /// タイムスタンプが飛んだ回数（`TR-REC-07`）。
     pub discontinuities: usize,
-    /// 取りこぼしたので自動的に無効にした（`TR-REC-07`）。
-    /// 同じフレーズがもう一度出てくる。
+    /// リングが満杯で捨てたサンプル数（`TR-REC-07`）。
+    pub dropped: usize,
+    /// レンダの失敗回数（`TR-REC-07`）。
+    pub render_errors: usize,
+    /// 取りこぼし・不連続・レンダの失敗のどれかが増えたので自動的に無効にした
+    /// （`TR-REC-07`）。 同じフレーズがもう一度出てくる。
     pub invalidated: bool,
     /// 計測値（`TR-REC-16`）。測るだけで、判定も指摘もしない。
     pub metrics: TakeMetrics,
@@ -448,6 +455,14 @@ struct TakeFacts<'a> {
     take_id: i32,
     row_id: &'a str,
     discontinuities: usize,
+    /// リングが満杯で捨てたサンプル数（`TR-REC-07`）。
+    dropped: usize,
+    /// レンダの失敗回数（`TR-REC-07`）。
+    render_errors: usize,
+    /// 欠落の固定長領域に収まらず、件数だけ数えたぶん。
+    gaps_overflowed: usize,
+    /// 記録できた欠落の位置。 テイクの先頭からのマスター標本位置。
+    gaps: &'a [TakeGap],
     guide_offset: Option<i64>,
     duration_ms: f64,
 }
@@ -603,14 +618,14 @@ pub struct Studio {
     /// 起動時に1度だけ選ぶ——テイクごとに 96MiB を読み直さない（`TGT-ALN-004`）。
     aligner: crate::align::Chosen,
     open: Option<Open>,
-    capture: Option<mac::Capture>,
-    /// 排出スレッド。収録画面にいる間ずっと回っている（`TR-REC-19`）。
-    pump: Option<Pump>,
+    /// キャプチャストリームと排出スレッド（`TR-REC-19`）。収録画面にいる間ずっと開いている。
+    ///
+    /// 落とす順序（Pump → Capture）は `CaptureLease` の `Drop` が型で守る
+    /// （`crate::capture_lease`。T06c）。
+    lease: Option<CaptureLease>,
     session: Session,
     /// 録音中の1回。
     recording: Option<ActiveCapture>,
-    /// 収録開始時点の取りこぼし数。このテイクの中で増えたぶんだけを見る（`TR-REC-07`）。
-    xrun_baseline: usize,
     /// ガイドのフレーズ開始が、録音の何サンプル目に相当するか（`TR-REC-26`）。
     ///
     /// 参考値。 切り出しの根拠にしない。ガイドが鳴っていなければ `None`。
@@ -742,11 +757,9 @@ impl Studio {
             // モデルが無いのはビルドの失敗（`DEC-ALN-016`）。ここで止める。
             aligner: crate::align::Chosen::detect()?,
             open: None,
-            capture: None,
-            pump: None,
+            lease: None,
             session: Session::new(),
             recording: None,
-            xrun_baseline: 0,
             guide_offset_at_start: None,
             device: None,
             gain_before: None,
@@ -1176,17 +1189,29 @@ impl Studio {
         Ok(())
     }
 
+    /// 開いているキャプチャ（`lease` の一部）。
+    ///
+    /// `lease` を1つのフィールドへ集約する前（T06c より前）は `capture` という
+    /// 欄を直接持っていた。 既存の呼び出し側をそのまま読める形にするための口。
+    fn capture(&self) -> Option<&mac::Capture> {
+        self.lease.as_ref().map(CaptureLease::capture)
+    }
+
+    /// 開いている排出スレッド（`lease` の一部）。
+    fn pump(&self) -> Option<&Pump> {
+        self.lease.as_ref().map(CaptureLease::pump)
+    }
+
     /// 開いているストリームを落とす。
     ///
-    /// 排出スレッドが先。 Consumer を握ったまま Capture を捨てない
-    /// （`arm_device` と同じ順序）。
+    /// 落とす順序（排出スレッドが先。Consumer を握ったまま Capture を捨てない）は
+    /// `CaptureLease` の `Drop` が型で守る（`arm_device` も同じ）。
     ///
     /// 収録中に呼ばない。 呼び側が先に断る（[`Self::open_project`]）。
     /// 排出スレッドは止められると書きかけを確定させるので、ここで落とすと
     /// 台帳に載らない WAV が残る。
     fn disarm(&mut self) {
-        self.pump = None;
-        self.capture = None;
+        self.lease = None;
         // 状態機械も作り直す。 未選択からしか `select_device` へ進めない。
         self.session = Session::new();
         self.device = None;
@@ -1672,7 +1697,7 @@ impl Studio {
          * 途中で失敗すると**ストリームが無いのに前のデバイスが残る**ので、
          * 「開いている」と答えてしまい、次の収録が `app.no_stream` で落ちる。
          */
-        let armed = self.capture.is_some() && self.pump.is_some();
+        let armed = self.lease.is_some();
         /*
          * 収録中かも返す。
          *
@@ -1705,9 +1730,9 @@ impl Studio {
         }
 
         // 前のストリームを先に落とす。 2つの AUHAL を同時に回さない。
-        // 排出スレッドが先。Consumer を握ったまま Capture を捨てない。
-        self.pump = None;
-        self.capture = None;
+        // 落とす順序（排出スレッドが先。Consumer を握ったまま Capture を捨てない）は
+        // `CaptureLease` の `Drop` が型で守る。
+        self.lease = None;
         /*
          * 前のデバイスも忘れる。
          *
@@ -1792,8 +1817,8 @@ impl Studio {
         // 収録画面に入った時点から止めない（`REQ-REC-102`、`TR-REC-19`）。
         // ここから排出が回り、プリロールが溜まりはじめる。
         cap.arm();
-        self.pump = Some(Pump::start(consumer, format.sample_rate_hz));
-        self.capture = Some(cap);
+        let pump = Pump::start(consumer, format.sample_rate_hz);
+        self.lease = Some(CaptureLease::new(cap, pump));
         self.estimate_space()?;
         Ok(mode)
     }
@@ -1808,7 +1833,7 @@ impl Studio {
     /// 残量が読めないことを止めるものではない）。
     #[tracing::instrument(skip(self))]
     pub fn estimate_space(&mut self) -> Result<SpaceEstimate> {
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
         let remaining = self.opened_mut()?.ledger.remaining_rows()?;
@@ -1834,7 +1859,7 @@ impl Studio {
     /// 進行中のテイクは最後まで録りきる。 止めるのは次を始めるところだけ。
     #[tracing::instrument(skip(self))]
     pub fn has_room_for_one_more(&mut self) -> Result<bool> {
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let root = self.opened()?.dir.root().to_path_buf();
         // 引けない環境では止めない。
@@ -1854,11 +1879,11 @@ impl Studio {
     pub fn probe_input(&mut self, ms: u64) -> Result<f32> {
         {
             // 直前の残りを捨ててから測る。「今」の入力だけを見る。
-            let pump = self.pump.as_ref().ok_or_else(no_stream)?;
+            let pump = self.pump().ok_or_else(no_stream)?;
             let _ = pump.take_peak();
         }
         std::thread::sleep(std::time::Duration::from_millis(ms));
-        let peak = self.pump.as_ref().ok_or_else(no_stream)?.take_peak();
+        let peak = self.pump().ok_or_else(no_stream)?.take_peak();
 
         if peak > 1e-6 {
             self.session.input_is_alive()?;
@@ -1873,7 +1898,7 @@ impl Studio {
     /// `PREROLL_MS` に足りていなければ、遡れるのはその長さまで。
     #[must_use]
     pub fn preroll_ms(&self) -> u64 {
-        self.pump.as_ref().map_or(0, Pump::preroll_ms)
+        self.pump().map_or(0, Pump::preroll_ms)
     }
 
     /// 出力がどこへ出ているらしいか（`TR-REC-24`）。
@@ -1897,7 +1922,7 @@ impl Studio {
     /// （`TR-REC-17` と同じ性質の静的な経路検査）。
     #[tracing::instrument(skip(self))]
     pub fn check_guide_leak(&mut self, midi: i32) -> Result<LeakCheck> {
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
 
         // スピーカと分かっているなら、鳴らすまでもなく漏れる。
@@ -1955,7 +1980,7 @@ impl Studio {
             }
             Some(_) => {}
         }
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
         let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
         self.playback = None;
@@ -1965,7 +1990,7 @@ impl Studio {
 
     /// 鳴らしながら録る。回り込みの検査にだけ使う。
     fn play_and_capture(&mut self, played: &[f32], rate: u32) -> Result<Vec<f32>> {
-        let pump = self.pump.as_ref().ok_or_else(no_stream)?;
+        let pump = self.pump().ok_or_else(no_stream)?;
         pump.begin_probe();
         let handle = mac::play(played.to_vec(), rate)?;
 
@@ -1974,7 +1999,7 @@ impl Studio {
         std::thread::sleep(std::time::Duration::from_millis(ms));
         drop(handle);
 
-        Ok(self.pump.as_ref().ok_or_else(no_stream)?.end_probe())
+        Ok(self.pump().ok_or_else(no_stream)?.end_probe())
     }
 
     /// 全チャンネルを混ぜる（`TR-REC-06`）。
@@ -1990,10 +2015,7 @@ impl Studio {
                 "有意な信号があるのは一部のチャンネルだけなので、混ぜない",
             ));
         }
-        self.capture
-            .as_ref()
-            .ok_or_else(no_stream_err)?
-            .set_source_mix();
+        self.capture().ok_or_else(no_stream_err)?.set_source_mix();
         let device = self.device.clone().ok_or_else(no_stream_err)?;
         if let Some(mut c) = self.opened_mut()?.ledger.calibration_of(device.as_str())? {
             c.source_channel = -1;
@@ -2102,11 +2124,7 @@ impl Studio {
         //
         // L+R の平均を既定にしない。 片側にしか信号が無いインタフェースは珍しくなく、
         // 平均すると 6dB 損をする。全力発声を録ったいま測るのがいちばん確か。
-        let rms = self
-            .capture
-            .as_ref()
-            .ok_or_else(no_stream_err)?
-            .channel_rms();
+        let rms = self.capture().ok_or_else(no_stream_err)?.channel_rms();
         let choice = channel::choose(&rms);
         let source_channel = match choice.source {
             Source::Channel(n) => i32::try_from(n).unwrap_or(0),
@@ -2118,7 +2136,7 @@ impl Studio {
             may_mix = choice.may_mix,
             "モノラルの元を決めた"
         );
-        if let Some(cap) = self.capture.as_ref() {
+        if let Some(cap) = self.capture() {
             match choice.source {
                 Source::Channel(n) => cap.set_source_channel(n),
                 Source::Mix => cap.set_source_mix(),
@@ -2151,10 +2169,10 @@ impl Studio {
             reason = "秒数は 3.0..=5.0 の想定。clamp してから丸める"
         )]
         let ms = (seconds.clamp(0.5, 30.0) * 1000.0) as u64;
-        let pump = self.pump.as_ref().ok_or_else(no_stream_err)?;
+        let pump = self.pump().ok_or_else(no_stream_err)?;
         let _ = pump.take_peak();
         std::thread::sleep(std::time::Duration::from_millis(ms));
-        Ok(self.pump.as_ref().ok_or_else(no_stream_err)?.take_peak())
+        Ok(self.pump().ok_or_else(no_stream_err)?.take_peak())
     }
 
     /// いま録るべき行の収録を始める。
@@ -2386,10 +2404,10 @@ impl Studio {
         }
         // ストリームが開いていることだけ確かめる。 レートは持ち回さない——
         // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         // 遡る起点は指示の時点で取る（`TR-REC-19`）。 このあと台帳を読み、予定を書くので、
         // 排出スレッドが開始を受け取った時点から遡ると、そのぶん語頭が欠ける。
-        let from = self.pump.as_ref().ok_or_else(no_stream)?.position();
+        let from = self.pump().ok_or_else(no_stream)?.position();
         let (root, audio_dir, session_id) = {
             let open = self.opened()?;
             (
@@ -2464,33 +2482,36 @@ impl Studio {
         })?;
         // ここから先で始められなければ、予定に場所を見て印を付ける。 付けないと予定が
         // 録音中のまま残り、次の録音の予定を書けない。
-        if let Err(e) = self.begin_capture(path, from) {
-            self.settle_capture(&capture);
-            return Err(e);
-        }
+        let guard = match self.begin_capture(path, from) {
+            Ok(guard) => guard,
+            Err(e) => {
+                self.settle_capture(&capture);
+                return Err(e);
+            }
+        };
 
         self.recording = Some(ActiveCapture {
             row_id: row_id.clone(),
             capture,
+            guard,
         });
         Ok(row_id)
     }
 
     /// 予定を書いたあと、状態機械を進めて書きかけを開く。
-    fn begin_capture(&mut self, path: PathBuf, from: u64) -> Result<()> {
+    ///
+    /// このテイクの基準（`TakeGuard`）を、書きかけを開く直前に取る。 `from`
+    /// （プリロールの起点）はここより前、予定を書く前に読んだ値
+    /// （`TR-REC-19`）で、取り直さない。
+    fn begin_capture(&mut self, path: PathBuf, from: u64) -> Result<TakeGuard> {
         self.session.start_take()?;
-        // ここで取りこぼしの基準を取る。 このテイクの中で増えたぶんだけを見る
-        //（`TR-REC-07` は「1テイクの中で1フレームでも欠落したら」と定めている）。
-        self.xrun_baseline = self
-            .capture
-            .as_ref()
-            .map_or(0, mac::Capture::discontinuities);
-
-        self.pump
-            .as_ref()
-            .ok_or_else(no_stream)?
+        let lease = self.lease.as_ref().ok_or_else(no_stream)?;
+        let guard = TakeGuard::begin(lease, from);
+        lease
+            .pump()
             .start_take(path, from)
-            .map_err(AppError::from_failure)
+            .map_err(AppError::from_failure)?;
+        Ok(guard)
     }
 
     /// 確定できなかった録音の予定へ、場所に残ったものを見て印を付ける
@@ -2579,12 +2600,12 @@ impl Studio {
         {
             return Ok(Finish::RecoveryRequired);
         }
-        self.capture.as_ref().ok_or_else(no_stream)?;
+        self.capture().ok_or_else(no_stream)?;
         // ここから先で返るときは、予定を録音中のまま残さない（`settle_capture`）。
-        let row_id = self
+        let (row_id, guard) = self
             .recording
             .take()
-            .map(|active| active.row_id)
+            .map(|active| (active.row_id, active.guard))
             .unwrap_or_default();
         let guide_offset = self.guide_offset_at_start.take();
         // 台帳に載る前の失敗は、どこで落ちても何も確定していない。
@@ -2592,8 +2613,7 @@ impl Studio {
 
         // 指示のあとも `TAIL_MS` ぶん書く（`TR-REC-19`）。ここで待つ。
         let stopped = self
-            .pump
-            .as_ref()
+            .pump()
             .ok_or_else(no_stream)
             .and_then(|p| p.finish_take().map_err(AppError::from));
         let finished = match stopped {
@@ -2604,12 +2624,12 @@ impl Studio {
             }
         };
 
-        // 取りこぼしは、このテイクの中で増えたぶんだけを見る。
-        let discontinuities = self
-            .capture
+        // このテイクの中で増えたぶんの3つの数と、範囲に入った欠落の位置（`TR-REC-07`）。
+        let gaps = self
+            .lease
             .as_ref()
-            .map_or(0, mac::Capture::discontinuities)
-            .saturating_sub(self.xrun_baseline);
+            .map_or_else(TakeGaps::default, |lease| guard.finish(lease));
+        let discontinuities = gaps.discontinuities;
 
         // ## ここまででファイルは確定している。台帳はこの先
         //
@@ -2618,9 +2638,15 @@ impl Studio {
             self.settle_capture(capture);
             return Err(not_committed(e.into()));
         }
-        let invalidated = discontinuities > 0;
+        // 無効化は、取りこぼし・不連続・レンダの失敗のどれかが増えたら（人が決めた）。
+        let invalidated = gaps.invalidates_take();
         if invalidated {
-            tracing::warn!(discontinuities, "取りこぼしたテイクを無効として載せる");
+            tracing::warn!(
+                dropped = gaps.dropped,
+                discontinuities,
+                render_errors = gaps.render_errors,
+                "取りこぼしたテイクを無効として載せる"
+            );
         }
         // 行・収録セッション・WAV の場所は予定が持っている。 予定を閉じ、受領証を残すのも
         // テイクの行と同じ一手（`project-storage.fsl` の ASSUME-9）。
@@ -2646,6 +2672,10 @@ impl Studio {
             take_id,
             row_id: &row_id,
             discontinuities,
+            dropped: gaps.dropped,
+            render_errors: gaps.render_errors,
+            gaps_overflowed: gaps.overflowed,
+            gaps: &gaps.entries,
             guide_offset,
             duration_ms: finished.samples.len() as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
         };
@@ -2674,6 +2704,8 @@ impl Studio {
             oto: derived.oto,
             confidence: derived.confidence,
             discontinuities,
+            dropped: gaps.dropped,
+            render_errors: gaps.render_errors,
             invalidated,
             metrics: derived.metrics,
             preroll_ms: finished.preroll_frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
@@ -2764,6 +2796,10 @@ impl Studio {
             take_id,
             row_id,
             discontinuities,
+            dropped,
+            render_errors,
+            gaps_overflowed,
+            gaps,
             guide_offset,
             duration_ms,
         } = facts;
@@ -2816,10 +2852,30 @@ impl Studio {
         self.opened_mut()?.ledger.put_metrics(
             take_id,
             &metrics,
-            discontinuities,
+            koeru_core::db::TakeGapCounts {
+                discontinuities,
+                dropped,
+                render_errors,
+                overflowed: gaps_overflowed,
+            },
             finished.preroll_frames,
             guide_offset,
         )?;
+        // 欠落の位置（`TR-REC-07` の「欠落の発生数と位置をメタデータに記録する」）。
+        let gap_records: Vec<koeru_core::db::GapRecord> = gaps
+            .iter()
+            .map(|g| koeru_core::db::GapRecord {
+                kind: match g.kind {
+                    TakeGapKind::Dropped => koeru_core::db::GapRecordKind::Dropped,
+                    TakeGapKind::Discontinuity => koeru_core::db::GapRecordKind::Discontinuity,
+                    TakeGapKind::RenderError => koeru_core::db::GapRecordKind::RenderError,
+                },
+                position: i64::try_from(g.position).unwrap_or(i64::MAX),
+            })
+            .collect();
+        self.opened_mut()?
+            .ledger
+            .put_take_gaps(take_id, &gap_records)?;
         out.metrics = metrics;
 
         let (oto, conf) = match per_mora {
@@ -3442,7 +3498,7 @@ impl Studio {
     /// マイクを選ぶ前は無い。
     #[must_use]
     pub fn envelope_handle(&self) -> Option<Arc<Mutex<crate::pump::Envelope>>> {
-        self.pump.as_ref().map(Pump::envelope_handle)
+        self.pump().map(Pump::envelope_handle)
     }
 
     /// そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。
@@ -5244,8 +5300,9 @@ impl Drop for Studio {
         // 試唱は止める順が決まっている（`stop_preview`）。 フィールドの宣言順に
         // 任せると、合成の待ち合わせが再生より先に来る。
         self.stop_preview();
-        // 排出スレッドを先に止める。ゲインを触るのはそのあと。
-        self.pump = None;
+        // キャプチャストリームと排出スレッドを先に落とす（順序は `CaptureLease` の
+        // `Drop` が守る）。 ゲインを触るのはそのあと。
+        self.lease = None;
         if let Some((device, before)) = self.gain_before.take()
             && let Err(e) = mac::write_gain(&device, before)
         {

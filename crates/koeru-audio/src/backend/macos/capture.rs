@@ -22,7 +22,7 @@
 use super::sys;
 use crate::ring;
 use crate::rt::{self, ChannelEnergy, Route};
-use crate::stats::{CaptureCounters, CaptureStats};
+use crate::stats::{CaptureCounters, CaptureStats, Gaps};
 use std::os::raw::c_void;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -459,7 +459,8 @@ unsafe extern "C" fn input_callback(
     // タイムスタンプの連続性を見る（`TR-REC-07` の xrun 検出）。
     // SAFETY: time_stamp は CoreAudio が渡した有効なポインタ。
     let start = unsafe { (*time_stamp).mSampleTime };
-    shared.counters.slice(start, frames);
+    // 戻り値は、この周の先頭のストリーム内フレーム数。 取りこぼしの位置の基準にする。
+    let position = shared.counters.slice(start, frames);
 
     // SAFETY: scratch[..need] は直前の AudioUnitRender が書いた領域で、確保した範囲の中
     // （先頭で need <= scratch.len() を確かめた）。 `UnsafeCell<f32>` は `f32` と同じ配置。
@@ -471,12 +472,18 @@ unsafe extern "C" fn input_callback(
     // ここで取った `&mut` はこの呼び出しの中でしか生きない。
     let producer = unsafe { &mut *shared.producer.get() };
 
+    let armed = shared.armed.load(Ordering::Relaxed);
     let route = Route {
         channels: shared.channels,
         source: shared.source.load(Ordering::Relaxed),
-        armed: shared.armed.load(Ordering::Relaxed),
+        armed,
     };
-    rt::deliver(input, frames as usize, route, &shared.energy, producer);
+    let frames = frames as usize;
+    let written = rt::deliver(input, frames, route, &shared.energy, producer);
+    if armed && written < frames {
+        // 満杯で捨てた。 書けたぶんの先までは入ったので、その次から。
+        shared.counters.record_dropped(position + written as u64);
+    }
 
     sys::kAudioHardwareNoError
 }
@@ -519,6 +526,12 @@ impl Capture {
         self.shared
             .counters
             .snapshot(self.shared.ring_meter.dropped())
+    }
+
+    /// 記録した欠落の位置（`TR-REC-07`）。 実時間の外から読む。
+    #[must_use]
+    pub fn gaps(&self) -> Gaps {
+        self.shared.counters.gaps()
     }
 
     /// チャンネルごとの RMS（`TR-REC-06`）。

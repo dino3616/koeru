@@ -98,12 +98,14 @@ fn 録って聴けるところまで一本で通す() {
     let take = studio.finish_take().expect("確定できる");
 
     println!(
-        "確定: take={} row={} 長さ={:.0}ms ピーク={:.4} 取りこぼし={} 無効化={}",
+        "確定: take={} row={} 長さ={:.0}ms ピーク={:.4} 捨て={} 飛び={} レンダ失敗={} 無効化={}",
         take.take_id,
         take.row_id,
         take.duration_ms,
         take.peak,
+        take.dropped,
         take.discontinuities,
+        take.render_errors,
         take.invalidated
     );
     println!(
@@ -151,11 +153,12 @@ fn 録って聴けるところまで一本で通す() {
         take.duration_ms
     );
 
-    // 取りこぼしたテイクは自動的に無効になる（`TR-REC-07`）。
+    // 取りこぼし・不連続・レンダの失敗のどれかが増えたテイクは自動的に無効になる
+    // （`TR-REC-07`。人が決めた3つの数のどれか）。
     assert_eq!(
         take.invalidated,
-        take.discontinuities > 0,
-        "無効化は取りこぼしと1対1であること"
+        take.dropped > 0 || take.discontinuities > 0 || take.render_errors > 0,
+        "無効化は3つの数のどれかが増えたことと1対1であること"
     );
 
     // ## ファイルが実際にあること（`DEC-REC-004` の順序）

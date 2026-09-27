@@ -205,6 +205,24 @@ diesel::table! {
         discontinuities -> Integer,
         preroll_frames -> Integer,
         guide_offset_frames -> Nullable<BigInt>,
+        /// リングが満杯で捨てたサンプル数（`TR-REC-07`）。
+        dropped -> Integer,
+        /// レンダの失敗回数（`TR-REC-07`）。
+        render_errors -> Integer,
+        /// 欠落の固定長領域に収まらず、件数だけ数えたぶん。
+        gaps_overflowed -> Integer,
+    }
+}
+
+diesel::table! {
+    /// テイクごとの欠落の位置（`TR-REC-07` の「欠落の発生数と位置をメタデータに記録する」）。
+    take_gaps (take_id, ordinal) {
+        take_id -> Integer,
+        ordinal -> Integer,
+        /// `dropped` / `discontinuity` / `render_error` のいずれか。
+        kind -> Text,
+        /// テイクの先頭からの、マスター（44100 Hz）標本位置。
+        position -> BigInt,
     }
 }
 
@@ -313,6 +331,7 @@ diesel::joinable!(oto_values -> takes (take_id));
 diesel::joinable!(take_analysis -> takes (take_id));
 diesel::joinable!(take_metrics -> takes (take_id));
 diesel::joinable!(take_fingerprints -> takes (take_id));
+diesel::joinable!(take_gaps -> takes (take_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     sessions,
@@ -336,4 +355,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     presamp_snapshot,
     capture_intents,
     commit_receipts,
+    take_gaps,
 );
