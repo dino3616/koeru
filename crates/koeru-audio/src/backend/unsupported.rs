@@ -257,6 +257,62 @@ pub const fn enumerate_input_devices() -> Result<Vec<DeviceInfo>, CoreAudioError
     Err(UnsupportedError)
 }
 
+/// デバイスの着脱を見張る。この OS ではまだ書いていないので、何も見張れない。
+///
+/// `koeru-app` が macOS と同じ形で `Studio::check_device` を組み立てられるように、
+/// 公開する形だけ揃える（`TR-REC-04`）。
+#[derive(Debug)]
+pub struct DeviceWatch {
+    _private: (),
+}
+
+/// 見張りを始める。この OS では何も起こらない——[`DeviceWatch::device_list_changed`] は常に 0。
+#[must_use]
+pub const fn watch(_device: &DeviceId) -> DeviceWatch {
+    DeviceWatch { _private: () }
+}
+
+impl DeviceWatch {
+    /// デバイス一覧が変わった回数。この OS では増えない。
+    #[must_use]
+    pub const fn device_list_changed(&self) -> usize {
+        0
+    }
+
+    /// OS が過負荷を通知した回数。この OS では増えない。
+    #[must_use]
+    pub const fn overloads(&self) -> usize {
+        0
+    }
+
+    /// [`DeviceListChangedHandle`] を返す。この OS では常に 0 を読む持ち手になる。
+    #[must_use]
+    pub const fn device_list_changed_handle(&self) -> DeviceListChangedHandle {
+        DeviceListChangedHandle
+    }
+}
+
+/// macOS 側の同名の型と揃えた持ち手。この OS では常に 0 を読む。
+#[derive(Debug, Clone, Copy)]
+pub struct DeviceListChangedHandle;
+
+impl DeviceListChangedHandle {
+    /// 常に 0。この OS では一覧の変化を見張れない。
+    #[must_use]
+    pub const fn get(&self) -> usize {
+        0
+    }
+}
+
+/// デバイスが生きているか（`TR-REC-04`）。
+///
+/// # Errors
+///
+/// この OS では常に失敗する。
+pub const fn is_alive(_id: &DeviceId) -> Result<bool, CoreAudioError> {
+    Err(UnsupportedError)
+}
+
 /// キャプチャを開く。
 ///
 /// # Errors

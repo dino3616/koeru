@@ -33,7 +33,7 @@ use koeru_align::segment::{Boundaries, SegmentConfig, confidence, per_mora};
 use koeru_align::{ini, ledger, reach, validate};
 use koeru_audio::backend::current as mac;
 use koeru_audio::wav::MASTER_RATE_HZ;
-use koeru_audio::{DeviceId, Session, wav};
+use koeru_audio::{Device, DeviceId, Session, wav};
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::calibration::{self, Calibration, Outcome};
 use koeru_core::channel::{self, Source};
@@ -68,7 +68,8 @@ use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
 use crate::packaging;
-use crate::preview::{self, PhraseCache, Running, Sink, WavSamples};
+use crate::playback_lease::PlaybackLease;
+use crate::preview::{self, PhraseCache, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::review::slot_of;
 use crate::storage;
@@ -91,6 +92,13 @@ const MIPMAP_CACHE: usize = 8;
 ///
 /// 描画やディスクが詰まっても、この長さのあいだは取りこぼさない。
 const RING_SECONDS: usize = 8;
+
+/// 見失っていたデバイスが戻ったあとの、入力生死の再確認にかける時間（ミリ秒）。
+///
+/// 画面が使っている既定値と揃える（`ui/src/lib/levels.ts` の `PROBE_MS`）。
+/// 自動では録音を始めない（`REQ-REC-109`）ので、ここは「つながっているか」を
+/// もう一度確かめるだけ。
+const DEVICE_RETURN_PROBE_MS: u64 = 400;
 
 /// 主因ラベルを出しはじめる成分の値（`TR-ALN-26` (3)）。
 ///
@@ -639,16 +647,14 @@ pub struct Studio {
     /// 全チャンネルに有意な信号があるか（`TR-REC-06`）。
     /// 真のときだけ、本人が「合成する」を選べる。
     may_mix: bool,
-    playback: Option<mac::Playback>,
+    /// 単一の出力枠（`DEC-REC-011`）。 音高提示・基準音・試唱・テイクの再生・
+    /// 曲の試唱が、これを取り合う。 新しい出力を始める前に必ず前を止める。
+    output: PlaybackLease,
     /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
     ///
     /// プロジェクトを開いている間だけ持つ。 素材が変われば鍵が変わるので、
     /// 明示的に捨てなくても古い結果は使われない（`TR-SYN-26`）。
     song_cache: Arc<Mutex<PhraseCache>>,
-    /// 進行中の曲の合成。落とすと止まる（`TR-SYN-27`）。
-    singing: Option<Running>,
-    /// 継ぎ足しながら鳴らしている再生（`TR-SYN-03`）。
-    playback_stream: Option<mac::Playback>,
     /// 集めた F0 系列。話者音域を見るため（`TR-SYN-22`）。
     observed_f0: Vec<Vec<f64>>,
     /// 話者音域から決めた探索下限。まだ分からなければ `None`。
@@ -665,6 +671,13 @@ pub struct Studio {
     observed: HashMap<Case, Observed>,
     /// この回に試唱を押したことがあるか。初回かどうかの判定（`TR-SYN-33`）。
     ever_previewed: bool,
+    /// テスト用。 実機無しで `check_device` の生死判定を差し込む
+    /// （`crate::studio::tests`、`tests/device_loss.rs`）。
+    ///
+    /// 本番の経路は `mac::is_alive` を呼ぶ1つだけ——ここは答えを差し替える
+    /// だけで、分岐そのものは増やさない。
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_device_alive: Option<bool>,
 }
 
 /// 採用テイクから集めた素材。
@@ -765,16 +778,16 @@ impl Studio {
             gain_before: None,
             leak: None,
             may_mix: false,
-            playback: None,
+            output: PlaybackLease::new(),
             song_cache: Arc::new(Mutex::new(PhraseCache::new())),
-            singing: None,
-            playback_stream: None,
             observed_f0: Vec::new(),
             f0_floor: None,
             mipmaps: HashMap::new(),
             workers: Workers::start(),
             observed: HashMap::new(),
             ever_previewed: false,
+            #[cfg(any(test, feature = "test-hooks"))]
+            test_device_alive: None,
         })
     }
 
@@ -1200,6 +1213,18 @@ impl Studio {
     /// 開いている排出スレッド（`lease` の一部）。
     fn pump(&self) -> Option<&Pump> {
         self.lease.as_ref().map(CaptureLease::pump)
+    }
+
+    /// デバイス一覧が変わった回数だけを、ロックを取らずに読むための持ち手
+    /// （`lease` の一部、`TR-REC-04`）。
+    ///
+    /// `commands::arm_device` が呼んで `AppState` へ渡す。 ストリームを
+    /// 開いていなければ見張りも無いので `None`。
+    #[must_use]
+    pub fn device_watch_handle(&self) -> Option<mac::DeviceListChangedHandle> {
+        self.lease
+            .as_ref()
+            .map(CaptureLease::device_list_changed_handle)
     }
 
     /// 開いているストリームを落とす。
@@ -1719,6 +1744,9 @@ impl Studio {
     ///
     /// ストリームはテイクごとに開閉しない（`REQ-REC-102`）。
     /// 収録画面を離れるまで持ち続ける。
+    ///
+    /// 本人が明示的に選ぶ経路。 選択を必ず作り直す
+    /// ——見失っていたデバイスの自動復帰は [`Self::on_device_returned`] が別に持つ。
     #[tracing::instrument(skip(self))]
     pub fn arm_device(&mut self, device: &DeviceId) -> Result<mac::MicrophoneMode> {
         if self.recording.is_some() {
@@ -1740,6 +1768,10 @@ impl Studio {
          * 答えてしまう。** 画面は新しく選んだほうを出したまま、録る手前の
          * 開き直しが前のデバイスを開く——**別のマイクで録れてしまう。**
          * 開けたときに下で入れ直す。
+         *
+         * 本人が選び直す経路だからこそ、ここで手放してよい。 見失っていた
+         * デバイスの自動復帰（[`Self::on_device_returned`]）はここを通らない
+         * ——再オープンに失敗しても選択を手放さない（`REQ-REC-109`）。
          */
         self.device = None;
 
@@ -1749,6 +1781,26 @@ impl Studio {
         // 既存の機械を無理に巻き戻さない。 巻き戻す遷移は仕様に無い。
         self.session = Session::new();
 
+        self.open_armed_stream(device, SelectionOrigin::Fresh)
+    }
+
+    /// 実際にストリームを開き、`CaptureLease` を組み立てる（`arm_device` の本体）。
+    ///
+    /// 呼び出し側が、ここへ入る前にデバイスの選択（`session` を `Selected` へ
+    /// 進める段取り）を済ませていることは要らない——その FSL の遷移
+    /// （`select_device` か `same_device_returned` か）は [`SelectionOrigin`] で
+    /// 指定し、ここが `mac::open` の成否を確かめたあとに行う。
+    ///
+    /// **この順序が要る。** `mac::open` は失敗しうる（実機が無い、抜けたままなど）。
+    /// 先に FSL の遷移を済ませてしまうと、失敗したときに「選択したのに開けて
+    /// いない」半端な状態が残る。 自動復帰（[`SelectionOrigin::Returned`]）は
+    /// これに頼っている——失敗しても `Lost` のまま、`self.device` も保つので、
+    /// 次にデバイス一覧が動いたときにまた試せる（`REQ-REC-109`）。
+    fn open_armed_stream(
+        &mut self,
+        device: &DeviceId,
+        origin: SelectionOrigin,
+    ) -> Result<mac::MicrophoneMode> {
         let open = self.opened_mut()?;
         // 前に決めたチャンネルを引き継ぐ（`TR-REC-06`）。テイクごとに違う経路から
         // 録った素材が混ざると、合成したときに音色が揃わない。
@@ -1758,6 +1810,7 @@ impl Studio {
             .map_or(0, |c| c.source_channel);
 
         // セッションは録音条件のスナップショット（`TR-REC-30`）。
+        // ここで失敗しても、呼び出し側の状態はまだ何も変えていない。
         let (cap, consumer) = mac::open(device, 48_000 * RING_SECONDS)?;
         let format = cap.format();
         let mode = mac::active_microphone_mode();
@@ -1787,8 +1840,12 @@ impl Studio {
         })?;
         open.session_id = session_id;
 
-        // 状態機械を手順どおりに進める。
-        self.session.select_device(device.clone())?;
+        // 状態機械を手順どおりに進める。 ここまで来れば `mac::open` は成功している
+        // ので、FSL の遷移を踏んでよい。
+        match origin {
+            SelectionOrigin::Fresh => self.session.select_device(device.clone())?,
+            SelectionOrigin::Returned => self.session.same_device_returned(device)?,
+        }
         self.session.open_stream()?;
         if mode.is_clean() {
             self.session.effects_all_disabled()?;
@@ -1818,7 +1875,11 @@ impl Studio {
         // ここから排出が回り、プリロールが溜まりはじめる。
         cap.arm();
         let pump = Pump::start(consumer, format.sample_rate_hz);
-        self.lease = Some(CaptureLease::new(cap, pump));
+        // 着脱の見張りも同じ寿命で始める（`TR-REC-04`）。 見張りスレッド
+        // （`lib.rs`）がロックを取らずに読める持ち手は、コマンド側
+        // （`commands::arm_device`）がここから引いて `AppState` へ渡す。
+        let watch = mac::watch(device);
+        self.lease = Some(CaptureLease::new(cap, pump, watch));
         self.estimate_space()?;
         Ok(mode)
     }
@@ -1877,6 +1938,7 @@ impl Studio {
     /// （`TR-REC-19`）。
     #[tracing::instrument(skip(self))]
     pub fn probe_input(&mut self, ms: u64) -> Result<f32> {
+        self.require_stream()?;
         {
             // 直前の残りを捨ててから測る。「今」の入力だけを見る。
             let pump = self.pump().ok_or_else(no_stream)?;
@@ -1980,16 +2042,21 @@ impl Studio {
             }
             Some(_) => {}
         }
-        self.capture().ok_or_else(no_stream)?;
+        self.require_stream()?;
         let rate = MASTER_RATE_HZ;
         let pcm = guide::render(&GuideSpec::pitch_reference(), midi, rate);
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, rate)?);
+        // 先に止める。 単一の出力枠を取り合う（`DEC-REC-011`）ので、
+        // 曲の試唱が鳴っていればここで止まる。
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, rate)?);
         Ok(())
     }
 
     /// 鳴らしながら録る。回り込みの検査にだけ使う。
     fn play_and_capture(&mut self, played: &[f32], rate: u32) -> Result<Vec<f32>> {
+        // 曲が鳴っている最中に検査すると、測るものに混じって歪む
+        // （`DEC-REC-011`）。 単一の出力枠を先に空ける。
+        self.output.stop();
         let pump = self.pump().ok_or_else(no_stream)?;
         pump.begin_probe();
         let handle = mac::play(played.to_vec(), rate)?;
@@ -2250,8 +2317,8 @@ impl Studio {
         }
         let spec = koeru_core::guide::GuideSpec::tone_reference();
         let pcm = koeru_core::guide::render(&spec, midi, MASTER_RATE_HZ);
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, MASTER_RATE_HZ)?);
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, MASTER_RATE_HZ)?);
         Ok(())
     }
 
@@ -2404,7 +2471,7 @@ impl Studio {
         }
         // ストリームが開いていることだけ確かめる。 レートは持ち回さない——
         // マスターは常に 44100 で、変換は pump が1回だけ行う（`TR-REC-02`）。
-        self.capture().ok_or_else(no_stream)?;
+        self.require_stream()?;
         // 遡る起点は指示の時点で取る（`TR-REC-19`）。 このあと台帳を読み、予定を書くので、
         // 排出スレッドが開始を受け取った時点から遡ると、そのぶん語頭が欠ける。
         let from = self.pump().ok_or_else(no_stream)?.position();
@@ -3360,9 +3427,9 @@ impl Studio {
         let (pcm, rate) = self.render_take(take_id, midi, length_ms)?;
         let n = pcm.len();
 
-        // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
-        self.playback = None;
-        self.playback = Some(mac::play(pcm, rate)?);
+        // 前の出力は止める。 重ねると何を聴いているか分からなくなる（`DEC-REC-011`）。
+        self.output.stop();
+        self.output.set_clip(mac::play(pcm, rate)?);
         Ok(n)
     }
 
@@ -4467,27 +4534,21 @@ impl Studio {
         )]
         let ms = w.samples.len() as f64 * 1000.0 / f64::from(w.rate_hz);
 
-        // 前の再生は止める。 重ねると何を聴いているか分からなくなる。
-        self.playback = None;
-        self.playback = Some(mac::play(w.samples, w.rate_hz)?);
+        // 前の出力は止める。 重ねると何を聴いているか分からなくなる（`DEC-REC-011`）。
+        self.output.stop();
+        self.output.set_clip(mac::play(w.samples, w.rate_hz)?);
         Ok(ms)
     }
 
     /// 鳴らしている音を止める（`TR-SYN-27`）。
     ///
-    /// 進行中の合成も止める。 200ms 以内に抜ける。
+    /// 進行中の合成も止める。 200ms 以内に抜ける。 合図 → 再生 → 合成の
+    /// 待ち合わせの順は `PlaybackLease`（`crate::playback_lease`）が持つ。
     pub fn stop_preview(&mut self) {
-        // 合図 → 再生 → 合成の待ち合わせの順。 合成のスレッドは、満杯のリングへの
-        // 継ぎ足しで待っていることがある。再生を先に落とせば、その待ちが抜ける。
-        // 合成を先に待つと、鳴らして空くまで待つことになる。
-        if let Some(running) = &self.singing {
-            running.cancel();
-        }
-        self.playback_stream = None;
-        self.singing = None;
-        self.playback = None;
+        self.output.stop();
         // 積んである仕事も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
-        // 前の曲のための前処理を回し続ける意味は無い。
+        // 前の曲のための前処理を回し続ける意味は無い。 これは出力の資源では
+        // なく仕事キューの後始末なので、`PlaybackLease` の外、ここで行う。
         self.workers.clear();
     }
 
@@ -4801,8 +4862,7 @@ impl Studio {
         )
         .map_err(AppError::from_failure)?;
 
-        self.playback_stream = Some(stream);
-        self.singing = Some(running);
+        self.output.set_song(stream, running);
 
         // ## 押してから鳴るまでを測る（`TR-SYN-33`）
         //
@@ -5139,6 +5199,314 @@ impl Studio {
     fn opened_mut(&mut self) -> Result<&mut Open> {
         self.open.as_mut().ok_or_else(no_project)
     }
+
+    // ## デバイスの消失（`TR-REC-04`, `REQ-REC-109`, `DEC-REC-011`）
+
+    /// ストリームが要る操作の前提を確かめる。
+    ///
+    /// デバイスを見失っている間は専用の code で断る（`recording.device_lost`）。
+    /// 見失ってすらいなければ、今までどおり `app.no_stream`
+    /// ——一度も選んでいない・まだ開いていないだけのときと区別する理由が無い。
+    fn require_stream(&self) -> Result<()> {
+        if self.session.device() == Device::Lost {
+            return Err(device_lost());
+        }
+        if self.lease.is_none() {
+            return Err(no_stream());
+        }
+        Ok(())
+    }
+
+    /// デバイス一覧が変わった通知を受けて、選択中デバイスの生死を確かめ直す。
+    ///
+    /// 見張りスレッド（`lib.rs`）から、カウンタが動いたときだけ呼ばれる。
+    /// RT コールバックの中身ではないので、ここでロックを取ってよい。
+    #[tracing::instrument(skip(self))]
+    pub fn check_device(&mut self) -> Result<()> {
+        let Some(id) = self.device.clone() else {
+            // まだ選んでいない。 見るものが無い。
+            return Ok(());
+        };
+        let alive = self.probe_device_alive(&id)?;
+        match device_transition(self.session.device(), alive) {
+            DeviceTransition::None => Ok(()),
+            DeviceTransition::Lost => {
+                self.on_device_lost();
+                Ok(())
+            }
+            DeviceTransition::Returned => self.on_device_returned(&id),
+        }
+    }
+
+    /// 本番の経路。 OS へ生死を問い合わせる。
+    #[cfg(not(any(test, feature = "test-hooks")))]
+    fn probe_device_alive(&self, id: &DeviceId) -> Result<bool> {
+        Ok(mac::is_alive(id)?)
+    }
+
+    /// テスト用の経路。 差し込んだ答えがあればそれを使う（`tests/device_loss.rs`）。
+    ///
+    /// 別の分岐を新設しない——本来 `mac::is_alive` が答える値を、ここで
+    /// 差し替えるだけで、そこから先（[`device_transition`] 以降）は本番と共通。
+    #[cfg(any(test, feature = "test-hooks"))]
+    fn probe_device_alive(&self, id: &DeviceId) -> Result<bool> {
+        if let Some(forced) = self.test_device_alive {
+            return Ok(forced);
+        }
+        Ok(mac::is_alive(id)?)
+    }
+
+    /// 選択済みデバイスを見失った（`REQ-REC-109`）。
+    ///
+    /// 進行中のテイクがあれば、まずストリームを落とす——排出スレッドは
+    /// 止められると書きかけを確定させる（[`Self::disarm`] の doc）ので、
+    /// このあと台帳の予定と実ファイルの場所が揃う。 そのあと台帳を
+    /// `Discarded` で閉じ、確定した WAV を削除する。
+    ///
+    /// **これは孤児の自動削除ではない**（`TR-REC-31` が禁じているのは、
+    /// 台帳に載っていない確定済み WAV を見て回るときの自動削除）。
+    /// ここで消すのは、アプリ自身がこの瞬間に「この予定はもう有効ではない」と
+    /// 決めた録音で、台帳の予定は同じ手続きの中で `Discarded` として閉じて
+    /// いる——本人が採るか捨てるかを選ぶ孤児とは別の扱い（`DEC-REC-011`）。
+    fn on_device_lost(&mut self) {
+        tracing::warn!("選択済みデバイスを見失った");
+        let active = self.recording.take();
+        self.lease = None;
+        if let Some(active) = active {
+            self.discard_lost_capture(&active.capture);
+        }
+        if let Err(e) = self.session.device_lost() {
+            koeru_failure::record_failure(&e, koeru_failure::Outcome::Unknown, "device.lost");
+        }
+    }
+
+    /// 見失ったときの進行中テイクを、台帳の予定ごと破棄する（[`Self::on_device_lost`]）。
+    ///
+    /// 順序はここが要——台帳を先に閉じてから実ファイルを消す。 逆にすると、
+    /// ファイルが無いのに予定だけ開いたまま残る窓ができる。
+    fn discard_lost_capture(&mut self, capture: &CaptureId) {
+        let at = now_rfc3339();
+        // 消す実ファイルの場所は、閉じる前の予定から引く。
+        let rel_path = self
+            .opened_mut()
+            .ok()
+            .and_then(|open| open.ledger.intent(capture).ok().flatten())
+            .map(|intent| intent.rel_path);
+
+        if let Ok(open) = self.opened_mut()
+            && let Err(e) = open.ledger.discard_capture(capture, &at)
+        {
+            koeru_failure::record_failure(
+                &e,
+                koeru_failure::Outcome::NotCommitted,
+                "device_lost.discard",
+            );
+        }
+
+        if let (Ok(open), Some(rel)) = (self.opened(), rel_path) {
+            let root = open.dir.root().to_path_buf();
+            delete_capture_file(&root, &rel);
+        }
+    }
+
+    /// 見失っていた同じデバイスが戻った（`REQ-REC-109`）。
+    ///
+    /// 自動では録音を始めない。 別のデバイスへも自動で切り替えない
+    /// ——ここに来るのは同一識別子が生きているときだけ（[`device_transition`]）。
+    ///
+    /// `arm_device` は呼ばない。 あれは本人が明示的に選ぶ経路で、
+    /// 呼んだ時点で選択（`self.device`）を手放す——再オープンが実機の
+    /// 都合で失敗しうる自動復帰にそのまま使うと、失敗するたびに選択が
+    /// 失われ、二度と自動では拾い直せなくなる（**踏んだ**）。
+    ///
+    /// 代わりに [`Self::open_armed_stream`] を直接呼ぶ。 `SelectionOrigin::Returned`
+    /// を渡すので、`mac::open` が成功するまで `Session::same_device_returned` を
+    /// 呼ばない——失敗している間は `self.device` も `Session` の `Lost` も
+    /// 崩れないので、次にデバイス一覧が動いたとき（`Studio::check_device`）に
+    /// また同じ経路で試せる。 USB の抜き差しでは、一覧に出てから実際に
+    /// 開けるようになるまで間があるので、1回目の再オープンが失敗する経路が
+    /// 現実にある。
+    fn on_device_returned(&mut self, id: &DeviceId) -> Result<()> {
+        tracing::info!("見失っていたデバイスが戻ったので、再オープンを試みる");
+        if let Err(e) = self.open_armed_stream(id, SelectionOrigin::Returned) {
+            // 選択と `Lost` はここでは崩れていない（`open_armed_stream` の doc）。
+            // 次にデバイス一覧が動いたとき、また同じ経路で試せる。
+            tracing::warn!("再オープンに失敗した。次のデバイス一覧の変化を待つ");
+            return Err(e);
+        }
+        self.probe_input(DEVICE_RETURN_PROBE_MS)?;
+        Ok(())
+    }
+
+    // ## テスト用（`tests/device_loss.rs`）
+    //
+    // 実機・実デバイス無しで、デバイス消失時の破棄と復帰の検知を確かめるための入口。
+    // 生死の答えだけを差し込み、判断そのもの（`check_device` 以降）は本番と共通の経路を通す。
+
+    /// 実機無しで、次の [`Self::check_device`] が使う生死の答えを固定する。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_set_device_alive(&mut self, alive: bool) {
+        self.test_device_alive = Some(alive);
+    }
+
+    /// 実機無しで、選択済みデバイスにする（`arm_device` の代わり）。
+    ///
+    /// `mac::open` を呼ばない。 状態機械だけを `Selected` まで進める
+    /// ——`check_device` が見るのはそこだけ。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_select_device(&mut self, id: &DeviceId) -> Result<()> {
+        self.session = Session::new();
+        self.session.select_device(id.clone())?;
+        self.device = Some(id.clone());
+        Ok(())
+    }
+
+    /// 実機無しで、収録中の予定を作る（`on_device_lost` の破棄を確かめるため）。
+    ///
+    /// 確定済みの WAV をその場に直接置く。 本番は排出スレッドが `.wav.part`
+    /// を確定させて作る（[`Self::disarm`] の doc）が、ここはハードウェアを
+    /// 使わないので、同じ場所に同じ形のファイルを直接置く。
+    ///
+    /// 返すのは予定の識別子と、置いた WAV の実パス（破棄後に消えたかを
+    /// 呼び出し側が確かめられるように）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_begin_capture(&mut self, row_id: &str) -> Result<(CaptureId, PathBuf)> {
+        let session_id = self.test_session()?;
+        let root = self.opened()?.dir.root().to_path_buf();
+        let audio_dir = self.opened()?.dir.audio_dir();
+        std::fs::create_dir_all(&audio_dir)?;
+        let path = koeru_core::capture::free_take_path(
+            &mut self.opened_mut()?.ledger,
+            &root,
+            &audio_dir,
+            row_id,
+            1,
+        )
+        .map_err(AppError::from_failure)?;
+
+        // 中身は問わない。 見るのは、破棄したときにファイルが消えるかどうかだけ。
+        let samples = vec![0.1_f32; MASTER_RATE_HZ as usize / 10];
+        let mut part = koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ)?;
+        part.write(&samples)?;
+        part.finalize()?;
+
+        let capture = CaptureId::generate();
+        self.opened_mut()?.ledger.declare_capture(&NewIntent {
+            capture: &capture,
+            row_id,
+            session_id,
+            rel_path: &koeru_core::capture::rel_path(&root, &path),
+            declared_at: &now_rfc3339(),
+        })?;
+        self.recording = Some(ActiveCapture {
+            row_id: row_id.to_owned(),
+            capture: capture.clone(),
+            guard: TakeGuard::default(),
+        });
+        Ok((capture, path))
+    }
+
+    /// テスト用。 予定の状態を読む（`tests/device_loss.rs`）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_intent_state(&mut self, capture: &CaptureId) -> Result<Option<&'static str>> {
+        Ok(self
+            .opened_mut()?
+            .ledger
+            .intent(capture)?
+            .map(|i| i.state.as_str()))
+    }
+
+    /// テスト用。 いまの `Device` 状態（`tests/device_loss.rs`）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    #[must_use]
+    pub fn test_device_state(&self) -> &'static str {
+        match self.session.device() {
+            Device::NotSelected => "not_selected",
+            Device::Selected => "selected",
+            Device::Lost => "lost",
+        }
+    }
+}
+
+/// `Studio::open_armed_stream` に、どの FSL の遷移でストリームへ辿り着いたかを渡す。
+///
+/// `mac::open` の成否を確かめたあとにしか使わない——先に踏むと、
+/// 開けなかったときに「選択したのに開けていない」半端な状態が残る。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionOrigin {
+    /// 本人が明示的に選んだ（`arm_device`）。 `Session::select_device` を使う。
+    Fresh,
+    /// 見失っていた同じデバイスが戻った（`Studio::on_device_returned`）。
+    /// `Session::same_device_returned` を使う。
+    Returned,
+}
+
+/// 一覧の変化のあと、選択済みデバイスの生死からどちらへ動くかを決める
+/// （`TR-REC-04`、`REQ-REC-109`）。
+///
+/// 純粋関数で、判断だけを持つ。 I/O も台帳も知らないので、実機・実プロジェクト
+/// 無しで全網羅を試験できる（`crate::studio::tests::device_transition`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeviceTransition {
+    /// 何もしない（一覧は動いたが、選択中デバイスの生死は変わっていない）。
+    None,
+    /// 選択済みデバイスを見失った。
+    Lost,
+    /// 見失っていた同じデバイスが戻った。
+    Returned,
+}
+
+fn device_transition(state: Device, selected_is_alive: bool) -> DeviceTransition {
+    match (state, selected_is_alive) {
+        (Device::Selected, false) => DeviceTransition::Lost,
+        (Device::Lost, true) => DeviceTransition::Returned,
+        // NotSelected のときは何も選んでいないので、生死は関係ない。
+        // Selected で生きている／Lost で死んだままも、動かない。
+        _ => DeviceTransition::None,
+    }
+}
+
+/// 選択済みデバイスを見失っている間の操作の失敗（`TR-REC-04`, `REQ-REC-109`）。
+///
+/// `koeru_audio::SessionError::DeviceState` は変種ごとに同じ code
+/// （`recording.device_state`）を返すので、見失った、という専用の事情を
+/// 画面へ伝えられない。ここでは `check_device` が状態を見て確定させたあとの
+/// 話として、専用の code を1つ割り当てる（`koeru-audio` 側は変えない）。
+fn device_lost() -> AppError {
+    AppError::new(
+        "recording.device_lost",
+        Class::DeviceUnavailable,
+        "マイクを見失った。つながっているか確かめてほしい",
+    )
+}
+
+/// 破棄した進行中テイクの実ファイルを消す（`.wav` と、残っていれば `.wav.part`）。
+///
+/// **孤児の自動削除ではない**（`Studio::on_device_lost` の doc）。 消せなくても
+/// 続ける——台帳の予定はもう閉じているので、ファイルが残っても孤児として
+/// 次回の起動時検証（`TR-REC-31`）に出るだけで、収録は止まらない。
+fn delete_capture_file(root: &std::path::Path, rel: &str) {
+    let path = root.join(rel);
+    let part = {
+        let mut p = path.clone().into_os_string();
+        p.push(".part");
+        PathBuf::from(p)
+    };
+    for candidate in [path, part] {
+        match std::fs::remove_file(&candidate) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                // パスは載せない（トレースのホワイトリスト方針、`AGENTS.md` の禁止事項3）。
+                koeru_failure::record(
+                    "device_lost.delete_file_failed",
+                    koeru_failure::io_class(&e),
+                    koeru_failure::Outcome::NotCommitted,
+                    "device_lost.delete_file",
+                );
+            }
+        }
+    }
 }
 
 /// プロジェクトのエイリアス規則（`TR-SYN-36`, `DEC-SYN-010`, `DEC-SYN-013`）。
@@ -5368,6 +5736,62 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// `device_transition` の純粋な分岐を試験する。
+///
+/// `Studio::open` を要らない——`Session::device()` の3値と生死の2値の
+/// 組み合わせだけで決まる（`TR-REC-04`、`REQ-REC-109`）。 実機はもちろん
+/// プロジェクトも無しで、書いていない OS 向けの組み立てでも同じ数だけ通る。
+#[cfg(test)]
+mod device_transition_tests {
+    use super::{Device, DeviceTransition, device_transition};
+
+    #[test]
+    fn 選択中に見えなくなったら見失う() {
+        assert_eq!(
+            device_transition(Device::Selected, false),
+            DeviceTransition::Lost
+        );
+    }
+
+    #[test]
+    fn 見失っていて同じ識別子が見えたら戻る() {
+        assert_eq!(
+            device_transition(Device::Lost, true),
+            DeviceTransition::Returned
+        );
+    }
+
+    #[test]
+    fn 選択中で生きていれば何もしない() {
+        assert_eq!(
+            device_transition(Device::Selected, true),
+            DeviceTransition::None
+        );
+    }
+
+    #[test]
+    fn 見失ったままなら何もしない() {
+        // 一覧の変化が別のデバイスの着脱で、選択中のものはまだ見えない。
+        assert_eq!(
+            device_transition(Device::Lost, false),
+            DeviceTransition::None
+        );
+    }
+
+    #[test]
+    fn 何も選んでいなければ何もしない() {
+        // まだ選択していない・別のデバイスが挿さっただけ。生死の値は関係ない。
+        assert_eq!(
+            device_transition(Device::NotSelected, false),
+            DeviceTransition::None
+        );
+        assert_eq!(
+            device_transition(Device::NotSelected, true),
+            DeviceTransition::None
+        );
+    }
 }
 
 // `Studio` を組む試験。 MFA を組んでいない OS では `Studio::open` が

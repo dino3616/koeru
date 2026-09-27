@@ -22,7 +22,7 @@ pub use capture_device::{
 pub use gain::{GainControl, control as gain_control, read as read_gain, write as write_gain};
 pub use output::{OutputKind, default_output_kind};
 pub use playback::{Feed, Playback, PlaybackError, play, play_streaming};
-pub use watch::{DeviceWatch, watch};
+pub use watch::{DeviceListChangedHandle, DeviceWatch, watch};
 
 use crate::device::{DeviceId, DeviceInfo, RedactedName};
 use std::os::raw::c_void;

@@ -127,6 +127,31 @@ impl DeviceWatch {
     pub fn overloads(&self) -> usize {
         self.counters.overloads.load(Ordering::Relaxed)
     }
+
+    /// デバイス一覧が変わった回数だけを、`Studio` の外から読むための持ち手（`T06d`）。
+    ///
+    /// `finish_take` は `Studio` のロックを数秒握ることがあるので、見張りの
+    /// スレッドは毎周期そこを取りに行けない。 この持ち手はカウンタの
+    /// `Arc` を分けて持つだけで、読むのはアトミックな load 1回——ロックが要らない。
+    #[must_use]
+    pub fn device_list_changed_handle(&self) -> DeviceListChangedHandle {
+        DeviceListChangedHandle(Arc::clone(&self.counters))
+    }
+}
+
+/// [`DeviceWatch::device_list_changed_handle`] が返す持ち手。
+///
+/// 過負荷の件数はここでは要らないので出さない。 見張りスレッドが持ち回すのは
+/// これ1つで、`DeviceWatch` 本体（リスナの登録）には触れない。
+#[derive(Debug, Clone)]
+pub struct DeviceListChangedHandle(Arc<Counters>);
+
+impl DeviceListChangedHandle {
+    /// デバイス一覧が変わった回数。ロックを取らずに読める。
+    #[must_use]
+    pub fn get(&self) -> usize {
+        self.0.device_list_changed.load(Ordering::Relaxed)
+    }
 }
 
 impl Drop for DeviceWatch {
