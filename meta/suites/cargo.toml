@@ -66,7 +66,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 166
+min_cases = 168
 
 [[suite]]
 id = 'SUITE-CORE-002'
@@ -107,7 +107,7 @@ runner = 'cargo'
 package = 'koeru-audio'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 64
+min_cases = 68
 contracts = ['DEC-REC-007', 'TR-REC-40']
 
 [[suite]]
@@ -197,7 +197,7 @@ runner = 'cargo'
 package = 'koeru-synth'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 34
+min_cases = 36
 
 [[suite]]
 id = 'SUITE-SYNTH-002'
@@ -252,7 +252,7 @@ runner = 'cargo'
 package = 'koeru-app'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 49
+min_cases = 62
 
 [[suite]]
 id = 'SUITE-APP-002'
@@ -401,7 +401,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 39
+min_cases = 65
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
 
 [[suite]]
