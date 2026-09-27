@@ -2,7 +2,14 @@
 //!
 //! 状態機械そのものは [`koeru_align::review::ReviewQueue`] が持ち、
 //! その正本は `specs/requirements/align-review.fsl`。ここがするのは、
-//! 台帳に置いた状態からキューを組み直すことと、遷移の結果を台帳へ書き戻すことだけ。
+//! 遷移の結果を台帳へ書き戻すことと、5値の名前の変換（[`slot_of`] /
+//! [`slot_name`]）だけ。
+//!
+//! **台帳から組み直す本体（[`EntryKey`] と `load`）は `koeru-runtime` へ移した**
+//! （T05b-1、`DEC-PLT-044`）。 書き手はまだ `Studio` が持っているので
+//! （T05b-2 で `ProjectRuntime::writer` 経由に変わる）、ここに残るのは書く側だけ。
+//! [`EntryKey`] は `crate::review::EntryKey` の経路を保つための再輸出——
+//! `studio.rs` はこの経路のまま参照している。
 //!
 //! # 正本は台帳
 //!
@@ -10,149 +17,23 @@
 //! キューは開いている間だけ持つ写しで、遷移の可否を判定する係。
 //! **判定をキューに任せ、値の保存を台帳に任せる。** 両方に判定を書くと、
 //! 片方だけが `INV-ALN-001`〜`004` を守る形になる。
-//!
-//! # 採用テイクだけを見る
-//!
-//! 非採用の世代は書き出しに出ないので、確認キューにも入れない。
-//! 入れると、録り直すたびにキューが伸びて、誰も見ないものが上限を食う。
 
 use std::collections::HashMap;
-use std::time::Duration;
 
-use koeru_align::confidence::Confidence;
-use koeru_align::review::{Entry, EntryState, ReviewMode, ReviewQueue, Slot};
+use koeru_align::review::{Entry, ReviewQueue, Slot};
 use koeru_core::db::{Ledger, ReviewStateRow};
 
 use crate::error::Result;
 
-/// 1件を確認するのにかかると見込む時間（`TR-ALN-25`）。
-///
-/// **実測していない**（`TGT-ALN-007` の note）。`DEC-ALN-003` が上限を合計5分と
-/// 決めているので、この値が「個別確認で何件まで見るか」を決めてしまう。
-///
-/// 直す場所はここ1箇所。 `ReviewQueue` が見積もりを外から受け取る形にしてあるのは、
-/// 実測が出たときに呼び出し側だけ直せばよいようにするため。
-pub const PER_ITEM: Duration = Duration::from_secs(10);
+pub use koeru_runtime::review::EntryKey;
 
-/// 確認キューのエントリを指す鍵（`TR-ALN-22`, `TR-ALN-25`）。
-///
-/// **綴りだけでは足りない。** 多音階は音高ごとにフォルダと `oto.ini` を分ける
-/// （`TR-RCL-26`）ので、同じ綴りが音高の数だけ並ぶ。綴りだけを鍵にすると
-/// キューは最後に読んだ1件しか残さず、落ちたほうは確認もされないまま
-/// 配布物へ入る（`INV-ALN-003`）。**`あ` を2音階で録っただけで起きた。**
-///
-/// 配布物の側では綴りが一意に戻る。 区画の接頭辞・接尾辞が音高を綴りへ
-/// 織り込むので（`koeru_package::tree` の `decorate`）、`TR-PKG-19` の
-/// 「音源全体で一意」はそちらで満たされる。台帳の中だけが（音高, 綴り）。
-///
-/// 画面へは [`handle`](Self::handle) の文字列で渡す。 画面は中身を読まずに
-/// そのまま返すだけ——分解して組み直させると、綴りに区切り文字が入った
-/// ときに画面と台帳で別のエントリを指す。
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct EntryKey {
-    tone: i32,
-    alias: String,
-}
-
-/// 鍵の中で綴りと音高を分ける文字。
-///
-/// 制御文字を使う。 エイリアスに入りうる文字と重ならないもので、
-/// `TR-PKG-18` の綴りの形は制御文字を許していない。
-const SEP: char = '\u{1f}';
-
-impl EntryKey {
-    /// 音高と綴りから作る。
-    pub fn new(tone: i32, alias: impl Into<String>) -> Self {
-        Self {
-            tone,
-            alias: alias.into(),
-        }
-    }
-
-    /// `oto.ini` に出る綴り。
-    #[must_use]
-    pub fn alias(&self) -> &str {
-        &self.alias
-    }
-
-    /// 収録音高（MIDI）。
-    #[must_use]
-    pub const fn tone(&self) -> i32 {
-        self.tone
-    }
-
-    /// キューと画面が持ち回す文字列。
-    ///
-    /// 綴りを先に置く。 キューは鍵の順に並べるので（`TR-ALN-29`）、
-    /// **単音階では並びが綴り順のまま変わらない**——音高を先に置くと、
-    /// 音階を増やしただけで `oto.ini` の行順が入れ替わる。
-    ///
-    /// 音高は3桁に揃える。 MIDI の音高は 0〜127 なので、桁を揃えれば
-    /// 文字列の順が数の順と一致する。
-    #[must_use]
-    pub fn handle(&self) -> String {
-        format!("{}{SEP}{:03}", self.alias, self.tone)
-    }
-
-    /// [`handle`](Self::handle) の裏。形が違えば `None`。
-    ///
-    /// 既定へ倒さない。 倒すと、画面から来た壊れた鍵が別のエントリを書き換える。
-    #[must_use]
-    pub fn parse(handle: &str) -> Option<Self> {
-        let (alias, tone) = handle.rsplit_once(SEP)?;
-        Some(Self::new(tone.parse().ok()?, alias))
-    }
-}
-
-/// 台帳からキューを組み直す。
+/// 台帳からキューを組み直す。 本体は [`koeru_runtime::review::load`]。
 ///
 /// 返るのは `(キュー, 鍵 → 書き戻す先のテイク)`。
 /// 書き戻す先を別に持つのは、キューが鍵にしているのが（音高, 綴り）だけで、
 /// どのテイクの行に書くかを知らないため。
 pub fn load(ledger: &mut Ledger) -> Result<(ReviewQueue, HashMap<String, i32>)> {
-    let s = ledger.review_state()?;
-    let mut q = ReviewQueue::restored(
-        PER_ITEM,
-        ReviewMode::parse(&s.mode),
-        s.over_budget,
-        s.exported,
-    );
-    let mut takes = HashMap::new();
-    // 鍵に音高を織り込む（`TR-ALN-22`）。 行ごとに1度ずつ引かない——
-    // エントリは音源1つで数千あり、1件ずつ問い合わせると開くのが遅くなる。
-    let tones = ledger.row_tones()?;
-    for e in ledger.adopted_otos()? {
-        let state = EntryState::parse(&e.state);
-        // 成分を持っているものだけ確信度を載せる。
-        //
-        // **合成スコアから成分を作り直さない。** 合成は積なので、同じ値を
-        // 3つ置くとスコアが3乗になり、主因も常に同じ成分を指す
-        // ——保存した 0.4 が 0.064 になり、理由が何であれ「音の変わり目が
-        // はっきりしません」と出ていた。
-        //
-        // 未推定に確信度は無い。 持たせると、録り直した直後に
-        // 前の推定の点数が残って見える。
-        let confidence = match state {
-            EntryState::NotEstimated => None,
-            _ => e.parts.map(|p| Confidence {
-                path: p.path,
-                sharpness: p.sharpness,
-                prior: p.prior,
-                acoustic: p.acoustic,
-            }),
-        };
-        // 行の音高が引けないものは 0 として置く。 落とすと、そのエントリは
-        // 確認もされず、書き出しの関門にも現れないまま配布物へ入る。
-        let tone = tones.get(&e.row_id).copied().unwrap_or_default();
-        let key = EntryKey::new(tone, e.alias).handle();
-        takes.insert(key.clone(), e.take_id);
-        q.insert(
-            key,
-            Entry::restored(e.oto, state, confidence, e.pinned)
-                .with_branch_mismatch(e.branch_mismatch),
-        );
-    }
-    Ok((q, takes))
+    Ok(koeru_runtime::review::load(ledger)?)
 }
 
 /// エントリ1件の状態と固定を台帳へ書く。
@@ -211,6 +92,7 @@ pub const fn slot_name(s: Slot) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use koeru_align::review::EntryState;
 
     #[test]
     fn 名前と_slot_が往復する() {
@@ -260,7 +142,7 @@ mod tests {
         keys.sort();
         let aliases: Vec<String> = keys
             .iter()
-            .map(|k| EntryKey::parse(k).expect("読める").alias)
+            .map(|k| EntryKey::parse(k).expect("読める").alias().to_owned())
             .collect();
         assert_eq!(aliases, ["あ", "か", "さ"]);
     }
@@ -279,7 +161,7 @@ mod tests {
         assert_eq!(keys.len(), 3, "潰れない");
         let tones: Vec<i32> = keys
             .iter()
-            .map(|k| EntryKey::parse(k).expect("読める").tone)
+            .map(|k| EntryKey::parse(k).expect("読める").tone())
             .collect();
         assert_eq!(tones, [55, 62, 110]);
     }

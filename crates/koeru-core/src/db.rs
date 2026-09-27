@@ -1339,6 +1339,72 @@ fn presamp_snapshot(conn: &mut SqliteConnection) -> Result<Option<String>> {
         .map_err(db("presamp_snapshot"))
 }
 
+/// [`Ledger`] と [`LedgerSnapshot`] が共有する読み。
+///
+/// どちらも同じ共有の自由関数（`rows_with_takes` など）へ委譲するだけで、
+/// 判定を二重に持たない。 総称にする理由は、台帳から導ける投影
+/// （`koeru_runtime::review::load` の確認キューなど）を、書き手からも
+/// 読み取り専用スナップショットからも同じ手順で組めるようにするため
+/// （`DEC-PLT-044`）。 既存の呼び出し側が使う固有メソッド（[`Ledger::rows_with_takes`]
+/// など）はそのまま残す——同じ名前でも、直接呼べば固有メソッドが優先されるので
+/// 呼び出し側は変わらない。
+pub trait LedgerRead {
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn recording_tones(&mut self) -> Result<Vec<i32>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn take(&mut self, take_id: i32) -> Result<Option<Take>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn review_state(&mut self) -> Result<ReviewStateRow>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn row_tones(&mut self) -> Result<BTreeMap<String, i32>>;
+
+    /// # Errors
+    ///
+    /// 台帳を読めないとき。
+    fn presamp_snapshot(&mut self) -> Result<Option<String>>;
+}
+
 /// プロジェクトの台帳。
 pub struct Ledger {
     conn: SqliteConnection,
@@ -3403,6 +3469,52 @@ impl Ledger {
     }
 }
 
+impl LedgerRead for Ledger {
+    fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
+        rows_with_takes(&mut self.conn)
+    }
+
+    fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
+        coverage_by_kana_row(&mut self.conn)
+    }
+
+    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+        covered_aliases_by_tone(&mut self.conn)
+    }
+
+    fn recording_tones(&mut self) -> Result<Vec<i32>> {
+        recording_tones(&mut self.conn)
+    }
+
+    fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
+        adopted_voice(&mut self.conn, rate_hz)
+    }
+
+    fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
+        songs_in_bank(&mut self.conn)
+    }
+
+    fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
+        take(&mut self.conn, take_id)
+    }
+
+    fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
+        adopted_otos(&mut self.conn)
+    }
+
+    fn review_state(&mut self) -> Result<ReviewStateRow> {
+        review_state(&mut self.conn)
+    }
+
+    fn row_tones(&mut self) -> Result<BTreeMap<String, i32>> {
+        row_tones(&mut self.conn)
+    }
+
+    fn presamp_snapshot(&mut self) -> Result<Option<String>> {
+        presamp_snapshot(&mut self.conn)
+    }
+}
+
 /// 書き手とは別の、読み取り専用の SQLite 接続（`DEC-PLT-043`）。
 ///
 /// [`Ledger::open_reader`] で開く。 それ自体はまだ何も固定しない——
@@ -3566,6 +3678,52 @@ impl LedgerSnapshot {
 
     /// 綴りの表の写し。 [`Ledger::presamp_snapshot`] と同じ版。
     pub fn presamp_snapshot(&mut self) -> Result<Option<String>> {
+        presamp_snapshot(self.conn())
+    }
+}
+
+impl LedgerRead for LedgerSnapshot {
+    fn rows_with_takes(&mut self) -> Result<Vec<RowTakes>> {
+        rows_with_takes(self.conn())
+    }
+
+    fn coverage_by_kana_row(&mut self) -> Result<Vec<(u32, u32)>> {
+        coverage_by_kana_row(self.conn())
+    }
+
+    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+        covered_aliases_by_tone(self.conn())
+    }
+
+    fn recording_tones(&mut self) -> Result<Vec<i32>> {
+        recording_tones(self.conn())
+    }
+
+    fn adopted_voice(&mut self, rate_hz: u32) -> Result<Vec<crate::voice::TakeVoice>> {
+        adopted_voice(self.conn(), rate_hz)
+    }
+
+    fn songs_in_bank(&mut self) -> Result<Vec<(String, Song)>> {
+        songs_in_bank(self.conn())
+    }
+
+    fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
+        take(self.conn(), take_id)
+    }
+
+    fn adopted_otos(&mut self) -> Result<Vec<OtoEntry>> {
+        adopted_otos(self.conn())
+    }
+
+    fn review_state(&mut self) -> Result<ReviewStateRow> {
+        review_state(self.conn())
+    }
+
+    fn row_tones(&mut self) -> Result<BTreeMap<String, i32>> {
+        row_tones(self.conn())
+    }
+
+    fn presamp_snapshot(&mut self) -> Result<Option<String>> {
         presamp_snapshot(self.conn())
     }
 }

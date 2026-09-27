@@ -2314,6 +2314,7 @@ dependencies = [
  "koeru-failure",
  "koeru-model",
  "koeru-package",
+ "koeru-runtime",
  "koeru-synth",
  "libc",
  "serde",
@@ -2406,6 +2407,19 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "zip",
+]
+
+[[package]]
+name = "koeru-runtime"
+version = "0.0.0"
+dependencies = [
+ "diesel",
+ "koeru-core",
+ "koeru-failure",
+ "koeru-model",
+ "thiserror 2.0.21",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
