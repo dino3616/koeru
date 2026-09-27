@@ -100,11 +100,16 @@ fn count_rows(db_path: &Path) -> i64 {
         .expect("数えられること")
 }
 
-/// `-wal` の中身があるか（無ければ空でも `false`）。
-fn wal_has_content(db_path: &Path) -> bool {
+/// `-wal` サイドカーの場所。
+fn wal_path(db_path: &Path) -> PathBuf {
     let mut s = db_path.as_os_str().to_owned();
     s.push("-wal");
-    std::fs::metadata(PathBuf::from(s))
+    PathBuf::from(s)
+}
+
+/// `-wal` の中身があるか（無ければ空でも `false`）。
+fn wal_has_content(db_path: &Path) -> bool {
+    std::fs::metadata(wal_path(db_path))
         .map(|m| m.len() > 0)
         .unwrap_or(false)
 }
@@ -151,17 +156,37 @@ fn 保留の移行を当てても行が残り控えが1つ出る() {
 
 /// まだ `-wal` にしかないコミットも、移行後に残ること。
 ///
-/// 台帳を開いたまま（チェックポイントさせずに）移行を呼ぶ。 最後の接続が
-/// 閉じるとチェックポイントが走ってしまうので、挿した接続を握ったままにする。
+/// **`migrate_ledger` を呼ぶ台帳を開いたままにしない。** 単一の書き手の下では
+/// `open_project` が `Ledger::open` より前に移行するので、移行の最中に別の接続が
+/// 同じ台帳を開いていることは無い。 それに Windows は開いているファイルの上へ
+/// rename できず（`PermissionDenied`）、unix でも開いた接続が古い inode を
+/// 掴んだまま検証することになり、どちらも実際には起きない形を確かめてしまう。
+///
+/// 代わりに、別のプロジェクトで台帳を開いたまま行を入れ、`project.db` と
+/// `project.db-wal` を（`-shm` を除いて）試験対象のプロジェクトへ `fs::copy` する。
+/// `-shm` は写さなくてよい——SQLite が開くときに作り直す。 これで「落ちて WAL に
+/// コミットが残ったまま」の状態を、開いた接続を持ち込まずに再現できる。
 #[test]
 fn wal_だけにあるコミットも移行後に残る() {
-    let dir = new_project("wal-only");
-    let mut conn = pending_one_migration_short(&dir.db_path());
+    let src = new_project("wal-only-src");
+    let mut conn = pending_one_migration_short(&src.db_path());
     insert_row(&mut conn, "r1");
     assert!(
-        wal_has_content(&dir.db_path()),
+        wal_has_content(&src.db_path()),
         "前提: チェックポイント前であること"
     );
+
+    // `conn` を開いたまま写す。 SQLite は共有読み書きで開くので読める。
+    let dir = new_project("wal-only");
+    std::fs::copy(src.db_path(), dir.db_path()).expect("project.db を写せること");
+    std::fs::copy(wal_path(&src.db_path()), wal_path(&dir.db_path()))
+        .expect("project.db-wal を写せること");
+    assert!(
+        wal_has_content(&dir.db_path()),
+        "写した先にも WAL の中身が残っていること"
+    );
+
+    drop(conn);
 
     let outcome = dir.migrate_ledger().expect("移行できること");
     assert_eq!(outcome, MigrationOutcome::Migrated);
@@ -170,8 +195,6 @@ fn wal_だけにあるコミットも移行後に残る() {
         1,
         "WAL だけにあった行が残ること"
     );
-
-    drop(conn);
 }
 
 /// バイナリの知らない版が当たっている台帳は、何も書かずに断る。
