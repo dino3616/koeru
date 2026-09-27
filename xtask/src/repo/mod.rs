@@ -1,9 +1,14 @@
 //! リポジトリそのもの。 根の見つけ方、走査から外す場所、git の呼び出し。
 //!
-//! 作業ツリーだけを読む。 任意の版を同じ口で読むのは、この下に足す（X02）。
+//! 作業ツリーと任意の版を同じ口で読むのは [`view::RepoView`]（X02）。
+//! 外部コマンドの起動そのものは [`process`] に1つに寄せてあり、`git` はそれを使う。
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+mod process;
+mod view;
+
+pub(crate) use view::{RepoView, diff_files};
 
 pub(crate) const META_DIR: &str = "meta";
 pub(crate) const SPEC_DIR: &str = "specs";
@@ -43,22 +48,18 @@ pub(crate) fn repo_root() -> Result<PathBuf, String> {
 }
 
 pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git")
-        .current_dir(root)
-        // 非 ASCII のパスを C 形式で引用させない。 引用されたまま使うと、
-        // 差分の見出しともファイル名とも一致せず、そのファイルが黙って落ちる。
-        .args(["-c", "core.quotePath=false"])
-        .args(args)
-        .output()
-        .map_err(|e| format!("git を起動できない: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "git {} が失敗した: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    // 非 ASCII のパスを C 形式で引用させない。 引用されたまま使うと、
+    // 差分の見出しともファイル名とも一致せず、そのファイルが黙って落ちる。
+    let mut full: Vec<&str> = vec!["-c", "core.quotePath=false"];
+    full.extend_from_slice(args);
+    match process::run_text(root, "git", &full) {
+        Ok(s) => Ok(s),
+        Err(process::ProcessError::Spawn(e)) => Err(format!("git を起動できない: {e}")),
+        Err(process::ProcessError::ExitStatus { stderr }) => {
+            Err(format!("git {} が失敗した: {stderr}", args.join(" ")))
+        }
+        Err(process::ProcessError::NotUtf8(e)) => Err(format!("git の出力が UTF-8 ではない: {e}")),
     }
-    String::from_utf8(out.stdout).map_err(|e| format!("git の出力が UTF-8 ではない: {e}"))
 }
 
 /// NUL 区切りで返ってきたパスの並び。
