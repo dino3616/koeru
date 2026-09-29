@@ -3,6 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
+      "name": "@koeru/talks",
       "devDependencies": {
         "@hajimism/dek": "github:hajimism/dek#f8be784733599a62b1a302df288a10c705a7a0b6",
         "@tsconfig/strictest": "2.0.8",
