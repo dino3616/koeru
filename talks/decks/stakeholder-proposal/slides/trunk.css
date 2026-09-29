@@ -1,0 +1,85 @@
+.slide {
+  --halo: 10px;
+}
+
+.map {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* 道具の線路。幹線に吸い込まれず、平行に最後まで続く。道具なので色を持たない。 */
+.lanes path,
+.lanes rect,
+.lanes polygon {
+  fill: var(--slate-9);
+}
+
+.lanes line {
+  stroke: var(--slate-9);
+  stroke-width: var(--rule);
+  stroke-linecap: round;
+}
+
+.lanes text {
+  fill: var(--muted);
+  font-size: var(--size-small);
+  font-weight: 700;
+}
+
+/* 字は地の色で縁取り、縦の線が横切っても読めるようにする。 */
+.lanes text,
+.stations text,
+.trunk-name {
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: var(--halo);
+  stroke-linejoin: round;
+}
+
+.stations text {
+  fill: var(--fg);
+  font-size: var(--size-body);
+  font-weight: 800;
+  text-anchor: middle;
+}
+
+.trunk-name {
+  fill: var(--fg);
+  font-size: var(--size-small);
+  font-weight: 800;
+}
+
+/* 幹線は墨の太い線。色を持たない。 */
+.trunk {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: calc(var(--trunk) * 1.5);
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+}
+
+/* いまいる瞬間から、すべての線路へ届く縦の線。 */
+.beam {
+  stroke: var(--ink);
+  stroke-width: var(--rule);
+  stroke-dasharray: 6 6;
+}
+
+/* 動きを写せない静止画のための、掃いた跡。 */
+.ghosts line {
+  stroke: var(--line);
+  stroke-width: var(--rule);
+  stroke-dasharray: 6 6;
+}
+
+.dot {
+  fill: var(--bg);
+  stroke: var(--ink);
+  stroke-width: var(--rule);
+}
+
+.keep {
+  margin-top: calc(var(--gap) * 0.6);
+}

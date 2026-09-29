@@ -1,0 +1,30 @@
+.offer {
+  display: grid;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.offer .unit {
+  margin-right: 0.8em;
+}
+
+.checks {
+  display: grid;
+  gap: calc(var(--gap) * 0.3);
+  counter-reset: check;
+}
+
+.checks > li {
+  counter-increment: check;
+  font-weight: 800;
+}
+
+.checks > li::before {
+  content: counter(check) ".";
+  display: inline-block;
+  width: 1.6em;
+  color: var(--muted);
+}
+
+.promise {
+  margin-top: var(--gap);
+}

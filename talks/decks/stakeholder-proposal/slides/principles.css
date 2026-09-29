@@ -1,0 +1,22 @@
+.principles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: calc(var(--gap) * 1.5);
+  padding-top: var(--gap);
+}
+
+/* 原則は KOERU のものなので、担い手の色を使わず墨の罫で区切る。 */
+.principles > li {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.7);
+  padding-top: var(--gap);
+  border-top: var(--trunk) solid var(--ink);
+}
+
+.principle-name {
+  font-size: var(--size-stat);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}

@@ -1,0 +1,55 @@
+.slide {
+  --cell: 96px;
+  --spread: 580px;
+}
+
+/* 中心を持たない並び。行ごとにずらして、格子に見せない。 */
+.spread {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  row-gap: calc(var(--gap) * 1.2);
+  column-gap: var(--gap);
+  max-width: var(--spread);
+  margin-left: auto;
+}
+
+.place {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--gap) * 0.3);
+  margin: 0;
+}
+
+.place:nth-child(3n + 2) {
+  transform: translateY(calc(var(--gap) * 1.4));
+}
+
+.place .shape {
+  --s: var(--cell);
+}
+
+.slide.is-current .place {
+  animation: rise var(--dur-pop) var(--ease-out) backwards;
+}
+
+.slide.is-current .place:nth-child(2n) {
+  animation-delay: calc(var(--stagger) * 2);
+}
+
+.slide.is-current .place:nth-child(3n) {
+  animation-delay: calc(var(--stagger) * 4);
+}
+
+.legend-alive {
+  justify-content: flex-end;
+  max-width: var(--spread);
+  margin: calc(var(--gap) * 2.4) 0 0 auto;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    scale: 0.7;
+  }
+}

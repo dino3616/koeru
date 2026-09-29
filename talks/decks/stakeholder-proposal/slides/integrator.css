@@ -1,0 +1,78 @@
+/* 道具は slate で小さく、作る人は役割の色で大きく。多色の中で人が埋もれると、課題の核心が見えなくなる（5秒テスト）。 */
+.slide {
+  --cell: 72px;
+  --person: 132px;
+  --web: 560px;
+}
+
+.decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.35);
+}
+
+.web {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  width: var(--web);
+  aspect-ratio: 1;
+  margin-left: auto;
+}
+
+.tool {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--gap) * 0.3);
+  margin: 0;
+}
+
+.tool .shape {
+  --s: var(--cell);
+  --c: var(--slate-9);
+}
+
+.person {
+  gap: calc(var(--gap) * 0.15);
+}
+
+.person .head {
+  width: calc(var(--person) * 0.36);
+  aspect-ratio: 1;
+  border-radius: var(--pill);
+  background: var(--c-ink);
+}
+
+.person .body {
+  width: calc(var(--person) * 0.64);
+  height: calc(var(--person) * 0.34);
+  border-radius: var(--pill) var(--pill) 0 0;
+  background: var(--c-ink);
+}
+
+.person .label {
+  margin-top: calc(var(--gap) * 0.2);
+  color: var(--fg);
+  font-size: var(--size-body);
+  font-weight: 800;
+}
+
+/* 作る人から全部の道具へ伸びる糸。どれも人の手で結ばれている。 */
+.threads {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.threads line {
+  stroke: var(--c-ink);
+  stroke-width: var(--rule);
+  stroke-dasharray: 6 6;
+  vector-effect: non-scaling-stroke;
+}
