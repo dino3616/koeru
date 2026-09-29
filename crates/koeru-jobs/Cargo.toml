@@ -1,0 +1,24 @@
+[package]
+name = "koeru-jobs"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.49", features = ["sync", "rt", "rt-multi-thread"] }
+tracing = { workspace = true }
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
+
+# koeru-model から ID を借用。
+koeru-model = { path = "../koeru-model" }
+# 解析エンジン用。Phoneme と Grid はこの crate からアクセスする。
+koeru-align = { path = "../koeru-align" }
