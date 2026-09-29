@@ -243,6 +243,16 @@
                 export WEBKIT_DISABLE_COMPOSITING_MODE=1
                 # Wayland で表示倍率を正しく報告させる。
                 export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH:$XDG_DATA_DIRS"
+                # 発表資料（`talks/`）は和文を描いてはみ出しを測る。 Linux には和文の
+                # 書体が無く、Chromium が豆腐を測って macOS と別の結果を返す。
+                export FONTCONFIG_FILE=${
+                  pkgs.makeFontsConf {
+                    fontDirectories = [
+                      pkgs.noto-fonts-cjk-sans
+                      pkgs.noto-fonts-cjk-serif
+                    ];
+                  }
+                }
               ''}
 
               if [ "$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON" != "$KOERU_PLAYWRIGHT_FROM_NIXPKGS" ]; then

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "description": "One or two sentences a shared link shows under the title.",
+      "type": "string"
+    },
+    "event": {
+      "type": "string"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^\\d+m$"
+    },
+    "ratio": {
+      "default": "16:9",
+      "type": "string",
+      "enum": [
+        "16:9",
+        "4:3"
+      ]
+    },
+    "lang": {
+      "description": "BCP 47 tag for the page. Omit it to follow the script: kana → ja, Hangul → ko, Han → zh, else en.",
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+    }
+  },
+  "required": [
+    "title"
+  ],
+  "additionalProperties": false
+}

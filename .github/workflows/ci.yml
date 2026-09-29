@@ -253,6 +253,34 @@ jobs:
       - name: build
         run: bun run build
 
+  talks:
+    name: talks (dek lint + HTML)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        # 発表資料は talks/ で完結する dek のプロジェクト。ui と同じく bun だけで閉じる。
+        working-directory: talks
+        shell: nix develop ${{ github.workspace }} --command bash -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # dek は描画を Playwright で測る。ブラウザは nixpkgs から出るので、ui と同じく版を揃える。
+      - name: Playwright の版が揃っているか
+        run: |
+          want=$(bun -e 'console.log((await Bun.file("package.json").json()).devDependencies.playwright)')
+          if [ "$want" != "$KOERU_PLAYWRIGHT_FROM_NIXPKGS" ]; then
+            echo "::error::Playwright の版がずれている。talks/package.json=$want nixpkgs=$KOERU_PLAYWRIGHT_FROM_NIXPKGS"
+            exit 1
+          fi
+      - name: Install
+        run: bun install --frozen-lockfile
+      # 型・lint（はみ出しとコントラストを含む）・コミットした HTML が台本とスライドから
+      # 作り直したものと一致するか。 PDF は書体と生成日時が環境で変わるので突き合わせない。
+      - name: check
+        run: bun run check
+
   licenses:
     name: license policy
     runs-on: ubuntu-latest

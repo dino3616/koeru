@@ -727,7 +727,8 @@ fn check_references_は実体の無い_id_と古い引用を落とす() {
     // 生成物と走査外の拡張子は見ない。
     .write("src/bindings.gen.ts", "// `TR-fix-98`\n")
     .write("notes.txt", "`TR-fix-97`\n")
-    .write("target/x.md", "`TR-fix-96`\n");
+    .write("target/x.md", "`TR-fix-96`\n")
+    .write("talks/refs/owner/repo/deck/script.md", "`TR-fix-95`\n");
     fx.run(&["check-references"]).expect(
         1,
         &[
