@@ -45,7 +45,7 @@ M2 と M4 を実装中。 録音 → テイク確定 → 試唱 → 配布パッ
 | `react-conventions` | 画面を書く・直すとき。tailwind-variants、注入してよいクラスの決め方、部品の粒度、Rust との境界 |
 | `setup-koeru` | 環境を用意するとき。Nix の導入、direnv、submodule と LFS の順序、Nix で覆えないもの |
 | `verify-koeru` | 変更を検証するとき。何をどの順に走らせるか、CI が何を見ているか |
-| `talk-conventions` | 発表資料（`talks/`、dek）を作る・直すとき。台本から書く順序、出典の引き方、何をコミットするか |
+| `talk-conventions` | 発表資料（`talks/`、dek）を作る・直すとき。台本から書く順序、資料を単体で読めるものにすること、何をコミットするか |
 
 次の skill はリポジトリの外にある（保守者の環境やプラグイン由来）。clone しただけでは付いてこない。
 無い環境では、`specs/README.md` と `fslc --help` を読んでから書くこと。

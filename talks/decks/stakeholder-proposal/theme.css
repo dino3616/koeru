@@ -202,8 +202,8 @@
   letter-spacing: 0.12em;
 }
 
-/* 出典。どのページも左下に置く。 */
-.slide .source {
+/* 想定にもとづく枚の断り書き。左下に置く。 */
+.slide .caveat {
   position: absolute;
   left: var(--margin);
   right: var(--margin);
@@ -466,7 +466,6 @@
       <li data-step="1">One point per beat</li>
     </ol>
   </div>
-  <p class="source">出典: …</p>
 </section>
 */
 .slide[data-layout="default"] {
@@ -487,7 +486,6 @@
     <p class="lede">Why it holds.</p>
   </div>
   <div class="stage">Figure</div>
-  <p class="source">出典: …</p>
 </section>
 */
 .slide[data-layout="split"] {
