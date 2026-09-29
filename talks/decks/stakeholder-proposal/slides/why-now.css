@@ -1,0 +1,18 @@
+.reasons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap);
+}
+
+.reasons .card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+  border-top: var(--trunk) solid var(--ink);
+}
+
+.reason-title {
+  font-size: var(--size-lede);
+  font-weight: 800;
+  line-height: 1.45;
+}

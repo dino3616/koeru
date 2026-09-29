@@ -33,6 +33,9 @@ pub(crate) const SKIPPED_DIRS: &[&str] = &[
     "models",
     "dist",
     "generated",
+    // `dek ref` が取ってくる他人のデッキ（`talks/refs/`）。見本として読むだけで、
+    // 中の ID らしい文字列は KOERU のものではない。
+    "refs",
 ];
 
 pub(crate) fn repo_root() -> Result<PathBuf, String> {

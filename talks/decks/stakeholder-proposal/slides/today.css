@@ -1,0 +1,51 @@
+.slide {
+  --tick: 22px;
+}
+
+/* 幹線に沿って縦に並べる。動いているものは墨の線でつなぎ、これからのものは破線にする。 */
+.progress {
+  position: relative;
+  display: grid;
+  gap: calc(var(--gap) * 0.55);
+}
+
+.progress > li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) * 0.7);
+  font-size: var(--size-lede);
+  font-weight: 800;
+}
+
+.progress > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--tick) / 2 - var(--rule) / 2);
+  top: calc(50% + var(--tick) / 2);
+  height: calc(var(--gap) * 0.55 + 100% - var(--tick));
+  border-left: var(--rule) solid var(--ink);
+}
+
+.tick {
+  flex: none;
+  width: var(--tick);
+  aspect-ratio: 1;
+  border-radius: var(--pill);
+  background: var(--ink);
+}
+
+.progress > .todo {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.progress > .todo .tick {
+  background: var(--bg);
+  border: var(--rule) dashed var(--slate-9);
+}
+
+.progress > .todo::after {
+  border-left-style: dashed;
+  border-left-color: var(--slate-9);
+}

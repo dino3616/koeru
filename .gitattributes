@@ -5,6 +5,12 @@
 # 中身の検査は CI がしている（型検査など）。
 crates/koeru-app/ui/src/routeTree.gen.ts  linguist-generated=true -diff
 
+# 発表資料の書き出しと、dek が sync のたびに書き直す規約（`talks/`）。
+# HTML は台本とスライドから作る1枚もので、読むのは元のほう。
+talks/decks/*/dist/*.html  linguist-generated=true -diff
+talks/AGENTS.md            linguist-generated=true
+talks/.dek/*               linguist-generated=true
+
 # 調達物は言語統計に入れない。KOERU 自身が書いた量を見えなくする。
 crates/koeru-align/vendor/**   linguist-vendored=true
 crates/koeru-synth/vendor/**   linguist-vendored=true

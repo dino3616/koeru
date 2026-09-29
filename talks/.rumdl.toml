@@ -1,0 +1,4 @@
+# Markdown rules for script.md
+# ## is a slide. Frontmatter is allowed. Keep heading skips, line length, and broken links.
+[global]
+disable = ["MD041"]

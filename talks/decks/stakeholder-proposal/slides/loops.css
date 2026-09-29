@@ -1,0 +1,45 @@
+.slide {
+  --ring: 64px;
+}
+
+.loops {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+.loop {
+  display: grid;
+  grid-template-columns: var(--ring) 1fr;
+  gap: calc(var(--gap) * 0.8);
+  align-items: start;
+}
+
+.loop-body {
+  display: grid;
+  gap: calc(var(--gap) * 0.3);
+}
+
+.loop-cycle {
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.ring {
+  width: var(--ring);
+  height: var(--ring);
+}
+
+.ring circle {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 8;
+  stroke-dasharray: 0.86 0.14;
+  stroke-linecap: round;
+  transform: rotate(-60deg);
+  transform-origin: center;
+}
+
+.ring path {
+  fill: var(--c);
+}

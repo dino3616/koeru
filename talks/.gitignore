@@ -1,0 +1,12 @@
+# dek
+/dist/
+.cache/
+.dek/server.json
+.dek/marks.json
+node_modules/
+refs/
+
+# デッキの成果物は HTML と PDF だけをコミットする。動画と PNG は作り直せるので持たない。
+decks/*/dist/*
+!decks/*/dist/*.html
+!decks/*/dist/*.pdf

@@ -28,6 +28,7 @@ M2 と M4 を実装中です。 録音してテイクを確定し、その場で
 | [journey-map.md](docs/journey-map.md) | 体験の時系列（現状と理想） |
 | [usecase-map.md](docs/usecase-map.md) | 機能と利用関係 |
 | [reports/](docs/reports/) | 調査・設計・戦略のまとめ（画面設計、GTM、リポジトリ構造の外部レビューなど） |
+| [talks/](talks/) | 発表資料。関係者への提案など。台本とスライド、書き出した HTML / PDF |
 | [meta/](meta/) | 何を満たさないと成立しないか。要件・判断・未決の論点・予算 |
 | [specs/](specs/) | 形式的な契約。反例探索にかけている |
 | [AGENTS.md](AGENTS.md) | エージェントが作業するときの前提と、破ってはいけないもの |
@@ -76,7 +77,7 @@ Windows は Nix の対象外です。 Nix はネイティブに Windows を支�
 Windows で開発する場合はツールを自分で揃えることになります。詳細は
 [`setup-koeru`](.agents/skills/setup-koeru/SKILL.md) を読んでください。
 
-`clippy::all` はリポジトリ全体で deny です。コードの規約は [`.agents/skills/`](.agents/skills/) にあります——コメント、Rust、画面、環境、検証の5つ。作業のときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。
+`clippy::all` はリポジトリ全体で deny です。コードの規約は [`.agents/skills/`](.agents/skills/) にあります——コメント、Rust、画面、環境、検証、発表資料の6つ。作業のときに読み込まれる Agent Skill として管理していますが、人間が読んでも同じものです。
 
 ## 貢献
 

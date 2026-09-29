@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>声を、誰もが手渡せる創作物にする</title>
+  <meta name="description" content="UTAU の制作経路に「幹線」を通す KOERU の提案。分散した専門性を保ったまま、音源を作る人が統合役を背負わずに済む文化へ。">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="声を、誰もが手渡せる創作物にする">
+  <meta property="og:description" content="UTAU の制作経路に「幹線」を通す KOERU の提案。分散した専門性を保ったまま、音源を作る人が統合役を背負わずに済む文化へ。">
+  <meta property="og:locale" content="ja_JP">
+  <meta name="twitter:card" content="summary">
+  <style>html, body { margin: 0; height: 100%; background: #000; color: #fff; }
+#dek-shell { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "current"; }
+body:not(.is-presenter):not(.is-rail-hidden) #dek-shell:has(> #dek-rail) { grid-template-columns: var(--dek-rail-w, 188px) minmax(0, 1fr); grid-template-areas: "rail current"; }
+#dek-current { grid-area: current; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+#dek-current-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; touch-action: pan-y pinch-zoom; }
+#dek-current-stage #deck { position: absolute; top: 0; left: 0; margin: 0; transform-origin: top left; }
+#deck { position: relative; width: 1280px; height: 720px; margin: 0 auto; transform-origin: top center; }
+@media not print { #deck > .slide:not(.is-current) { display: none; } }
+#deck { view-transition-name: slide; }
+::view-transition-group(slide) { overflow: clip; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+#dek-rail { grid-area: rail; min-height: 0; background: #141414; border-right: 1px solid rgba(255,255,255,0.08); overflow: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; scrollbar-width: thin; }
+.dek-thumb { display: flex; align-items: flex-start; gap: 8px; color: inherit; text-decoration: none; outline: none; }
+.dek-thumb-num { width: 16px; flex: none; font: 500 11px/1.2 system-ui, sans-serif; text-align: right; color: rgba(255,255,255,0.55); padding-top: 2px; font-variant-numeric: tabular-nums; }
+.dek-thumb-frame { position: relative; flex: 1; min-width: 0; aspect-ratio: 1280/720; background: #111; border-radius: 4px; outline: 2px solid transparent; overflow: hidden; }
+.dek-thumb-stage { position: absolute; top: 0; left: 0; transform-origin: top left; pointer-events: none; }
+.dek-thumb-stage > .slide { width: 100%; height: 100%; }
+#dek-rail .slide [data-step] { opacity: 1 !important; transform: none !important; transition: none !important; }
+.dek-thumb.is-current .dek-thumb-num { color: #fff; }
+.dek-thumb.is-current .dek-thumb-frame { outline-color: #3ab9d5; }
+.dek-thumb:hover .dek-thumb-frame, .dek-thumb:focus-visible .dek-thumb-frame { outline-color: rgba(255,255,255,0.25); }
+.dek-thumb.is-current:hover .dek-thumb-frame, .dek-thumb.is-current:focus-visible .dek-thumb-frame { outline-color: #3ab9d5; }
+#dek-rail-resize { position: fixed; left: calc(var(--dek-rail-w, 188px) - 3px); top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 5; touch-action: none; }
+#dek-rail-resize:hover, #dek-rail-resize[data-dragging] { background: rgba(255,255,255,0.12); }
+body.is-rail-hidden #dek-rail, body.is-rail-hidden #dek-rail-resize, body[data-mode="video"] #dek-rail, body[data-mode="video"] #dek-rail-resize { display: none; }
+@media (max-width: 640px) {
+  body:not(.is-presenter):not(.is-rail-hidden) #dek-shell:has(> #dek-rail) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "current"; }
+  #dek-rail, #dek-rail-resize { display: none; }
+  body:not(.is-rail-hidden):has(> #dek-shell > #dek-rail) #dek-hint { left: 50%; }
+}
+.dek-panel-label { display: none; }
+#dek-announce { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#dek-hint { position: fixed; left: 50%; bottom: 28px; z-index: 20; display: flex; gap: 18px; padding: 10px 18px; background: rgba(18,18,18,0.86); color: #fff; border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; box-shadow: 0 8px 28px rgba(0,0,0,0.35); font: 500 13px/1.4 system-ui, sans-serif; white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, 12px); animation: dek-hint 5s cubic-bezier(0.22, 1, 0.36, 1) 0.5s forwards; }
+body:not(.is-rail-hidden):has(> #dek-shell > #dek-rail) #dek-hint { left: calc(50% + var(--dek-rail-w, 188px) / 2); }
+#dek-hint > span { display: inline-flex; align-items: center; gap: 8px; }
+#dek-hint kbd { min-width: 1.6em; padding: 1px 6px; box-sizing: border-box; border: 1px solid rgba(255,255,255,0.35); border-bottom-width: 2px; border-radius: 5px; font: 600 12px/1.4 ui-monospace, monospace; text-align: center; }
+@keyframes dek-hint { 12% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { #dek-hint { transform: translate(-50%, 0); animation-name: dek-hint-fade; } @keyframes dek-hint-fade { 12%, 80% { opacity: 1; } } }
+@media (pointer: coarse) { #dek-hint { display: none; } }
+#dek-laser { position: absolute; z-index: 30; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; background: radial-gradient(circle, #fff 0 12%, #ff3b30 22% 38%, rgba(255,59,48,0.45) 52%, rgba(255,59,48,0) 70%); pointer-events: none; }
+#dek-laser[hidden] { display: none; }
+body.is-laser #dek-current-stage { cursor: crosshair; touch-action: none; }
+.dek-diagnostics { position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: #900; color: #fff; font: 12px/1.4 monospace; white-space: pre-wrap; z-index: 10; }
+body[data-mode="video"] .dek-diagnostics { display: none !important; }
+@media print {
+  @page { size: 1280px 720px; margin: 0 }
+  html, body { margin: 0; padding: 0; background: #000; }
+  #deck { position: static; width: 1280px; height: auto; margin: 0; transform: none !important; }
+  #deck > .slide { width: 1280px; height: 720px; break-inside: avoid; }
+  #deck > .slide:not(:last-child) { break-after: page; }
+  body, #dek-shell, #dek-current, #dek-current-stage { display: block; height: auto; overflow: visible; position: static; padding: 0; }
+  #deck [data-step] { opacity: 1 !important; transform: none !important; transition: none !important; }
+  #dek-rail, #dek-rail-resize, #dek-hint, #dek-laser, .dek-panel-label, .dek-diagnostics { display: none !important; }
+}
+@media print { #dek-presenter, #dek-progress { display: none !important; } }
+body[data-mode="video"] #dek-presenter, body[data-mode="video"] #dek-progress { display: none !important; }
+#dek-presenter[hidden], #dek-progress[hidden], #dek-next-end[hidden] { display: none; }
+#dek-mark-toggle { flex: none; width: 2.25rem; height: 2.25rem; padding: 0; border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; background: transparent; color: rgba(255,255,255,0.45); cursor: pointer; font: 600 1rem/1 system-ui, sans-serif; }
+#dek-mark-toggle::before { content: "✎"; }
+#dek-mark-toggle[aria-pressed="true"] { border-color: #eab308; color: #eab308; }
+#dek-mark-toggle[data-error] { border-color: #ef4444; }
+#dek-beats li.is-marked::after { content: " ✎"; color: #eab308; }
+#dek-laser-toggle { flex: none; width: 2.25rem; height: 2.25rem; padding: 0; border: 1px solid rgba(255,255,255,0.2); border-radius: 50%; background: transparent; cursor: pointer; }
+#dek-laser-toggle::before { content: ""; display: block; width: 10px; height: 10px; margin: auto; border-radius: 50%; background: rgba(255,255,255,0.45); }
+#dek-laser-toggle[aria-pressed="true"] { border-color: #ff3b30; }
+#dek-laser-toggle[aria-pressed="true"]::before { background: #ff3b30; box-shadow: 0 0 8px #ff3b30; }
+body.is-presenter { background: #121212; color: #ddd; font-family: system-ui, sans-serif; display: flex; flex-direction: column; }
+body.is-presenter .dek-panel-label { display: block; font: 12px/1.4 system-ui, sans-serif; opacity: 0.65; padding: 4px 8px; }
+body.is-presenter #dek-progress:not([hidden]) { display: flex; height: 4px; flex: none; background: #121212; gap: 1px; }
+#dek-progress > span { flex: 1; background: rgba(255,255,255,0.12); position: relative; }
+#dek-progress > span.is-done { background: #3ab9d5; }
+#dek-progress > span.is-current::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--dek-fill, 0%); background: #3ab9d5; }
+body.is-presenter #dek-rail, body.is-presenter #dek-rail-resize { display: none; }
+body.is-presenter #dek-shell { flex: 1; min-height: 0; height: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 26%); grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr) auto; grid-template-areas: "current next" "current notes" "bar bar"; gap: 1px; background: rgba(255,255,255,0.12); }
+body.is-presenter #dek-current { grid-area: current; height: auto; background: #121212; }
+body.is-presenter #dek-current-stage { padding: 8px 16px 16px; box-sizing: border-box; }
+body.is-presenter #dek-presenter:not([hidden]) { display: contents; }
+#dek-next-panel { grid-area: next; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #121212; }
+.dek-next-body { flex: 1; min-height: 0; position: relative; }
+#dek-next-stage { height: 100%; position: relative; overflow: hidden; }
+.dek-preview-frame { position: absolute; top: 0; left: 0; transform-origin: top left; }
+.dek-preview-frame > .slide { width: 100%; height: 100%; }
+#dek-next-end { margin: 0; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0.5; font: 14px/1.4 system-ui, sans-serif; pointer-events: none; }
+#dek-next { margin: 0; padding: 4px 8px; font: 12px/1.4 system-ui, sans-serif; opacity: 0.7; }
+#dek-next:empty { display: none; }
+#dek-notes-panel { grid-area: notes; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #121212; overflow: hidden; }
+#dek-beats { margin: 0; padding: 8px 12px; list-style: none; font: 13px/1.4 system-ui, sans-serif; border-bottom: 1px solid rgba(255,255,255,0.12); overflow: auto; max-height: 40%; }
+#dek-beats li { padding: 2px 6px; border-radius: 2px; }
+.is-current-beat { background: rgba(255,255,255,0.12); }
+#dek-script { flex: 1; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; font: 14px/1.5 system-ui, sans-serif; }
+#dek-presenter-bar { grid-area: bar; display: flex; align-items: baseline; gap: 12px; padding: 8px 12px; background: #121212; font: 14px/1.4 system-ui, sans-serif; }
+#dek-page { opacity: 0.85; }
+#dek-page .dek-page-total { opacity: 0.5; font-size: 0.85em; }
+#dek-elapsed { margin: 0 0 0 auto; font: 1.5rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#dek-elapsed.is-warn { color: #eab308; }
+#dek-elapsed.is-over { color: #ef4444; }
+#dek-budget { margin: 0; opacity: 0.5; font: 0.85rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#dek-budget:empty { display: none; }
+@media (max-aspect-ratio: 1/1) {
+  body.is-presenter #dek-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.4fr) minmax(7rem, 0.55fr) minmax(0, 1fr) auto; grid-template-areas: "current" "next" "notes" "bar"; }
+}</style>
+  <style data-dek-theme>.slide { --slate-1: #fcfcfd; --slate-2: #f9f9fb; --slate-3: #f0f0f3; --slate-4: #e8e8ec; --slate-6: #d9d9e0; --slate-9: #8b8d98; --slate-11: #60646c; --slate-12: #1c2024; --tomato-3: #feebe7; --tomato-9: #e54d2e; --tomato-10: #dd4425; --tomato-11: #d13415; --grass-3: #e9f6e9; --grass-9: #46a758; --grass-10: #3e9b4f; --grass-11: #2a7e3b; --teal-3: #e0f8f3; --teal-9: #12a594; --teal-10: #0d9b8a; --teal-11: #008573; --plum-3: #fbebfb; --plum-9: #ab4aba; --plum-10: #a144af; --plum-11: #953ea3; --fg: var(--slate-12); --bg: var(--slate-1); --muted: var(--slate-11); --accent: var(--slate-12); --ink: var(--slate-12); --line: var(--slate-6); --surface: var(--slate-2); --c: var(--slate-9); --c-soft: var(--slate-3); --c-ink: var(--slate-11); --clear: #fcfcfd00; --font-title: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif; --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif; --size-hero: 72px; --size-stat: 48px; --size-title: 42px; --size-lede: 22px; --size-body: 18px; --size-small: 15px; --size-caption: 13px; --gap: 24px; --margin: 64px; --pad: 88px var(--margin) 64px; --radius: 20px; --radius-small: 10px; --pill: 999px; --hair: 1px; --rule: 3px; --trunk: 6px; --s: 96px; --rise: 14px; --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1); --dur-pop: 0.6s; --dur-draw: 1.4s; --stagger: 0.08s; --step-transition: 0.5s var(--ease-out); box-sizing: border-box; position: relative; width: 100%; height: 100%; overflow: hidden; padding: var(--pad); background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--size-body); line-height: 1.7; font-feature-settings: "palt"; word-break: auto-phrase; counter-reset: folio var(--dek-slide-number) folios var(--dek-slide-count); -webkit-font-smoothing: antialiased; } ::view-transition { --slate-1: #fcfcfd; --slate-2: #f9f9fb; --slate-3: #f0f0f3; --slate-4: #e8e8ec; --slate-6: #d9d9e0; --slate-9: #8b8d98; --slate-11: #60646c; --slate-12: #1c2024; --tomato-3: #feebe7; --tomato-9: #e54d2e; --tomato-10: #dd4425; --tomato-11: #d13415; --grass-3: #e9f6e9; --grass-9: #46a758; --grass-10: #3e9b4f; --grass-11: #2a7e3b; --teal-3: #e0f8f3; --teal-9: #12a594; --teal-10: #0d9b8a; --teal-11: #008573; --plum-3: #fbebfb; --plum-9: #ab4aba; --plum-10: #a144af; --plum-11: #953ea3; --fg: var(--slate-12); --bg: var(--slate-1); --muted: var(--slate-11); --accent: var(--slate-12); --ink: var(--slate-12); --line: var(--slate-6); --surface: var(--slate-2); --c: var(--slate-9); --c-soft: var(--slate-3); --c-ink: var(--slate-11); --clear: #fcfcfd00; --font-title: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif; --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif; --size-hero: 72px; --size-stat: 48px; --size-title: 42px; --size-lede: 22px; --size-body: 18px; --size-small: 15px; --size-caption: 13px; --gap: 24px; --margin: 64px; --pad: 88px var(--margin) 64px; --radius: 20px; --radius-small: 10px; --pill: 999px; --hair: 1px; --rule: 3px; --trunk: 6px; --s: 96px; --rise: 14px; --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1); --dur-pop: 0.6s; --dur-draw: 1.4s; --stagger: 0.08s; --step-transition: 0.5s var(--ease-out); } .slide[data-bg="ink"] { --fg: var(--slate-1); --bg: var(--slate-12); --muted: var(--slate-6); --accent: var(--slate-1); --ink: var(--slate-1); --line: var(--slate-11); } .slide::before { content: "KOERU — UTAU の制作経路に、幹線を"; position: absolute; top: calc(var(--gap) * 1.3); left: var(--margin); color: var(--muted); font-size: var(--size-caption); font-weight: 700; letter-spacing: 0.12em; } .slide::after { content: counter(folio, decimal-leading-zero) " / " counter(folios, decimal-leading-zero); position: absolute; top: calc(var(--gap) * 1.3); right: var(--margin); color: var(--muted); font-size: var(--size-caption); font-weight: 700; letter-spacing: 0.08em; } .slide[data-bg="ink"]::before, .slide[data-bg="ink"]::after { content: none; } .slide * { box-sizing: border-box; } .slide p, .slide ol, .slide ul, .slide dl, .slide dd, .slide h2, .slide h3 { margin: 0; } .slide ol, .slide ul { padding: 0; list-style: none; } .slide .slide-title { font-family: var(--font-title); font-size: var(--size-title); font-weight: 800; line-height: 1.3; letter-spacing: 0.01em; } .slide .kicker { color: var(--muted); font-size: var(--size-small); font-weight: 700; letter-spacing: 0.14em; } .slide .lede { font-size: var(--size-lede); line-height: 1.7; } .slide .note { color: var(--muted); font-size: var(--size-small); line-height: 1.7; } .slide .label { color: var(--muted); font-size: var(--size-caption); font-weight: 700; letter-spacing: 0.12em; } .slide .caveat { position: absolute; left: var(--margin); right: var(--margin); bottom: calc(var(--gap) * 1.1); color: var(--muted); font-size: var(--size-caption); } .slide .hl { background: linear-gradient(var(--clear) 58%, var(--c-soft) 58%); font-weight: 800; } .slide[data-bg="ink"] .hl { background: none; text-decoration: underline var(--c); text-decoration-thickness: 0.1em; text-underline-offset: 0.2em; } .slide .stat { font-family: var(--font-title); font-size: var(--size-stat); font-weight: 800; line-height: 1; } .slide .unit { margin-left: 0.15em; color: var(--muted); font-size: var(--size-small); font-weight: 700; } .slide .card { padding: calc(var(--gap) * 0.8) calc(var(--gap) * 0.9); border-radius: var(--radius); background: var(--surface); border: var(--hair) solid var(--line); } .slide .chip { display: inline-block; padding: 0 0.7em; border: var(--hair) solid var(--line); border-radius: var(--pill); background: var(--bg); font-size: var(--size-small); font-weight: 700; line-height: 2; white-space: nowrap; } .slide .points { display: grid; gap: calc(var(--gap) * 0.7); } .slide .points > li { position: relative; padding-left: calc(var(--gap) * 1.4); font-size: var(--size-lede); line-height: 1.6; } .slide .points > li::before { content: ""; position: absolute; left: 0; top: 0.45em; width: 0.7em; height: 0.7em; border-radius: var(--pill); background: var(--c); } .slide [data-role="maker"] { --c: var(--grass-10); --c-soft: var(--grass-3); --c-ink: var(--grass-11); } .slide [data-role="toolsmith"] { --c: var(--teal-10); --c-soft: var(--teal-3); --c-ink: var(--teal-11); } .slide [data-role="supporter"] { --c: var(--plum-10); --c-soft: var(--plum-3); --c-ink: var(--plum-11); } .slide [data-role="user"] { --c: var(--tomato-10); --c-soft: var(--tomato-3); --c-ink: var(--tomato-11); } .slide[data-bg="ink"] [data-role="maker"] { --c: var(--grass-9); } .slide[data-bg="ink"] [data-role="toolsmith"] { --c: var(--teal-9); } .slide[data-bg="ink"] [data-role="supporter"] { --c: var(--plum-9); } .slide[data-bg="ink"] [data-role="user"] { --c: var(--tomato-9); } .slide .shape { display: block; width: var(--s); aspect-ratio: 1; background: var(--c); } .slide .shape[data-role="maker"] { border-radius: var(--pill) 0; } .slide .shape[data-role="toolsmith"] { border-radius: var(--radius); } .slide .shape[data-role="supporter"] { border-radius: var(--pill); } .slide .shape[data-role="user"] { clip-path: polygon(50% 0, 100% 100%, 0 100%); } .slide .shape[data-shape="half"] { aspect-ratio: 2 / 1; border-radius: var(--pill) var(--pill) 0 0; } .slide .shape[data-shape="quarter"] { border-radius: 100% 0 0 0; } .slide .shape[data-shape="capsule"] { aspect-ratio: 2 / 1; border-radius: var(--pill); } .slide .shape[data-shape="square"] { border-radius: 0; } .slide .shape[data-shape="diamond"] { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); } .slide .shape[data-shape="hexagon"] { clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); } .slide .shape[data-shape="pentagon"] { clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%); } .slide .shape[data-shape="plus"] { clip-path: polygon(34% 0, 66% 0, 66% 34%, 100% 34%, 100% 66%, 66% 66%, 66% 100%, 34% 100%, 34% 66%, 0 66%, 0 34%, 34% 34%); } .slide .legend { display: flex; flex-wrap: wrap; gap: calc(var(--gap) * 0.4) var(--gap); color: var(--muted); font-size: var(--size-small); font-weight: 700; } .slide .legend > li { display: inline-flex; align-items: center; gap: 0.45em; } .slide .legend .shape { --s: 1em; } .slide .stroke { display: inline-block; width: 1.8em; height: var(--trunk); border-radius: var(--pill); background: var(--ink); } .slide .lane { display: grid; grid-template-columns: 8em 1fr; align-items: center; gap: var(--gap); padding: calc(var(--gap) * 1.6) 0; border-top: var(--hair) solid var(--line); } .slide .lane-name { font-size: var(--size-lede); font-weight: 800; line-height: 1.4; } .slide .lane-track { position: relative; display: flex; gap: calc(var(--gap) * 0.35); align-items: center; min-height: calc(var(--gap) * 3.4); } .slide .lane-step { padding: 0 0.6em; border-radius: var(--radius-small); background: var(--surface); border: var(--hair) solid var(--line); color: var(--muted); font-weight: 700; line-height: 2.4; white-space: nowrap; } .slide .sing { display: inline-flex; align-items: center; gap: 0.45em; padding: 0 0.8em 0 0.5em; border: var(--rule) solid var(--c); border-radius: var(--pill); background: var(--c-soft); font-size: var(--size-lede); font-weight: 800; line-height: 2.2; white-space: nowrap; } .slide .sing::before { content: ""; width: 0.9em; aspect-ratio: 1; border-radius: var(--pill); background: var(--c); } .slide .sing[data-missed] { border-style: dashed; border-color: var(--slate-9); background: var(--bg); color: var(--muted); } .slide .sing[data-missed]::before { background: var(--line); } .slide[data-layout="cover"] { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: calc(var(--gap) * 2.5); padding: var(--margin); } .slide[data-layout="cover"] .slide-title { font-size: var(--size-hero); line-height: 1.2; } .slide .col { display: flex; flex-direction: column; gap: var(--gap); min-width: 0; } .slide .stage { position: relative; min-width: 0; } .slide[data-layout="default"] { display: flex; flex-direction: column; gap: calc(var(--gap) * 1.2); } .slide[data-layout="default"] .stage { flex: 1; min-height: 0; } .slide[data-layout="split"] { display: grid; grid-template-columns: 5fr 7fr; gap: calc(var(--gap) * 2); align-items: center; } .slide[data-layout="center"] { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--gap) * 1.2); text-align: center; } .slide.is-current [data-step] { opacity: 0; transform: translateY(var(--rise)); transition: var(--step-transition); } .slide.is-current [data-step].is-shown { opacity: 1; transform: none; } @keyframes fade-out { to { opacity: 0; } } @keyframes fade-in { from { opacity: 0; } } ::view-transition-old(slide) { --vt-out: 0.25s ease both; animation: fade-out var(--vt-out); } ::view-transition-new(slide) { --vt-in: 0.35s ease both; animation: fade-in var(--vt-in); } @media (prefers-reduced-motion: reduce) { .slide.is-current [data-step] { transition: none; animation: none; } ::view-transition-old(slide), ::view-transition-new(slide) { animation: none; } } .slide:where([data-slug="alive"]) { --cell: 96px; --spread: 580px; } .slide:where([data-slug="alive"]) .spread { display: grid; grid-template-columns: repeat(3, 1fr); row-gap: calc(var(--gap) * 1.2); column-gap: var(--gap); max-width: var(--spread); margin-left: auto; } .slide:where([data-slug="alive"]) .place { display: flex; flex-direction: column; align-items: center; gap: calc(var(--gap) * 0.3); margin: 0; } .slide:where([data-slug="alive"]) .place:nth-child(3n + 2) { transform: translateY(calc(var(--gap) * 1.4)); } .slide:where([data-slug="alive"]) .place .shape { --s: var(--cell); } .slide:where([data-slug="alive"]).is-current .place { animation: alive--rise var(--dur-pop) var(--ease-out) backwards; } .slide:where([data-slug="alive"]).is-current .place:nth-child(2n) { animation-delay: calc(var(--stagger) * 2); } .slide:where([data-slug="alive"]).is-current .place:nth-child(3n) { animation-delay: calc(var(--stagger) * 4); } .slide:where([data-slug="alive"]) .legend-alive { justify-content: flex-end; max-width: var(--spread); margin: calc(var(--gap) * 2.4) 0 0 auto; } @keyframes alive--rise { from { opacity: 0; scale: 0.7; } } .slide:where([data-slug="ask"]) .offer { display: grid; gap: calc(var(--gap) * 0.6); } .slide:where([data-slug="ask"]) .offer .unit { margin-right: 0.8em; } .slide:where([data-slug="ask"]) .checks { display: grid; gap: calc(var(--gap) * 0.3); counter-reset: check; } .slide:where([data-slug="ask"]) .checks > li { counter-increment: check; font-weight: 800; } .slide:where([data-slug="ask"]) .checks > li::before { content: counter(check) "."; display: inline-block; width: 1.6em; color: var(--muted); } .slide:where([data-slug="ask"]) .promise { margin-top: var(--gap); } .slide:where([data-slug="change"]) .shifts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); } .slide:where([data-slug="change"]) .shift { display: grid; gap: calc(var(--gap) * 0.35); border-left: var(--trunk) solid var(--ink); } .slide:where([data-slug="change"]) .shift-from { color: var(--muted); text-decoration: line-through var(--line); } .slide:where([data-slug="change"]) .shift-to { font-size: var(--size-lede); font-weight: 800; line-height: 1.5; } .slide:where([data-slug="close"]) { --cell: 72px; --row: 700px; } .slide:where([data-slug="close"]) .slide-title { font-size: var(--size-hero); line-height: 1.2; } .slide:where([data-slug="close"]) .row { position: relative; display: flex; justify-content: space-between; align-items: center; width: var(--row); margin-bottom: calc(var(--gap) * 0.6); } .slide:where([data-slug="close"]) .row .shape { --s: var(--cell); position: relative; z-index: 1; } .slide:where([data-slug="close"]) .thread { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; overflow: visible; } .slide:where([data-slug="close"]) .thread path { fill: none; stroke: var(--ink); stroke-width: var(--trunk); stroke-linecap: round; stroke-dasharray: 1; vector-effect: non-scaling-stroke; } .slide:where([data-slug="close"]).is-current .thread path { animation: close--draw var(--dur-draw) var(--ease-out) backwards; } @keyframes close--draw { from { stroke-dashoffset: 1; } } .slide:where([data-slug="cover"]) { --cell: 112px; --field: 360px; } .slide:where([data-slug="cover"]) .field { position: relative; display: grid; grid-template-columns: repeat(3, var(--cell)); gap: calc((var(--field) - var(--cell) * 3) / 2); width: var(--field); } .slide:where([data-slug="cover"]) .field .shape { --s: var(--cell); position: relative; z-index: 1; } .slide:where([data-slug="cover"]).is-current .field .shape { animation: cover--pop var(--dur-pop) var(--ease-pop) backwards; } .slide:where([data-slug="cover"]).is-current .field .shape:nth-of-type(3n + 2) { animation-delay: calc(var(--stagger) * 2); } .slide:where([data-slug="cover"]).is-current .field .shape:nth-of-type(3n) { animation-delay: calc(var(--stagger) * 4); } @keyframes cover--pop { from { opacity: 0; transform: scale(0.6); } } .slide:where([data-slug="cover"]) .thread { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; overflow: visible; } .slide:where([data-slug="cover"]) .thread path { fill: none; stroke: var(--ink); stroke-width: var(--trunk); stroke-linecap: round; stroke-dasharray: 1; vector-effect: non-scaling-stroke; } .slide:where([data-slug="cover"]).is-current .thread path { animation: cover--draw var(--dur-draw) var(--ease-out) calc(var(--stagger) * 6) backwards; } @keyframes cover--draw { from { stroke-dashoffset: 1; } } .slide:where([data-slug="experts"]) .swap { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: var(--gap); } .slide:where([data-slug="experts"]) .swap .card { display: grid; align-content: start; gap: calc(var(--gap) * 0.6); } .slide:where([data-slug="experts"]) .asks { display: flex; flex-wrap: wrap; gap: calc(var(--gap) * 0.35); } .slide:where([data-slug="experts"]) .arrow { align-self: center; font-size: var(--size-stat); font-weight: 800; } .slide:where([data-slug="experts"]) .wins { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); margin-top: calc(var(--gap) * 1.1); } .slide:where([data-slug="experts"]) .who { display: block; margin-bottom: calc(var(--gap) * 0.2); font-weight: 800; } .slide:where([data-slug="experts"]) .who::before { content: ""; display: inline-block; width: 0.8em; aspect-ratio: 1; margin-right: 0.45em; border-radius: var(--pill); background: var(--c); } .slide:where([data-slug="integrator"]) { --cell: 72px; --person: 132px; --web: 560px; } .slide:where([data-slug="integrator"]) .decide { display: flex; flex-wrap: wrap; gap: calc(var(--gap) * 0.35); } .slide:where([data-slug="integrator"]) .web { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); width: var(--web); aspect-ratio: 1; margin-left: auto; } .slide:where([data-slug="integrator"]) .tool { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--gap) * 0.3); margin: 0; } .slide:where([data-slug="integrator"]) .tool .shape { --s: var(--cell); --c: var(--slate-9); } .slide:where([data-slug="integrator"]) .person { gap: calc(var(--gap) * 0.15); } .slide:where([data-slug="integrator"]) .person .head { width: calc(var(--person) * 0.36); aspect-ratio: 1; border-radius: var(--pill); background: var(--c-ink); } .slide:where([data-slug="integrator"]) .person .body { width: calc(var(--person) * 0.64); height: calc(var(--person) * 0.34); border-radius: var(--pill) var(--pill) 0 0; background: var(--c-ink); } .slide:where([data-slug="integrator"]) .person .label { margin-top: calc(var(--gap) * 0.2); color: var(--fg); font-size: var(--size-body); font-weight: 800; } .slide:where([data-slug="integrator"]) .threads { position: absolute; inset: 0; width: 100%; height: 100%; } .slide:where([data-slug="integrator"]) .threads line { stroke: var(--c-ink); stroke-width: var(--rule); stroke-dasharray: 6 6; vector-effect: non-scaling-stroke; } .slide:where([data-slug="loops"]) { --ring: 64px; } .slide:where([data-slug="loops"]) .loops { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); } .slide:where([data-slug="loops"]) .loop { display: grid; grid-template-columns: var(--ring) 1fr; gap: calc(var(--gap) * 0.8); align-items: start; } .slide:where([data-slug="loops"]) .loop-body { display: grid; gap: calc(var(--gap) * 0.3); } .slide:where([data-slug="loops"]) .loop-cycle { font-weight: 800; line-height: 1.55; } .slide:where([data-slug="loops"]) .ring { width: var(--ring); height: var(--ring); } .slide:where([data-slug="loops"]) .ring circle { fill: none; stroke: var(--c); stroke-width: 8; stroke-dasharray: 0.86 0.14; stroke-linecap: round; transform: rotate(-60deg); transform-origin: center; } .slide:where([data-slug="loops"]) .ring path { fill: var(--c); } .slide:where([data-slug="principles"]) .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--gap) * 1.5); padding-top: var(--gap); } .slide:where([data-slug="principles"]) .principles > li { display: flex; flex-direction: column; gap: calc(var(--gap) * 0.7); padding-top: var(--gap); border-top: var(--trunk) solid var(--ink); } .slide:where([data-slug="principles"]) .principle-name { font-size: var(--size-stat); font-weight: 800; line-height: 1.15; letter-spacing: -0.01em; } .slide:where([data-slug="structures"]) .shifts > div { display: grid; grid-template-columns: 9em 1fr 1fr; gap: var(--gap); padding: calc(var(--gap) * 0.45) 0; border-top: var(--hair) solid var(--line); font-size: var(--size-small); line-height: 1.6; } .slide:where([data-slug="structures"]) .shifts > .shift-head { border-top: none; padding-bottom: calc(var(--gap) * 0.2); } .slide:where([data-slug="structures"]) .shifts dt { font-size: var(--size-body); font-weight: 800; } .slide:where([data-slug="structures"]) .shifts dd:nth-of-type(1) { color: var(--muted); } .slide:where([data-slug="structures"]) .shifts dd:nth-of-type(2) { font-weight: 700; } .slide:where([data-slug="structures"]) .closing { margin-top: calc(var(--gap) * 0.6); } .slide:where([data-slug="today"]) { --tick: 22px; } .slide:where([data-slug="today"]) .progress { position: relative; display: grid; gap: calc(var(--gap) * 0.55); } .slide:where([data-slug="today"]) .progress > li { position: relative; display: flex; align-items: center; gap: calc(var(--gap) * 0.7); font-size: var(--size-lede); font-weight: 800; } .slide:where([data-slug="today"]) .progress > li:not(:last-child)::after { content: ""; position: absolute; left: calc(var(--tick) / 2 - var(--rule) / 2); top: calc(50% + var(--tick) / 2); height: calc(var(--gap) * 0.55 + 100% - var(--tick)); border-left: var(--rule) solid var(--ink); } .slide:where([data-slug="today"]) .tick { flex: none; width: var(--tick); aspect-ratio: 1; border-radius: var(--pill); background: var(--ink); } .slide:where([data-slug="today"]) .progress > .todo { color: var(--muted); font-weight: 700; } .slide:where([data-slug="today"]) .progress > .todo .tick { background: var(--bg); border: var(--rule) dashed var(--slate-9); } .slide:where([data-slug="today"]) .progress > .todo::after { border-left-style: dashed; border-left-color: var(--slate-9); } .slide:where([data-slug="trunk"]) { --halo: 10px; } .slide:where([data-slug="trunk"]) .map { display: block; width: 100%; height: auto; overflow: visible; } .slide:where([data-slug="trunk"]) .lanes path, .slide:where([data-slug="trunk"]) .lanes rect, .slide:where([data-slug="trunk"]) .lanes polygon { fill: var(--slate-9); } .slide:where([data-slug="trunk"]) .lanes line { stroke: var(--slate-9); stroke-width: var(--rule); stroke-linecap: round; } .slide:where([data-slug="trunk"]) .lanes text { fill: var(--muted); font-size: var(--size-small); font-weight: 700; } .slide:where([data-slug="trunk"]) .lanes text, .slide:where([data-slug="trunk"]) .stations text, .slide:where([data-slug="trunk"]) .trunk-name { paint-order: stroke; stroke: var(--bg); stroke-width: var(--halo); stroke-linejoin: round; } .slide:where([data-slug="trunk"]) .stations text { fill: var(--fg); font-size: var(--size-body); font-weight: 800; text-anchor: middle; } .slide:where([data-slug="trunk"]) .trunk-name { fill: var(--fg); font-size: var(--size-small); font-weight: 800; } .slide:where([data-slug="trunk"]) .trunk { fill: none; stroke: var(--ink); stroke-width: calc(var(--trunk) * 1.5); stroke-linecap: round; stroke-dasharray: 1; } .slide:where([data-slug="trunk"]) .beam { stroke: var(--ink); stroke-width: var(--rule); stroke-dasharray: 6 6; } .slide:where([data-slug="trunk"]) .ghosts line { stroke: var(--line); stroke-width: var(--rule); stroke-dasharray: 6 6; } .slide:where([data-slug="trunk"]) .dot { fill: var(--bg); stroke: var(--ink); stroke-width: var(--rule); } .slide:where([data-slug="trunk"]) .keep { margin-top: calc(var(--gap) * 0.6); } .slide:where([data-slug="why-now"]) .reasons { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap); } .slide:where([data-slug="why-now"]) .reasons .card { display: flex; flex-direction: column; gap: calc(var(--gap) * 0.6); border-top: var(--trunk) solid var(--ink); } .slide:where([data-slug="why-now"]) .reason-title { font-size: var(--size-lede); font-weight: 800; line-height: 1.45; }</style>
+</head>
+<body data-mode="player" data-deck="stakeholder-proposal">
+  <div id="dek-progress" hidden></div>
+  <div id="dek-shell">
+    <nav id="dek-rail" aria-label="Slides"><a class="dek-thumb" href="#cover" data-slide-index="0" aria-label="1. 声を、誰もが手渡せる創作物にする"><span class="dek-thumb-num">1</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#alive" data-slide-index="1" aria-label="2. UTAU は、分散して生きている文化です"><span class="dek-thumb-num">2</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#integrator" data-slide-index="2" aria-label="3. 課題は、人が統合役になっていること"><span class="dek-thumb-num">3</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#why-now" data-slide-index="3" aria-label="4. いま幹線が要る、三つの理由"><span class="dek-thumb-num">4</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#trunk" data-slide-index="4" aria-label="5. KOERU は、中央駅ではなく幹線です"><span class="dek-thumb-num">5</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#as-is" data-slide-index="5" aria-label="6. いまは、声が歌うのは工程の最後です"><span class="dek-thumb-num">6</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#to-be" data-slide-index="6" aria-label="7. 録り終える前に、声が歌い出します"><span class="dek-thumb-num">7</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#change" data-slide-index="7" aria-label="8. 印が一つ動くと、制作の意味が変わります"><span class="dek-thumb-num">8</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#principles" data-slide-index="8" aria-label="9. 判断は、三つの原則で切ります"><span class="dek-thumb-num">9</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#today" data-slide-index="9" aria-label="10. いま、ここまで動いています"><span class="dek-thumb-num">10</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#structures" data-slide-index="10" aria-label="11. 変わるのは、文化の五つの構造です"><span class="dek-thumb-num">11</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#experts" data-slide-index="11" aria-label="12. 専門家の時間を、もっと高度な問題へ戻します"><span class="dek-thumb-num">12</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#loops" data-slide-index="12" aria-label="13. 回り始める、四つの輪"><span class="dek-thumb-num">13</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#ask" data-slide-index="13" aria-label="14. お願いは、閉じた一件だけです"><span class="dek-thumb-num">14</span><span class="dek-thumb-frame"></span></a><a class="dek-thumb" href="#close" data-slide-index="14" aria-label="15. 声が、あなたを越えて創作へ向かう"><span class="dek-thumb-num">15</span><span class="dek-thumb-frame"></span></a></nav>
+    <main id="dek-current">
+      <div class="dek-panel-label">Current</div>
+      <div id="dek-current-stage"><div id="deck"><section class="slide" data-layout="cover" data-bg="ink" data-slug="cover" style="--dek-slide-number: 1; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">UTAU の関係者への提案</p>
+    <h2 class="slide-title">声を、誰もが<br>手渡せる<span class="hl" data-role="maker">創作物</span>に<br>する</h2>
+    <p class="lede">UTAU の制作経路に、一本の幹線を。<br>分散した専門性はそのままに、作る人が統合役を背負わずに済むように。</p>
+    <ul class="legend">
+      <li data-role="maker"><span class="shape" data-role="maker"></span>音源を作る人</li>
+      <li data-role="toolsmith"><span class="shape" data-role="toolsmith"></span>ツールを作る人</li>
+      <li data-role="supporter"><span class="shape" data-role="supporter"></span>支える人</li>
+      <li data-role="user"><span class="shape" data-role="user"></span>音源を使う人</li>
+      <li><span class="stroke"></span>KOERU</li>
+    </ul>
+  </div>
+  <div class="stage" aria-hidden="true">
+    <div class="field">
+      <svg class="thread" viewBox="0 0 420 420" preserveAspectRatio="none">
+        <path d="M -20 66 L 66 66 C 150 66 126 210 210 210 C 294 210 270 354 354 354 L 440 354" pathLength="1" />
+      </svg>
+      <span class="shape" data-role="maker"></span>
+      <span class="shape" data-role="supporter"></span>
+      <span class="shape" data-role="toolsmith"></span>
+      <span class="shape" data-role="user"></span>
+      <span class="shape" data-role="maker"></span>
+      <span class="shape" data-role="supporter"></span>
+      <span class="shape" data-role="toolsmith"></span>
+      <span class="shape" data-role="user"></span>
+      <span class="shape" data-role="maker"></span>
+    </div>
+  </div>
+</section><section class="slide" data-layout="split" data-slug="alive" style="--dek-slide-number: 2; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">前提</p>
+    <h2 class="slide-title">UTAU は、分散して生きている文化です</h2>
+    <p class="lede">本体にも更新があり、OpenUtau は今も開発とリリースが続く。録音も原音設定も試唱も、PC・スマホ・ブラウザで動く道具が育っている。</p>
+    <p class="lede" data-step="alive-spread">一つの中心ソフトの文化から、<span class="hl">声とキャラクターと制作知識が、いくつもの環境で生きる文化</span>へ。</p>
+    <p class="lede" data-step="alive-life">この分散は問題ではない。<span class="hl">道具がそれぞれ良くなれるのは、分散しているから。</span></p>
+  </div>
+  <div class="stage" aria-hidden="true">
+    <div class="spread">
+      <figure class="place" data-role="maker"><span class="shape" data-role="maker"></span><figcaption class="label">声を録る人</figcaption></figure>
+      <figure class="place" data-role="toolsmith"><span class="shape" data-role="toolsmith"></span><figcaption class="label">録音の道具</figcaption></figure>
+      <figure class="place" data-role="supporter"><span class="shape" data-role="supporter"></span><figcaption class="label">解説と Wiki</figcaption></figure>
+      <figure class="place" data-role="user"><span class="shape" data-role="user"></span><figcaption class="label">調声する人</figcaption></figure>
+      <figure class="place" data-role="maker"><span class="shape" data-role="maker"></span><figcaption class="label">原音設定する人</figcaption></figure>
+      <figure class="place" data-role="toolsmith"><span class="shape" data-role="toolsmith"></span><figcaption class="label">合成と調声の環境</figcaption></figure>
+      <figure class="place" data-role="supporter"><span class="shape" data-role="supporter"></span><figcaption class="label">初心者の相談</figcaption></figure>
+      <figure class="place" data-role="toolsmith"><span class="shape" data-role="toolsmith"></span><figcaption class="label">スマホとブラウザ</figcaption></figure>
+      <figure class="place" data-role="user"><span class="shape" data-role="user"></span><figcaption class="label">作品を作る人</figcaption></figure>
+    </div>
+    <ul class="legend legend-alive">
+      <li data-role="maker"><span class="shape" data-role="maker"></span>音源を作る人</li>
+      <li data-role="toolsmith"><span class="shape" data-role="toolsmith"></span>ツールを作る人</li>
+      <li data-role="supporter"><span class="shape" data-role="supporter"></span>支える人</li>
+      <li data-role="user"><span class="shape" data-role="user"></span>音源を使う人</li>
+    </ul>
+  </div>
+</section><section class="slide" data-layout="split" data-slug="integrator" style="--dek-slide-number: 3; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">いまの構造</p>
+    <h2 class="slide-title">課題は、人が統合役になっていること</h2>
+    <p class="lede">道具はそれぞれ良くなった。問題は、駅と駅の間にある。</p>
+    <ul class="decide" data-step="integrator-list">
+      <li class="chip">録音方式</li>
+      <li class="chip">録音リスト</li>
+      <li class="chip">録音アプリ</li>
+      <li class="chip">原音設定の場所</li>
+      <li class="chip">試す合成環境</li>
+      <li class="chip">WAV の形式</li>
+      <li class="chip">文字コード</li>
+      <li class="chip">oto.ini</li>
+      <li class="chip">character.txt</li>
+      <li class="chip">ZIP のまとめ方</li>
+    </ul>
+    <p class="lede" data-step="integrator-human"><span class="hl" data-role="maker">専門性は道具へ分散し、つなぐ責任は作る人に残った。</span></p>
+  </div>
+  <div class="stage" aria-hidden="true">
+    <div class="web" data-role="maker">
+      <svg class="threads" data-step="integrator-human" viewBox="0 0 3 3" preserveAspectRatio="none">
+        <line x1="1.5" y1="1.45" x2="0.5" y2="0.4" />
+        <line x1="1.5" y1="1.45" x2="1.5" y2="0.4" />
+        <line x1="1.5" y1="1.45" x2="2.5" y2="0.4" />
+        <line x1="1.5" y1="1.45" x2="0.5" y2="1.4" />
+        <line x1="1.5" y1="1.45" x2="2.5" y2="1.4" />
+        <line x1="1.5" y1="1.45" x2="0.5" y2="2.4" />
+        <line x1="1.5" y1="1.45" x2="1.5" y2="2.4" />
+        <line x1="1.5" y1="1.45" x2="2.5" y2="2.4" />
+      </svg>
+      <figure class="tool"><span class="shape" data-shape="half"></span><figcaption class="label">録る</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="plus"></span><figcaption class="label">録音リスト</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="quarter"></span><figcaption class="label">原音設定</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="capsule"></span><figcaption class="label">試唱</figcaption></figure>
+      <figure class="tool person" data-step="integrator-human"><span class="head"></span><span class="body"></span><figcaption class="label">音源を作る人</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="hexagon"></span><figcaption class="label">調声</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="square"></span><figcaption class="label">波形の編集</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="pentagon"></span><figcaption class="label">規約と同梱物</figcaption></figure>
+      <figure class="tool"><span class="shape" data-shape="diamond"></span><figcaption class="label">包む・配る</figcaption></figure>
+    </div>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="why-now" style="--dek-slide-number: 4; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">なぜ、いまか</p>
+    <h2 class="slide-title">いま幹線が要る、三つの理由</h2>
+    <p class="lede">昔より不便になったから、ではない。むしろ逆。</p>
+  </div>
+  <div class="stage">
+    <ol class="reasons">
+      <li class="card" data-step="why-now-mature">
+        <p class="stat">01</p>
+        <h3 class="reason-title">専門ツールが成熟した</h3>
+        <p>任せられる道具が揃った。だから、全部を持つ統合製品ではなく、<span class="hl">道具へつなげる幹線</span>を設計できる。</p>
+      </li>
+      <li class="card" data-step="why-now-path">
+        <p class="stat">02</p>
+        <h3 class="reason-title">道具の不足から、道筋の不足へ</h3>
+        <p>選択肢が増え、悩みは「道具がない」から<span class="hl">「何を、どの順番で使えばいいか」</span>へ。</p>
+      </li>
+      <li class="card" data-step="why-now-generations">
+        <p class="stat">03</p>
+        <h3 class="reason-title">文化と環境の世代交代が、別々に進む</h3>
+        <p>文化は続き、環境は PC・スマホ・ブラウザへ広がる。<span class="hl">過去の音源と知識を、今の環境へ</span>つなぐ時期。</p>
+      </li>
+    </ol>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="trunk" style="--dek-slide-number: 5; --dek-slide-count: 15">
+  <h2 class="slide-title">KOERU は、中央駅ではなく幹線です</h2>
+  <div class="stage">
+    <svg class="map" viewBox="0 0 1152 380" role="img" aria-label="道具はそれぞれの線路のまま残り、KOERU の幹線がその間を通る。幹線のどの位置からも、縦の線がすべての線路に届く">
+      <g class="lanes">
+        <rect x="28" y="24" width="32" height="32" />
+        <line x1="80" y1="40" x2="1112" y2="40" />
+        <text x="80" y="26">波形の編集</text>
+        <path d="M 60 116 L 28 116 A 32 32 0 0 1 60 84 Z" />
+        <line x1="80" y1="100" x2="1112" y2="100" />
+        <text x="80" y="86">原音設定の編集</text>
+        <rect x="22" y="150" width="44" height="22" rx="11" />
+        <line x1="80" y1="160" x2="1112" y2="160" />
+        <text x="80" y="146">別の合成環境</text>
+        <polygon points="35,298 53,298 62,314 53,330 35,330 26,314" />
+        <line x1="80" y1="314" x2="1112" y2="314" />
+        <text x="80" y="300">調声</text>
+        <polygon points="44,344 62,362 44,380 26,362" />
+        <line x1="80" y1="362" x2="1112" y2="362" />
+        <text x="80" y="348">配布の場</text>
+      </g>
+      <g class="ghosts" data-ghosts>
+        <line x1="330" y1="30" x2="330" y2="370" />
+        <line x1="860" y1="30" x2="860" y2="370" />
+      </g>
+      <path class="trunk" data-trunk d="M 80 222 L 1112 222" pathLength="1" />
+      <text class="trunk-name" x="80" y="208">KOERU（墨の線）</text>
+      <g class="stations">
+        <text x="200" y="258">録る</text>
+        <text x="460" y="258">聴く</text>
+        <text x="740" y="258">直す</text>
+        <text x="1000" y="258">渡す</text>
+      </g>
+      <line class="beam" data-beam x1="620" y1="30" x2="620" y2="370" />
+      <circle class="dot" data-dot cx="620" cy="222" r="13" />
+    </svg>
+    <p class="lede keep" data-step="trunk-keep">KOERU をやめても、<span class="hl" data-role="maker">録った声と設定は手元に残る。</span>つなぐけれど、中心にはならない。</p>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="as-is" style="--dek-slide-number: 6; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">いまのジャーニー</p>
+    <h2 class="slide-title">いまは、声が歌うのは工程の最後です</h2>
+  </div>
+  <div class="stage">
+    <div class="lane" data-step="as-is-new">
+      <p class="lane-name">これから<br>始める人</p>
+      <div class="lane-track">
+        <span class="lane-step">思いつく</span>
+        <span class="lane-step">用語を調べる</span>
+        <span class="lane-step">方式で迷う</span>
+        <span class="lane-step">環境で詰まる</span>
+        <span class="lane-step">離れる</span>
+        <span class="sing" data-role="maker" data-missed data-morph="sing-new">一度も歌を聴かない</span>
+      </div>
+    </div>
+    <div class="lane" data-step="as-is-veteran">
+      <p class="lane-name">何本も<br>作ってきた人</p>
+      <div class="lane-track">
+        <span class="lane-step">段取りを思い出す</span>
+        <span class="lane-step">数時間で一気に録る</span>
+        <span class="lane-step">原音設定を何日も</span>
+        <span class="sing" data-role="maker" data-morph="sing-veteran">8 割の地点で初めて歌う</span>
+        <span class="lane-step">録り直しを知る</span>
+      </div>
+    </div>
+    <p class="note" data-step="as-is-veteran">喉が疲れていた後半の音だけ、声が違う。失敗が起きたのは、数週間前の録音中。</p>
+  </div>
+  <p class="caveat">アンケートと公開された制作記から組んだ、想定の制作の流れ</p>
+</section><section class="slide" data-layout="default" data-slug="to-be" style="--dek-slide-number: 7; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">KOERU でのジャーニー</p>
+    <h2 class="slide-title">録り終える前に、声が歌い出します</h2>
+  </div>
+  <div class="stage">
+    <div class="lane" data-step="to-be-new">
+      <p class="lane-name">これから<br>始める人</p>
+      <div class="lane-track">
+        <span class="lane-step">思いつく</span>
+        <span class="lane-step">8 フレーズ録る</span>
+        <span class="sing" data-role="maker" data-morph="sing-new">5 分で歌う</span>
+        <span class="lane-step">歌える曲を増やす</span>
+      </div>
+    </div>
+    <div class="lane" data-step="to-be-veteran">
+      <p class="lane-name">何本も<br>作ってきた人</p>
+      <div class="lane-track">
+        <span class="lane-step">名前と方式を選ぶ</span>
+        <span class="lane-step">30 分ずつ録る</span>
+        <span class="sing" data-role="maker" data-morph="sing-veteran">2 回目の録音で歌う</span>
+        <span class="lane-step">声を揃える</span>
+        <span class="lane-step">確認だけして書き出す</span>
+      </div>
+    </div>
+    <p class="note" data-step="to-be-veteran">残りの録音をどんな声で揃えるかを、原音設定の前に決められる。</p>
+  </div>
+  <p class="caveat">数値は、想定の制作の流れにおけるもの</p>
+</section><section class="slide" data-layout="default" data-slug="change" style="--dek-slide-number: 8; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">差分がもたらすもの</p>
+    <h2 class="slide-title">印が一つ動くと、制作の意味が変わります</h2>
+  </div>
+  <div class="stage">
+    <ol class="shifts">
+      <li class="card shift" data-step="change-reward">
+        <p class="label">報酬の順序</p>
+        <p class="shift-from">録音と設定をやり切った人だけが、声を聴けた</p>
+        <p class="shift-to">報酬が、投資より先に来る</p>
+      </li>
+      <li class="card shift" data-step="change-design">
+        <p class="label">試唱の意味</p>
+        <p class="shift-from">試唱は、失敗を見つける場所だった</p>
+        <p class="shift-to">「この音源はこういう声だ」と知る、設計の材料になる</p>
+      </li>
+      <li class="card shift" data-step="change-split">
+        <p class="label">録り方</p>
+        <p class="shift-from">まとまった数時間で、一気に録り切る</p>
+        <p class="shift-to">30 分ずつ分けて録り、喉が疲れる前にやめられる</p>
+      </li>
+      <li class="card shift" data-step="change-meet">
+        <p class="label">歌い出す瞬間</p>
+        <p class="shift-from">自分の声を確かめる瞬間</p>
+        <p class="shift-to">まだよく知らない誰かに、会う瞬間</p>
+      </li>
+    </ol>
+  </div>
+  <p class="caveat">想定の制作の流れにもとづく</p>
+</section><section class="slide" data-layout="default" data-slug="principles" style="--dek-slide-number: 9; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">判断の基準</p>
+    <h2 class="slide-title">判断は、三つの原則で切ります</h2>
+  </div>
+  <div class="stage">
+    <ol class="principles">
+      <li data-step="principles-create">
+        <p class="stat">01</p>
+        <p class="principle-name">Create before configure</p>
+        <p class="lede">設定する前に、まず歌える。</p>
+      </li>
+      <li data-step="principles-own">
+        <p class="stat">02</p>
+        <p class="principle-name">Own your voice</p>
+        <p class="lede">自分の声は、自分のもの。処理は手元で完結し、声をサーバへ送らない。</p>
+      </li>
+      <li data-step="principles-hand">
+        <p class="stat">03</p>
+        <p class="principle-name">Made to be handed on</p>
+        <p class="lede">手渡せる状態まで、つくる。公開しないままでも、それは完成。</p>
+      </li>
+    </ol>
+  </div>
+</section><section class="slide" data-layout="split" data-slug="today" style="--dek-slide-number: 10; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">いまの実装</p>
+    <h2 class="slide-title">いま、ここまで動いています</h2>
+    <p class="lede">絵に描いた話ではない。一本の幹線のうち、録ってから渡すまでがつながっている。</p>
+  </div>
+  <div class="stage">
+    <ol class="progress">
+      <li data-step="today-done"><span class="tick" aria-hidden="true"></span>録音する</li>
+      <li data-step="today-done"><span class="tick" aria-hidden="true"></span>テイクを確定する</li>
+      <li data-step="today-done"><span class="tick" aria-hidden="true"></span>その場で、自分の声に歌わせる</li>
+      <li data-step="today-done"><span class="tick" aria-hidden="true"></span>原音設定を自動で当てる</li>
+      <li data-step="today-done"><span class="tick" aria-hidden="true"></span>配布パッケージを ZIP と UAR で書き出す</li>
+      <li class="todo" data-step="today-next"><span class="tick" aria-hidden="true"></span>原音設定を手で詰めるエディタ</li>
+      <li class="todo" data-step="today-next"><span class="tick" aria-hidden="true"></span>上位の方式から下位の方式への書き出し</li>
+    </ol>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="structures" style="--dek-slide-number: 11; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">コミュニティの未来 1 / 3</p>
+    <h2 class="slide-title">変わるのは、文化の五つの構造です</h2>
+  </div>
+  <div class="stage">
+    <dl class="shifts">
+      <div class="shift-head"><dt class="label">領域</dt><dd class="label">いま</dd><dd class="label">幹線が通ったあと</dd></div>
+      <div data-step="structures-join"><dt>参加</dt><dd>録音方式・ツール・原音設定・文字コードの知識が、早い段階で要る</dd><dd>まず声を録って歌わせる。深い知識は、必要になったときに学べる</dd></div>
+      <div data-step="structures-make"><dt>制作</dt><dd>録音・設定・試唱が分断され、後の工程で失敗に気づく</dd><dd>作っている途中で結果が返る。聴く、判断する、直すが短い周期になる</dd></div>
+      <div data-step="structures-own"><dt>所有と持ち運び</dt><dd>手順とツールを知っている人が扱いやすい</dd><dd>元のデータを持ち、外へ出し、別の道具で続きを作れる</dd></div>
+      <div data-step="structures-hand"><dt>受け渡し</dt><dd>配布しても、受け手が規約・導入・設定を読み解く</dd><dd>「配布した」ではなく「使える状態で渡した」へ</dd></div>
+      <div data-step="structures-loop"><dt>文化の循環</dt><dd>制作・調声・投稿・反応が別々にあり、つながりは個人の努力しだい</dd><dd>一人の表現が別の人の創作の材料になり、その創作が元の人へ戻る</dd></div>
+    </dl>
+    <p class="lede closing" data-step="structures-loop"><span class="hl">分散した専門性が、実行できる経路でつながっている文化へ。</span></p>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="experts" style="--dek-slide-number: 12; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">コミュニティの未来 2 / 3</p>
+    <h2 class="slide-title">専門家の時間を、もっと高度な問題へ戻します</h2>
+    <p class="lede">幹線は、専門家を要らなくするものではない。</p>
+  </div>
+  <div class="stage">
+    <div class="swap">
+      <div class="card" data-step="experts-now">
+        <p class="label">いま、詳しい人の時間が使われているところ</p>
+        <ul class="asks">
+          <li class="chip">ZIP のトラブル</li>
+          <li class="chip">文字コードの修復</li>
+          <li class="chip">同じ導入説明の繰り返し</li>
+          <li class="chip">初歩的な形式の修復</li>
+        </ul>
+      </div>
+      <p class="arrow" data-step="experts-then" aria-hidden="true">→</p>
+      <div class="card" data-step="experts-then">
+        <p class="label">戻したいところ</p>
+        <ul class="asks">
+          <li class="chip">この録り方ならもっと良くなる</li>
+          <li class="chip">この声ならこういう原音設定ができる</li>
+          <li class="chip">この音源ならこう調声できる</li>
+          <li class="chip">新しい方式を試す</li>
+        </ul>
+      </div>
+    </div>
+    <div class="wins" data-step="experts-wins">
+      <p><span class="who" data-role="toolsmith">ツールを作る人に</span>自分のツールとの相互運用と、既存のツールにも使える再現例を。</p>
+      <p><span class="who" data-role="supporter">支える人に</span>繰り返しの質問が減ることと、自分の知識を新しい入口へ手渡せることを。</p>
+    </div>
+  </div>
+</section><section class="slide" data-layout="default" data-slug="loops" style="--dek-slide-number: 13; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">コミュニティの未来 3 / 3</p>
+    <h2 class="slide-title">幹線が通ると、四つの輪が回り始める</h2>
+  </div>
+  <div class="stage">
+    <ol class="loops">
+      <li class="card loop" data-step="loops-product" data-role="maker">
+        <svg class="ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="24" pathLength="1" /><path d="M 52 20 L 57 30 L 46 29 Z" /></svg>
+        <div class="loop-body">
+          <p class="label">Product — 制作の輪 ・ 回すのは音源を作る人</p>
+          <p class="loop-cycle">試唱 → 気になる点が分かる → 録り足す・直す → 変化を聴く</p>
+          <p class="note">成り立つ条件: 試唱が驚きで終わらず、次の判断に結びつくこと</p>
+        </div>
+      </li>
+      <li class="card loop" data-step="loops-community" data-role="supporter">
+        <svg class="ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="24" pathLength="1" /><path d="M 52 20 L 57 30 L 46 29 Z" /></svg>
+        <div class="loop-body">
+          <p class="label">Community — コミュニティの輪 ・ 回すのは支える人</p>
+          <p class="loop-cycle">誰かの失敗 → 再現例 → 手順が直る → 次の人の失敗が減る</p>
+          <p class="note">成り立つ条件: 一人が全部の質問を抱えないこと</p>
+        </div>
+      </li>
+      <li class="card loop" data-step="loops-creator" data-role="user">
+        <svg class="ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="24" pathLength="1" /><path d="M 52 20 L 57 30 L 46 29 Z" /></svg>
+        <div class="loop-body">
+          <p class="label">Creator to Creator — 作り手から作り手へ ・ 回すのは音源を使う人</p>
+          <p class="loop-cycle">任意で渡した声 → 別の人の作品 → 反応が作った人へ戻る</p>
+          <p class="note">成り立つ条件: 公開も利用も強いないこと。規約・導入・返し方が明確なこと</p>
+        </div>
+      </li>
+      <li class="card loop" data-step="loops-standard" data-role="toolsmith">
+        <svg class="ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="24" pathLength="1" /><path d="M 52 20 L 57 30 L 46 29 Z" /></svg>
+        <div class="loop-body">
+          <p class="label">Standardization — 互換の輪 ・ 回すのはツールを作る人</p>
+          <p class="loop-cycle">再現できる出力 → 他の道具で確かめる → 独立に採用される → 互換が定着する</p>
+          <p class="note">標準とは、シェア一位のことではない。他の人が説明でき、他の実装で扱え、作者がいなくても検証できること</p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section><section class="slide" data-layout="split" data-slug="ask" style="--dek-slide-number: 14; --dek-slide-count: 15">
+  <div class="col">
+    <p class="kicker">お願い</p>
+    <h2 class="slide-title">お願いは、閉じた一件だけです</h2>
+    <p class="lede">KOERU を手伝ってください、ではありません。</p>
+  </div>
+  <div class="stage">
+    <div class="card offer" data-step="ask-one">
+      <p><span class="stat">30</span><span class="unit">分</span><span class="stat">1</span><span class="unit">件</span></p>
+      <p class="lede">KOERU が書き出した音源を一つ見て、確かめてほしいのは三つ。</p>
+      <ol class="checks">
+        <li>導入でつまずくところ</li>
+        <li>原音設定の不自然なところ</li>
+        <li>別のツールで直せるか</li>
+      </ol>
+      <p class="note">資料と再現手順は、こちらで用意します。</p>
+    </div>
+    <p class="lede promise" data-step="ask-no-strings">続けていただくことは、前提にしません。結果は、許可をいただいた範囲で、<span class="hl">既存のツールにも使えるテスト</span>として返します。</p>
+  </div>
+</section><section class="slide" data-layout="center" data-bg="ink" data-slug="close" style="--dek-slide-number: 15; --dek-slide-count: 15">
+  <div class="row" aria-hidden="true">
+    <svg class="thread" viewBox="0 0 700 100" preserveAspectRatio="none">
+      <path d="M -30 50 L 730 50" pathLength="1" />
+    </svg>
+    <span class="shape" data-role="maker"></span>
+    <span class="shape" data-role="toolsmith"></span>
+    <span class="shape" data-role="supporter"></span>
+    <span class="shape" data-role="user"></span>
+    <span class="shape" data-role="maker"></span>
+    <span class="shape" data-role="toolsmith"></span>
+    <span class="shape" data-role="supporter"></span>
+    <span class="shape" data-role="user"></span>
+  </div>
+  <h2 class="slide-title">声が、あなたを越えて<br>創作へ向かう</h2>
+  <p class="lede">UTAU の文化に参加する条件から、「エコシステムを自力で統合できること」を外したい。<br>誰かの表現を、別の誰かが受け取って、続きを作れる文化を、これからも続けやすくしたい。</p>
+  <p class="note">KOERU — 声と、越える</p>
+</section></div></div>
+    </main>
+    <aside id="dek-presenter" hidden>
+    <section id="dek-next-panel">
+      <div class="dek-panel-label">Next</div>
+      <div class="dek-next-body">
+        <div id="dek-next-stage"></div>
+        <p id="dek-next-end" hidden>End</p>
+      </div>
+      <p id="dek-next">UTAU は、分散して生きている文化です</p>
+    </section>
+    <section id="dek-notes-panel">
+      <ol id="dek-beats">
+      
+    </ol>
+      <pre id="dek-script">こんにちは。KOERU という、UTAU の歌声ライブラリを作るためのスタジオを作っています。今日は、それを UTAU の制作経路の中にどう置きたいかを、十数分でお話しします。
+
+先にお伝えしておくと、最後のお願いは小さなものです。KOERU を広めてほしい、使ってほしい、という話ではありません。
+
+&gt; 資料の中では個人名を出さず、役割で呼ぶ。</pre>
+    </section>
+    <footer id="dek-presenter-bar">
+      <span id="dek-page">1 <span class="dek-page-total">/ 15</span></span>
+      <p id="dek-elapsed">0:00</p>
+      <p id="dek-budget">0:39</p>
+      
+      <button id="dek-laser-toggle" type="button" aria-pressed="false" aria-label="レーザーポインター (l)" title="レーザーポインター (l)"></button>
+    </footer>
+  </aside>
+  </div>
+  <div id="dek-rail-resize" role="separator" aria-orientation="vertical" aria-label="Resize slide list" aria-valuemin="120" aria-valuemax="360" aria-valuenow="188" tabindex="0"></div>
+  <div id="dek-hint" role="status"><span><kbd>s</kbd>スライド一覧</span><span><kbd>p</kbd>プレゼンタービュー</span></div>
+  <div id="dek-announce" aria-live="polite"></div>
+  <script type="application/json" id="dek-data">[{"slug":"cover","title":"声を、誰もが手渡せる創作物にする","script":"こんにちは。KOERU という、UTAU の歌声ライブラリを作るためのスタジオを作っています。今日は、それを UTAU の制作経路の中にどう置きたいかを、十数分でお話しします。\n\n先にお伝えしておくと、最後のお願いは小さなものです。KOERU を広めてほしい、使ってほしい、という話ではありません。\n\n> 資料の中では個人名を出さず、役割で呼ぶ。","beats":[],"budgetSeconds":39},{"slug":"alive","title":"UTAU は、分散して生きている文化です","script":"まず前提から。UTAU は、終わったソフトに人が残っている場所ではありません。UTAU 本体にも更新があり、OpenUtau は今も開発とリリースが続いています。録音も、原音設定も、試唱も、PC だけでなくスマホやブラウザで動く道具が育っています。\n\n一つの中心ソフトを軸にした文化から、声とキャラクターと制作知識が、いくつもの実行環境へ分散して生きる文化に移ってきました。\n\nこの分散は、問題ではありません。道具がそれぞれ独立に良くなれるのは、分散しているからです。各駅は、確実に良くなっています。","beats":[{"id":"alive-spread","title":"一つの中心から、たくさんの場所へ"},{"id":"alive-life","title":"分散は、生命力"}],"budgetSeconds":66},{"slug":"integrator","title":"課題は、人が統合役になっていること","script":"問題は、駅と駅の間にあります。\n\n一つの音源を完成させるまでに、録音方式、録音リスト、録音アプリ、原音設定の場所、試す合成環境、WAV の形式、文字コード、oto.ini と character.txt の整え方、ZIP のまとめ方を、作る人が自分で理解して、自分でつながなければなりません。\n\n専門性はツールへ分散したのに、工程をつなぐ責任は人に残りました。いまの UTAU では、作る人自身が、統合役を務めています。","beats":[{"id":"integrator-list","title":"作る人が決めること"},{"id":"integrator-human","title":"統合の責任が、人に残った"}],"budgetSeconds":55},{"slug":"why-now","title":"いま幹線が要る、三つの理由","script":"昔より不便になったから、ではありません。むしろ逆です。\n\n一つ目。任せられる専門のツールが揃いました。だから、全部を自前で持つ統合製品ではなく、専門ツールへつなげる幹線を設計できます。\n\n二つ目。選択肢が増えた結果、悩みは「道具がない」から、「何を、どの順番で使えばいいか分からない」へ移りました。\n\n三つ目。文化は続いている一方で、実行環境は OpenUtau やスマホ、ブラウザへ広がっています。過去の音源と知識を、今の環境へつなぐ時期です。","beats":[{"id":"why-now-mature","title":"専門ツールが成熟した"},{"id":"why-now-path","title":"道具の不足から、道筋の不足へ"},{"id":"why-now-generations","title":"文化と環境の世代交代が、別々に進む"}],"budgetSeconds":59},{"slug":"trunk","title":"KOERU は、中央駅ではなく幹線です","script":"そこで KOERU がやりたいのは、UTAU の街を一つの巨大な施設に建て替えることではありません。分散した街に、幹線道路を一本通すことです。\n\n幹線は、録り始めてから、歌わせて確かめ、直し、誰かに渡せる音源にするまでの、一本の流れです。\n\n大事なのは、この流れが閉じていないことです。決まった出口がいくつかあるのではありません。流れのどの瞬間からでも、どのツールへでも出られます。録音の途中で波形を別のソフトで直しても、原音設定を専門のエディタで詰めても、別の合成環境で歌わせてもいい。そして、戻ってこられます。\n\nKOERU を使うのをやめても、録った声と設定は手元に残ります。つなぐけれど、中心にはならない。Integration without centralization です。","beats":[{"id":"trunk-line","title":"録る、聴く、直す、渡す"},{"id":"trunk-exit","title":"どの瞬間からでも、どのツールへでも"},{"id":"trunk-keep","title":"やめても、手元に残る"}],"budgetSeconds":91},{"slug":"as-is","title":"いまは、声が歌うのは工程の最後です","script":"では、作る人の体験はどう変わるのか。二人の制作者の、いまのジャーニーを見てください。\n\nこれから始める人は、調べると、最初に出会うのが声ではなく用語です。方式を選ぶ判断材料もないまま、一度も自分の声が歌うのを聴かずに離れていきます。\n\n何本も作ってきた人は、数時間かけて一気に録り、原音設定を何日も続け、全体の八割まで来たところで初めて試唱します。そこで、喉が疲れていた後半の音だけ声が違うことに気づく。失敗が起きたのは、数週間前の録音中です。\n\n> 想定の制作の流れであることを、画面下の注で示す。","beats":[{"id":"as-is-new","title":"これから始める人"},{"id":"as-is-veteran","title":"何本も作ってきた人"}],"budgetSeconds":60},{"slug":"to-be","title":"録り終える前に、声が歌い出します","script":"KOERU では、この「歌う」印を、左端へ動かします。\n\nこれから始める人は、短いフレーズを八つ、五分ほど録ったところで、自分の声が歌い出します。\n\n何本も作ってきた人は、二回目の録音を終えた時点で、もう新しい声が短いフレーズを歌っています。残りの録音をどんな声で揃えるかを、ここで決められます。\n\n> 数値が想定であることを、画面下の注で示す。","beats":[{"id":"to-be-new","title":"八フレーズ、五分で"},{"id":"to-be-veteran","title":"二回目の録音で"}],"budgetSeconds":39},{"slug":"change","title":"印が一つ動くと、制作の意味が変わります","script":"動くのは、印一つだけです。それでも、作る人にとっての制作の意味が変わります。\n\nいままでは、録音と設定をやり切った人だけが、自分の声が歌うのを聴けました。これからは、報酬が投資より先に来ます。\n\n試唱が、失敗を見つける場所から、この音源はこういう声だ、と知る場所に変わります。\n\n一度に録り切らなくてよくなるので、三十分ずつ分けて録れます。喉が疲れる前にやめられます。\n\nそして、録った声が歌い出す瞬間は、自分の声を確かめる瞬間ではなく、まだよく知らない誰かに会う瞬間になります。\n\n> 想定の制作の流れにもとづくことを、画面下の注で示す。","beats":[{"id":"change-reward","title":"報酬が、投資より先に来る"},{"id":"change-design","title":"試唱が、設計の材料になる"},{"id":"change-split","title":"分けて録れる"},{"id":"change-meet","title":"まだ知らない誰かに会う"}],"budgetSeconds":64},{"slug":"principles","title":"判断は、三つの原則で切ります","script":"KOERU の判断は、三つの原則で切っています。\n\n設定する前に、まず歌える。\n\n自分の声は、自分のもの。処理は手元で完結し、声をサーバへ送りません。\n\n手渡せる状態まで、つくる。公開しないままでも、それは完成です。","beats":[{"id":"principles-create","title":"Create before configure"},{"id":"principles-own","title":"Own your voice"},{"id":"principles-hand","title":"Made to be handed on"}],"budgetSeconds":28},{"slug":"today","title":"いま、ここまで動いています","script":"絵に描いた話ではありません。\n\n録音してテイクを確定し、その場で自分の声に歌わせ、原音設定を自動で当て、配布パッケージを ZIP と UAR で書き出すところまでが、いま動いています。\n\n原音設定を手で詰めるエディタと、上位の方式から下位の方式への書き出しは、これからです。","beats":[{"id":"today-done","title":"動いている"},{"id":"today-next","title":"これから"}],"budgetSeconds":35},{"slug":"structures","title":"変わるのは、文化の五つの構造です","script":"ここからは、少し先の話です。幹線が通ったとき、UTAU の文化の何が変わるのか。\n\n参加は、前提知識を先に揃える形から、まず声を録って歌わせ、深い知識は必要になったときに学べる形へ。\n\n制作は、後の工程で失敗に気づく形から、作っている途中で結果が返る形へ。\n\n所有は、手順を知っている人が扱いやすい形から、元のデータを持ち出して、別の道具で続きを作れる形へ。\n\n受け渡しは、配布したら受け手が規約と導入を読み解く形から、使える状態で渡す形へ。\n\nそして循環。一人の表現が別の人の創作の材料になり、その創作が、元の人へ戻ってくる。分散した専門性が、実行できる経路でつながっている文化です。","beats":[{"id":"structures-join","title":"参加"},{"id":"structures-make","title":"制作"},{"id":"structures-own","title":"所有と持ち運び"},{"id":"structures-hand","title":"受け渡し"},{"id":"structures-loop","title":"文化の循環"}],"budgetSeconds":77},{"slug":"experts","title":"専門家の時間を、もっと高度な問題へ戻します","script":"幹線は、専門家を要らなくするものではありません。\n\nいま、詳しい人の時間の多くは、ZIP や文字コードのトラブル、同じ導入説明の繰り返し、初歩的な形式の修復に使われています。\n\nその時間を、この録り方ならもっと良くなる、この声ならこういう原音設定ができる、新しい方式を試そう、という専門性へ戻したい。\n\nツールを作る人には、自分のツールとの相互運用と、既存のツールにも使える再現例を。支える人には、繰り返しの質問が減ることと、自分の知識を新しい入口へ手渡せることを。\n\n> 「幹線が無ければ UTAU が消える」とは言わない。","beats":[{"id":"experts-now","title":"いま使われている時間"},{"id":"experts-then","title":"戻したい時間"},{"id":"experts-wins","title":"それぞれの立場に"}],"budgetSeconds":62},{"slug":"loops","title":"回り始める、四つの輪","script":"幹線が通ると、四つの輪が回り始めると考えています。\n\n試唱して、気になる点が分かり、録り足して、変化を聴く。制作の輪です。\n\n誰かの失敗が再現例になり、手順が直り、次の人の失敗が減る。コミュニティの輪です。\n\n任意で渡した声が別の人の作品になり、その反応が、作った人へ戻る。作り手から作り手への輪です。\n\n再現できる出力を他のツールで確かめ、独立した手順で採用され、互換性が定着する。ここでいう標準は、シェア一位のことではありません。他の人が説明でき、他の実装で扱え、KOERU の作者がいなくても検証できることです。","beats":[{"id":"loops-product","title":"Product"},{"id":"loops-community","title":"Community"},{"id":"loops-creator","title":"Creator to Creator"},{"id":"loops-standard","title":"Standardization"}],"budgetSeconds":69},{"slug":"ask","title":"お願いは、閉じた一件だけです","script":"最後に、お願いです。KOERU を手伝ってください、ではありません。\n\nお願いしたいのは、三十分ほどで見られる確認を一件だけです。たとえば、KOERU が書き出した音源を一つ見て、導入でつまずくところ、原音設定の不自然なところ、別のツールで直せるかどうか。資料と再現手順は、こちらで用意します。\n\n継続して参加していただくことは前提にしません。結果は、許可をいただいた範囲で、既存のツールにも使えるテストとして還元します。","beats":[{"id":"ask-one","title":"三十分で見られる確認を一件"},{"id":"ask-no-strings","title":"続けていただくことは、前提にしません"}],"budgetSeconds":56},{"slug":"close","title":"声が、あなたを越えて創作へ向かう","script":"KOERU という名前は、声と、越える、から来ています。声が、作った人を越えて、誰かの創作の中でもう一度歌う。\n\nUTAU の文化に参加する条件から、エコシステムを自力で統合できること、を外したい。誰かの表現を、別の誰かが受け取って、続きを作れる文化を、これからも続けやすくしたい。ありがとうございました。","beats":[],"budgetSeconds":41}]</script>
+  <script data-dek-slides="trunk">(window.__dekSlides ||= {})["trunk"] = (function () {
+"use strict";
+var __dekDefault;
+const START = 200;
+const END = 1000;
+const REST = 620;
+const LINE_MS = 1200;
+const EXIT_MS = 3600;
+const ease = (p) => p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2;
+const clamp = (p) => Math.min(1, Math.max(0, p));
+const beamAt = (p) => {
+  if (p < 0.7) {
+    return START + (END - START) * ease(p / 0.7);
+  }
+  return END + (REST - END) * ease((p - 0.7) / 0.3);
+};
+__dekDefault = {
+  motion: { "trunk-line": LINE_MS, "trunk-exit": EXIT_MS },
+  draw(slide, { index, step, t }) {
+    const trunk = slide.querySelector("[data-trunk]");
+    const dot = slide.querySelector("[data-dot]");
+    const beam = slide.querySelector("[data-beam]");
+    const ghosts = slide.querySelector("[data-ghosts]");
+    let drawn = 0;
+    if (step === "trunk-line") {
+      drawn = ease(clamp(t / LINE_MS));
+    } else if (index >= 2) {
+      drawn = 1;
+    }
+    if (trunk) {
+      trunk.style.strokeDashoffset = String(1 - drawn);
+    }
+    const sweeping = step === "trunk-exit";
+    const shown = index >= 2;
+    const x = sweeping ? beamAt(clamp(t / EXIT_MS)) : REST;
+    for (const el of [dot, beam]) {
+      if (el) {
+        el.style.opacity = shown ? "1" : "0";
+      }
+    }
+    dot?.setAttribute("cx", String(x));
+    beam?.setAttribute("x1", String(x));
+    beam?.setAttribute("x2", String(x));
+    if (ghosts) {
+      ghosts.style.opacity = shown && !(sweeping && t < EXIT_MS) ? "1" : "0";
+    }
+  }
+};
+
+return __dekDefault;
+})();
+</script>
+  <script>(()=>{var G=(e)=>Array.isArray(e)&&e.every((t)=>typeof t==="string"),se=(e)=>e===void 0||G(e),de={sync:(e)=>G(e.created)&&se(e.updated)&&se(e.removed),"reload-slide":(e)=>typeof e.slug==="string","reload-theme":()=>!0,"reload-script":(e)=>G(e.slugs),diagnostics:(e)=>Array.isArray(e.diagnostics),timeline:()=>!0};function le(e){if(typeof e!=="object"||e===null)return!1;let t=e,n=t.type;return typeof n==="string"&&Object.hasOwn(de,n)?de[n](t):!1}function E(e){return JSON.stringify({slideIndex:e.slideIndex,beatIndex:e.beatIndex})}function T(e){let t=e;if(typeof e==="string")try{t=JSON.parse(e)}catch{return}if(typeof t!=="object"||t===null)return;let{slideIndex:n,beatIndex:r}=t;return U(n)&&U(r)?{slideIndex:n,beatIndex:r}:void 0}var U=(e)=>typeof e==="number"&&Number.isInteger(e)&&e>=0,ae=(e)=>Math.round(e*1e4)/1e4;function C(e){return JSON.stringify({pointer:e&&{slideIndex:e.slideIndex,x:ae(e.x),y:ae(e.y)}})}function _(e){let t=typeof e==="string"?ht(e):e;if(typeof t!=="object"||t===null||!Object.hasOwn(t,"pointer"))return;let n=t.pointer;if(n===null)return{pointer:null};if(typeof n!=="object")return;let{slideIndex:r,x:i,y:o}=n;return U(r)&&ue(i)&&ue(o)?{pointer:{slideIndex:r,x:i,y:o}}:void 0}function ht(e){try{return JSON.parse(e)}catch{return}}var ue=(e)=>typeof e==="number"&&e>=0&&e<=1;var p={deck:"deck",data:"dek-data",shell:"dek-shell",rail:"dek-rail",railResize:"dek-rail-resize",current:"dek-current",currentStage:"dek-current-stage",presenter:"dek-presenter",progress:"dek-progress",nextPanel:"dek-next-panel",nextStage:"dek-next-stage",nextEnd:"dek-next-end",next:"dek-next",notesPanel:"dek-notes-panel",beats:"dek-beats",script:"dek-script",presenterBar:"dek-presenter-bar",page:"dek-page",elapsed:"dek-elapsed",budget:"dek-budget",laser:"dek-laser",laserToggle:"dek-laser-toggle",markToggle:"dek-mark-toggle",hint:"dek-hint",announce:"dek-announce"};function ce(e){let{mode:t,deck:n,live:r,liveToken:i}=e.dataset;return{mode:t==="presenter"||t==="video"?t:"player",deck:n??"",live:r==="true",...i?{liveToken:i}:{}}}function fe(e){return e.length+1}function I(e){return e.length}function me(e,t){return t>0?e[t-1]:void 0}function yt(e,t){return e[t]?.id??String(t+1)}function M(e,t){return t<=0?"0":yt(e,t-1)}function L(e,t){let n=new Set;for(let r=0;r<t&&r<e.length;r++){n.add(String(r+1));let i=e[r]?.id;if(i)n.add(i)}return n}function pe(e){return e.map((t)=>({slug:t.slug,stops:fe(t.beats)}))}function ge(e,t){let n=t[e.slideIndex];if(!n)return"";if(e.beatIndex<=0)return`#${n}`;return`#${n}/${e.beatIndex}`}function bt(e,t){let n={slideIndex:0,beatIndex:0},r=e.startsWith("#")?e.slice(1):e;if(!r)return n;let[i,o]=r.split("/"),s=t.indexOf(i??"");if(s<0)return n;let a=o?Number(o):0;if(!Number.isInteger(a)||a<0)return{slideIndex:s,beatIndex:0};return{slideIndex:s,beatIndex:a}}function z(e,t){let n=t.length-1;if(n<0)return;let r=Math.min(e.slideIndex,n),i=Math.max(0,(t[r]?.stops??1)-1);return{slideIndex:r,beatIndex:r<e.slideIndex?i:Math.min(e.beatIndex,i)}}function x(e,t){return e.slideIndex===t.slideIndex&&e.beatIndex===t.beatIndex}function he(e,t){return e.slideIndex-t.slideIndex||e.beatIndex-t.beatIndex}function j(e,t){let n=bt(e,t.map((r)=>r.slug));return z(n,t)??{slideIndex:0,beatIndex:0}}function ye(e,t,n){let r=j(t,n);if(x(e,r))return;return r}function be(e,t){return e.slideIndex===t.slideIndex?"replace":"push"}function A(e,t){let n=t[e.slideIndex]?.stops;if(n===void 0)return null;if(e.beatIndex+1<n)return{slideIndex:e.slideIndex,beatIndex:e.beatIndex+1};let r=e.slideIndex+1;if(r>=t.length)return null;return{slideIndex:r,beatIndex:0}}function xt(e,t){if(e.beatIndex>0)return{slideIndex:e.slideIndex,beatIndex:e.beatIndex-1};let n=e.slideIndex-1;if(n<0)return null;let r=t[n]?.stops??0;return{slideIndex:n,beatIndex:Math.max(r-1,0)}}function xe(e,t,n){switch(e){case"advance":return A(t,n);case"retreat":return xt(t,n);case"first":return n.length>0?{slideIndex:0,beatIndex:0}:null;case"last":{let r=n.length-1;if(r<0)return null;return{slideIndex:r,beatIndex:Math.max((n[r]?.stops??0)-1,0)}}}}function ve(e){let{go:t,rehearse:n}=e;return{request(r,i){if(!r)return;if(n.ready())n.move(r,i);else t(r,i)},togglePlay(){if(!n.ready())return!1;return n.toggle(),!0}}}function R(e,t){for(let n of e){let r=n.getAttribute("data-step");n.classList.toggle("is-shown",r!==null&&t.has(r))}}function Pe(e){if(e.altKey||e.ctrlKey||e.metaKey)return null;switch(e.key){case" ":return e.shiftKey?"retreat":"advance";case"ArrowRight":case"PageDown":return"advance";case"ArrowLeft":case"PageUp":case"Backspace":return"retreat";case"Home":return"first";case"End":return"last";default:return null}}function S(e,t){if(e.repeat||e.altKey||e.ctrlKey||e.metaKey)return!1;return e.key.toLowerCase()===t}function Se(e,t,n="touch"){let r=Math.abs(e.dx),i=Math.abs(e.dy);if(n!=="mouse"&&r>=vt&&r>i*2)return e.dx<0?"advance":"retreat";if(r<ke&&i<ke)return e.x<t.width/3?"retreat":"advance";return null}var vt=60,ke=10;function we(e){let t=e;return typeof t?.closest==="function"&&t.closest(kt)!==null}var kt="a[href], button, input, textarea, select, label, summary, video, audio, [contenteditable]";function Ee(e){if(typeof e!=="object"||e===null)return!1;let t=e;return t.isContentEditable===!0||t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.tagName==="SELECT"}function W(e){for(let t of e){let n=t.getAttribute("data-morph");if(n)t.style.setProperty("view-transition-name",n)}}function Te(e){for(let t of e)t.style.removeProperty("view-transition-name")}function Ie(e,t){return e!==t}function Me(e){return S(e,"p")}function Le(e,t){let n=e.startsWith("?")?e.slice(1):e,r=new URLSearchParams(n);if(t)r.set("presenter","");else r.delete("presenter");let i=r.toString().replace(/=(?=&|$)/g,"");return i?`?${i}`:""}function Ae(e,t){if(t===void 0||t<=0)return"ok";if(e>t)return"over";if(e>t*0.8)return"warn";return"ok"}function Re(e){let t=!1,n=0;for(let r of e)if(r.budgetSeconds!==void 0)t=!0,n+=r.budgetSeconds;return t?n:void 0}function De(e,t){let n=Math.max(t,1);return Math.min(1,(e+1)/n)}var H=188,Ce=120,_e=360;var B="dek.railWidth",X="dek.railVisible";function $e(e){return S(e,"s")}var Z=16;function N(){try{return window.localStorage}catch{return}}function Y(e){if(!Number.isFinite(e))return H;return Math.max(Ce,Math.min(_e,Math.round(e)))}function He(e){try{let t=e?.getItem(B);return t?Y(Number(t)):H}catch{return H}}function Be(e){try{return e?.getItem(X)!=="0"}catch{return!0}}function Ne(e){document.addEventListener("keydown",(n)=>{if(Ee(n.target))return;if(e.onKey(),Me(n)){if(e.togglePresenter())n.preventDefault();return}if(S(n,"f")){n.preventDefault(),e.toggleFullscreen();return}if(S(n,"m")){if(e.toggleMark())n.preventDefault();return}if(S(n,"l")){if(e.toggleLaser())n.preventDefault();return}if($e(n)){if(e.toggleRail())n.preventDefault();return}if(n.key===" "&&e.togglePlay()){n.preventDefault();return}let r=Pe(n);if(!r)return;n.preventDefault(),e.move(r)});let t=document.getElementById(p.currentStage);if(t)Pt(t,e)}function Pt(e,t){let n=t.move,r;e.addEventListener("pointerdown",(i)=>{if(t.pointing()){r=void 0;return}let o=i.altKey||i.ctrlKey||i.metaKey||i.shiftKey;if(i.pointerType==="mouse"&&(i.button!==0||o)||we(i.target)){r=void 0;return}r={x:i.clientX,y:i.clientY,id:i.pointerId}}),e.addEventListener("pointerup",(i)=>{if(!r||r.id!==i.pointerId)return;if(i.pointerType==="mouse"&&getSelection()?.isCollapsed===!1){r=void 0;return}let o=e.getBoundingClientRect(),s=Se({x:i.clientX-o.left,y:i.clientY-o.top,dx:i.clientX-r.x,dy:i.clientY-r.y},o,i.pointerType);if(r=void 0,s)n(s)}),e.addEventListener("pointercancel",()=>{r=void 0})}function Fe(e,t){if(t.width<=0||t.height<=0)return;let n=(e.x-t.left)/t.width,r=(e.y-t.top)/t.height;return n>=0&&n<=1&&r>=0&&r<=1?{x:n,y:r}:void 0}function Oe(e){let t,n=!1,r,i=!1,o=()=>{if(r!==void 0)e.clearTimer(r),r=void 0},s=(a)=>{i=!0,e.send(a),o(),r=e.setTimer(()=>{r=void 0,s(a)},1000)};return{point(a){if(t=a,n)return;n=!0,e.frame(()=>{if(n=!1,t)s(t)})},lift(){if(t=void 0,o(),i)i=!1,e.send(null)}}}function qe(e){let t=null,n,r=(i)=>{t=i&&i.slideIndex===e.current()?i:null,e.draw(t)};return{receive(i){if(n!==void 0)e.clearTimer(n),n=void 0;if(r(i),i)n=e.setTimer(()=>{n=void 0,r(null)},3000)},sync(){if(t&&t.slideIndex!==e.current())r(null)}}}function Ve(e){let t=document.getElementById(p.deck),n=document.getElementById(p.currentStage),r=document.getElementById(p.laserToggle),i=document.createElement("div");i.id=p.laser,i.hidden=!0,i.setAttribute("aria-hidden","true"),t?.prepend(i);let o={setTimer:(u,d)=>window.setTimeout(u,d),clearTimer:(u)=>window.clearTimeout(u)},s=qe({...o,current:e.current,draw(u){if(i.hidden=u===null,u)i.style.left=`${u.x*100}%`,i.style.top=`${u.y*100}%`}}),a=Oe({...o,frame:(u)=>window.requestAnimationFrame(u),send(u){e.send(u),s.receive(u)}}),c=!1;function l(u){if(c=u,document.body.classList.toggle("is-laser",c),r?.setAttribute("aria-pressed",String(c)),!c)a.lift()}function f(u){if(!c||!t)return;let d=Fe({x:u.clientX,y:u.clientY},t.getBoundingClientRect());if(d)a.point({slideIndex:e.current(),...d});else a.lift()}return n?.addEventListener("pointermove",f),n?.addEventListener("pointerdown",f),n?.addEventListener("pointerleave",()=>a.lift()),n?.addEventListener("pointercancel",()=>a.lift()),n?.addEventListener("pointerup",(u)=>{if(u.pointerType!=="mouse")a.lift()}),r?.addEventListener("click",()=>l(!c)),{toggle(){return l(!c),!0},isOn:()=>c,receive:(u)=>s.receive(u),sync(){a.lift(),s.sync()}}}var St={player:"/",presenter:"/presenter",socket:"/ws",events:"/events",theme:"/theme",current:"/current",goto:"/goto",marks:"/marks"};function wt(e){switch(e.kind){case"slide":return`/slide/${encodeURIComponent(e.slug)}`;case"voice":return`/voice/${e.file}`;case"asset":return`/assets/${e.path.split("/").map(encodeURIComponent).join("/")}`;default:return St[e.kind]}}function Et(e,t){let n=e.match(/^\/decks\/([^/]+)/)?.[1];return n?`/decks/${n}${t}`:t}function P(e,t){return Et(e,wt(t))}function J(e){return e?`?token=${encodeURIComponent(e)}`:""}function Ke(e,t){return`dek:${e??""}:${t.join(",")}`}function F(e){return`#deck > .slide[data-slug="${e.replace(/\\/g,"\\\\").replace(/"/g,"\\\"")}"]`}async function Ge(e,t,n=fetch){if(e.type==="reload-slide"){let r=await n(It(t,e.slug));if(!r.ok)return;return{...e,html:await r.text()}}if(e.type==="reload-theme"){let r=await n(Mt(t));if(!r.ok)return;return{...e,css:await r.text()}}return e}function Ue(e,t){switch(e.type){case"sync":case"reload-script":return{reload:!0};case"reload-slide":return t.replaceSlide(e.slug,e.html),{reload:!1};case"reload-theme":return t.setTheme(e.css),{reload:!1};case"diagnostics":return t.setDiagnostics(Tt(e.diagnostics)),{reload:!1};case"timeline":return{reload:!1}}}function Tt(e){if(e.length===0)return null;return e.map((t)=>t.severity==="warning"?`${t.id} warning: ${t.message}`:`${t.id}: ${t.message}`).join(`
+`)}function It(e,t){return P(e,{kind:"slide",slug:t})}function Mt(e){return P(e,{kind:"theme"})}function ze(){return{replaceSlide(e,t){let n=document.querySelector(F(e));if(n)n.outerHTML=t},setTheme(e){let t=document.querySelector("style[data-dek-theme]");if(t)t.textContent=e},setDiagnostics(e){let t=document.querySelector(".dek-diagnostics");if(!e){t?.remove();return}if(!t)t=document.createElement("div"),t.className="dek-diagnostics",document.body.prepend(t);t.textContent=e}}}function je(e){let t=document.getElementById(p.markToggle);if(!t)return;let n=[];function r(s){let a=(c)=>n.some((l)=>x(l,{slideIndex:s.slideIndex,beatIndex:c}));t?.setAttribute("aria-pressed",String(a(s.beatIndex)));for(let c of document.querySelectorAll(`#${p.beats} [data-beat-index]`))c.classList.toggle("is-marked",a(Number(c.getAttribute("data-beat-index"))))}async function i(s){try{let a=await e.fetch(e.url,s);if(!a.ok)throw Error(`the dev server answered ${a.status}`);n=((await a.json()).positions??[]).flatMap((l)=>T(l)??[]),t?.removeAttribute("data-error"),t?.setAttribute("title",t.getAttribute("aria-label")??"")}catch(a){t?.setAttribute("data-error",""),t?.setAttribute("title",`not marked: ${a instanceof Error?a.message:a}`)}r(e.current())}function o(){return i({method:"POST",headers:{"content-type":"application/json"},body:E(e.current())}),!0}return t.addEventListener("click",()=>o()),i(),{toggle:o,render:r}}function We(e,t={}){let n=!1,r;return async(i)=>{if(i==null)return;if(n){r=i,t.onQueue?.();return}n=!0;let o;try{let s=i;while(s!==void 0){r=void 0;try{await e(s)}catch(a){o??=a}s=r}}finally{n=!1}if(o!==void 0)throw o}}function Xe(e,t,n){if(n.equal(n.current(),t))return;e(t)}var Lt=500,At=1e4;function Rt(e,t=Math.random){let n=Math.min(At,Lt*2**e);return n/2+t()*n/2}var Ze=1;function Ye(e){let t,n,r=0,i=!1,o,s,a,c=()=>{n=void 0;let l=e.connect();t=l,l.addEventListener("open",()=>{if(r=0,s)l.send(E(s)),a=o,o=s,s=void 0}),l.addEventListener("message",(f)=>{let u=_(f.data);if(u){e.onPointer?.(u.pointer);return}let d=T(f.data);if(!d)return;let h=a!==void 0&&x(a,d);if(a=void 0,h)return;o=d,e.onPosition(d)}),l.addEventListener("close",()=>{if(i||t!==l)return;t=void 0,n=e.setTimer(c,Rt(r++,e.random))})};return c(),{publish(l){if(t?.readyState===Ze)t.send(E(l)),o=l;else s=l},point(l){if(t?.readyState===Ze)t.send(C(l))},close(){if(i=!0,n!==void 0)e.clearTimer(n),n=void 0;t?.close(),t=void 0}}}function Je(e){let t=e.deck.map((u)=>u.slug),n=new BroadcastChannel(e.channelName),r=j(location.hash,e.deck),i=r;function o(u){let d=ge(r,t);if(!d||location.hash===d)return;try{history[u==="push"?"pushState":"replaceState"](null,"",d)}catch{location.hash=d}}let s=We(async({position:u,origin:d})=>{e.beforeMove?.(),await e.present(r,u,()=>{let h=r;r=u,o(d==="hash"?"replace":be(h,u)),e.onMove(h,u)}),e.afterMove?.()},{onQueue:e.hurry}),a;function c(u){n.postMessage(E(u)),a?.publish(u)}function l(u,d="local"){if(u==null)return s(void 0);if(i=u,d==="local"||d==="rehearse")c(u);return s({position:u,origin:d})}function f(u){let d=z(u,e.deck);if(!d)return;Xe(e.route??((h)=>l(h,"remote")),d,{equal:x,current:()=>i})}if(n.addEventListener("message",(u)=>{let d=_(u.data);if(d){e.onPointer?.(d.pointer);return}let h=T(u.data);if(h)f(h)}),e.socketUrl){let u=e.socketUrl;a=Ye({connect:()=>new WebSocket(u),onPosition:f,...e.onPointer?{onPointer:e.onPointer}:{},setTimer:(d,h)=>window.setTimeout(d,h),clearTimer:(d)=>window.clearTimeout(d)}),window.addEventListener("pagehide",(d)=>{if(!d.persisted)a?.close()})}return window.addEventListener("hashchange",()=>{l(ye(i,location.hash,e.deck),"hash")}),{position:()=>r,target:()=>i,go:l,writeHash:o,point(u){n.postMessage(C(u)),a?.point(u)}}}function Qe(e,t){let n=e[t.slideIndex];if(!n)throw Error(`slide index ${t.slideIndex} out of range`);return{current:n,next:e[t.slideIndex+1]??null,script:n.script,currentBeatIndex:t.beatIndex,currentBeat:me(n.beats,t.beatIndex)??null}}function et(e){if(e.currentBeatIndex<I(e.current.beats))return e.current.title;return e.next?.title??""}function Q(e){let t=Math.max(0,Math.floor(e));return`${Math.floor(t/60)}:${String(t%60).padStart(2,"0")}`}function O(e){let t=e.cloneNode(!0);if(!(t instanceof HTMLElement))return;t.classList.add("is-current");for(let n of[t,...t.querySelectorAll("[id], [data-morph]")])n.removeAttribute("id"),n.style.removeProperty("view-transition-name");for(let n of t.querySelectorAll("video, audio, iframe, object, embed"))n.removeAttribute("src"),n.removeAttribute("srcdoc"),n.replaceChildren();return t.setAttribute("inert",""),t.setAttribute("aria-hidden","true"),t}function q(e){return{width:e.offsetWidth||1280,height:e.offsetHeight||720}}function V(e,t,n){let r=document.createElement("div");return r.className=e,r.style.width=`${n.width}px`,r.style.height=`${n.height}px`,r.append(t),r}function Dt(e){let t=e.viewport.width-(e.reservedRight??0),{width:n,height:r}=e.logical;if(n<=0||r<=0||t<=0||e.viewport.height<=0)return 0;return Math.min(t/n,e.viewport.height/r)}function Ct(e,t){let n=Dt({viewport:e,logical:t}),r=(e.width-t.width*n)/2,i=(e.height-t.height*n)/2;return`translate(${r}px, ${i}px) scale(${n})`}function w(e,t){e.style.transform=Ct({width:t.clientWidth,height:t.clientHeight},{width:e.offsetWidth||1280,height:e.offsetHeight||720})}function _t(e,t,n){let r=e[n.slideIndex],i=r?Qe(e,n):void 0;return{script:i?.script,next:i?et(i):"",nextPos:A(n,t),beats:i?.current.beats,budget:r?.budgetSeconds!==void 0?Q(r.budgetSeconds):""}}function $t(e,t){return e.map((n,r)=>{if(r<t.slideIndex)return{className:"is-done"};if(r===t.slideIndex)return{className:"is-current",fill:`${De(t.beatIndex,n.stops)*100}%`};return{}})}function Ht(e,t){return new URLSearchParams(e).has("presenter")||t==="presenter"}var tt=(e,t)=>{let n=document.getElementById(e);if(n)n.textContent=t};function Bt(e,t){if(e.script!==void 0)tt(p.script,e.script);tt(p.next,e.next);let n=document.getElementById(p.nextEnd);if(n)n.hidden=Boolean(e.nextPos);if(t)t.textContent=e.budget}function Nt(e,t){let n=document.getElementById(p.page);if(!n)return;let r=document.createElement("span");r.className="dek-page-total",r.textContent=`/ ${t}`,n.replaceChildren(document.createTextNode(`${e} `),r)}function Ft(e){return e.map((t,n)=>{let r=document.createElement("li");return r.setAttribute("data-beat-index",String(n+1)),r.textContent=t.title,r})}function Ot(e,t){for(let n of e.querySelectorAll("[data-beat-index]"))n.classList.toggle("is-current-beat",Number(n.getAttribute("data-beat-index"))===t)}function qt(e,t,n){e.replaceChildren(...$t(t,n).map(({className:r,fill:i})=>{let o=document.createElement("span");if(r)o.className=r;if(i)o.style.setProperty("--dek-fill",i);return o}))}function Vt(e,t){let n=document.getElementById(p.nextStage);if(!n)return;let r=t?e.slideEl(t.slide.slug):void 0,i=r?O(r):void 0,o=document.getElementById(p.deck);if(!t||!i||!o){n.replaceChildren();return}let{slide:s,beatIndex:a}=t;R([...i.querySelectorAll("[data-step]")],L(s.beats,a));let c=V("dek-preview-frame",i,q(o));n.replaceChildren(c),e.drawStill(i,s,a),w(c,n)}function Kt(e,t,n){let r=(Date.now()-t)/1000;e.textContent=Q(r);let i=Ae(r,n);e.classList.toggle("is-warn",i==="warn"),e.classList.toggle("is-over",i==="over")}function nt(e){let{slides:t,deck:n,stage:r}=e,i=document.getElementById(p.presenter),o=document.getElementById(p.progress),s=document.getElementById(p.elapsed),a=document.getElementById(p.budget),c=Re(t),l,f,u=()=>Boolean(i&&!i.hidden);function d(g){if(!i)return;if(i.hidden=!g,document.body.classList.toggle("is-presenter",g),o)o.hidden=!g}if(i&&Ht(location.search,e.mode))d(!0);function h(g,y){let k=document.getElementById(p.beats);if(!k)return;if(f!==g.slideIndex)f=g.slideIndex,k.replaceChildren(...Ft(y));Ot(k,g.beatIndex)}function v(g){let y=_t(t,n,g);if(Bt(y,a),y.beats)h(g,y.beats);if(Nt(g.slideIndex+1,t.length),o)qt(o,n,g);let{nextPos:k}=y,m=k&&u()?t[k.slideIndex]:void 0;Vt(r,k&&m?{slide:m,beatIndex:k.beatIndex}:void 0)}return{available:()=>i!==null,isOpen:u,setOpen(g){if(!i)return;d(g);let y=Le(location.search,g);if(y!==location.search)history.replaceState(null,"",`${location.pathname}${y}${location.hash}`)},render:v,startClock(){if(l!==void 0)return;let g=Date.now();if(l=g,s){let y=()=>Kt(s,g,c);window.setInterval(y,1000),y()}},fit(){let g=document.querySelector(`#${p.nextStage} .dek-preview-frame`),y=document.getElementById(p.nextStage);if(g instanceof HTMLElement&&y&&u())w(g,y)}}}function Gt(e){if(e==="ArrowDown")return 1;return e==="ArrowUp"?-1:void 0}function Ut(e){if(e==="ArrowRight")return Z;return e==="ArrowLeft"?-Z:void 0}function ee(e,t){try{N()?.setItem(e,t)}catch{}}function K(e,t){let n=Y(t);return document.documentElement.style.setProperty("--dek-rail-w",`${n}px`),e?.setAttribute("aria-valuenow",String(n)),n}function zt(e,t,n){let r=document.getElementById(p.deck);if(!r)return;let i=q(r);for(let[o,s]of t.entries()){let a=e.querySelector(`[data-slide-index="${o}"] .dek-thumb-frame`);if(!(a instanceof HTMLElement))continue;let c=n.slideEl(s.slug),l=c?O(c):void 0;if(!l){a.replaceChildren();continue}let f=V("dek-thumb-stage",l,i);a.replaceChildren(f),n.drawStill(l,s,I(s.beats)),w(f,a)}}function jt(e){if(e.offsetParent===null)return;for(let t of e.querySelectorAll(".dek-thumb-frame")){let n=t.querySelector(".dek-thumb-stage");if(t instanceof HTMLElement&&n instanceof HTMLElement)w(n,t)}}function Wt(e,t){for(let n of e.querySelectorAll(".dek-thumb")){let r=Number(n.getAttribute("data-slide-index"))===t;if(n.classList.toggle("is-current",r),r)n.setAttribute("aria-current","page"),n.scrollIntoView({block:"nearest"});else n.removeAttribute("aria-current")}}function Xt(e,t,n){e.addEventListener("keydown",(r)=>{let i=Gt(r.key),o=r.target;if(!i||!(o instanceof HTMLElement)||!o.classList.contains("dek-thumb"))return;r.preventDefault(),r.stopPropagation();let s=Number(o.getAttribute("data-slide-index"))+i;if(!t[s])return;n(s),e.querySelector(`[data-slide-index="${s}"]`)?.focus({preventScroll:!0})})}function Zt(e,t){e.addEventListener("keydown",(n)=>{let r=Ut(n.key);if(!r)return;n.preventDefault(),n.stopPropagation();let i=Number(e.getAttribute("aria-valuenow"));ee(B,String(K(e,i+r))),t()})}function Yt(e,t){e.addEventListener("pointerdown",(n)=>{n.preventDefault();try{e.setPointerCapture(n.pointerId)}catch{}e.setAttribute("data-dragging","");let r=K(e,n.clientX),i=(s)=>{r=K(e,s.clientX),t()},o=()=>{e.removeEventListener("pointermove",i),e.removeEventListener("pointerup",o),e.removeEventListener("pointercancel",o),e.removeAttribute("data-dragging"),ee(B,String(r))};e.addEventListener("pointermove",i),e.addEventListener("pointerup",o),e.addEventListener("pointercancel",o)})}function rt(e){let t=document.getElementById(p.rail),n=document.getElementById(p.railResize);if(t){if(K(n,He(N())),document.body.classList.toggle("is-rail-hidden",!Be(N())),Xt(t,e.slides,e.onPick),n)Zt(n,e.onResize),Yt(n,e.onResize)}return{available:()=>t!==null,isOpen:()=>!document.body.classList.contains("is-rail-hidden"),setOpen(r){document.body.classList.toggle("is-rail-hidden",!r),ee(X,r?"1":"0"),e.onResize()},fill(){if(t)zt(t,e.slides,e.stage)},fit(){if(t)jt(t)},markCurrent(r){if(t)Wt(t,r)}}}var Jt=300;function it(e){let t=0;return e.beats.map((n)=>{let r=Math.max(0,n.lead??Jt),i=Math.max(t,n.start-r);return t=i,{at:i,position:n.position}})}function ot(e,t){return e.findLast((n)=>n.at<=t)}function Qt(e,t){return e.find((n)=>x(n.position,t))??e.findLast((n)=>he(n.position,t)<0)}function en(e){let t=e.now??(()=>Date.now()),n=e.setTimer??((d,h)=>setTimeout(d,h)),r=e.clearTimer??((d)=>clearTimeout(d)),i=new Set,o=!1,s=0,a=0,c,l=()=>o?t()-s:a,f=()=>{for(let d of i)r(d);i.clear()},u=()=>{f();let d=l();for(let h of e.schedule){let v=h.at-d;if(v<=0)continue;let g=n(()=>{i.delete(g),c=h,e.go(h.position)},v);i.add(g)}};return{play(){if(o)return;o=!0,s=t()-a,e.onPlay?.();let d=ot(e.schedule,a);if(d&&d!==c)c=d,e.go(d.position);u()},pause(){if(!o)return;a=l(),o=!1,e.onPause?.(),f()},seek(d){if(a=Qt(e.schedule,d)?.at??0,c=ot(e.schedule,a),e.onSeek?.(a),o)s=t()-a,u()},stop(){o=!1,a=0,c=void 0,f()},playing:()=>o,elapsed:l}}function tn({schedule:e,audio:t},n){return en({schedule:e,go:n,...t?{now:()=>t.currentTime*1000}:{},onPlay:()=>{t?.play()},onPause:()=>{t?.pause()},onSeek:(r)=>{if(t)t.currentTime=r/1000}})}function st(e){let t={kind:"off"},n=0,r=()=>{if(t.kind==="ready")t.driver.stop(),t.audio?.pause()};return{ready:()=>t.kind==="ready",async load(){n+=1;let i=n;r(),t={kind:"loading"};let o;try{o=await e.load()}catch(c){if(i===n)t={kind:"off"};throw c}if(i!==n)return;if(!o){t={kind:"off"};return}let{audio:s}=o,a=tn(o,(c)=>e.go(c,"rehearse"));t=s?{kind:"ready",driver:a,audio:s}:{kind:"ready",driver:a},a.seek(e.current()),a.play()},toggle(){if(t.kind!=="ready")return;if(t.driver.playing())t.driver.pause();else t.driver.play()},move(i,o){if(t.kind!=="ready")return;t.driver.seek(i),e.go(i,o)}}}async function dt(e,t){let n=P(e,{kind:"voice",file:"timeline.json"}),r=P(e,{kind:"voice",file:"audio.wav"}),i=await t.fetch(n);if(!i.ok)return;let o=await i.json(),s=await t.fetch(r,{method:"HEAD"}),a=it(o);return s.ok?{schedule:a,audio:t.audio(r)}:{schedule:a}}function te(e,t){let n=e?.motion?.[t];return typeof n==="number"&&n>0?n:0}function ne(e,t,n){if(!e||typeof e.draw!=="function")return;try{e.draw(t,n);return}catch(r){return console.error(r),{error:r}}}function re(e,t,n,r){let i=te(e,r),o=ne(e,t,{index:n,step:r,t:i});return o&&{t:i,error:o.error}}function nn(e,t,n){return te(e,M(t,n))}function at(e){let t,n,r,i=()=>{if(n!==void 0)e.cancelFrame(n),n=void 0;if(r!==void 0)e.clearTimer(r),r=void 0},o=(s)=>{if(!t)return;ne(t.module,t.slide,{index:t.index,step:t.step,t:Math.min(Math.max(s,0),t.ms)})};return{show(s,a,c,l,f){if(i(),t=a?{slide:s,module:a,index:l,step:M(c,l),ms:nn(a,c,l)}:void 0,!t)return;if(f==="final"||t.ms===0){o(t.ms);return}if(o(0),f==="hold")return;let u=e.now(),d=()=>{let h=e.now()-u;if(o(h),t&&h<t.ms)n=e.requestFrame(d);else i()};n=e.requestFrame(d),r=e.setTimer(()=>{if(r=void 0,n!==void 0)i(),o(t?.ms??0)},t.ms+50)},seek(s){i(),o(s)},duration(){return t?.ms??0},stop:i}}async function ut(e){let t=[],n=e.viewTransition;if(n){if(n.ready?.catch(()=>{return}),t.push(n.finished.catch(()=>{return})),n.updateCallbackDone)t.push(n.updateCallbackDone)}for(let r of e.animations??[]){if(r.playState==="idle"||r.playState==="finished")continue;if(r.effect?.getComputedTiming().endTime===Number.POSITIVE_INFINITY)continue;if(r.finished)t.push(r.finished.catch(()=>{return}))}if(t.length>0)await Promise.all(t)}function rn(e,t,n,r){if(r.videoMode)return"hold";if(r.reducedMotion)return"final";let i=A(e,n);return i&&x(i,t)?"animate":"final"}function on(e,t){let n=e[t.slideIndex];return n?`Slide ${t.slideIndex+1} of ${e.length}: ${n.title}`:void 0}function sn(e){let t=e.effect?.getComputedTiming().endTime;return e.playState==="running"&&typeof t==="number"&&Number.isFinite(t)}var ct=()=>window.__dekSlides??{};function D(e){if(!e)return;return document.querySelector(F(e))??void 0}function ft(){return matchMedia("(prefers-reduced-motion: reduce)").matches}var ie=(e)=>[...e.querySelectorAll("[data-morph]")];function mt(e,t,n){re(ct()[t.slug],e,n,M(t.beats,n))}function lt(e,t){let n=[...document.querySelectorAll("#deck > .slide")],r=e[t.slideIndex],i=D(r?.slug);for(let s of n)s.classList.toggle("is-current",s===i);let o=r?L(r.beats,t.beatIndex):new Set;if(i)R([...i.querySelectorAll("[data-step]")],o),W(ie(i));for(let s of n)if(s!==i)Te(ie(s))}function dn(e){for(let t of e){let n=D(t.slug);if(n){let r=I(t.beats);R([...n.querySelectorAll("[data-step]")],L(t.beats,r)),mt(n,t,r)}}}function an(e,t,n,r){if(!Ie(t.slideIndex,n.slideIndex)||!("startViewTransition"in document)||ft()){r();return}let i=D(e[t.slideIndex]?.slug);if(i)W(ie(i));return document.startViewTransition(r)}function un(){for(let e of document.getAnimations())if(sn(e))e.finish()}function ln(){let e=document.getElementById(p.deck),t=document.getElementById(p.currentStage);if(e instanceof HTMLElement&&t)w(e,t)}function pt(e){let{slides:t,videoMode:n}=e,r=at({now:()=>performance.now(),requestFrame:(l)=>requestAnimationFrame(l),cancelFrame:(l)=>cancelAnimationFrame(l),setTimer:(l,f)=>window.setTimeout(l,f),clearTimer:(l)=>window.clearTimeout(l)}),i,o=!1;function s(l,f){let u=t[l.slideIndex],d=D(u?.slug);if(!u||!d){r.stop();return}r.show(d,ct()[u.slug],u.beats,l.beatIndex,f)}async function a(l,f,u){let d=an(t,l,f,u);if(d)i=d;try{await ut({animations:[...document.getAnimations()],viewTransition:d})}finally{i=void 0}}function c(l,f){if(l===o)return;if(o=l,l)r.stop(),dn(t);else lt(t,f),s(f,"final")}return{slideEl:D,render:(l)=>lt(t,l),showMotion:s,showMove:(l,f)=>s(f,rn(l,f,e.deck,{videoMode:n,reducedMotion:ft()})),drawStill:mt,present:a,hurry(){if(n)return;i?.skipTransition(),un()},announce(l){let f=document.getElementById(p.announce),u=on(t,l);if(f&&u!==void 0)f.textContent=u},setPrinting:c,fit:ln,motion:{duration:()=>r.duration(),seek:(l)=>r.seek(l)}}}var gt=document.getElementById(p.data);if(gt?.textContent){let o=function(){r.fit(),i.fit(),v.fit()},s=function(m){r.render(m),i.render(m),v.markCurrent(m.slideIndex),h?.render(m)},a=function(){document.getElementById(p.hint)?.remove()},g=function(m){i.setOpen(m),o(),s(d.position())},e=ce(document.body),t=JSON.parse(gt.textContent),n=pe(t),r=pt({slides:t,deck:n,videoMode:e.mode==="video"}),i=nt({slides:t,deck:n,stage:r,mode:e.mode}),c=st({load:()=>dt(location.pathname,{fetch:(m,b)=>fetch(m,b),audio:(m)=>new Audio(m)}),go:(m,b)=>d.go(m,b),current:()=>d.target()}),l=ve({go:(m,b)=>d.go(m,b),rehearse:c}),f=e.mode==="video"?void 0:Ve({current:()=>d.position().slideIndex,send:(m)=>d.point(m)}),u=e.live?`${location.protocol==="https:"?"wss:":"ws:"}//${location.host}${P(location.pathname,{kind:"socket"})}${J(e.liveToken)}`:void 0,d=Je({deck:n,channelName:Ke(e.deck,n.map((m)=>m.slug)),...u?{socketUrl:u}:{},present:r.present,hurry:r.hurry,beforeMove:a,onMove:(m,b)=>{if(s(b),m.slideIndex!==b.slideIndex)r.announce(b),f?.sync();if(!x(m,b))r.showMove(m,b)},afterMove:i.startClock,route:(m)=>l.request(m,"remote"),...f?{onPointer:f.receive}:{}}),h=je({url:`${P(location.pathname,{kind:"marks"})}${J(e.liveToken)}`,current:()=>d.position(),fetch:(m,b)=>fetch(m,b)}),v=rt({slides:t,stage:r,onPick:(m)=>l.request({slideIndex:m,beatIndex:0},"local"),onResize:o});Ne({onKey:a,togglePresenter:()=>{if(!i.available())return!1;return g(!i.isOpen()),!0},toggleFullscreen:()=>{if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{return});else document.documentElement.requestFullscreen?.().catch(()=>{return})},toggleRail:()=>{if(!v.available()||i.isOpen())return!1;return v.setOpen(!v.isOpen()),!0},togglePlay:l.togglePlay,toggleLaser:()=>f?.toggle()??!1,toggleMark:()=>h?.toggle()??!1,pointing:()=>f?.isOn()??!1,move:(m)=>l.request(xe(m,d.target(),n),"local")}),window.addEventListener("resize",o),window.addEventListener("beforeprint",()=>r.setPrinting(!0,d.position())),window.addEventListener("afterprint",()=>r.setPrinting(!1,d.position())),matchMedia("print").addEventListener?.("change",(m)=>r.setPrinting(m.matches,d.position())),v.fill(),o(),s(d.position()),d.writeHash("replace"),r.showMotion(d.position(),e.mode==="video"?"hold":"final"),window.dekGo=(m)=>d.go(m,"capture"),window.dekMotion=r.motion;let y=new URLSearchParams(location.search).has("rehearse");if(y)c.load();let k=ze();window.dekLive=async(m)=>{if(!le(m)){location.reload();return}if(m.type==="timeline"){if(y)await c.load();return}let b=await Ge(m,location.pathname);if(!b){location.reload();return}if(Ue(b,k).reload){location.reload();return}let oe=d.position();v.fill(),s(oe),r.showMotion(oe,"final")}}})();
+</script>
+  
+</body>
+</html>

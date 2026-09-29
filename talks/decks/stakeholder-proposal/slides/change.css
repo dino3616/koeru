@@ -1,0 +1,22 @@
+.shifts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+}
+
+.shift {
+  display: grid;
+  gap: calc(var(--gap) * 0.35);
+  border-left: var(--trunk) solid var(--ink);
+}
+
+.shift-from {
+  color: var(--muted);
+  text-decoration: line-through var(--line);
+}
+
+.shift-to {
+  font-size: var(--size-lede);
+  font-weight: 800;
+  line-height: 1.5;
+}

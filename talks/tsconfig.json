@@ -1,0 +1,12 @@
+{
+  "extends": "@tsconfig/strictest/tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": [],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "noEmit": true
+  },
+  "include": [".dek/*.d.ts", "decks/*/slides/*.ts"]
+}
