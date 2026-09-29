@@ -188,6 +188,11 @@ cd crates/koeru-app/ui && bun run tauri dev
 **一度やった。** `createRunnableDevEnvironment` は **`vite` から取る**——
 `vite-plus` が再輸出するものは別のクラスを作り、Start からは走らせられない環境に見える。
 
+## 発表資料
+
+`talks/` の中で `bun run check`（CI の `talks` ジョブと同じ）。何を見ているかと、
+書き出したものの扱いは `talk-conventions` が持つ。
+
 ## 仕様側
 
 ```bash
