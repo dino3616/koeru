@@ -10,7 +10,7 @@
     "check:dist": "git diff --exit-code -- 'decks/*/dist/*.html' && test -z \"$(git ls-files --others --exclude-standard -- 'decks/*/dist/*.html')\""
   },
   "devDependencies": {
-    "@hajimism/dek": "github:hajimism/dek#47eec0c191d42ed003bfdb1061891be416fdb15c",
+    "@hajimism/dek": "github:hajimism/dek#2e678c1d62bcdb69e9fe4aecbe8b06c7869be2bd",
     "@tsconfig/strictest": "2.0.8",
     "playwright": "1.63.0",
     "typescript": "7.0.2"
