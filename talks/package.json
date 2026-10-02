@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dek",
-    "lint": "dek lint --visual",
-    "build": "dek build && dek pdf",
-    "check": "tsc && dek lint --visual && dek build && bun run check:dist",
+    "dev": "dekc",
+    "lint": "dekc lint --visual",
+    "build": "dekc build && dekc pdf",
+    "check": "tsc && dekc lint --visual && dekc build && bun run check:dist",
     "check:dist": "git diff --exit-code -- 'decks/*/dist/*.html' && test -z \"$(git ls-files --others --exclude-standard -- 'decks/*/dist/*.html')\""
   },
   "devDependencies": {

@@ -33,6 +33,21 @@
       "description": "BCP 47 tag for the page. Omit it to follow the script: kana → ja, Hangul → ko, Han → zh, else en.",
       "type": "string",
       "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$"
+    },
+    "max_classes": {
+      "default": 40,
+      "type": "number",
+      "description": "The most classes theme.css may define (DEK013)."
+    },
+    "cjk_per_minute": {
+      "default": 300,
+      "type": "number",
+      "description": "Speaking rate for CJK text, in characters a minute."
+    },
+    "latin_per_minute": {
+      "default": 130,
+      "type": "number",
+      "description": "Speaking rate for other text, in words a minute."
     }
   },
   "required": [
