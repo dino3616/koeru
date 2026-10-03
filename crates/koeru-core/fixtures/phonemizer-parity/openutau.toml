@@ -35,6 +35,6 @@ sha256 = "4ab8d9ff696710b270449cd9480da52dc2d6b2739ccb6fe3731a0bf5e1f454dd"
 
 [[channel]]
 name = "alpha"
-version = "0.1.570.6-alpha"
+version = "0.1.571-beta"
 asset = "OpenUtau-linux-x64.tar.gz"
 sha256 = "c27709b5f04678d51e7931ebae8d21c97d9e8fc72195a72ad7445cb4621fe92b"
