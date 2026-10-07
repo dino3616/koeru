@@ -8,8 +8,13 @@ description: KOERU の発表資料（talks/、dek）を作る・直すときの�
 発表資料は `talks/` の dek のプロジェクトで作る。道具と置き場所の判断は `DEC-PLT-045`。
 
 **dek 自身の規約は写さない。** `talks/AGENTS.md` の dek ブロック（dek が sync のたびに
-書き直す）と `bunx dek help --agent` が正本。ここに書くのは、KOERU の資料として
+書き直す）と `bunx dekc help --agent` が正本。ここに書くのは、KOERU の資料として
 守ることだけ。
+
+**コマンドは `dekc`。`dek` ではない。** パッケージは `@hajimism/dek` だが、入る
+コマンドは `dekc` になる。npm の `dek` は無関係な別のパッケージで、`bunx dek` は
+それを取ってきて走らせる。`talks/` の外では `bunx dekc` も同じことが起きるので、
+`talks/` に入ってから呼ぶ。
 
 ## 置き場所
 
@@ -28,10 +33,10 @@ talks/
 ## 順序
 
 1. 台本を書く。`##` が1枚、`###` がビート、段落が喋ること、`>` がト書き
-2. `bunx dek ls` で尺を見る。持ち時間に収まるまで台本を削る
+2. `bunx dekc ls` で尺を見る。持ち時間に収まるまで台本を削る
 3. 骨格のまま通して喋れるかを見る
 4. テーマを作る
-5. 1枚ずつ `bunx dek check <slug> --shot` で確かめ、`bunx dek shot --sheet` で全体の釣り合いを見る
+5. 1枚ずつ `bunx dekc check <slug> --shot` で確かめ、`bunx dekc shot --sheet` で全体の釣り合いを見る
 
 見た目から始めない。 台本が決まる前に作った枚は、台本が変わると全部作り直しになる。
 
@@ -53,7 +58,7 @@ talks/
 
 ## 見本の読み方
 
-他人のデッキは `bunx dek ref <owner/repo/deck>` で固定して読む（`dek theme <ref>`、`dek shot <ref> <slug>`）。
+他人のデッキは `bunx dekc ref <owner/repo/deck>` で固定して読む（`dekc theme <ref>`、`dekc shot <ref> <slug>`）。
 固定は `dek.toml` に残り、実体は `talks/refs/` に取り直される。
 
 スライドはコピーしない。 読んで、自分のテーマで書き直す。
@@ -71,7 +76,7 @@ devShell の中で動かす。bun と Playwright のブラウザは `flake.nix` 
 ```bash
 cd talks
 bun install
-bunx dek                 # 開発サーバ。保存のたびに描画と lint
+bunx dekc                # 開発サーバ。保存のたびに描画と lint
 bun run check            # 型・lint（--visual）・書き出した HTML の鮮度。CI と同じ
 bun run build            # HTML と PDF を書き出す
 ```

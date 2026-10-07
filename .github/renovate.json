@@ -41,13 +41,6 @@
       "matchPackageNames": ["playwright"],
       "groupName": "playwright"
     },
-    {
-      "description": "dek は tag を持たず commit で固定している。上流は日に何度も動くので週1で追う。書き出した HTML が変わる版は CI の鮮度検査で落ちるので、そのときだけ人が bun run build して入れ直す。",
-      "matchPackageNames": ["@hajimism/dek"],
-      "matchUpdateTypes": ["digest"],
-      "groupName": null,
-      "schedule": ["before 9am on monday"]
-    },
     { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" },
     {
       "description": "OpenUtau の alpha は prerelease（DEC-SYN-010 の層B）。既定の stable とは別に追う——綴りが変わるならそちらに先に出る。",
