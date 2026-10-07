@@ -1,22 +1,22 @@
 schema = 'decision'
-id = 'DEC-PLT-045'
+id = 'DEC-PLT-046'
 constraint_label = '発表資料の置き場所と道具'
 constraint = '外へ向けて KOERU を説明する資料が、リポジトリの文書に依らず単体で読め、開発機と CI とエージェントの間で同じように組み立ち、検査できること'
-title = '発表資料は dek で作り、リポジトリ直下の talks/ に置く。dek は commit で固定し、書き出した HTML と PDF をコミットする。公開はしない'
-status = 'superseded'
-superseded_by = 'DEC-PLT-046'
+title = '発表資料は dek で作り、リポジトリ直下の talks/ に置く。dek は npm の版で固定し、書き出した HTML と PDF をコミットする。公開はしない'
+status = 'accepted'
 owner = 'dino3616'
+supersedes = ['DEC-PLT-045']
 options = [
-  'dek（台本を正本にし、1枚1ファイルの HTML を lint と描画の計測にかける）',
-  'Slidev（Markdown 1ファイルに全枚を書き、Vue で組む）',
-  'Marp（Markdown 1ファイルに全枚を書き、テーマの CSS だけで組む）',
-  '手書きの HTML（道具を持たない）',
+  'npm の版を1つに固定し、ほかの npm の依存と同じ規則で追う',
+  'GitHub の commit の SHA で固定し、digest を週1で追う（DEC-PLT-045 のまま）',
+  'npm の semver の範囲（^0.3.0 など）で受ける',
 ]
-selected = 'dek（台本を正本にし、1枚1ファイルの HTML を lint と描画の計測にかける）'
+selected = 'npm の版を1つに固定し、ほかの npm の依存と同じ規則で追う'
 rationale = '''
-関係者に KOERU を提案する資料が要る（GTM 計画の §7）。 資料は書き出した
-HTML と PDF だけが渡り、リポジトリの外で一人歩きする。 だから資料の中に
-`docs/` や `meta/` への出典や ID を書かず、資料だけで読み切れるようにする。
+`DEC-PLT-045` の覆る条件の1つ目——「dek が npm に公開されたとき。 commit の固定を
+やめ、semver の版で追う」——に当たった。 dek は `@hajimism/dek` として npm に
+公開され、tag と release も持つようになった。 道具・置き場所・何をコミットするか・
+公開しないことは `DEC-PLT-045` から変えない。 変えるのは dek の固定と追い方だけ。
 
 ## dek を採った理由
 
@@ -26,7 +26,7 @@ Slidev と Marp も Markdown から始まるが、1ファイルに全枚の見�
 台本と見た目が同じ行に混ざる。
 
 **描画を測って、機械可読な診断で返す。** はみ出し・コントラスト・欠けた画像を
-`dek lint --visual` が返す。エージェントは自分の描いた枚を見られないので、
+`dekc lint --visual` が返す。エージェントは自分の描いた枚を見られないので、
 これが無いと直せない。 1枚が 40 行ほどの HTML 1つなので、差分も読める。
 
 手書きの HTML は、この計測と台本の分離を自分で作ることになる。
@@ -41,11 +41,15 @@ bun と Playwright のブラウザは devShell が出す（`DEC-PLT-033`）。 P
 書体が無く、はみ出しの計測が macOS と食い違うので、devShell が Noto CJK を
 fontconfig に渡す。
 
-**dek は tag も release も持たないので、commit の SHA で固定する。** Renovate は
-40 桁の SHA を digest として追える。上流は日に何度も動くので週1に絞り、CI が
-通れば入れる。
+**dek は npm の版を1つに固定する。** 範囲で受けると、`bun install` の時点で版が
+決まり、手元と CI で書き出した HTML が食い違いうる。 HTML は CI が作り直して
+突き合わせるので、版が揺れるとそれだけで落ちる。 commit の SHA で追う専用の規則は
+要らなくなったので外し、Renovate はほかの npm の依存と同じ規則で扱う。
 
-`dek ref` が取ってくる他人のデッキは `talks/refs/` に置かれ、gitignore される。
+**入るコマンドは `dekc` で、`dek` ではない。** npm の `dek` は無関係な別のパッケージで、
+`talks/` の外で `bunx dek` を打つとそれを取ってきて走らせる。
+
+`dekc ref` が取ってくる他人のデッキは `talks/refs/` に置かれ、gitignore される。
 中の ID らしい文字列は KOERU のものではないので、`refs` を走査から外した。
 
 ## 何をコミットするか
@@ -55,6 +59,9 @@ fontconfig に渡す。
 突き合わせる。PDF は書体と生成日時が環境で変わるので突き合わせない——
 `bun run build` が HTML と PDF を一度に出すので、手元で書き出せば揃う。
 
+**dek の版を上げると、変えていないデッキの HTML も変わる。** 書き出しに dek の
+実行時のコードが入るため。 版を上げる変更では、全デッキを書き出し直して一緒に入れる。
+
 **公開はしない。** リポジトリは公開なので資料は誰でも読めるが、Pages のような
 入口は作らない。 渡す相手と時期は GTM 計画の接触方針が決める。
 
@@ -63,12 +70,11 @@ fontconfig に渡す。
 dek は MIT。 開発にしか使わず、配布物（KOERU のアプリ）に入らない。
 '''
 review_triggers = [
-  'dek が npm に公開されたとき。 commit の固定をやめ、semver の版で追う',
   'dek の更新で書き出した HTML が変わり、人が入れ直す手間が積み上がったとき。 そのときは追う頻度を下げるか、HTML の突き合わせをやめる',
   '資料を公開する必要が出たとき。 公開の入口と、公開してよい内容の線を決め直す',
   '発表資料が dek の想定（台本から始める1本のトーク）に収まらなくなったとき',
 ]
-supersedes = []
 affects_decisions = [
   'DEC-PLT-033',
+  'DEC-PLT-045',
 ]

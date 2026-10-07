@@ -5,7 +5,7 @@ description: KOERU の発表資料（talks/、dek）を作る・直すときの�
 
 # KOERU — 発表資料
 
-発表資料は `talks/` の dek のプロジェクトで作る。道具と置き場所の判断は `DEC-PLT-045`。
+発表資料は `talks/` の dek のプロジェクトで作る。道具と置き場所の判断は `DEC-PLT-046`。
 
 **dek 自身の規約は写さない。** `talks/AGENTS.md` の dek ブロック（dek が sync のたびに
 書き直す）と `bunx dekc help --agent` が正本。ここに書くのは、KOERU の資料として
