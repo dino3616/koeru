@@ -1,5 +1,3 @@
-// Drifts the life chips in from the left edge, gathers them beside Signal, then sends the
-// smallest chip into Signal and a spark once round the loop.
 const DRIFT = 1800;
 const GATHER = 1400;
 const ENTER = 900;
@@ -17,8 +15,8 @@ function clamp(p: number): number {
 export default {
   motion: { "0": DRIFT, "outside-bring": GATHER, "outside-small": ENTER + ROUND },
   draw(slide, { index, t }) {
-    const life = slide.querySelector<HTMLElement>(".life");
-    const loop = slide.querySelector<HTMLElement>(".loop");
+    const life = slide.querySelector<HTMLElement>("[data-chips]");
+    const loop = slide.querySelector<HTMLElement>("[data-loop]");
     const tiny = slide.querySelector<HTMLElement>("[data-tiny]");
     const spark = slide.querySelector<HTMLElement>("[data-spark]");
     if (!life || !loop || !tiny || !spark) return;

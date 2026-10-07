@@ -1,4 +1,3 @@
-// Runs a spark from the PROBE to its Receipt, then on to the EVID that is not written yet.
 const RUN = 2400;
 
 function ease(p: number): number {

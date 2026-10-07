@@ -1,4 +1,3 @@
-// Runs a spark along the machine Probe's edge, once the Agent has chosen to run it.
 const RUN = 1600;
 
 function ease(p: number): number {

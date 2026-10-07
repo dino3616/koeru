@@ -1739,7 +1739,7 @@ HYP-91MTWX         意味の理解
   <h2 class="slide-title">あなたの人生を、KOERU に持ち込んでほしい</h2>
   <p class="lede">あなたは、KOERU の文脈の外で生きている</p>
   <div class="stage life-stage" data-life>
-    <ul class="life">
+    <ul class="life" data-chips>
       <li class="chip" data-chip>好きな声に出会った</li>
       <li class="chip" data-chip>曲に心を動かされた</li>
       <li class="chip" data-chip>自分もやってみたくなった</li>
@@ -1748,7 +1748,7 @@ HYP-91MTWX         意味の理解
       <li class="chip" data-chip>新しい人に会った</li>
       <li class="chip" data-chip>誰かと一緒につくった</li>
     </ul>
-    <ol class="loop" data-step="outside-bring">
+    <ol class="loop" data-loop data-step="outside-bring">
       <li class="station" data-tone="live">Signal</li>
       <li class="station">Question</li>
       <li class="station">Context</li>
@@ -1861,8 +1861,8 @@ function clamp(p) {
 __dekDefault = {
   motion: { "0": DRIFT, "outside-bring": GATHER, "outside-small": ENTER + ROUND },
   draw(slide, { index, t }) {
-    const life = slide.querySelector(".life");
-    const loop = slide.querySelector(".loop");
+    const life = slide.querySelector("[data-chips]");
+    const loop = slide.querySelector("[data-loop]");
     const tiny = slide.querySelector("[data-tiny]");
     const spark = slide.querySelector("[data-spark]");
     if (!life || !loop || !tiny || !spark)
