@@ -1,7 +1,7 @@
 ---
 # yaml-language-server: $schema=../../.dek/schema.json
 title: 受け継いで、問い直す — KOERU Design System
-description: KOERU に加わる Creator へ。カタログの先に何が要るかを問い、KOERU Design System の全体と要素を示し、「声の環、なんかビミョい」の一行で一周を実演して、あなたの人生を KOERU に持ち込んでほしい、で締める。
+description: KOERU に加わる Creator へ。カタログの先に何が要るかを問い、KOERU Design System の全体と要素を示し、「声の環、なんかビミョい」の一行で一周を実演して、あなたの人生を KOERU に持ち込んでほしいと言い、まずはあなたの Signal を、で締める。
 duration: 50m
 lang: ja
 ---
@@ -600,10 +600,12 @@ KOERU の Contributor は、KOERU の文脈の外で生きています。
 
 そこで生まれた Signal がどんなに小さくても、KOERU Design System と KOERU Contributors は、KOERU を問い直します。
 
-## そうして、世界は廻っていく {#world}
+## まずは、あなたの Signal を教えて {#your-signal}
 
-そうして KOERU は、もしかしたら、より良い体験になって、今度は UTAU コミュニティに生きる人の人生を、もっと豊かにする。
+3章は、Issue に届いた一行から始まりました。「声の環、なんかビミョい」。
 
-そうして世界は廻っていく……といいなーって感じ！
+次の一行は、あなたのものです。正しい言葉は要りません。版も画面も、分からなくていい。原因も、決めなくていい。
 
-> 最後の一言は台本だけで言う。スライドには載せない。
+まずは、あなたの Signal を教えて？
+
+> 3章の始まりと同じ Issue の札を、同じ位置に、中身を空けて出す。角のループの印は Signal に戻っている。

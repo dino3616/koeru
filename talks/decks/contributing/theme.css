@@ -102,6 +102,7 @@
   --font-title: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
   --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
   --font-mono: "SF Mono", "Menlo", "Consolas", "Noto Sans Mono CJK JP", monospace;
+  --issue-w: 640px;
   --size-numeral: 200px;
   --size-hero: 64px;
   --size-stat: 44px;
@@ -1024,6 +1025,38 @@
   from {
     stroke-dashoffset: 1;
   }
+}
+
+/* 3章の始まりと締めが、同じ座標で同じ札を出す。 */
+.slide .stage[data-center] {
+  display: grid;
+  place-items: center;
+}
+
+.slide .card[data-issue] {
+  width: var(--issue-w);
+  gap: calc(var(--gap) * 0.9);
+  padding: calc(var(--gap) * 1.2) calc(var(--gap) * 1.4);
+}
+
+.slide .card[data-issue] .bubble {
+  align-self: flex-start;
+  font-size: var(--size-title);
+}
+
+.slide .card[data-issue] dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.4) calc(var(--gap) * 0.8);
+  align-items: center;
+  margin-top: calc(var(--gap) * 0.4);
+}
+
+.slide .card[data-issue] dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
 }
 
 /* ---- レイアウト ---- */
