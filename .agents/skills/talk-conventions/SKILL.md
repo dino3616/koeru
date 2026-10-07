@@ -63,10 +63,13 @@ talks/
 
 スライドはコピーしない。 読んで、自分のテーマで書き直す。
 
+見本から取って効いた技術と、作って踏んだことは [references/visual-techniques.md](references/visual-techniques.md) にある。
+
 ## 色の規則
 
 デッキの `theme.css` の冒頭に書く。どの色が意味を運び、どこなら装飾してよいかを宣言する。
 ここには写さない——デッキごとにテーマを持つので、規則もデッキごとに違う。
+規則の立て方と、作り終えてからの突き合わせ方は [references/visual-techniques.md](references/visual-techniques.md) の「色に仕事を持たせる」。
 
 ## 動かし方
 
