@@ -49,6 +49,7 @@
 }
 
 .kind[data-v="other"] {
+  background: var(--bg);
   color: var(--live-11);
 }
 

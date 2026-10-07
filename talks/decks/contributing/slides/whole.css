@@ -1,7 +1,7 @@
 .slide {
   --hub-w: 360px;
   --map-h: 540px;
-  --world-w: 210px;
+  --world-w: 228px;
   --punch-w: 420px;
   --reentry-at: 510px -175px;
   --health-at: -510px -205px;
@@ -97,6 +97,9 @@
   flex-direction: column;
   width: var(--world-w);
   translate: var(--world-at);
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-small);
+  background: var(--bg);
   color: var(--live-11);
   font-size: var(--size-caption);
   line-height: 1.4;
