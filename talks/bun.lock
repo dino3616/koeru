@@ -5,7 +5,7 @@
     "": {
       "name": "@koeru/talks",
       "devDependencies": {
-        "@hajimism/dek": "github:hajimism/dek#aaa7b7aebf5b32146d05f88df5570df237905edf",
+        "@hajimism/dek": "github:hajimism/dek#881f07a56849a7d94dbc32a30f63cbce4daf5eb3",
         "@tsconfig/strictest": "2.0.8",
         "playwright": "1.63.0",
         "typescript": "7.0.2",
@@ -13,7 +13,7 @@
     },
   },
   "packages": {
-    "@hajimism/dek": ["@hajimism/dek@github:hajimism/dek#aaa7b7a", { "dependencies": { "zod": "^4.6.5" }, "bin": { "dekc": "src/cli.ts" } }, "hajimism-dek-aaa7b7a", "sha512-yXvO+IBbe9ivmH4GFC0pYg2it7VmlgdUIEU2cVeGHrZrMKuS3r9LyOD4uFWAQNuUZbG4xMFwCFcGtmQ6ixtxqg=="],
+    "@hajimism/dek": ["@hajimism/dek@github:hajimism/dek#881f07a", { "dependencies": { "zod": "^4.6.5" }, "bin": { "dekc": "src/cli.ts" } }, "hajimism-dek-881f07a", "sha512-DBO7CCU2l1EJs9Iu5JFmVy3IQ1oi+bjJxgWpMXifak7ccY3G8KjbCy00L4lNZqBiTQ7C3k7WNTVrVZcX+weMyg=="],
 
     "@tsconfig/strictest": ["@tsconfig/strictest@2.0.8", "", {}, "sha512-XnQ7vNz5HRN0r88GYf1J9JJjqtZPiHt2woGJOo2dYqyHGGcd6OLGqSlBB6p1j9mpzja6Oe5BoPqWmeDx6X9rLw=="],
 
