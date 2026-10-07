@@ -1,0 +1,38 @@
+.conds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 0.35);
+  counter-reset: cond;
+}
+
+.conds li {
+  display: flex;
+  gap: 0.5em;
+  padding: calc(var(--gap) * 0.35) calc(var(--gap) * 0.5);
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  font-size: var(--size-small);
+  font-weight: 700;
+  line-height: 1.45;
+  counter-increment: cond;
+}
+
+.conds li::before {
+  content: counter(cond);
+  color: var(--score-11);
+  font-family: var(--font-mono);
+}
+
+.tiers {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.4);
+}
+
+.tier {
+  gap: calc(var(--gap) * 0.15);
+  padding: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  font-size: var(--size-small);
+  font-weight: 700;
+}

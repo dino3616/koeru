@@ -1,0 +1,9 @@
+.col {
+  align-items: flex-start;
+  gap: calc(var(--gap) * 1.2);
+}
+
+.bubble {
+  color: var(--sand-12);
+  font-size: var(--size-lede);
+}

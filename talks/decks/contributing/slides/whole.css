@@ -1,0 +1,113 @@
+.slide {
+  --hub-w: 360px;
+  --map-h: 540px;
+  --world-w: 210px;
+  --punch-w: 420px;
+  --reentry-at: 510px -175px;
+  --health-at: -510px -205px;
+  --world-at: -330px -250px;
+  --punch-at: 380px 236px;
+}
+
+.map {
+  display: grid;
+  place-items: center;
+  height: var(--map-h);
+}
+
+.map > * {
+  grid-area: 1 / 1;
+}
+
+.hub {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--gap) * 0.4);
+  width: var(--hub-w);
+}
+
+.lit {
+  position: absolute;
+  inset: -40% -20%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--score-glow), var(--clear));
+}
+
+.caption {
+  position: relative;
+  padding: 0 0.7em;
+  border-radius: var(--pill);
+  background: var(--sand-1);
+  color: var(--score-11);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  text-align: center;
+}
+
+.loop .tag {
+  font-size: var(--size-tiny);
+  line-height: 1.7;
+}
+
+.loop .absent {
+  font-size: var(--size-tiny);
+}
+
+.sat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--gap) * 0.15);
+  translate: var(--at);
+}
+
+.sat .note {
+  font-size: var(--size-caption);
+}
+
+[data-sat="reentry"] {
+  --at: var(--reentry-at);
+}
+
+[data-sat="health"] {
+  --at: var(--health-at);
+}
+
+.arcs {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.arcs path {
+  fill: none;
+  stroke: var(--score-7);
+  stroke-width: var(--rule);
+}
+
+[data-arc^="world"] {
+  stroke: var(--live-11);
+}
+
+.world {
+  display: flex;
+  flex-direction: column;
+  width: var(--world-w);
+  translate: var(--world-at);
+  color: var(--live-11);
+  font-size: var(--size-caption);
+  line-height: 1.4;
+}
+
+.world b {
+  font-size: var(--size-small);
+}
+
+.punch {
+  width: var(--punch-w);
+  translate: var(--punch-at);
+  font-size: var(--size-small);
+}

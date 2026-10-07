@@ -1,0 +1,37 @@
+.decs {
+  position: relative;
+  padding: calc(var(--shift) * 2) 0 0 calc(var(--shift) * 2);
+}
+
+.dec-old {
+  position: absolute;
+  inset: 0 calc(var(--shift) * 2) calc(var(--shift) * 2) 0;
+  border: var(--rule) solid var(--sand-6);
+  border-radius: var(--radius);
+  background: var(--sand-3);
+}
+
+.dec-new {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.45) calc(var(--gap) * 0.8);
+  align-items: baseline;
+  border: var(--rule) solid var(--score-11);
+  background: var(--sand-1);
+}
+
+.dec-new dt {
+  color: var(--score-11);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.dec-new dd {
+  font-weight: 700;
+}
+
+.replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.3);
+}

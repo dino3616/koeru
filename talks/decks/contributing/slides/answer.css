@@ -1,0 +1,57 @@
+.slide {
+  --roads-w: 860px;
+  --road-thin: 10px;
+  --road-thick: 30px;
+}
+
+.slide-title {
+  font-size: var(--size-stat);
+}
+
+.roads {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 1);
+  width: var(--roads-w);
+  margin: calc(var(--gap) * 0.8) 0;
+}
+
+.road {
+  display: grid;
+  grid-template-columns: 8em 1fr 12em;
+  gap: var(--gap);
+  align-items: center;
+  text-align: left;
+}
+
+.bar {
+  height: var(--road-thin);
+  border-radius: var(--pill);
+  background: var(--sand-d6);
+}
+
+[data-road="question"] .bar {
+  height: var(--road-thick);
+  background: var(--swing-d);
+}
+
+.slide.is-current [data-road="question"] .bar {
+  animation: widen var(--dur-long) var(--ease-out) backwards;
+  animation-delay: var(--dur-pop);
+}
+
+[data-road="question"] .label {
+  color: var(--fg);
+}
+
+@keyframes widen {
+  from {
+    height: var(--road-thin);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide.is-current [data-road="question"] .bar {
+    animation: none;
+  }
+}

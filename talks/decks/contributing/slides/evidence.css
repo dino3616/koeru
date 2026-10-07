@@ -1,0 +1,74 @@
+.matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: calc(var(--gap) * 0.2);
+  font-size: var(--size-caption);
+}
+
+.matrix th {
+  color: var(--muted);
+  font-weight: 800;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.matrix thead th {
+  text-align: center;
+}
+
+.matrix td {
+  padding: calc(var(--gap) * 0.3) 0.3em;
+  border: var(--rule) solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  font-weight: 700;
+  text-align: center;
+}
+
+.matrix td[data-v="yes"] {
+  border-color: var(--score-11);
+  background: var(--score-11);
+  color: var(--sand-1);
+}
+
+.matrix td[data-v="if"] {
+  border-color: var(--score-7);
+  background: var(--score-2);
+  color: var(--score-11);
+}
+
+.matrix td[data-v="seed"] {
+  border-color: var(--score-7);
+  color: var(--fg);
+}
+
+.matrix td[data-v="no"] {
+  border-style: dashed;
+  border-color: var(--sand-8);
+  background: var(--sand-3);
+  color: var(--sand-11);
+}
+
+.rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.3);
+  counter-reset: rule;
+}
+
+.rules li {
+  padding: 0 0.7em;
+  border-radius: var(--radius-small);
+  background: var(--sand-12);
+  color: var(--sand-1);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  line-height: 2;
+  counter-increment: rule;
+}
+
+.rules li::before {
+  content: counter(rule) " ";
+  color: var(--sand-d11);
+  font-family: var(--font-mono);
+}

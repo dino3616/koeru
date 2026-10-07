@@ -1,0 +1,60 @@
+.diff {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: calc(var(--gap) * 0.2);
+  font-size: var(--size-small);
+  font-weight: 700;
+  text-align: center;
+}
+
+.diff thead th {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+}
+
+.diff tbody th {
+  color: var(--live-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-lede);
+}
+
+.diff td {
+  padding: calc(var(--gap) * 0.35) calc(var(--gap) * 0.4);
+  border-radius: var(--radius-small);
+  background: var(--sand-3);
+  color: var(--sand-11);
+}
+
+.diff td[data-v="diff"] {
+  border: var(--rule) solid var(--live-7);
+  background: var(--live-2);
+  color: var(--live-11);
+}
+
+.diff tbody tr > td:last-child:not([data-v]),
+.diff .span {
+  background: none;
+  text-align: left;
+}
+
+.diff .span {
+  border-left: var(--rule) solid var(--sand-12);
+  border-radius: 0;
+}
+
+.kind {
+  color: var(--sand-12);
+  font-weight: 800;
+}
+
+.kind[data-v="other"] {
+  color: var(--live-11);
+}
+
+.audit {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) * 0.4);
+  font-size: var(--size-small);
+}

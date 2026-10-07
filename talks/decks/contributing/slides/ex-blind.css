@@ -1,0 +1,82 @@
+.blind {
+  display: grid;
+  grid-template-columns: 4fr 5fr;
+  gap: calc(var(--gap) * 1.5);
+  align-items: center;
+}
+
+.draft {
+  align-items: center;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.draft .tag {
+  align-self: flex-start;
+}
+
+.draft svg {
+  width: 100%;
+}
+
+.pair circle {
+  fill: none;
+  stroke-width: calc(var(--rule) * 4);
+}
+
+.pair .orbit {
+  stroke: var(--live-3);
+}
+
+.pair .fill {
+  stroke: var(--live-11);
+  stroke-linecap: round;
+  rotate: -90deg;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+.pair .fill[data-p="low"] {
+  stroke-dasharray: 0.14 1;
+}
+
+.pair .seed {
+  fill: var(--live-7);
+  stroke: none;
+}
+
+.reads,
+.reveal {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.reads .bubble {
+  align-self: flex-start;
+}
+
+.reveal {
+  gap: calc(var(--gap) * 0.45);
+  margin-top: calc(var(--gap) * 0.3);
+}
+
+.intent {
+  flex-direction: row;
+  align-items: baseline;
+  gap: calc(var(--gap) * 0.5);
+  padding: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  font-weight: 700;
+}
+
+.agent-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--gap) * 0.35);
+  border-style: dashed;
+  font-size: var(--size-small);
+}
+
+.agent-read::after {
+  content: none;
+}

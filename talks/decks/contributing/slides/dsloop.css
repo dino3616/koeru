@@ -1,0 +1,32 @@
+.slide {
+  --loop-rx: 390px;
+  --loop-ry: 180px;
+  --station-w: 190px;
+  --ring-h: 480px;
+}
+
+.ring {
+  display: grid;
+  place-items: center;
+  height: var(--ring-h);
+}
+
+.ring > * {
+  grid-area: 1 / 1;
+}
+
+.loop li {
+  --a: calc(360deg / 7 * var(--i));
+  --b: calc(var(--a) + 360deg / 14);
+}
+
+.loop .card b {
+  font-size: var(--size-body);
+}
+
+.core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: var(--size-title);
+}

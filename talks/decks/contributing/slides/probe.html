@@ -1,0 +1,47 @@
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="6" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">2 — Evidence</p>
+    <h2 class="slide-title">Probe はグラフに吊るす道具。走らせた跡が Receipt</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>何を、どの条件で走らせれば観測できるかを約束する</dd>
+      <dt>どこにある</dt><dd><code>verification/probes/</code>。Receipt は何件見つけ、何件走ったかの記録</dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">verify</span>機械で走るものを走らせる。人にしか確かめられないものは、人の確認待ちへ</dd>
+      <dt>次へ</dt><dd>残す価値のある観測だけを Evidence に</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <div class="graph" data-mini data-focus>
+      <svg viewBox="0 0 1150 440" aria-hidden="true">
+        <path data-edge="q-dec"></path>
+        <path data-edge="req1-dec"></path>
+        <path data-edge="req2-dec"></path>
+        <path data-edge="dec-hyp1"></path>
+        <path data-edge="dec-hyp2"></path>
+        <path data-edge="dec-evid1"></path>
+        <path data-edge="story-dec"></path>
+        <path data-edge="probe1-hyp1" data-lit></path>
+        <path data-edge="probe1-receipt" data-lit></path>
+        <path data-edge="receipt-evid3" data-state="untested" data-lit></path>
+      </svg>
+      <span class="node" data-node="q" data-kind="q"></span>
+      <span class="node" data-node="req1" data-kind="req"></span>
+      <span class="node" data-node="req2" data-kind="req"></span>
+      <span class="node" data-node="dec1" data-kind="dec"></span>
+      <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+      <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested"></span>
+      <span class="node" data-node="evid1" data-kind="evid"></span>
+      <span class="node" data-node="story" data-kind="tool"></span>
+      <span class="node" data-node="probe1" data-kind="tool" data-lit></span>
+      <span class="node" data-node="receipt" data-kind="tool" data-lit></span>
+      <span class="node" data-node="evid3" data-kind="evid" data-state="untested"></span>
+      <span class="mark" data-node="hyp1">HYP</span>
+      <span class="mark" data-node="probe1">PROBE</span>
+      <span class="mark" data-node="receipt">Receipt</span>
+      <span class="mark" data-node="evid3">EVID（まだ）</span>
+      <span class="label edge-name">targets</span>
+      <span class="spark" data-spark aria-hidden="true"></span>
+    </div>
+  </div>
+  <p class="punch" data-step="probe-punch">Probe があることは、走ったことではない</p>
+</section>

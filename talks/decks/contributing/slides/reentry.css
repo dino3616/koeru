@@ -1,0 +1,7 @@
+.slide .graph .mark[data-node="dec2"] {
+  top: calc(var(--y) + 14%);
+}
+
+.slide .graph .mark[data-node="hyp2"] {
+  top: calc(var(--y) + 12%);
+}

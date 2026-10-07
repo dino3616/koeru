@@ -1,0 +1,37 @@
+.learn {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 1.5);
+  align-items: center;
+}
+
+.hands {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.hands b {
+  font-size: var(--size-lede);
+  line-height: 1.5;
+}
+
+.pattern {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.ids {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--gap) * 0.3);
+  color: var(--sand-11);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.pattern .struck {
+  font-size: var(--size-small);
+}

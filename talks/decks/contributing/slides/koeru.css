@@ -1,0 +1,72 @@
+.slide {
+  --dt-w: 150px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.7);
+  margin-top: calc(var(--gap) * 0.4);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: var(--dt-w) 1fr;
+  gap: var(--gap);
+  align-items: baseline;
+  padding-top: calc(var(--gap) * 0.7);
+  border-top: var(--hair) solid var(--line);
+}
+
+.row dt {
+  font-size: var(--size-lede);
+  font-weight: 800;
+}
+
+.row dd {
+  font-size: var(--size-lede);
+  line-height: 1.6;
+}
+
+.fits,
+.cycle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--gap) * 0.4);
+}
+
+.lead {
+  flex-basis: 100%;
+}
+
+.fit {
+  padding: 0 0.75em;
+  border: var(--hair) solid var(--live-7);
+  border-radius: var(--radius-small);
+  background: var(--live-2);
+  color: var(--live-11);
+  font-size: var(--size-small);
+  font-weight: 700;
+  line-height: 2;
+}
+
+.step {
+  padding: 0 0.75em;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--pill);
+  background: var(--surface);
+  font-size: var(--size-small);
+  font-weight: 700;
+  line-height: 2;
+}
+
+.arrow,
+.back {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.back {
+  font-size: var(--size-lede);
+}

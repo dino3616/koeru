@@ -1,0 +1,21 @@
+.slide .graph [data-node="receipt"] { --x: 74%; --y: 88%; }
+.slide .graph [data-node="evid3"] { --x: 92.5%; --y: 88%; }
+.slide .graph [data-edge="probe1-receipt"] { d: path("M 851 220 L 851 387.2"); }
+.slide .graph [data-edge="receipt-evid3"] { d: path("M 851 387.2 L 1063.75 387.2"); }
+
+.slide .graph .node[data-node="evid3"] {
+  border: var(--rule) dashed var(--sand-8);
+  background: var(--sand-3);
+}
+
+.slide .graph .mark[data-node="hyp1"] {
+  color: var(--score-11);
+}
+
+.edge-name {
+  position: absolute;
+  left: 63%;
+  top: 43%;
+  font-size: var(--size-tiny);
+  translate: -50% -50%;
+}

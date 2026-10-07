@@ -1,0 +1,33 @@
+.split3 {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: calc(var(--gap) * 1.5);
+  align-items: center;
+}
+
+.layers {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.layers .card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: calc(var(--gap) * 0.3) calc(var(--gap) * 0.8);
+  font-weight: 600;
+}
+
+.added {
+  grid-column: 2;
+  color: var(--live-11);
+  font-size: var(--size-small);
+  font-weight: 700;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.45);
+}

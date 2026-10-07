@@ -1,0 +1,64 @@
+.slide .stage[data-stack] {
+  align-items: center;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.voice {
+  width: 100%;
+}
+
+.voice circle {
+  fill: none;
+}
+
+.voice .track {
+  stroke: var(--sand-5);
+  stroke-width: calc(var(--rule) * 5);
+}
+
+.voice .arc {
+  --p: 1;
+  --k: 0;
+  stroke: var(--live-11);
+  stroke-width: calc(var(--rule) * 5);
+  stroke-linecap: round;
+  stroke-dasharray: var(--p) 1;
+  rotate: -90deg;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+.voice .arc:nth-of-type(6) { --p: 0.96; --k: 0; }
+.voice .arc:nth-of-type(7) { --p: 0.78; --k: 1; stroke: var(--live-7); }
+.voice .arc:nth-of-type(8) { --p: 0.6; --k: 2; }
+.voice .arc:nth-of-type(9) { --p: 0.32; --k: 3; stroke: var(--live-7); }
+.voice .arc:nth-of-type(10) { --p: 0.12; --k: 4; }
+
+.voice .core-out {
+  fill: var(--live-3);
+}
+
+.voice .core-in {
+  fill: var(--live-7);
+}
+
+.slide.is-current .voice .arc {
+  animation: close var(--dur-draw) var(--ease-out) backwards;
+  animation-delay: calc(var(--stagger) * 3 * var(--k));
+}
+
+@keyframes close {
+  from {
+    stroke-dasharray: 0 1;
+  }
+}
+
+.list {
+  margin-top: calc(var(--gap) * 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide.is-current .voice .arc {
+    animation: none;
+  }
+}

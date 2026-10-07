@@ -1,0 +1,37 @@
+.slide {
+  --ghost-w: 760px;
+  --ghost-out: -260px;
+}
+
+[data-glow="score"] {
+  --gx: 34%;
+  --gy: 58%;
+  --gr: 46%;
+}
+
+[data-glow="live"] {
+  --gx: 58%;
+  --gy: 50%;
+  --gr: 40%;
+}
+
+.ghost {
+  position: absolute;
+  top: 50%;
+  right: var(--ghost-out);
+  width: var(--ghost-w);
+  opacity: 0.18;
+  translate: 0 -50%;
+}
+
+.kicker,
+.slide-title,
+.lede {
+  position: relative;
+  z-index: 1;
+}
+
+.lede {
+  font-size: var(--size-title);
+  font-weight: 700;
+}

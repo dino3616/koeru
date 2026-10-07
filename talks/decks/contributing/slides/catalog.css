@@ -1,0 +1,109 @@
+.slide {
+  --s1: #fbfdff;
+  --s4: #d5efff;
+  --s5: #c2e5ff;
+  --s6: #acd8fc;
+  --s8: #5eb1ef;
+  --s9: #0090ff;
+  --s10: #0588f0;
+  --swatch-h: 96px;
+  --field-w: 280px;
+}
+
+.two {
+  display: grid;
+  grid-template-columns: 6fr 5fr;
+  gap: calc(var(--gap) * 2);
+  margin-top: calc(var(--gap) * 1);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  height: var(--swatch-h);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-small);
+  overflow: hidden;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.2);
+}
+
+.nums {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-tiny);
+  font-weight: 700;
+  text-align: center;
+}
+
+.steps li:nth-child(1) { background: var(--s1); }
+.steps li:nth-child(2) { background: var(--blue-2); }
+.steps li:nth-child(3) { background: var(--blue-3); }
+.steps li:nth-child(4) { background: var(--s4); }
+.steps li:nth-child(5) { background: var(--s5); }
+.steps li:nth-child(6) { background: var(--s6); }
+.steps li:nth-child(7) { background: var(--blue-7); }
+.steps li:nth-child(8) { background: var(--s8); }
+.steps li:nth-child(9) { background: var(--s9); }
+.steps li:nth-child(10) { background: var(--s10); }
+.steps li:nth-child(11) { background: var(--blue-11); }
+.steps li:nth-child(12) { background: var(--blue-12); }
+
+.meaning {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.25) calc(var(--gap) * 0.7);
+  font-size: var(--size-small);
+}
+
+.meaning dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.parts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.part {
+  gap: calc(var(--gap) * 0.5);
+}
+
+.demo {
+  display: flex;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.btn {
+  padding: calc(var(--gap) * 0.3) calc(var(--gap) * 0.8);
+  border: var(--hair) solid var(--blue-7);
+  border-radius: var(--radius-small);
+  color: var(--blue-11);
+  font-size: var(--size-small);
+  font-weight: 700;
+}
+
+.btn[data-kind="primary"] {
+  border-color: var(--blue-11);
+  background: var(--blue-11);
+  color: var(--sand-1);
+}
+
+.field {
+  width: var(--field-w);
+  padding: calc(var(--gap) * 0.3) calc(var(--gap) * 0.6);
+  border: var(--hair) solid var(--sand-8);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  color: var(--sand-11);
+  font-size: var(--size-small);
+}

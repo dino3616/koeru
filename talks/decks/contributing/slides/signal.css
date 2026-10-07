@@ -1,0 +1,23 @@
+.voices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--gap) * 0.9);
+}
+
+.voices .bubble:nth-child(2) {
+  margin-left: calc(var(--gap) * 3);
+}
+
+.voices .bubble:nth-child(3) {
+  margin-left: calc(var(--gap) * 1.2);
+}
+
+.issue {
+  margin-top: calc(var(--gap) * 0.6);
+  border: var(--rule) solid var(--sand-8);
+}
+
+.issue b {
+  font-size: var(--size-lede);
+}

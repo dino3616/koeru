@@ -1,0 +1,120 @@
+.slide {
+  --track-h: 46px;
+  --beat: 12.5%;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 7fr 4fr;
+  gap: calc(var(--gap) * 1.6);
+  align-items: center;
+}
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.8);
+}
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.3);
+}
+
+.say {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.say b {
+  font-size: var(--size-lede);
+}
+
+.track {
+  position: relative;
+  height: var(--track-h);
+  border-radius: var(--radius-small);
+  background-color: var(--sand-1);
+  background-image: repeating-linear-gradient(90deg, var(--clear) 0 calc(var(--beat) / 2 - 0.1%), var(--score-7) calc(var(--beat) / 2 - 0.1%) calc(var(--beat) / 2 + 0.1%), var(--clear) calc(var(--beat) / 2 + 0.1%) var(--beat));
+  border: var(--hair) solid var(--line);
+}
+
+.track li {
+  --x: calc((var(--i) + 0.5) * var(--beat));
+  --y: 50%;
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--spark);
+  height: var(--spark);
+  border-radius: var(--pill);
+  background: var(--score-11);
+  translate: -50% -50%;
+}
+
+[data-lane="random"] .track li {
+  left: calc(var(--x) + var(--jx));
+  top: calc(var(--y) + var(--jy));
+  background: var(--sand-8);
+}
+
+[data-lane="random"] li:nth-child(1) { --jx: -4%; --jy: -20%; }
+[data-lane="random"] li:nth-child(2) { --jx: 6%; --jy: 18%; }
+[data-lane="random"] li:nth-child(3) { --jx: -2%; --jy: -6%; }
+[data-lane="random"] li:nth-child(4) { --jx: 9%; --jy: 24%; }
+[data-lane="random"] li:nth-child(5) { --jx: -7%; --jy: -24%; }
+[data-lane="random"] li:nth-child(6) { --jx: 3%; --jy: 8%; }
+[data-lane="random"] li:nth-child(7) { --jx: -5%; --jy: 22%; }
+[data-lane="random"] li:nth-child(8) { --jx: 4%; --jy: -14%; }
+
+[data-lane="swing"] .track li {
+  --sw: 0%;
+  left: calc(var(--x) + var(--sw));
+  background: var(--swing);
+}
+
+[data-lane="swing"] .track li:nth-child(2n) {
+  --sw: 3.6%;
+}
+
+.slide.is-current [data-lane="swing"] .track li:nth-child(2n) {
+  animation: lean var(--dur-long) var(--ease-out) backwards;
+  animation-delay: var(--dur-pop);
+}
+
+@keyframes lean {
+  from {
+    left: var(--x);
+  }
+}
+
+.states {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.state {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.3) calc(var(--gap) * 0.7);
+  align-items: baseline;
+}
+
+.state dt {
+  color: var(--muted);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.state dd {
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide.is-current [data-lane="swing"] .track li:nth-child(2n) {
+    animation: none;
+  }
+}

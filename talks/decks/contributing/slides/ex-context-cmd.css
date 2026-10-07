@@ -1,0 +1,7 @@
+.slide .stage[data-stack] {
+  gap: calc(var(--gap) * 0.5);
+}
+
+.term {
+  font-size: var(--size-body);
+}

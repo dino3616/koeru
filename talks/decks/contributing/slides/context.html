@@ -1,0 +1,51 @@
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="3" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">2 — Context</p>
+    <h2 class="slide-title">Context は、問いから辿った、グラフの一つの射影</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>根から型のある線を、決まった規則で辿る。同じ入力なら同じ出力</dd>
+      <dt>どこにある</dt><dd><code>cargo xtask context --root &lt;ID&gt; --at &lt;rev&gt;</code></dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">context-audit</span>組み立てない。食い違いや古い前提を「要確認」で返す</dd>
+      <dt>次へ</dt><dd>八つの項目の要約を持って、Design Space へ</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <div class="graph" data-mini data-focus aria-hidden="true">
+      <svg viewBox="0 0 1150 440">
+        <path class="trace" pathLength="1" data-edge="q-dec" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="req1-dec" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="req2-dec" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="dec-hyp1" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="dec-hyp2" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="dec-evid1" data-lit></path>
+        <path class="trace detour" pathLength="1" data-edge="story-dec" data-lit></path>
+        <path data-edge="probe1-hyp1"></path>
+        <path data-edge="probe2-req2"></path>
+        <path data-edge="probe2-evid2"></path>
+      </svg>
+      <span class="node" data-node="q" data-kind="q" data-lit data-now></span>
+      <span class="node" data-node="req1" data-kind="req" data-lit></span>
+      <span class="node" data-node="req2" data-kind="req" data-lit></span>
+      <span class="node" data-node="dec1" data-kind="dec" data-lit></span>
+      <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+      <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested" data-lit></span>
+      <span class="node" data-node="evid1" data-kind="evid" data-lit></span>
+      <span class="node" data-node="story" data-kind="tool" data-lit></span>
+      <span class="node" data-node="probe1" data-kind="tool"></span>
+      <span class="node" data-node="probe2" data-kind="tool"></span>
+      <span class="node" data-node="evid2" data-kind="evid"></span>
+    </div>
+    <p class="note root">amber の輪が根の問い。照らした範囲だけが Context に入る</p>
+    <ol class="eight" data-step="context-card">
+      <li>今回決めること</li>
+      <li>守る制約</li>
+      <li>現在案の理由</li>
+      <li>別案と採らなかった理由</li>
+      <li>弱まった前提</li>
+      <li>未解決の問い</li>
+      <li>見るべき作例</li>
+      <li>欠けている文脈</li>
+    </ol>
+  </div>
+</section>

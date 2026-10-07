@@ -1,0 +1,25 @@
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="8" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">2 — Implementation</p>
+    <h2 class="slide-title">出荷は、確かめた範囲と戻し方を添えて</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>採った状態を stable の story へ。比べた試作は PR の履歴に残し、本体に混ぜない</dd>
+      <dt>どこにある</dt><dd>PR、Storybook の stable と workbench、CI</dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">実装</span>書いてよい。誰が書いたかで扱いを変えない。統合は人</dd>
+      <dt>次へ</dt><dd>出荷された体験が、外でまた誰かの違和感を生む</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <div class="card">
+      <span class="tag">PR の四つの欄</span>
+      <dl class="pr">
+        <dt>設計上の変更</dt><dd>何を、どう変えたか</dd>
+        <dt>体験の差</dt><dd>使う人にとって、何が変わるか</dd>
+        <dt>確認した範囲</dt><dd>どこまで確かめ、どこが未確認か</dd>
+        <dt>戻し方</dt><dd>何を一つ戻せば、前に戻るか</dd>
+      </dl>
+    </div>
+    <p class="out"><span class="tag">CI</span>参照と仮説と、どこまで走らせたかを検査する<span class="away">→ 外の世界へ</span></p>
+  </div>
+</section>

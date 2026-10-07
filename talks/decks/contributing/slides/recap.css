@@ -1,0 +1,57 @@
+.slide {
+  --mini-h: 120px;
+}
+
+.stage {
+  align-content: center;
+}
+
+.sum {
+  gap: calc(var(--gap) * 0.8);
+}
+
+.sum figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.2);
+}
+
+.sum figcaption b {
+  font-size: var(--size-lede);
+}
+
+.mini-score {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, 1fr);
+  gap: calc(var(--gap) * 0.3) calc(var(--gap) * 0.5);
+  height: var(--mini-h);
+}
+
+.mini-score .bar {
+  border-radius: var(--radius-small);
+  background: var(--score-3);
+}
+
+.mini-score .hole {
+  border: var(--rule) dashed var(--sand-8);
+  border-radius: var(--radius-small);
+  background: var(--sand-3);
+}
+
+.mini-loop {
+  height: var(--mini-h);
+}
+
+.mini-loop ellipse {
+  fill: none;
+  stroke: var(--score-7);
+  stroke-width: var(--rule);
+}
+
+.mini-loop circle {
+  fill: var(--sand-1);
+  stroke: var(--score-11);
+  stroke-width: var(--rule);
+}

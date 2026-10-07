@@ -1,0 +1,30 @@
+<section class="slide" data-layout="default">
+  <p class="kicker">2 — 全体像</p>
+  <h2 class="slide-title">残す判断は、五種類の点と、型のある線になる</h2>
+  <div class="stage body">
+    <ul class="kinds">
+      <li><span class="kind" data-kind="q">Q</span><span>まだ答えていない問い</span></li>
+      <li><span class="kind" data-kind="hyp">HYP</span><span>起きると予想していること</span></li>
+      <li><span class="kind" data-kind="evid">EVID</span><span>観測したこと</span></li>
+      <li><span class="kind" data-kind="dec">DEC</span><span>当面こうすると決めたこと</span></li>
+      <li><span class="kind" data-kind="req">REQ</span><span>守らなければならないこと</span></li>
+    </ul>
+    <div class="col">
+      <p class="label">型のある線</p>
+      <ul class="edges">
+        <li><code>constrains</code>制約する</li>
+        <li><code>relies_on_hypotheses</code>仮説に依る</li>
+        <li><code>considers</code>観測を考慮する</li>
+        <li><code>supersedes</code>前の判断を継ぐ</li>
+        <li><code>resolved_by</code>問いを閉じる</li>
+      </ul>
+      <dl class="layers" data-step="graph-layers">
+        <div class="layer" data-layer="write"><dt>書く知識</dt><dd>この五つの点</dd></div>
+        <div class="layer" data-layer="use"><dt>使う資源</dt><dd><span class="tag">PROBE</span><span class="tag">story</span><span class="tag">PR</span><span class="tag">commit</span>グラフに吊るす</dd></div>
+        <div class="layer" data-layer="derive"><dt>導く見え方</dt><dd>Context、人の確認待ち、Pattern。書き残さず、いつでも計算し直す</dd></div>
+      </dl>
+    </div>
+  </div>
+  <p class="punch" data-step="graph-flow">出来事は Issue と PR に流れ、残る意味だけがグラフに入る</p>
+  <p class="note foot" data-step="graph-flow">ID は分類ではなく、名前だけを持つ</p>
+</section>
