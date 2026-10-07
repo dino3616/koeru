@@ -1,0 +1,45 @@
+.roles {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--gap) * 1.6);
+}
+
+.role {
+  justify-content: flex-end;
+  min-height: calc(var(--gap) * 10);
+}
+
+.role b {
+  font-size: var(--size-title);
+  line-height: 1.25;
+}
+
+.role .note {
+  font-size: var(--size-body);
+}
+
+.role[data-me] {
+  border: var(--rule) solid var(--live-7);
+  background: var(--live-2);
+}
+
+.role .chip {
+  align-self: flex-start;
+  margin-bottom: auto;
+  font-size: var(--size-caption);
+}
+
+.turn {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--gap) * 0.6);
+  padding-top: calc(var(--gap) * 0.7);
+  border-top: var(--rule) solid var(--line);
+  font-size: var(--size-lede);
+  font-weight: 700;
+}
+
+.turn .label {
+  font-size: var(--size-small);
+}

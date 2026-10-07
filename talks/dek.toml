@@ -1,9 +1,12 @@
 # dek project
 
 [refs]
-"hajimism/dek/why-dek" = "f8be784733599a62b1a302df288a10c705a7a0b6"
-"hajimism/dek/lightning" = "f8be784733599a62b1a302df288a10c705a7a0b6"
-"hajimism/dek/with-agents" = "f8be784733599a62b1a302df288a10c705a7a0b6"
-"hajimism/deck/five-compounds" = "ad5d6e922be64691b823b757617565ee738bb5e0"
-"hajimism/deck/care-swing" = "ad5d6e922be64691b823b757617565ee738bb5e0"
-"hajimism/deck/context-design" = "ad5d6e922be64691b823b757617565ee738bb5e0"
+"hajimism/dek/why-dek" = "2e678c1d62bcdb69e9fe4aecbe8b06c7869be2bd"
+"hajimism/dek/lightning" = "2e678c1d62bcdb69e9fe4aecbe8b06c7869be2bd"
+"hajimism/dek/with-agents" = "2e678c1d62bcdb69e9fe4aecbe8b06c7869be2bd"
+"hajimism/deck/five-compounds" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"
+"hajimism/deck/care-swing" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"
+"hajimism/deck/context-design" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"
+"hajimism/deck/playful-work" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"
+"hajimism/deck/trait-repetition" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"
+"hajimism/deck/value-change" = "45e78fbafc8427c97b1ff4f34af31b048a58d9d3"

@@ -1,0 +1,60 @@
+.ways {
+  display: grid;
+  grid-template-columns: 4fr 5fr auto 3fr;
+  gap: calc(var(--gap) * 1);
+  align-content: center;
+  align-items: center;
+}
+
+.way {
+  align-self: stretch;
+  justify-content: center;
+}
+
+.way b {
+  font-size: var(--size-lede);
+  line-height: 1.5;
+}
+
+.grounds {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.55) calc(var(--gap) * 0.7);
+  align-items: baseline;
+}
+
+.grounds dt {
+  color: var(--score-11);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.grounds dd {
+  font-weight: 700;
+}
+
+.maps {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 1.1);
+  color: var(--score-11);
+  font-size: var(--size-title);
+  font-weight: 800;
+}
+
+.dec {
+  border-color: var(--score-11);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.fields li {
+  padding: calc(var(--gap) * 0.3) calc(var(--gap) * 0.5);
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--radius-small);
+  font-weight: 700;
+}

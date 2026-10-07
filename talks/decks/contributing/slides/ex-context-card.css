@@ -1,0 +1,16 @@
+.eight li {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.3);
+  font-size: var(--size-small);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.eight .label {
+  color: var(--score-11);
+}
+
+.eight .absent .label {
+  color: var(--sand-11);
+}

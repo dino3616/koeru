@@ -1,0 +1,33 @@
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="6" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">2 — Evidence</p>
+    <h2 class="slide-title">観測は、確かめる資格のある問いにだけ証言できる</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>方法ごとに、どの種類の仮説に証言できるかを決めておく</dd>
+      <dt>どこにある</dt><dd><code>meta/evidence/</code>。対応表は機械が読み、<code>check-design</code> が照らす</dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">verify</span>走らせた試験は観測になる。なりきった感想はならない</dd>
+      <dt>次へ</dt><dd>仮説の状態を更新して、Decision へ</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <table class="matrix">
+      <thead>
+        <tr><th></th><th>描画と見え方</th><th>操作の流れ</th><th>意味の理解</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>自動の試験</th><td data-v="yes">証言できる</td><td data-v="yes">証言できる</td><td data-v="no">できない</td></tr>
+        <tr><th>人の初回の接触</th><td data-v="if">条件しだい</td><td data-v="yes">証言できる</td><td data-v="yes">証言できる</td></tr>
+        <tr><th>読み手の読み</th><td data-v="seed">仮説を生むだけ</td><td data-v="seed">仮説を生むだけ</td><td data-v="seed">仮説を生むだけ</td></tr>
+        <tr><th>Agent の読み</th><td data-v="seed">仮説を生むだけ</td><td data-v="seed">仮説を生むだけ</td><td data-v="no">できない</td></tr>
+      </tbody>
+    </table>
+    <ol class="rules" data-step="evidence-rules">
+      <li>出所と解釈を分ける</li>
+      <li>件数を確信に変えない</li>
+      <li>方法の資格を超えない</li>
+      <li>反証も同じ面に出す</li>
+      <li>走ったか、飛ばしたかを書く</li>
+    </ol>
+  </div>
+</section>

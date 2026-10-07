@@ -1,0 +1,18 @@
+.views {
+  align-content: center;
+}
+
+.view {
+  gap: calc(var(--gap) * 0.7);
+  margin: 0;
+  padding: calc(var(--gap) * 0.9) calc(var(--gap) * 0.7);
+}
+
+.view figcaption {
+  display: flex;
+  flex-direction: column;
+}
+
+.view b {
+  font-size: var(--size-lede);
+}

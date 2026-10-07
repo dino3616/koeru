@@ -1,0 +1,77 @@
+.slide {
+  --loop-rx: 180px;
+  --loop-ry: 128px;
+  --stage-h: 440px;
+  --life-w: 430px;
+  --loop-x: 930px;
+  --loop-y: 160px;
+  --bring-w: 620px;
+}
+
+.life-stage {
+  height: var(--stage-h);
+}
+
+.life {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.7) calc(var(--gap) * 0.6);
+  width: var(--life-w);
+}
+
+.life .chip:nth-child(2n) {
+  margin-left: calc(var(--gap) * 1.4);
+}
+
+.loop {
+  position: absolute;
+  left: var(--loop-x);
+  top: var(--loop-y);
+}
+
+.station {
+  padding: 0 0.7em;
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--pill);
+  background: var(--sand-1);
+  color: var(--score-11);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  line-height: 1.9;
+  white-space: nowrap;
+}
+
+.station[data-tone="live"] {
+  border-color: var(--live-7);
+  background: var(--live-2);
+  color: var(--live-11);
+}
+
+.tiny {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  font-size: var(--size-caption);
+  line-height: 1.8;
+}
+
+.bring {
+  position: absolute;
+  bottom: calc(var(--gap) * 3.4);
+  left: 0;
+  width: var(--bring-w);
+  font-size: var(--size-lede);
+  font-weight: 700;
+  line-height: 1.6;
+}
+
+.life-stage .punch {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}

@@ -3,7 +3,8 @@ id = 'DEC-PLT-045'
 constraint_label = '発表資料の置き場所と道具'
 constraint = '外へ向けて KOERU を説明する資料が、リポジトリの文書に依らず単体で読め、開発機と CI とエージェントの間で同じように組み立ち、検査できること'
 title = '発表資料は dek で作り、リポジトリ直下の talks/ に置く。dek は commit で固定し、書き出した HTML と PDF をコミットする。公開はしない'
-status = 'accepted'
+status = 'superseded'
+superseded_by = 'DEC-PLT-046'
 owner = 'dino3616'
 options = [
   'dek（台本を正本にし、1枚1ファイルの HTML を lint と描画の計測にかける）',

@@ -1,0 +1,49 @@
+<section class="slide" data-layout="default">
+  <p class="kicker">2 — 全体像</p>
+  <h2 class="slide-title">一つのグラフを囲んで、十の仕事が回る</h2>
+  <div class="stage map">
+    <div class="hub">
+      <div class="lit" data-step="whole-graph" aria-hidden="true"></div>
+      <div class="graph" data-mini>
+        <svg viewBox="0 0 1150 440" aria-hidden="true">
+          <path data-edge="q-dec"></path>
+          <path data-edge="req1-dec"></path>
+          <path data-edge="req2-dec"></path>
+          <path data-edge="dec-hyp1"></path>
+          <path data-edge="dec-hyp2"></path>
+          <path data-edge="dec-evid1"></path>
+          <path data-edge="story-dec"></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q"></span>
+        <span class="node" data-node="req1" data-kind="req"></span>
+        <span class="node" data-node="req2" data-kind="req"></span>
+        <span class="node" data-node="dec1" data-kind="dec"></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested"></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested"></span>
+        <span class="node" data-node="evid1" data-kind="evid"></span>
+        <span class="node" data-node="story" data-kind="tool"></span>
+      </div>
+      <p class="caption" data-step="whole-graph">どの仕事も、このグラフを読んで、書き足す</p>
+    </div>
+    <ol class="loop">
+      <li class="card pop"><b>Signal</b><span>違和感を受け取る</span><span class="tag" data-step="whole-where">Issue</span><span class="tag" data-tone="agent" data-step="whole-agent">frame</span></li>
+      <li class="card pop"><b>Question</b><span>問いにする</span><span class="tag" data-step="whole-where">meta/questions/</span><span class="tag" data-tone="agent" data-step="whole-agent">frame</span></li>
+      <li class="card pop"><b>Context</b><span>文脈を組み立てる</span><span class="tag" data-step="whole-where">xtask context</span><span class="tag" data-tone="agent" data-step="whole-agent">context-audit</span></li>
+      <li class="card pop"><b>Design Space</b><span>別の案を開く</span><span class="tag" data-step="whole-where">workbench の story</span><span class="tag" data-tone="agent" data-step="whole-agent">explore</span></li>
+      <li class="card pop"><b>Critique</b><span>読んで批評する</span><span class="tag" data-step="whole-where">Issue のコメント</span><span class="tag" data-tone="agent" data-step="whole-agent">review</span></li>
+      <li class="card pop"><b>Evidence</b><span>確かめる</span><span class="tag" data-step="whole-where">Probe · Receipt</span><span class="tag" data-tone="agent" data-step="whole-agent">verify</span></li>
+      <li class="card pop" data-st="decision"><b>Decision</b><span>範囲を限って決める</span><span class="tag" data-step="whole-where">PR · meta/decisions/</span><span class="absent" data-small data-step="whole-agent">Agent の席は無い</span></li>
+      <li class="card pop"><b>Implementation</b><span>出荷する</span><span class="tag" data-step="whole-where">stable · CI</span><span class="tag" data-tone="agent" data-step="whole-agent">実装</span></li>
+    </ol>
+    <p class="sat" data-sat="reentry"><span class="tag">Re-entry</span><span class="tag" data-tone="agent" data-step="whole-agent">reentry</span><span class="note">離れて、戻ってくる</span></p>
+    <p class="sat" data-sat="health"><span class="tag">System health</span><span class="note">仕組みを見直す</span></p>
+    <svg class="arcs" viewBox="-580 -270 1160 540" aria-hidden="true">
+      <path data-arc="reentry-signal" d="M 470 -150 C 420 -260 200 -270 96 -236"></path>
+      <path data-arc="reentry-context" d="M 500 -110 C 540 -60 540 -30 492 -10"></path>
+      <path data-arc="world-in" data-step="whole-outside" d="M -205 -232 C -160 -246 -130 -246 -96 -236"></path>
+      <path data-arc="world-out" data-step="whole-outside" d="M -290 -196 C -290 -215 -275 -226 -258 -230"></path>
+    </svg>
+    <p class="world" data-step="whole-outside"><b>外の世界</b><span>出荷された体験が、また違和感を生む</span></p>
+    <p class="punch" data-step="whole-agent">Agent はどの駅にも手を貸す。採る駅にだけはいない</p>
+  </div>
+</section>

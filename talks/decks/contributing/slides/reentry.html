@@ -1,0 +1,44 @@
+<section class="slide" data-layout="element">
+  <div class="col">
+    <p class="kicker">2 — Re-entry</p>
+    <h2 class="slide-title">離れて、変わって、戻ってくる</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>離れるときは、いまの版と次の一手を3点で残す。戻ったら、その時点といまを比べる</dd>
+      <dt>どこにある</dt><dd><code>cargo xtask context --from &lt;checkpoint&gt; --at &lt;rev&gt;</code></dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">reentry</span>比べた出力を読んで説明する。何を覚えているはずかは推し量らない</dd>
+      <dt>次へ</dt><dd>外で変わった見方は、新しい Signal になる</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <div class="graph" data-mini>
+      <svg viewBox="0 0 1150 440" aria-hidden="true">
+        <path data-edge="q-dec"></path>
+        <path data-edge="req1-dec"></path>
+        <path data-edge="req2-dec"></path>
+        <path data-edge="dec-hyp1"></path>
+        <path data-edge="dec-hyp2"></path>
+        <path data-edge="dec-evid1"></path>
+        <path data-edge="story-dec"></path>
+        <path data-edge="probe1-hyp1" data-lit></path>
+        <path data-edge="probe2-req2" data-lit></path>
+      </svg>
+      <span class="node" data-node="q" data-kind="q"></span>
+      <span class="node" data-node="req1" data-kind="req"></span>
+      <span class="node" data-node="req2" data-kind="req"></span>
+      <span class="node" data-node="dec1" data-kind="dec" data-state="old"></span>
+      <span class="node" data-node="dec2" data-kind="dec" data-lit></span>
+      <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested"></span>
+      <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested"></span>
+      <span class="node" data-node="evid1" data-kind="evid"></span>
+      <span class="node" data-node="story" data-kind="tool"></span>
+      <span class="node" data-node="probe1" data-kind="tool" data-lit></span>
+      <span class="node" data-node="probe2" data-kind="tool" data-lit></span>
+      <span class="mark" data-node="dec2">継がれた</span>
+      <span class="mark" data-node="probe1">足された</span>
+      <span class="mark" data-node="probe2">足された</span>
+      <span class="mark" data-node="hyp2">反証された</span>
+    </div>
+    <p class="note">後ろの灰の札が離れた時点の判断、前の青がいまの判断</p>
+  </div>
+  <p class="punch" data-step="reentry-punch">復帰は、正しい文脈の入れ直しではない</p>
+</section>

@@ -1,0 +1,29 @@
+.pr {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.5) calc(var(--gap) * 0.8);
+  align-items: baseline;
+}
+
+.pr dt {
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.pr dd {
+  font-weight: 700;
+}
+
+.out {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  font-size: var(--size-small);
+}
+
+.away {
+  margin-left: auto;
+  color: var(--live-11);
+  font-weight: 800;
+}

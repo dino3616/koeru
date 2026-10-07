@@ -1,0 +1,13 @@
+/* 一行はまだ届いていないので、吹き出しの枠も「まだ無い」の破線にする。 */
+.bubble {
+  min-width: 11em;
+  border-style: dashed;
+}
+
+.caret {
+  display: inline-block;
+  width: calc(var(--rule) * 1.5);
+  height: 1.1em;
+  background: var(--fg);
+  vertical-align: -0.15em;
+}

@@ -1,0 +1,91 @@
+<section class="slide" data-layout="default">
+  <p class="kicker">2 — 全体像</p>
+  <h2 class="slide-title">見え方は、同じグラフの照らし方にすぎない</h2>
+  <div class="stage grid views" data-cols="4">
+    <figure class="card view">
+      <div class="graph" data-mini data-focus aria-hidden="true">
+        <svg viewBox="0 0 1150 440">
+          <path data-edge="q-dec" data-lit></path><path data-edge="req1-dec" data-lit></path><path data-edge="req2-dec" data-lit></path>
+          <path data-edge="dec-hyp1" data-lit></path><path data-edge="dec-hyp2" data-lit></path><path data-edge="dec-evid1" data-lit></path>
+          <path data-edge="story-dec" data-lit></path><path data-edge="probe1-hyp1"></path><path data-edge="probe2-req2"></path><path data-edge="probe2-evid2"></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q" data-lit data-now></span>
+        <span class="node" data-node="req1" data-kind="req" data-lit></span>
+        <span class="node" data-node="req2" data-kind="req" data-lit></span>
+        <span class="node" data-node="dec1" data-kind="dec" data-lit></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="evid1" data-kind="evid" data-lit></span>
+        <span class="node" data-node="story" data-kind="tool" data-lit></span>
+        <span class="node" data-node="probe1" data-kind="tool"></span>
+        <span class="node" data-node="probe2" data-kind="tool"></span>
+        <span class="node" data-node="evid2" data-kind="evid"></span>
+      </div>
+      <figcaption><b>Context</b><span class="note">問いから辿れる範囲</span></figcaption>
+    </figure>
+    <figure class="card view">
+      <div class="graph" data-mini data-focus aria-hidden="true">
+        <svg viewBox="0 0 1150 440">
+          <path data-edge="q-dec"></path><path data-edge="req1-dec"></path><path data-edge="req2-dec"></path>
+          <path data-edge="dec-hyp1"></path><path data-edge="dec-hyp2"></path><path data-edge="dec-evid1"></path>
+          <path data-edge="story-dec"></path><path data-edge="probe1-hyp1" data-lit></path><path data-edge="probe2-req2" data-lit></path><path data-edge="probe2-evid2" data-lit></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q"></span>
+        <span class="node" data-node="req1" data-kind="req"></span>
+        <span class="node" data-node="req2" data-kind="req" data-lit></span>
+        <span class="node" data-node="dec1" data-kind="dec"></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested"></span>
+        <span class="node" data-node="evid1" data-kind="evid"></span>
+        <span class="node" data-node="story" data-kind="tool"></span>
+        <span class="node" data-node="probe1" data-kind="tool" data-lit></span>
+        <span class="node" data-node="probe2" data-kind="tool" data-lit></span>
+        <span class="node" data-node="evid2" data-kind="evid" data-lit></span>
+      </div>
+      <figcaption><b>検証の見取り図</b><span class="note">どこに Probe があり、何が走ったか</span></figcaption>
+    </figure>
+    <figure class="card view">
+      <div class="graph" data-mini data-focus data-view="debt" aria-hidden="true">
+        <svg viewBox="0 0 1150 440">
+          <path data-edge="q-dec"></path><path data-edge="req1-dec"></path><path data-edge="req2-dec"></path>
+          <path data-edge="dec-hyp1"></path><path data-edge="dec-hyp2"></path><path data-edge="dec-evid1"></path>
+          <path data-edge="story-dec"></path><path data-edge="probe1-hyp1"></path><path data-edge="probe2-req2"></path><path data-edge="probe2-evid2"></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q"></span>
+        <span class="node" data-node="req1" data-kind="req"></span>
+        <span class="node" data-node="req2" data-kind="req"></span>
+        <span class="node" data-node="dec1" data-kind="dec"></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="evid1" data-kind="evid"></span>
+        <span class="node" data-node="story" data-kind="tool"></span>
+        <span class="node" data-node="probe1" data-kind="tool"></span>
+        <span class="node" data-node="probe2" data-kind="tool"></span>
+        <span class="node" data-node="evid2" data-kind="evid"></span>
+      </div>
+      <figcaption><b>人の確認待ち</b><span class="note">人でしか確かめられない、未検証の仮説</span></figcaption>
+    </figure>
+    <figure class="card view">
+      <div class="graph" data-mini data-focus aria-hidden="true">
+        <svg viewBox="0 0 1150 440">
+          <path data-edge="q-dec"></path><path data-edge="req1-dec"></path><path data-edge="req2-dec"></path>
+          <path data-edge="dec-hyp1" data-lit></path><path data-edge="dec-hyp2" data-lit></path><path data-edge="dec-evid1"></path>
+          <path data-edge="story-dec"></path><path data-edge="probe1-hyp1"></path><path data-edge="probe2-req2"></path><path data-edge="probe2-evid2"></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q"></span>
+        <span class="node" data-node="req1" data-kind="req"></span>
+        <span class="node" data-node="req2" data-kind="req"></span>
+        <span class="node" data-node="dec1" data-kind="dec" data-lit></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="evid1" data-kind="evid"></span>
+        <span class="node" data-node="story" data-kind="tool"></span>
+        <span class="node" data-node="probe1" data-kind="tool"></span>
+        <span class="node" data-node="probe2" data-kind="tool"></span>
+        <span class="node" data-node="evid2" data-kind="evid"></span>
+      </div>
+      <figcaption><b>Pattern</b><span class="note">くり返し現れる形</span></figcaption>
+    </figure>
+  </div>
+  <p class="punch" data-step="projection-punch">見え方を手で書き残さない。グラフから何度でも計算し直す</p>
+</section>

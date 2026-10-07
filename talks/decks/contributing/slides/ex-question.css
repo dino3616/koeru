@@ -1,0 +1,84 @@
+.ask {
+  display: grid;
+  grid-template-columns: 5fr 6fr;
+  gap: calc(var(--gap) * 1.5);
+  align-items: start;
+}
+
+.cands,
+.q,
+.hyp {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.45);
+}
+
+.cand {
+  font-weight: 600;
+}
+
+.why {
+  color: var(--sand-11);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.node-card,
+.hyp-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.25);
+  padding: calc(var(--gap) * 0.6) calc(var(--gap) * 0.8);
+  border-radius: var(--radius);
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+.node-card {
+  border: var(--rule) solid var(--score-7);
+  border-radius: var(--radius);
+  background: var(--sand-1);
+  font-size: var(--size-lede);
+}
+
+.node-card b,
+.hyp-card b {
+  color: var(--score-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+}
+
+.hyp {
+  margin-top: calc(var(--gap) * 0.3);
+}
+
+.hyp-card {
+  border: var(--rule) dashed var(--score-7);
+  background: var(--sand-1);
+  font-size: var(--size-small);
+}
+
+.hyp-card .absent {
+  align-self: flex-start;
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.25);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.checks li {
+  padding: 0 0.6em;
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--radius-small);
+  background: var(--score-2);
+  color: var(--score-11);
+  line-height: 1.9;
+}
+
+.checks li::before {
+  content: "✓ ";
+}

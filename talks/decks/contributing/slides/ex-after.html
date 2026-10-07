@@ -1,0 +1,55 @@
+<section class="slide" data-layout="default">
+  <p class="kicker">3 — 一周のあと</p>
+  <h2 class="slide-title">一周したあと、グラフはこう変わった</h2>
+  <div class="stage after">
+    <div class="col">
+      <p class="term"><b>$</b> cargo xtask context --root Q-4K7DP2 --from &lt;一周前&gt; --at HEAD</p>
+      <div class="graph" data-mini>
+        <svg viewBox="0 0 1150 440" aria-hidden="true">
+          <path data-edge="q-dec"></path>
+          <path data-edge="req1-dec"></path>
+          <path data-edge="req2-dec"></path>
+          <path data-edge="dec-hyp2" data-state="untested"></path>
+          <path data-edge="dec-evid1"></path>
+          <path data-edge="dec-req3" data-lit></path>
+          <path data-edge="dec-hyp3" data-state="untested" data-lit></path>
+          <path data-edge="probe1-hyp1" data-lit></path>
+          <path data-edge="probe2-req2" data-lit></path>
+          <path data-edge="probe2-evid2" data-lit></path>
+        </svg>
+        <span class="node" data-node="q" data-kind="q"></span>
+        <span class="node" data-node="req1" data-kind="req"></span>
+        <span class="node" data-node="req2" data-kind="req"></span>
+        <span class="node" data-node="req3" data-kind="req" data-lit></span>
+        <span class="node" data-node="dec1" data-kind="dec" data-state="old"></span>
+        <span class="node" data-node="dec2" data-kind="dec" data-lit></span>
+        <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested"></span>
+        <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested"></span>
+        <span class="node" data-node="hyp3" data-kind="hyp" data-state="untested" data-lit></span>
+        <span class="node" data-node="evid1" data-kind="evid"></span>
+        <span class="node" data-node="evid2" data-kind="evid" data-lit></span>
+        <span class="node" data-node="probe1" data-kind="tool" data-lit></span>
+        <span class="node" data-node="probe2" data-kind="tool" data-lit></span>
+        <span class="mark" data-node="q">閉じた</span>
+        <span class="mark" data-node="dec2">継がれた</span>
+      </div>
+      <p class="note">光っているのが、この一周で足されたもの。後ろの灰の札が、継がれた前の判断</p>
+    </div>
+    <div class="col">
+      <div class="swap" data-step="ex-after-debt">
+        <p class="label">人の確認待ち</p>
+        <p class="out"><span class="struck">HYP-91MTWX</span>判断がもう依っていないので外れた</p>
+        <p class="in"><b>HYP-3PX7NB</b>新しい判断が依っているので入った</p>
+      </div>
+      <div class="card back" data-step="ex-after-reentry">
+        <span class="tag" data-tone="agent">reentry</span>
+        <dl>
+          <dt>いま有効</dt><dd>一覧は揃えた環。音源の画面は外へ育つまま</dd>
+          <dt>変わったこと</dt><dd>一覧の表し方の判断が継がれた</dd>
+          <dt>確かめたい箇所</dt><dd>新しい判断が、まだ確かめていない HYP-3PX7NB に依っている</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  <p class="punch" data-step="ex-after-debt">減らすことを、目的にしない</p>
+</section>

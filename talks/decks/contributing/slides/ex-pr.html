@@ -1,0 +1,23 @@
+<section class="slide" data-layout="default">
+  <ol class="loopmark" data-now="8" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <p class="kicker">3 — Implementation</p>
+  <h2 class="slide-title">PR には、体験の差と、確かめた範囲と、戻し方を書く</h2>
+  <div class="stage ship">
+    <div class="card body">
+      <span class="tag">PR</span>
+      <dl class="pr">
+        <dt>設計上の変更</dt><dd>一覧の環の外径を揃え、閉じ具合で示す</dd>
+        <dt>体験の差</dt><dd>並べても、大きさで序列が生まれない。録り始めの音源も小さく見えない</dd>
+        <dt>確認した範囲</dt><dd>描画・焦点・状態遷移は自動で確認した。<span class="kept">初めて見る人の読み方は未確認で、人の確認待ちにある</span></dd>
+        <dt>戻し方</dt><dd>一覧の表し方を一つ戻せば、比例の表示に戻る</dd>
+      </dl>
+      <p class="note">比べた案は PR の履歴に残り、採った状態だけが stable の story へ移る</p>
+    </div>
+    <ol class="crew" data-step="ex-pr-agent">
+      <li><span class="tag" data-tone="agent">実装</span>外径を揃える実装と、四つの欄の下書き。確認した範囲は Receipt から写す</li>
+      <li><span class="tag">CI</span>参照と仮説と、どこまで走らせたかを検査する</li>
+      <li><span class="tag">人</span>下書きを直し、統合して出荷する</li>
+      <li class="lock"><span class="absent" data-small>未確認の行</span>Agent には消せない</li>
+    </ol>
+  </div>
+</section>

@@ -1,0 +1,60 @@
+.slide {
+  --cell-w: 72px;
+  --cell-h: 26px;
+}
+
+.lanes {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 2);
+  align-items: center;
+}
+
+.scale {
+  border-collapse: separate;
+  border-spacing: calc(var(--gap) * 0.2);
+  font-size: var(--size-small);
+}
+
+.scale thead th {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.scale tbody th {
+  padding-right: calc(var(--gap) * 0.6);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.scale td {
+  width: var(--cell-w);
+  height: var(--cell-h);
+  border-radius: var(--radius-small);
+  background: var(--sand-3);
+}
+
+.scale td[data-on] {
+  background: var(--sand-12);
+}
+
+.scale td:last-child {
+  width: auto;
+  padding-left: calc(var(--gap) * 0.5);
+  background: none;
+  color: var(--sand-11);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.r1 {
+  gap: calc(var(--gap) * 0.45);
+  border: var(--rule) solid var(--sand-12);
+}
+
+.r1 b {
+  font-size: var(--size-lede);
+}

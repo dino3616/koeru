@@ -1,0 +1,63 @@
+.slide {
+  --dot: 46px;
+}
+
+.stage {
+  align-items: center;
+  gap: calc(var(--gap) * 2);
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.who .label {
+  font-size: var(--size-small);
+}
+
+.dots {
+  display: grid;
+  grid-template-columns: repeat(6, var(--dot));
+  gap: calc(var(--gap) * 0.5);
+}
+
+.dots i {
+  width: var(--dot);
+  height: var(--dot);
+  border: var(--rule) solid var(--sand-6);
+  border-radius: var(--pill);
+  background: var(--sand-1);
+}
+
+.dots i[data-on] {
+  border: var(--rule) solid var(--live-7);
+  background: var(--live-3);
+}
+
+.bubble {
+  font-size: var(--size-title);
+  font-weight: 800;
+}
+
+.list {
+  margin-top: calc(var(--gap) * 0.4);
+  font-size: var(--size-lede);
+}
+
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--gap) * 0.4);
+}
+
+.acts .chip {
+  font-size: var(--size-body);
+}
+
+.lede {
+  color: var(--fg);
+  font-size: var(--size-title);
+  font-weight: 800;
+}

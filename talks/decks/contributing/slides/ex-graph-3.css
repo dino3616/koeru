@@ -1,0 +1,37 @@
+.slide {
+  --cond-w: 34%;
+}
+
+.graph .cond {
+  position: absolute;
+  left: 66%;
+  top: 4%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.2);
+  width: var(--cond-w);
+  padding: calc(var(--gap) * 0.5) calc(var(--gap) * 0.7);
+  border: var(--rule) solid var(--amber-11);
+  border-radius: var(--radius-small);
+  background: var(--amber-3);
+  color: var(--sand-12);
+  font-size: var(--size-small);
+}
+
+.graph .cond .label {
+  color: var(--sand-12);
+}
+
+.graph .cond .note {
+  color: var(--sand-12);
+  font-size: var(--size-caption);
+}
+
+.graph .missing {
+  position: absolute;
+  left: 66%;
+  top: 72%;
+  z-index: 3;
+  width: var(--cond-w);
+}

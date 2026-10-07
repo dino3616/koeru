@@ -1,0 +1,6 @@
+.debt {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 1.5);
+  align-items: center;
+}

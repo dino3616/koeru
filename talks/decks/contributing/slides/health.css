@@ -1,0 +1,61 @@
+.slide {
+  --loop-rx: 205px;
+  --loop-ry: 110px;
+  --station-w: 112px;
+  --small-rx: 165px;
+  --small-ry: 58px;
+  --small-w: 132px;
+  --small-at: -150px;
+  --big-at: 95px;
+  --stack-h: 460px;
+}
+
+.stack {
+  display: grid;
+  place-items: center;
+  height: var(--stack-h);
+}
+
+.stack > * {
+  grid-area: 1 / 1;
+  margin: 0;
+}
+
+.big {
+  translate: 0 var(--big-at);
+}
+
+.big .card {
+  padding: calc(var(--gap) * 0.2) calc(var(--gap) * 0.3);
+}
+
+.big .card b {
+  font-size: var(--size-tiny);
+}
+
+.small {
+  --rx: var(--small-rx);
+  --ry: var(--small-ry);
+  --station-w: var(--small-w);
+  translate: 0 var(--small-at);
+}
+
+.small li {
+  --a: calc(360deg / 4 * var(--i));
+  --b: calc(var(--a) + 45deg);
+}
+
+.small .card {
+  padding: calc(var(--gap) * 0.2) calc(var(--gap) * 0.3);
+  border-color: var(--sand-8);
+  background: var(--sand-3);
+}
+
+.small .card b {
+  color: var(--sand-12);
+  font-size: var(--size-tiny);
+}
+
+.core {
+  translate: 0 var(--small-at);
+}

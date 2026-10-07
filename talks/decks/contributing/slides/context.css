@@ -1,0 +1,28 @@
+.root {
+  font-size: var(--size-caption);
+}
+
+.eight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 0.3);
+  counter-reset: item;
+}
+
+.eight li {
+  display: flex;
+  gap: 0.5em;
+  padding: calc(var(--gap) * 0.25) calc(var(--gap) * 0.5);
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  font-size: var(--size-small);
+  font-weight: 700;
+  counter-increment: item;
+}
+
+.eight li::before {
+  content: counter(item);
+  color: var(--score-11);
+  font-family: var(--font-mono);
+}

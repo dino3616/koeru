@@ -1,0 +1,44 @@
+.pair {
+  display: grid;
+  grid-template-columns: 4fr auto 6fr;
+  gap: calc(var(--gap) * 1.2);
+  align-content: center;
+  align-items: center;
+}
+
+.side {
+  align-self: stretch;
+  justify-content: center;
+  padding: calc(var(--gap) * 1.2);
+}
+
+.side b {
+  font-size: var(--size-title);
+  line-height: 1.4;
+}
+
+.side[data-side="before"] {
+  border-color: var(--sand-8);
+  background: var(--sand-3);
+}
+
+.side[data-side="after"] {
+  border: var(--rule) solid var(--live-7);
+  background: var(--sand-1);
+}
+
+.side[data-side="after"] .label {
+  color: var(--live-11);
+}
+
+.turn {
+  color: var(--muted);
+  font-size: var(--size-title);
+  font-weight: 800;
+}
+
+.nots {
+  display: flex;
+  gap: calc(var(--gap) * 0.6);
+  margin-bottom: calc(var(--gap) * 0.6);
+}

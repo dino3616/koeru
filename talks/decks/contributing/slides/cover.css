@@ -1,0 +1,18 @@
+.slide {
+  --ghost-w: 760px;
+  --ghost-out: -260px;
+}
+
+.ghost {
+  position: absolute;
+  top: 50%;
+  right: var(--ghost-out);
+  width: var(--ghost-w);
+  opacity: 0.18;
+  translate: 0 -50%;
+}
+
+.lede {
+  font-size: var(--size-title);
+  font-weight: 700;
+}

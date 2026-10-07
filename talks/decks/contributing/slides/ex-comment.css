@@ -1,0 +1,58 @@
+.pair-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 1.2);
+  align-items: start;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  align-items: baseline;
+  font-size: var(--size-small);
+  font-weight: 600;
+}
+
+.fields dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.fields.small {
+  gap: calc(var(--gap) * 0.3) calc(var(--gap) * 0.6);
+  font-size: var(--size-caption);
+}
+
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.9);
+}
+
+.who {
+  display: block;
+  color: var(--live-12);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.seen,
+.guess {
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--gap) * 0.25) calc(var(--gap) * 0.45);
+  border-radius: var(--radius-small);
+}
+
+.seen {
+  border: var(--rule) solid var(--sand-12);
+}
+
+.guess {
+  border: var(--rule) dashed var(--sand-8);
+  background: var(--sand-2);
+}

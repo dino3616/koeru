@@ -1,0 +1,31 @@
+.slide {
+  --cand-w: 28%;
+}
+
+.graph .pointer {
+  stroke: var(--sand-8);
+  stroke-width: var(--hair);
+  stroke-dasharray: 4 4;
+}
+
+.graph .stamp {
+  position: absolute;
+  left: 30%;
+  top: 104%;
+  z-index: 3;
+  translate: -50% -50%;
+  font-size: var(--size-caption);
+}
+
+.graph .cand {
+  position: absolute;
+  left: 70%;
+  top: 60%;
+  z-index: 3;
+  width: var(--cand-w);
+  font-size: var(--size-caption);
+}
+
+.graph .cand .note {
+  font-size: var(--size-tiny);
+}

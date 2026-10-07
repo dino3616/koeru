@@ -1,0 +1,76 @@
+.decide {
+  display: grid;
+  grid-template-columns: 5fr 6fr;
+  gap: calc(var(--gap) * 1.3);
+  align-items: center;
+}
+
+.dec {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  align-items: baseline;
+  border: var(--rule) solid var(--score-11);
+  font-size: var(--size-small);
+  font-weight: 600;
+}
+
+.dec dt {
+  color: var(--score-11);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.dec .id {
+  font-family: var(--font-mono);
+}
+
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.7);
+}
+
+.graph .mark[data-node="dec2"] {
+  top: calc(var(--y) + 15%);
+}
+
+.graph .mark[data-node="hyp3"] {
+  top: calc(var(--y) + 13%);
+}
+
+.talk {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--gap) * 0.6);
+}
+
+.talk .bubble {
+  flex: 1;
+  font-size: var(--size-small);
+}
+
+.who {
+  display: block;
+  color: var(--live-12);
+  font-size: var(--size-caption);
+  font-weight: 800;
+}
+
+.reply {
+  flex: 1;
+  padding: calc(var(--gap) * 0.4) calc(var(--gap) * 0.6);
+  border-radius: var(--radius-small);
+  background: var(--sand-12);
+  color: var(--sand-1);
+  font-size: var(--size-small);
+  font-weight: 800;
+}
+
+.seat {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) * 0.4);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}

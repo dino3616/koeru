@@ -1,0 +1,8 @@
+.col {
+  align-items: flex-start;
+  gap: calc(var(--gap) * 1.2);
+}
+
+.bubble {
+  font-size: var(--size-lede);
+}

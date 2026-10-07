@@ -1,0 +1,38 @@
+.stage {
+  column-gap: calc(var(--gap) * 2);
+}
+
+.answers {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.5);
+}
+
+.answers li {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) * 0.5);
+  padding: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  border: var(--hair) solid var(--score-7);
+  border-radius: var(--radius-small);
+  background: var(--score-2);
+  font-size: var(--size-lede);
+  font-weight: 700;
+}
+
+.answers li::before {
+  content: "✓";
+  color: var(--score-11);
+  font-weight: 800;
+}
+
+.gaps {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.35);
+}
+
+.gaps .absent {
+  font-size: var(--size-body);
+  font-weight: 600;
+}

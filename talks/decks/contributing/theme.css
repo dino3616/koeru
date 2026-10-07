@@ -1,0 +1,1302 @@
+/*
+ * contributing — KOERU に加わる Creator へ、KOERU Design System と参加のしかたを渡す。
+ *
+ * 色の規則
+ *   - 色相は2つだけが意味を運ぶ。score（blue）は受け継いだ文脈＝楽譜で、Q / HYP / EVID /
+ *     DEC / REQ のノード、型のある辺、採用状態に使う。live（tomato）は人と、その生活から
+ *     来るもの＝即興で、Signal、読み手の Reading、声の環、生活のチップ、根拠状態の揺れに使う。
+ *     否定する側（規則で縛る、など）には score を使わない。色相を持たない線で描く。
+ *   - 段は Radix の意味どおり。線は 7、塗りと字は 11、墨の地では dark の 11。
+ *     11 の字を載せる面は 2、字を載せない面は 3。3 の面に字を載せるなら 12。
+ *   - スウィング（blue-11 → plum-11 → tomato-11）は、1枚に1語と、問い直す矢印にだけ使う。本文に塗らない。
+ *   - amber は現在地と火花だけ。角のループの data-now、ループを回る火花、いま触れている覆る条件。
+ *     塗りは段 9 で、上に載せる字は sand-12。
+ *   - 無い・未検証・走っていないは色相を持たない。sand-8 の破線、sand-3 の面、sand-11 の字。
+ *     走らなかったものは斜線、否定と古いものは取り消し線。Agent の候補も同じ破線で、人が採ると実線になる。
+ *     破線はこの3つにだけ使う。ループの軌道や戻り道は実線。
+ *   - 生活から来るものは、色の外にも印を持つ。丸い札に縁、比例の字。道具の札（角、等幅）と、
+ *     無いもの（破線）とは、色を抜いても形で分かれる。
+ *   - 道具（PROBE、Receipt、story、PR、CI、Agent）は色相を持たない灰の等幅の札。
+ *   - 終点と結論は墨（sand-12）。帯（.punch）と連鎖の最後。
+ *   - 見え方（Context、人の確認待ちなど）は物として描かず、同じグラフの照らし方で描く。
+ *     照らさないノードは灰に落とし、照らした範囲の後ろに glow を置く。Context は score、人の確認待ちは live。
+ *   - 型は色ではなく形で分ける。Q は角丸の枠、HYP は枠（未検証は破線）、EVID は面、DEC は塗り、REQ は二重線。
+ *
+ * 検証（A 案 = indigo × crimson、B 案 = blue × tomato。thesis・whole・ex-graph-2・outside で比べた）
+ *   - 1型・2型の色覚の模擬（Machado 2009、強度 1.0）で、A の crimson は灰に寄り、灰の「無いもの」や
+ *     道具の札と混ざった。B の tomato は黄土の色相として残り、blue と分かれたまま。
+ *     グレースケールではどちらも分かれないので、型と生活は形でも分けてある。
+ *   - 5秒テストでは、2系統の区別がつきやすいのは B、落ち着いて見えるのは A。どちらの案でも、
+ *     青は「仕組み」、赤は「外の世界と人」と読まれた。thesis の否定される案に青を使っていたため、
+ *     そこで読みが崩れた（直した）。
+ *   - 反論役の指摘：A の色の潰れは色相の選び方から来ていて直せない。B の弱点はコントラストだけ。
+ *     B は 11 の字を 3 の面に載せると 4.3:1 で、10箇所が 4.5:1 を割った。面を 2 にすると
+ *     tomato は 4.75:1、blue は 4.53:1 に届く。破線が「無い」と軌道の両方に使われていた（直した）。
+ *   - 採ったのは B。直せない弱点が A にあり、B の弱点は段の選び方で直せたから。
+ *
+ * 色の値は @radix-ui/colors 3.0.0 の light と dark から写した（デッキは node_modules を参照できない）。
+ * どのページも見出しが要点を言い、柱と丁付けを持つ。PDF だけを読んだ人にも通じるように。
+ */
+.slide {
+  --sand-1: #fdfdfc;
+  --sand-2: #f9f9f8;
+  --sand-3: #f1f0ef;
+  --sand-5: #e2e1de;
+  --sand-6: #dad9d6;
+  --sand-7: #cfceca;
+  --sand-8: #bcbbb5;
+  --sand-11: #63635e;
+  --sand-12: #21201c;
+  --sand-d3: #222221;
+  --sand-d6: #3b3a37;
+  --sand-d8: #62605b;
+  --sand-d11: #b5b3ad;
+  --blue-2: #f4faff;
+  --blue-3: #e6f4fe;
+  --blue-7: #8ec8f6;
+  --blue-11: #0d74ce;
+  --blue-12: #113264;
+  --blue-d11: #70b8ff;
+  --tomato-2: #fff8f7;
+  --tomato-3: #feebe7;
+  --tomato-7: #f5a898;
+  --tomato-11: #d13415;
+  --tomato-12: #5c271f;
+  --tomato-d3: #391714;
+  --tomato-d7: #853a2d;
+  --tomato-d11: #ff977d;
+  --plum-11: #953ea3;
+  --plum-d11: #e796f3;
+  --amber-3: #fff7c2;
+  --amber-9: #ffc53d;
+  --amber-11: #ab6400;
+
+  --score-2: var(--blue-2);
+  --score-3: var(--blue-3);
+  --score-7: var(--blue-7);
+  --score-11: var(--blue-11);
+  --score-12: var(--blue-12);
+  --score-d11: var(--blue-d11);
+  --live-2: var(--tomato-2);
+  --live-3: var(--tomato-3);
+  --live-7: var(--tomato-7);
+  --live-11: var(--tomato-11);
+  --live-12: var(--tomato-12);
+  --live-d3: var(--tomato-d3);
+  --live-d7: var(--tomato-d7);
+  --live-d11: var(--tomato-d11);
+  --swing-mid: var(--plum-11);
+  --swing-mid-d: var(--plum-d11);
+  --score-glow: #0090ff40;
+  --live-glow: #e54d2e40;
+  --clear: #fdfdfc00;
+
+  --fg: var(--sand-12);
+  --bg: var(--sand-2);
+  --muted: var(--sand-11);
+  --accent: var(--score-11);
+  --line: var(--sand-6);
+  --surface: var(--sand-1);
+  --c: var(--sand-11);
+  --c-soft: var(--sand-3);
+  --c-line: var(--sand-8);
+  --on-c: var(--sand-1);
+  --swing: linear-gradient(100deg, var(--score-11), var(--swing-mid) 52%, var(--live-11));
+  --swing-d: linear-gradient(100deg, var(--score-d11), var(--swing-mid-d) 52%, var(--live-d11));
+
+  --font-title: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --font-body: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+  --font-mono: "SF Mono", "Menlo", "Consolas", "Noto Sans Mono CJK JP", monospace;
+  --issue-w: 640px;
+  --size-numeral: 200px;
+  --size-hero: 64px;
+  --size-stat: 44px;
+  --size-title: 36px;
+  --size-lede: 20px;
+  --size-body: 17px;
+  --size-small: 15px;
+  --size-caption: 13px;
+  --size-tiny: 11px;
+  --gap: 24px;
+  --margin: 60px;
+  --pad: 72px var(--margin) 56px;
+  --radius: 16px;
+  --radius-small: 8px;
+  --pill: 999px;
+  --hair: 1px;
+  --rule: 2px;
+  --double: 5px;
+  --rise: 12px;
+  --dot: 22px;
+  --spark: 14px;
+  --halo: 6px;
+  --bloom: 28px;
+  --shift: 10px;
+  --loop-rx: 400px;
+  --loop-ry: 190px;
+  --station-w: 172px;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-pop: 0.6s;
+  --dur-draw: 1.1s;
+  --dur-long: 2.2s;
+  --stagger: 0.09s;
+  --detour-delay: 0.5s;
+  --delay: 0s;
+  --step-transition: 0.45s var(--ease-out);
+
+  box-sizing: border-box;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: var(--pad);
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--sand-5) var(--hair), var(--clear) var(--hair));
+  background-size: var(--dot) var(--dot);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--size-body);
+  line-height: 1.65;
+  font-feature-settings: "palt";
+  word-break: auto-phrase;
+  counter-reset: folio var(--dek-slide-number) folios var(--dek-slide-count);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 墨の地。表紙、章扉、命題、締め。 */
+.slide[data-bg="ink"] {
+  --fg: var(--sand-1);
+  --bg: var(--sand-12);
+  --muted: var(--sand-d11);
+  --accent: var(--score-d11);
+  --line: var(--sand-d6);
+  --surface: var(--sand-d3);
+  background-image: none;
+}
+
+/* 柱と丁付け。表紙には出さない。 */
+.slide::before {
+  content: "受け継いで、問い直す — KOERU Design System";
+  position: absolute;
+  top: calc(var(--gap) * 1.1);
+  left: var(--margin);
+  color: var(--muted);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.slide::after {
+  content: counter(folio, decimal-leading-zero) " / " counter(folios, decimal-leading-zero);
+  position: absolute;
+  top: calc(var(--gap) * 1.1);
+  right: var(--margin);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.slide[data-layout="cover"]::before,
+.slide[data-layout="cover"]::after {
+  content: none;
+}
+
+.slide * {
+  box-sizing: border-box;
+}
+
+.slide p,
+.slide ol,
+.slide ul,
+.slide dl,
+.slide dd,
+.slide h2,
+.slide h3,
+.slide figure {
+  margin: 0;
+}
+
+.slide ol,
+.slide ul {
+  padding: 0;
+  list-style: none;
+}
+
+.slide b,
+.slide strong {
+  font-weight: 800;
+}
+
+.slide code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+}
+
+.slide .slide-title {
+  font-family: var(--font-title);
+  font-size: var(--size-title);
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+/* 節の札。等幅で、先頭にスウィングの点。 */
+.slide .kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.slide .kicker::before {
+  content: "";
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: var(--pill);
+  background: var(--swing);
+}
+
+.slide .lede {
+  color: var(--muted);
+  font-size: var(--size-lede);
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.slide .note {
+  color: var(--muted);
+  font-size: var(--size-small);
+  line-height: 1.65;
+}
+
+.slide .label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* 1枚に1語だけ。 */
+.slide .grad {
+  background: var(--swing);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: var(--clear);
+}
+
+.slide[data-bg="ink"] .grad {
+  background: var(--swing-d);
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+.slide .numeral {
+  font-family: var(--font-title);
+  font-size: var(--size-numeral);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+}
+
+/* 色の受け口。部品は --c / --c-soft / --c-line だけを読み、data-tone が値を入れる。 */
+.slide [data-tone="score"] { --c: var(--score-11); --c-soft: var(--score-2); --c-line: var(--score-7); }
+.slide [data-tone="live"] { --c: var(--live-11); --c-soft: var(--live-2); --c-line: var(--live-7); }
+.slide [data-tone="now"] { --c: var(--sand-12); --c-soft: var(--amber-9); --c-line: var(--amber-11); }
+.slide [data-tone="none"] { --c: var(--sand-11); --c-soft: var(--sand-3); --c-line: var(--sand-8); }
+.slide[data-bg="ink"] [data-tone="score"] { --c: var(--score-d11); }
+.slide[data-bg="ink"] [data-tone="live"] { --c: var(--live-d11); }
+
+.slide .card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.3);
+  min-width: 0;
+  padding: calc(var(--gap) * 0.7) calc(var(--gap) * 0.85);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.slide .card[data-tone] {
+  border-color: var(--c-line);
+  background: var(--c-soft);
+}
+
+.slide .card[data-tone] .label {
+  color: var(--c);
+}
+
+/* 帯：段落の結論。墨に刷る。 */
+.slide .punch {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--gap) * 0.55);
+  padding: calc(var(--gap) * 0.55) calc(var(--gap) * 0.9);
+  border-radius: var(--radius);
+  background: var(--sand-12);
+  color: var(--sand-1);
+  font-size: var(--size-lede);
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.slide .punch::before {
+  content: "";
+  flex: none;
+  width: calc(var(--gap) * 0.45);
+  height: calc(var(--gap) * 0.45);
+  border-radius: var(--pill);
+  background: var(--swing);
+}
+
+.slide[data-bg="ink"] .punch {
+  background: var(--sand-1);
+  color: var(--sand-12);
+}
+
+/* 道具の札。色相を持たない等幅。Agent は data-tone="agent" で、先頭に印を付ける。 */
+.slide .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  align-self: flex-start;
+  padding: 0 0.65em;
+  border: var(--hair) solid var(--sand-8);
+  border-radius: var(--radius-small);
+  background: var(--sand-3);
+  color: var(--sand-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  line-height: 1.9;
+  white-space: nowrap;
+}
+
+.slide .tag[data-tone="agent"]::before {
+  content: "◇";
+}
+
+.slide[data-bg="ink"] .tag {
+  border-color: var(--sand-d6);
+  background: var(--sand-d3);
+  color: var(--sand-d11);
+}
+
+/* 人と、その生活から来るもの。 */
+.slide .chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.9em;
+  border: var(--hair) solid var(--live-7);
+  border-radius: var(--pill);
+  background: var(--live-2);
+  color: var(--live-11);
+  font-size: var(--size-small);
+  font-weight: 700;
+  line-height: 2.1;
+  white-space: nowrap;
+}
+
+/* 読み手や逆張り役の声。 */
+.slide .bubble {
+  position: relative;
+  padding: calc(var(--gap) * 0.5) calc(var(--gap) * 0.75);
+  border: var(--rule) solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-soft);
+  color: var(--fg);
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.slide .bubble:not([data-tone]) {
+  --c-line: var(--live-7);
+  --c-soft: var(--live-3);
+}
+
+.slide[data-bg="ink"] .bubble:not([data-tone]) {
+  --c-line: var(--live-d7);
+  --c-soft: var(--live-d3);
+}
+
+.slide .bubble::after {
+  content: "";
+  position: absolute;
+  left: calc(var(--gap) * 0.9);
+  bottom: calc(var(--gap) * -0.45);
+  width: calc(var(--gap) * 0.6);
+  height: calc(var(--gap) * 0.6);
+  border-right: var(--rule) solid var(--c-line);
+  border-bottom: var(--rule) solid var(--c-line);
+  background: var(--c-soft);
+  rotate: 45deg;
+}
+
+/* 人が採るまでの候補。破線で、採ると実線になる。 */
+.slide .cand {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.2);
+  padding: calc(var(--gap) * 0.4) calc(var(--gap) * 0.6);
+  border: var(--rule) dashed var(--sand-8);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  color: var(--fg);
+  font-size: var(--size-small);
+  line-height: 1.55;
+}
+
+.slide .cand[data-taken] {
+  border-style: solid;
+  border-color: var(--score-7);
+}
+
+/* 無いもの・走っていないもの。 */
+.slide .absent {
+  padding: calc(var(--gap) * 0.4) calc(var(--gap) * 0.6);
+  border: var(--rule) dashed var(--sand-8);
+  border-radius: var(--radius-small);
+  background: var(--sand-3);
+  color: var(--sand-11);
+  font-size: var(--size-small);
+  line-height: 1.55;
+}
+
+.slide[data-bg="ink"] .absent {
+  border-color: var(--sand-d8);
+  background: var(--sand-d3);
+  color: var(--sand-d11);
+}
+
+.slide .absent[data-small] {
+  display: inline-block;
+  padding: 0 0.55em;
+  font-size: var(--size-caption);
+  font-weight: 700;
+  line-height: 1.8;
+}
+
+.slide .absent[data-skip] {
+  background-image: repeating-linear-gradient(135deg, var(--sand-5) 0 var(--hair), var(--clear) var(--hair) var(--shift));
+}
+
+.slide .struck {
+  color: var(--sand-11);
+  text-decoration: line-through;
+  text-decoration-thickness: var(--rule);
+}
+
+/* 判子。結論ではなく、見つけたことの印。 */
+.slide .stamp {
+  align-self: flex-start;
+  padding: calc(var(--gap) * 0.2) calc(var(--gap) * 0.55);
+  border: var(--rule) solid var(--sand-12);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  color: var(--sand-12);
+  font-size: var(--size-small);
+  font-weight: 800;
+  rotate: -3deg;
+}
+
+/* 要素の枚の左側。何をする／どこにある／Agent は／次へ。 */
+.slide .facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.45) calc(var(--gap) * 0.7);
+  align-items: baseline;
+  font-size: var(--size-small);
+  line-height: 1.6;
+}
+
+.slide .facts dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.slide .facts dd {
+  min-width: 0;
+}
+
+/* Agent の関わり。札と、断れる形の一行。 */
+.slide .agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--gap) * 0.35);
+  color: var(--fg);
+}
+
+.slide .term {
+  padding: calc(var(--gap) * 0.7) calc(var(--gap) * 0.9);
+  border-radius: var(--radius);
+  background: var(--sand-12);
+  color: var(--sand-1);
+  font-family: var(--font-mono);
+  font-size: var(--size-small);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.slide .term b {
+  color: var(--amber-9);
+}
+
+.slide .list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.3);
+}
+
+.slide .list li {
+  position: relative;
+  padding-left: calc(var(--gap) * 0.8);
+}
+
+.slide .list li::before {
+  content: "";
+  position: absolute;
+  top: 0.65em;
+  left: 0;
+  width: 0.42em;
+  height: 0.42em;
+  border-radius: var(--pill);
+  background: var(--c-line);
+}
+
+.slide .grid {
+  --cols: 3;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: calc(var(--gap) * 0.55);
+}
+
+.slide .grid[data-cols="2"] { --cols: 2; }
+.slide .grid[data-cols="4"] { --cols: 4; }
+.slide .grid[data-cols="5"] { --cols: 5; }
+.slide .grid[data-cols="6"] { --cols: 6; }
+
+.slide .col {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.55);
+  min-width: 0;
+}
+
+.slide .stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 地からはみ出す光。字を芯に重ねない。地のすぐ上、どの中身よりも下に敷く。 */
+.slide .glow {
+  --gx: 80%;
+  --gy: 20%;
+  --gr: 40%;
+  --gc: var(--score-glow);
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(circle at var(--gx) var(--gy), var(--gc), var(--clear) var(--gr));
+  pointer-events: none;
+}
+
+.slide .glow[data-tone="live"] { --gc: var(--live-glow); }
+
+/* 表紙と締めが同じ光で挟む。 */
+.slide .glow[data-glow="score"] {
+  --gx: 34%;
+  --gy: 58%;
+  --gr: 46%;
+}
+
+.slide .glow[data-glow="live"] {
+  --gx: 58%;
+  --gy: 50%;
+  --gr: 40%;
+}
+
+/* ---- 角のループ：2章と3章の枚で、いまどの駅にいるか。 ---- */
+.slide .loopmark {
+  --r-x: calc(var(--gap) * 1.5);
+  --r-y: calc(var(--gap) * 0.95);
+  position: absolute;
+  top: calc(var(--gap) * 1.6);
+  right: calc(var(--margin) + var(--gap) * 5 + var(--r-x));
+  width: 0;
+  height: 0;
+}
+
+.slide .loopmark::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--r-x) * -1);
+  top: calc(var(--r-y) * -1);
+  width: calc(var(--r-x) * 2);
+  height: calc(var(--r-y) * 2);
+  border: var(--hair) solid var(--sand-8);
+  border-radius: 50%;
+}
+
+.slide .loopmark li {
+  --a: calc(360deg / 8 * var(--i));
+  position: absolute;
+  width: calc(var(--gap) * 0.4);
+  height: calc(var(--gap) * 0.4);
+  border: var(--rule) solid var(--sand-8);
+  border-radius: var(--pill);
+  background: var(--sand-1);
+  translate: calc(-50% + sin(var(--a)) * var(--r-x)) calc(-50% - cos(var(--a)) * var(--r-y));
+}
+
+/* ---- ループ：8つの駅を時計回りに。whole と outside が同じ座標で使う。 ---- */
+.slide .loop {
+  --rx: var(--loop-rx);
+  --ry: var(--loop-ry);
+  position: relative;
+  width: 0;
+  height: 0;
+}
+
+.slide .loop::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--rx) * -1);
+  top: calc(var(--ry) * -1);
+  width: calc(var(--rx) * 2);
+  height: calc(var(--ry) * 2);
+  border: var(--rule) solid var(--score-7);
+  border-radius: 50%;
+}
+
+.slide .loop li {
+  --a: calc(360deg / 8 * var(--i));
+  --b: calc(var(--a) + 22.5deg);
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  translate: calc(-50% + sin(var(--a)) * var(--rx)) calc(-50% - cos(var(--a)) * var(--ry));
+}
+
+.slide .loop .card {
+  align-items: flex-start;
+  width: var(--station-w);
+  gap: calc(var(--gap) * 0.15);
+  padding: calc(var(--gap) * 0.4) calc(var(--gap) * 0.5);
+  border-radius: var(--radius-small);
+  font-size: var(--size-caption);
+  line-height: 1.45;
+}
+
+.slide .loop .card b {
+  font-size: var(--size-small);
+}
+
+/* 駅と次の駅の間に、時計回りの矢じり。 */
+.slide .loop li::after {
+  content: "";
+  position: absolute;
+  left: calc(50% + (sin(var(--b)) - sin(var(--a))) * var(--rx));
+  top: calc(50% - (cos(var(--b)) - cos(var(--a))) * var(--ry));
+  width: calc(var(--gap) * 0.55);
+  height: calc(var(--gap) * 0.6);
+  background: var(--score-11);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  translate: -50% -50%;
+  rotate: atan2(calc(sin(var(--b)) * var(--ry)), calc(cos(var(--b)) * var(--rx)));
+}
+
+.slide .loop li:nth-child(1), .slide .loopmark li:nth-child(1) { --i: 0; }
+.slide .loop li:nth-child(2), .slide .loopmark li:nth-child(2) { --i: 1; }
+.slide .loop li:nth-child(3), .slide .loopmark li:nth-child(3) { --i: 2; }
+.slide .loop li:nth-child(4), .slide .loopmark li:nth-child(4) { --i: 3; }
+.slide .loop li:nth-child(5), .slide .loopmark li:nth-child(5) { --i: 4; }
+.slide .loop li:nth-child(6), .slide .loopmark li:nth-child(6) { --i: 5; }
+.slide .loop li:nth-child(7), .slide .loopmark li:nth-child(7) { --i: 6; }
+.slide .loop li:nth-child(8), .slide .loopmark li:nth-child(8) { --i: 7; }
+
+.slide .loopmark[data-now="1"] li:nth-child(1),
+.slide .loopmark[data-now="2"] li:nth-child(2),
+.slide .loopmark[data-now="3"] li:nth-child(3),
+.slide .loopmark[data-now="4"] li:nth-child(4),
+.slide .loopmark[data-now="5"] li:nth-child(5),
+.slide .loopmark[data-now="6"] li:nth-child(6),
+.slide .loopmark[data-now="7"] li:nth-child(7),
+.slide .loopmark[data-now="8"] li:nth-child(8) {
+  border-color: var(--amber-11);
+  background: var(--amber-9);
+  scale: 1.5;
+}
+
+/* 火花。位置は slides/<id>.ts が t から描く。 */
+.slide .spark {
+  position: absolute;
+  z-index: 3;
+  width: var(--spark);
+  height: var(--spark);
+  border-radius: var(--pill);
+  background: var(--amber-9);
+  box-shadow: 0 0 0 var(--halo) var(--amber-3);
+  translate: -50% -50%;
+  pointer-events: none;
+}
+
+/* ---- グラフ。座標はここにだけ置く。どの枚も同じ位置に描く。 ---- */
+.slide .graph {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 115 / 44;
+}
+
+.slide .graph > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.slide .graph path {
+  fill: none;
+  stroke: var(--score-7);
+  stroke-width: var(--rule);
+  stroke-linecap: round;
+}
+
+.slide .graph path[data-state="untested"] {
+  stroke-dasharray: 6 6;
+}
+
+.slide .graph path[data-lit] {
+  stroke: var(--score-11);
+  stroke-width: calc(var(--rule) * 1.6);
+}
+
+.slide .graph[data-focus] path:not([data-lit]) {
+  stroke: var(--sand-6);
+}
+
+.slide .graph [data-label] {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 1;
+  translate: -50% -50%;
+  padding: 0 0.4em;
+  border-radius: var(--radius-small);
+  background: var(--bg);
+  color: var(--score-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-tiny);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.slide .graph[data-focus] [data-label]:not([data-lit]) {
+  color: var(--sand-11);
+  font-weight: 500;
+}
+
+.slide .node {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: 12.5%;
+  padding: calc(var(--gap) * 0.25) calc(var(--gap) * 0.35);
+  border: var(--rule) solid var(--score-7);
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  color: var(--fg);
+  font-size: var(--size-caption);
+  font-weight: 600;
+  line-height: 1.4;
+  translate: -50% -50%;
+  transition: var(--step-transition);
+}
+
+.slide .node b {
+  color: var(--score-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-tiny);
+  letter-spacing: 0.04em;
+}
+
+.slide .node[data-kind="q"] { border-radius: var(--radius); }
+.slide .node[data-kind="evid"] { border-color: var(--score-3); background: var(--score-3); }
+.slide .node[data-kind="evid"] b { color: var(--score-12); }
+.slide .node[data-kind="req"] { border: var(--double) double var(--score-7); }
+.slide .node[data-kind="dec"] { border-color: var(--score-11); background: var(--score-11); color: var(--sand-1); }
+.slide .node[data-kind="dec"] b { color: var(--sand-1); }
+.slide .node[data-state="untested"] { border-style: dashed; }
+
+.slide .node[data-kind="tool"] {
+  border: var(--hair) solid var(--sand-8);
+  background: var(--sand-3);
+  color: var(--sand-11);
+  font-family: var(--font-mono);
+}
+
+.slide .node[data-kind="tool"] b { color: var(--sand-11); }
+
+.slide .node[data-state="old"] {
+  border: var(--rule) dashed var(--sand-8);
+  background: var(--sand-3);
+  color: var(--sand-11);
+  text-decoration: line-through;
+  translate: calc(-50% - var(--shift)) calc(-50% - var(--shift) * 2.2);
+}
+
+.slide .node[data-state="old"] b { color: var(--sand-11); }
+
+.slide .node[data-now] {
+  box-shadow: 0 0 0 var(--halo) var(--amber-9);
+}
+
+.slide .graph[data-focus] .node:not([data-lit]) {
+  border-color: var(--sand-6);
+  background: var(--sand-2);
+  color: var(--sand-11);
+  box-shadow: none;
+}
+
+.slide .graph[data-focus] .node:not([data-lit]) b { color: var(--sand-11); }
+
+.slide .graph .node[data-lit] {
+  box-shadow: 0 0 var(--bloom) var(--halo) var(--score-glow);
+}
+
+.slide .graph[data-view="debt"] .node[data-lit] {
+  box-shadow: 0 0 var(--bloom) var(--halo) var(--live-glow);
+}
+
+/* 縮図のノードの上に添える小さな印。data-node で同じ座標を引く。 */
+.slide .graph .mark {
+  position: absolute;
+  left: var(--x);
+  top: calc(var(--y) - 14%);
+  z-index: 3;
+  padding: 0 0.4em;
+  border-radius: var(--radius-small);
+  background: var(--sand-1);
+  color: var(--sand-11);
+  font-family: var(--font-mono);
+  font-size: var(--size-tiny);
+  font-weight: 700;
+  white-space: nowrap;
+  translate: -50% -50%;
+}
+
+/* 縮図：名前を伏せ、型の札だけを残す。 */
+.slide .graph[data-mini] .node {
+  padding: 0;
+  border-width: var(--hair);
+  font-size: 0;
+  line-height: 0;
+  aspect-ratio: 2.2;
+}
+
+.slide .graph[data-mini] .node b { display: none; }
+.slide .graph[data-mini] .node[data-kind="req"] { border-width: calc(var(--rule) * 1.5); }
+.slide .graph[data-mini] path { stroke-width: var(--hair); }
+.slide .graph[data-mini] [data-label] { display: none; }
+
+.slide .graph [data-node="req3"] { --x: 8%; --y: 12%; }
+.slide .graph [data-node="req1"] { --x: 30%; --y: 12%; }
+.slide .graph [data-node="req2"] { --x: 52%; --y: 12%; }
+.slide .graph [data-node="probe2"] { --x: 74%; --y: 12%; }
+.slide .graph [data-node="evid2"] { --x: 92.5%; --y: 12%; }
+.slide .graph [data-node="q"] { --x: 8%; --y: 50%; }
+.slide .graph [data-node="dec1"],
+.slide .graph [data-node="dec2"] { --x: 30%; --y: 50%; }
+.slide .graph [data-node="hyp1"] { --x: 52%; --y: 50%; }
+.slide .graph [data-node="probe1"] { --x: 74%; --y: 50%; }
+.slide .graph [data-node="story"] { --x: 8%; --y: 88%; }
+.slide .graph [data-node="evid1"] { --x: 30%; --y: 88%; }
+.slide .graph [data-node="hyp2"] { --x: 52%; --y: 88%; }
+.slide .graph [data-node="hyp3"] { --x: 74%; --y: 88%; }
+
+.slide .graph [data-edge="q-dec"] { d: path("M 92 220 L 345 220"); }
+.slide .graph [data-edge="req1-dec"] { d: path("M 345 52.8 L 345 220"); }
+.slide .graph [data-edge="req2-dec"] { d: path("M 598 52.8 L 345 220"); }
+.slide .graph [data-edge="dec-hyp1"] { d: path("M 345 220 L 598 220"); }
+.slide .graph [data-edge="dec-hyp2"] { d: path("M 345 220 L 598 387.2"); }
+.slide .graph [data-edge="dec-evid1"] { d: path("M 345 220 L 345 387.2"); }
+.slide .graph [data-edge="story-dec"] { d: path("M 92 387.2 L 345 220"); }
+.slide .graph [data-edge="probe1-hyp1"] { d: path("M 851 220 L 598 220"); }
+.slide .graph [data-edge="probe2-req2"] { d: path("M 851 52.8 L 598 52.8"); }
+.slide .graph [data-edge="probe2-evid2"] { d: path("M 851 52.8 L 1063.75 52.8"); }
+.slide .graph [data-edge="dec-req3"] { d: path("M 345 220 L 92 52.8"); }
+.slide .graph [data-edge="dec-hyp3"] { d: path("M 345 220 Q 598 330 851 387.2"); }
+
+.slide .graph [data-label="q-dec"] { --x: 19%; --y: 50%; }
+.slide .graph [data-label="req1-dec"] { --x: 30%; --y: 31%; }
+.slide .graph [data-label="req2-dec"] { --x: 41%; --y: 31%; }
+.slide .graph [data-label="dec-hyp1"] { --x: 41%; --y: 50%; }
+.slide .graph [data-label="dec-hyp2"] { --x: 41%; --y: 69%; }
+.slide .graph [data-label="dec-evid1"] { --x: 30%; --y: 69%; }
+.slide .graph [data-label="story-dec"] { --x: 19%; --y: 69%; }
+.slide .graph [data-label="probe1-hyp1"] { --x: 63%; --y: 50%; }
+.slide .graph [data-label="probe2-req2"] { --x: 63%; --y: 12%; }
+.slide .graph [data-label="probe2-evid2"] { --x: 83.5%; --y: 12%; }
+.slide .graph [data-label="dec-req3"] { --x: 19%; --y: 31%; }
+.slide .graph [data-label="dec-hyp3"] { --x: 63%; --y: 77%; }
+
+/* ---- 本線と寄り道。design-space と ex-space が同じ座標で使う。 ---- */
+.slide .lanes {
+  position: relative;
+  aspect-ratio: 2;
+}
+
+.slide .lanes svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.slide .lanes path {
+  fill: none;
+  stroke: var(--live-7);
+  stroke-width: var(--rule);
+  stroke-linecap: round;
+}
+
+.slide .lanes .main {
+  stroke: var(--score-11);
+  stroke-width: calc(var(--rule) * 2.5);
+}
+
+.slide .lane-name {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  padding: 0 0.5em;
+  border-radius: var(--radius-small);
+  background: var(--bg);
+  color: var(--live-11);
+  font-size: var(--size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+  translate: -50% -50%;
+}
+
+.slide .lane-name[data-at="main"] { --x: 50%; --y: 50%; color: var(--score-11); }
+.slide .lane-name[data-at="1"] { --x: 50%; --y: 22.5%; }
+.slide .lane-name[data-at="2"] { --x: 50%; --y: 35%; }
+.slide .lane-name[data-at="3"] { --x: 50%; --y: 65%; }
+.slide .lane-name[data-at="4"] { --x: 50%; --y: 77.5%; }
+.slide .lane-name[data-at="5"] { --x: 50%; --y: 2.5%; }
+
+/* ---- 動き。keyframes は from だけを書くので、止まった姿が完成した図になる。 ---- */
+.slide.is-current .pop {
+  animation: pop var(--dur-pop) var(--ease-pop) backwards;
+  animation-delay: calc(var(--stagger) * var(--i));
+}
+
+.slide .pop:nth-child(1) { --i: 0; }
+.slide .pop:nth-child(2) { --i: 1; }
+.slide .pop:nth-child(3) { --i: 2; }
+.slide .pop:nth-child(4) { --i: 3; }
+.slide .pop:nth-child(5) { --i: 4; }
+.slide .pop:nth-child(6) { --i: 5; }
+.slide .pop:nth-child(7) { --i: 6; }
+.slide .pop:nth-child(8) { --i: 7; }
+.slide .pop:nth-child(9) { --i: 8; }
+.slide .pop:nth-child(10) { --i: 9; }
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise)) scale(0.96);
+  }
+}
+
+/* 線を辿る。pathLength="1" の path に付ける。寄り道は主線より遅れて出る。 */
+.slide .trace {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.slide.is-current .trace {
+  animation: draw var(--dur-draw) var(--ease-out) backwards;
+  animation-delay: var(--delay);
+}
+
+.slide.is-current .trace.is-shown,
+.slide.is-current .is-shown .trace {
+  animation: draw var(--dur-draw) var(--ease-out) backwards;
+}
+
+.slide .detour {
+  --delay: var(--detour-delay);
+}
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+/* 3章の始まりと締めが、同じ座標で同じ札を出す。 */
+.slide .stage[data-center] {
+  display: grid;
+  place-items: center;
+}
+
+.slide .card[data-issue] {
+  width: var(--issue-w);
+  gap: calc(var(--gap) * 0.9);
+  padding: calc(var(--gap) * 1.2) calc(var(--gap) * 1.4);
+}
+
+.slide .card[data-issue] .bubble {
+  align-self: flex-start;
+  font-size: var(--size-title);
+}
+
+.slide .card[data-issue] dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.4) calc(var(--gap) * 0.8);
+  align-items: center;
+  margin-top: calc(var(--gap) * 0.4);
+}
+
+.slide .card[data-issue] dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+/* ---- レイアウト ---- */
+
+/* @layout cover
+<section class="slide" data-bg="ink" data-layout="cover">
+  <h2 class="slide-title">The talk in one line</h2>
+  <p class="lede">What it is about.</p>
+</section>
+*/
+.slide[data-layout="cover"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--gap) * 1);
+}
+
+.slide[data-layout="cover"] .slide-title {
+  position: relative;
+  z-index: 1;
+  font-size: var(--size-hero);
+  line-height: 1.15;
+}
+
+/* @layout door
+<section class="slide" data-bg="ink" data-layout="door">
+  <p class="numeral grad">1</p>
+  <h2 class="slide-title">The chapter</h2>
+</section>
+*/
+.slide[data-layout="door"] {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: calc(var(--gap) * 2.5);
+  padding-left: calc(var(--margin) * 2);
+}
+
+.slide[data-layout="door"] .slide-title {
+  font-size: var(--size-stat);
+}
+
+/* 扉の下端のレール。4つの章のうち、いまの章だけが点く。 */
+.slide .rail {
+  position: absolute;
+  right: var(--margin);
+  bottom: calc(var(--gap) * 2.2);
+  left: calc(var(--margin) * 2);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: calc(var(--gap) * 0.5);
+  color: var(--muted);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.slide .rail li {
+  padding-top: calc(var(--gap) * 0.5);
+  border-top: calc(var(--rule) * 2) solid var(--line);
+}
+
+.slide .rail[data-now="1"] li:nth-child(1),
+.slide .rail[data-now="2"] li:nth-child(2),
+.slide .rail[data-now="3"] li:nth-child(3),
+.slide .rail[data-now="4"] li:nth-child(4) {
+  border-image: var(--swing-d) 1;
+  color: var(--fg);
+}
+
+/* @layout center
+<section class="slide" data-bg="ink" data-layout="center">
+  <h2 class="slide-title">One sentence worth keeping</h2>
+</section>
+*/
+.slide[data-layout="center"] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--gap) * 1);
+  text-align: center;
+}
+
+/* @layout default
+<section class="slide" data-layout="default">
+  <p class="kicker">Section</p>
+  <h2 class="slide-title">A heading that states the point</h2>
+  <div class="stage">Figure</div>
+</section>
+*/
+.slide[data-layout="default"] {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) * 0.45);
+}
+
+.slide[data-layout="default"] .stage {
+  flex: 1;
+  margin-top: calc(var(--gap) * 0.5);
+}
+
+/* 図を縦に積み、上下の中央に置く。 */
+.slide .stage[data-stack] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--gap) * 0.8);
+}
+
+.slide[data-layout="default"] > .punch {
+  margin-top: auto;
+}
+
+/* @layout split
+<section class="slide" data-layout="split">
+  <div class="col">
+    <p class="kicker">Section</p>
+    <h2 class="slide-title">The claim</h2>
+  </div>
+  <div class="stage">Figure</div>
+</section>
+*/
+.slide[data-layout="split"] {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: calc(var(--gap) * 1.6);
+  align-items: center;
+}
+
+/* @layout element
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="1" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">Station</p>
+    <h2 class="slide-title">The claim</h2>
+    <dl class="facts"><dt>何をする</dt><dd>…</dd></dl>
+  </div>
+  <div class="stage">Figure</div>
+  <p class="punch" data-step="x">One line</p>
+</section>
+*/
+.slide[data-layout="element"] {
+  display: grid;
+  grid-template-columns: 5fr 6fr;
+  grid-template-rows: 1fr auto;
+  gap: calc(var(--gap) * 0.7) calc(var(--gap) * 1.5);
+}
+
+.slide[data-layout="element"] > .col {
+  justify-content: center;
+}
+
+.slide[data-layout="element"] .facts {
+  margin-top: calc(var(--gap) * 0.5);
+}
+
+.slide[data-layout="element"] > .stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--gap) * 0.6);
+  padding-top: calc(var(--gap) * 2.2);
+}
+
+.slide[data-layout="element"] > .punch {
+  grid-column: 1 / -1;
+}
+
+/* ビート：隠れているものも箱を保つので、どのビートでも並びが変わらない。 */
+.slide.is-current [data-step] {
+  opacity: 0;
+  transform: translateY(var(--rise));
+  transition: var(--step-transition);
+}
+
+.slide.is-current [data-step].is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+::view-transition-old(slide) {
+  animation: fade-out var(--step-transition);
+}
+
+::view-transition-new(slide) {
+  animation: fade-in var(--step-transition);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide.is-current [data-step],
+  .slide.is-current .pop,
+  .slide.is-current .trace {
+    transition: none;
+    animation: none;
+  }
+
+  ::view-transition-old(slide),
+  ::view-transition-new(slide) {
+    animation: none;
+  }
+}

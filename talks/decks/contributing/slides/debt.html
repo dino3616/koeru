@@ -1,0 +1,42 @@
+<section class="slide" data-layout="element">
+  <ol class="loopmark" data-now="6" aria-hidden="true"><li></li><li></li><li></li><li></li><li></li><li></li><li></li><li></li></ol>
+  <div class="col">
+    <p class="kicker">2 — Evidence</p>
+    <h2 class="slide-title">人にしか確かめられないものは、積もる。だから見えるようにする</h2>
+    <dl class="facts">
+      <dt>何をする</dt><dd>人に会える一回を、いちばん情報の多い観察に変える計画面。点数にしない。減らすことを目的にしない</dd>
+      <dt>どこにある</dt><dd><code>cargo xtask design-debt --human</code></dd>
+      <dt>Agent は</dt><dd class="agent"><span class="tag" data-tone="agent">verify</span>一度に確かめられる組を示す。架空の人物は作らない</dd>
+      <dt>次へ</dt><dd>人に会えたとき、Probe を走らせる</dd>
+    </dl>
+  </div>
+  <div class="stage">
+    <div class="graph" data-mini data-focus data-view="debt" aria-hidden="true">
+      <svg viewBox="0 0 1150 440">
+        <path data-edge="q-dec"></path>
+        <path data-edge="req1-dec"></path>
+        <path data-edge="req2-dec"></path>
+        <path data-edge="dec-hyp1" data-lit></path>
+        <path data-edge="dec-hyp2" data-lit></path>
+        <path data-edge="dec-evid1"></path>
+        <path data-edge="story-dec"></path>
+        <path data-edge="probe1-hyp1"></path>
+      </svg>
+      <span class="node" data-node="q" data-kind="q"></span>
+      <span class="node" data-node="req1" data-kind="req"></span>
+      <span class="node" data-node="req2" data-kind="req"></span>
+      <span class="node" data-node="dec1" data-kind="dec"></span>
+      <span class="node" data-node="hyp1" data-kind="hyp" data-state="untested" data-lit></span>
+      <span class="node" data-node="hyp2" data-kind="hyp" data-state="untested" data-lit></span>
+      <span class="node" data-node="evid1" data-kind="evid"></span>
+      <span class="node" data-node="story" data-kind="tool"></span>
+      <span class="node" data-node="probe1" data-kind="tool"></span>
+    </div>
+    <ul class="queue">
+      <li class="fall"><code>HYP-6RZ2LB</code>意味の理解 ／ 戻せる ／ 一緒に見られる：<code>HYP-T8W3QD</code></li>
+      <li class="fall"><code>HYP-T8W3QD</code>意味の理解 ／ 戻せる</li>
+      <li class="fall"><code>HYP-Q4M9XA</code>操作の流れ ／ 戻しにくい</li>
+    </ul>
+  </div>
+  <p class="punch" data-step="debt-punch">人に会えないことと、何も出せないことは同じではない</p>
+</section>

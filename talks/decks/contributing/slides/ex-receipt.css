@@ -1,0 +1,39 @@
+.receipts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--gap) * 1.5);
+  align-content: center;
+}
+
+.slip {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--gap) * 0.45) calc(var(--gap) * 0.8);
+  align-items: baseline;
+  padding: calc(var(--gap) * 0.9) calc(var(--gap) * 1);
+  font-size: var(--size-small);
+  font-weight: 600;
+}
+
+.slip dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--size-caption);
+  font-weight: 700;
+}
+
+.slip .head {
+  margin-bottom: calc(var(--gap) * 0.3);
+  color: var(--fg);
+  font-weight: 800;
+}
+
+.slip.absent .head,
+.slip.absent dd {
+  color: var(--sand-11);
+}
+
+.slip b {
+  font-family: var(--font-mono);
+  font-size: var(--size-lede);
+}
