@@ -10,3 +10,4 @@ refs/
 decks/*/dist/*
 !decks/*/dist/*.html
 !decks/*/dist/*.pdf
+.dek/annotations.json
