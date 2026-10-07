@@ -16,14 +16,6 @@
   --gr: 34%;
 }
 
-.kicker,
-.slide-title,
-.ways,
-.why {
-  position: relative;
-  z-index: 1;
-}
-
 .slide-title {
   font-size: var(--size-stat);
 }
