@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, fn } from "storybook/test";
+import { expect, fn, within } from "storybook/test";
 
 import { ItemList } from ".";
 import type { RowTakesView } from "~/lib/ipc";
@@ -62,10 +62,8 @@ export const 確認待ちがある: Story = {
   play: async ({ canvasElement }) => {
     // 色だけで言わない。語も並べる（`docs/reports/ux/direction.md`）。
     await expect(canvasElement.textContent).toContain("確認待ち");
-    const labels = [...canvasElement.querySelectorAll("[aria-label]")].map((e) =>
-      e.getAttribute("aria-label"),
-    );
-    await expect(labels.some((l) => l?.includes("確認待ちです") === true)).toBe(true);
+    const list = within(within(canvasElement).getByRole("list"));
+    await expect(list.getAllByRole("button", { name: /確認待ち/ })).toHaveLength(2);
   },
 };
 

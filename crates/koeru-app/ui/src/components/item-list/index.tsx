@@ -76,19 +76,13 @@ export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListPro
         <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
           {shown.map((row) => (
             <li key={row.row_id}>
+              {/*
+                名前は中身から作る。 `aria-label` で包むと、見えている「5 音」が
+                名前から落ちる（WCAG 2.5.3）。読ませたい語は `sr-only` で足す。
+              */}
               <button
                 type="button"
                 onClick={() => onOpen(row.row_id)}
-                aria-label={[
-                  row.text,
-                  row.takes.length === 0
-                    ? "まだ録っていません"
-                    : `${row.takes.length} 回録りました`,
-                  // 色や位置ではなく語で言う（`docs/reports/ux/direction.md`）。
-                  pending.has(row.row_id) ? "確認待ちです" : null,
-                ]
-                  .filter((s) => s !== null)
-                  .join("。")}
                 className={`flex w-full flex-col gap-2 rounded-lg border p-3 text-left hover:bg-slate-4 ${
                   row.row_id === nextRowId
                     ? "border-slate-12 bg-slate-4"
@@ -107,6 +101,7 @@ export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListPro
                   {pending.has(row.row_id) && (
                     <span className="text-xs text-slate-11">確認待ち</span>
                   )}
+                  {row.takes.length === 0 && <span className="sr-only">まだ録っていません</span>}
                   {row.takes.length > 0 && (
                     <span className="flex items-center gap-2 font-mono text-xs text-slate-12 tabular-nums">
                       <svg
@@ -122,7 +117,7 @@ export const ItemList = ({ rows, nextRowId, pendingRowIds, onOpen }: ItemListPro
                       >
                         <path d="M3 8.5 6.5 12 13 4.5" />
                       </svg>
-                      {row.takes.length} 回
+                      {row.takes.length} 回<span className="sr-only">録りました</span>
                     </span>
                   )}
                 </span>

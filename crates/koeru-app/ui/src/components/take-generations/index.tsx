@@ -68,13 +68,6 @@ export const TakeGenerations = ({
               type="button"
               aria-pressed={t.take_id === shownId}
               onClick={() => onShow(t.take_id)}
-              aria-label={
-                t.invalid
-                  ? `${t.generation} 回目、${at}、${seconds} 秒。音がとぎれているので使えません`
-                  : `${t.generation} 回目、${at}、${seconds} 秒${
-                      adopted ? "。これを使っています" : ""
-                    }`
-              }
               className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border p-3 text-left hover:bg-slate-4 ${
                 t.take_id === shownId
                   ? "border-slate-7 bg-slate-4"
@@ -86,26 +79,37 @@ export const TakeGenerations = ({
                   {t.generation} 回目
                 </span>
                 <span className="font-mono text-xs text-slate-11 tabular-nums">
-                  {at} · {seconds} 秒
+                  {at} <span aria-hidden="true">·</span> {seconds} 秒
                 </span>
               </span>
+              {/*
+                名前は中身から作る。 `aria-label` で包むと、見えている字と読まれる名前が
+                食い違う（WCAG 2.5.3）。読ませたい語は `sr-only` で足す。
+              */}
               {adopted && (
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className="ml-auto text-slate-12"
-                >
-                  <path d="M3 8.5 6.5 12 13 4.5" />
-                </svg>
+                <>
+                  <span className="sr-only">これを使っています</span>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className="ml-auto text-slate-12"
+                  >
+                    <path d="M3 8.5 6.5 12 13 4.5" />
+                  </svg>
+                </>
               )}
-              {t.invalid && <span className="ml-auto text-xs text-red-11">使えません</span>}
+              {t.invalid && (
+                <span className="ml-auto text-xs text-red-11">
+                  <span className="sr-only">音がとぎれているので</span>使えません
+                </span>
+              )}
             </button>
 
             {!adopted && !t.invalid && (
