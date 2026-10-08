@@ -5,7 +5,7 @@
     "": {
       "name": "@koeru/talks",
       "devDependencies": {
-        "@hajimism/dek": "0.3.0",
+        "@hajimism/dek": "0.3.1",
         "@tsconfig/strictest": "2.0.8",
         "playwright": "1.63.0",
         "typescript": "7.0.2",
@@ -13,7 +13,7 @@
     },
   },
   "packages": {
-    "@hajimism/dek": ["@hajimism/dek@0.3.0", "", { "dependencies": { "zod": "^4.6.5" }, "bin": { "dekc": "src/cli.ts" } }, "sha512-oQlnzkclhZAgmxeYOx2+knwnGWkVRN5U9F2b6tQYdA54uYv3+Gx55UXal4KeiS9YDKuG299sHPGJ2FeEXzt6WQ=="],
+    "@hajimism/dek": ["@hajimism/dek@0.3.1", "", { "dependencies": { "zod": "^4.6.5" }, "bin": { "dekc": "src/cli.ts" } }, "sha512-qKqaCCz55eV8r5fHV8tOE9Dk2avfeozkB3TkxGC0rpTQbQ5CCWWVGN2atqnFDwk0gfULlN91k6+c53DpI9nWOA=="],
 
     "@tsconfig/strictest": ["@tsconfig/strictest@2.0.8", "", {}, "sha512-XnQ7vNz5HRN0r88GYf1J9JJjqtZPiHt2woGJOo2dYqyHGGcd6OLGqSlBB6p1j9mpzja6Oe5BoPqWmeDx6X9rLw=="],
 
