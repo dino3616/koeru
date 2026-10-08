@@ -105,9 +105,10 @@ export const SongList = ({
               size="sm"
               variant="secondary"
               aria-busy={preparingId === s.id}
-              aria-label={`${s.title} を歌わせる`}
               onClick={() => preparingId === null && onSing(s.id)}
             >
+              {/* `aria-label` で包まない。「用意しています」が名前から落ちる（WCAG 2.5.3）。 */}
+              <span className="sr-only">{s.title} を</span>
               {preparingId === s.id ? "用意しています" : "歌わせる"}
             </Button>
           </li>
