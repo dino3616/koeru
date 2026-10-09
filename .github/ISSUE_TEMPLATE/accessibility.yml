@@ -1,0 +1,54 @@
+# 不具合と経路を分ける。 支援技術を使う人の報告は文脈が違い、急ぎの度合いも違う
+# （https://opensource.guide/accessibility-best-practices-for-your-project/）。
+# 障害の開示を求めない。 支援技術は尋ねるが任意にする（GitHub の ACCESSIBILITY.md 雛形）。
+name: アクセシビリティの報告
+description: 使えない、使いにくい、読み上げや操作が届かない
+labels: [accessibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        障害の有無や内容を書く必要はありません。
+        音源名・ファイルパス・歌詞を貼らないでください。 必要な場合は伏せてください。
+  - type: textarea
+    id: what
+    attributes:
+      label: 何ができなかったか、何が使いにくかったか
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: どの工程で起きたか
+      options:
+        - プロジェクト作成 / オンボーディング
+        - 録音
+        - 試唱
+        - 原音設定（通常モード）
+        - 原音設定（上級モード）
+        - 書き出し / パッケージング
+        - その他 / 分からない
+    validations:
+      required: true
+  - type: textarea
+    id: assistive
+    attributes:
+      label: 使っている支援技術や設定（任意）
+      description: 書ける範囲で構いません。 名前と版が分かると再現の手がかりになります。
+      placeholder: |
+        VoiceOver / キーボードだけ / 画面の拡大 / 視差効果を減らす
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 回避できた方法（任意）
+  - type: input
+    id: os
+    attributes:
+      label: OS とバージョン
+      placeholder: macOS 15.3
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KOERU のバージョン

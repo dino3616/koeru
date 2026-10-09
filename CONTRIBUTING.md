@@ -2,7 +2,7 @@
 
 Issue と Pull Request を歓迎します。
 
-まず [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を読んでください。設計の前提は [docs/product-vision.md](docs/product-vision.md) にあります。確定している方針に反する変更は、その方針を変えるべき理由から議論してください。 実装の詳細から入ると噛み合いません。
+まず [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を読んでください。画面を変えるなら [ACCESSIBILITY.md](ACCESSIBILITY.md) も読んでください。設計の前提は [docs/product-vision.md](docs/product-vision.md) にあります。確定している方針に反する変更は、その方針を変えるべき理由から議論してください。 実装の詳細から入ると噛み合いません。
 
 ## 開発環境は Nix です
 
