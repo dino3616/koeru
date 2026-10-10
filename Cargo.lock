@@ -4341,9 +4341,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-opener"
-version = "2.7.0"
+version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d39404b2572927e0d3ed30a7ca226037f7508d22e79c96ee6ef0d42b6a4b3345"
+checksum = "85dead674ee41937d042ee855d785f07ee67206f19402200c12b9255964d5ac8"
 dependencies = [
  "dunce",
  "glob",
@@ -4474,7 +4474,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.21",
- "toml 1.1.8+spec-1.1.0",
+ "toml 0.9.12+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",
@@ -4660,10 +4660,12 @@ version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf92845e79fc2e2def6a5d828f0801e29a2f8acc037becc5ab08595c7d5e9863"
 dependencies = [
+ "indexmap 2.14.2",
  "serde_core",
  "serde_spanned 1.1.2",
  "toml_datetime 0.7.5+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 0.7.15",
 ]
 
