@@ -268,6 +268,17 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "class",
     "outcome",
     "phase",
+    // 背後の仕事の状態遷移（`koeru-runtime` の `jobs`、`DEC-PLT-047`）。
+    // どれも固定の語彙か数値で、利用者の内容を載せない。 `job_id` は実行ごとに振る
+    // ランダムな UUID で、素材にも本人にも結びつかない。 `lane` / `priority` /
+    // `admission` / 遷移の `outcome` は固定の語、`queue_wait_ms` と `inflight_bytes`
+    // は数。 入力の印（`BasedOn`）とまとめる鍵は載せない。
+    "job_id",
+    "priority",
+    "lane",
+    "queue_wait_ms",
+    "inflight_bytes",
+    "admission",
     // 検査が複数行の event と省略形を読めるようになって見つかったもの。
     // どれも件数・寸法・真偽・レート・OSStatus・固定の語彙で、本人のものではない。
     "attempt",

@@ -285,6 +285,16 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 2
 contracts = ['DEC-PLT-034']
 
+[[suite]]
+id = 'SUITE-RUNTIME-004'
+title = 'JobRuntime を偽の長い計算で確かめる（優先度・lane・試行・取消・上限・期限・公開の線形化点）'
+runner = 'cargo'
+package = 'koeru-runtime'
+target = 'jobs'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 40
+contracts = ['DEC-PLT-047', 'DEC-PLT-034']
+
 # ## koeru-app
 
 [[suite]]

@@ -22,10 +22,23 @@
 //! `koeru-app` の `Studio` は T05b-2 でこれ経由に繋ぎ直した。 開く・移る・閉じるが
 //! 貸与を切り替え、台帳の書き込みはすべて [`ProjectRuntime::writer`] を通る。
 //!
+//! # T07 のどこにあたるか
+//!
+//! T07（`JobRuntime` / result admission / cancellation）のうち、この crate（T07a）が
+//! 持つのは:
+//!
+//! - [`jobs::JobRuntime`] — lane ごとの有界の待ち・試行・取消・期限・バイト数の上限。
+//!   エンジンを知らず、計算は closure で受け取る
+//! - [`jobs::JobRuntime::publish`] — 結果の受理の線形化点。 台帳へ書くのは
+//!   呼び出し側の `admit` が [`ProjectRuntime::writer`] を取るところだけ
+//!
+//! `workers.rs` の置き換えと `Studio` への接続は T07b-2。 判断は `DEC-PLT-047`。
+//!
 //! `editor`（T13 で既存契約の移行を検証。M6新機能は別計画）と `distribution`（WAV 走査が要る。T08 / T09）の facet は
 //! まだここに無い。 `session` モジュールに理由を書いてある。
 
 pub mod error;
+pub mod jobs;
 pub mod lease;
 pub mod review;
 pub mod runtime;
