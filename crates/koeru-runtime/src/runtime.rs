@@ -16,6 +16,7 @@ use koeru_core::project::ProjectDir;
 use crate::error::RuntimeError;
 use crate::lease::ProjectLease;
 use crate::session::ProjectReadSession;
+use crate::time::now_rfc3339;
 
 /// 読み手接続のプールの上限。
 ///
@@ -60,8 +61,8 @@ impl ProjectRuntime {
     /// 読めなくしない。 失敗はその場で記録し、空の `Report` を持つ。
     ///
     /// **綴りの表の確認（presamp snapshot の ensure）はここではしない。**
-    /// app 側のプリセットが要るので、書き手の側（T05b-2 で `Studio` から
-    /// `ProjectRuntime::writer` 経由に変わる箇所）に残す。
+    /// app 側のプリセットが要るので、書き手の側（`Studio::open_project` が
+    /// `ProjectRuntime::writer` 経由で行う）に残す。
     ///
     /// # Errors
     ///
@@ -105,7 +106,7 @@ impl ProjectRuntime {
         self.dir.id()
     }
 
-    /// プロジェクトのディレクトリ。 `Studio` が読み専用で使う経路（T05b-2）向け。
+    /// プロジェクトのディレクトリ。 `Studio` が読み専用で使う経路向け。
     #[must_use]
     pub const fn dir(&self) -> &ProjectDir {
         &self.dir
@@ -258,58 +259,5 @@ impl std::ops::Deref for WriterGuard<'_> {
 impl std::ops::DerefMut for WriterGuard<'_> {
     fn deref_mut(&mut self) -> &mut Ledger {
         &mut self.0
-    }
-}
-
-/// 現在時刻を RFC 3339 で。
-///
-/// `crates/koeru-app/src/studio.rs` の `now_rfc3339` と同じ組み立て。
-/// 複製している——`studio.rs` は T05b-2 が編集中でここから触れず、時計を
-/// 共有する crate もまだ無い。 秒までで足りる。 台帳に入るのは順序を
-/// 保つためで、精密な時刻ではない。
-fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let (y, m, d) = civil_from_days(i64::try_from(days).unwrap_or(0));
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-/// 1970-01-01 からの日数を年月日にする（Howard Hinnant の `civil_from_days`）。
-#[allow(
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
-    reason = "西暦での妥当な範囲でしか使わない日付の算術"
-)]
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn 現在時刻を_rfc3339_で組める() {
-        let s = now_rfc3339();
-        assert_eq!(s.len(), "2026-09-28T00:00:00Z".len());
-        assert!(s.ends_with('Z'));
     }
 }

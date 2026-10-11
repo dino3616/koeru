@@ -6,8 +6,8 @@
 //! [`slot_name`]）だけ。
 //!
 //! **台帳から組み直す本体（[`EntryKey`] と `load`）は `koeru-runtime` へ移した**
-//! （T05b-1、`DEC-PLT-044`）。 書き手はまだ `Studio` が持っているので
-//! （T05b-2 で `ProjectRuntime::writer` 経由に変わる）、ここに残るのは書く側だけ。
+//! （T05b-1、`DEC-PLT-044`）。 書き手は `ProjectRuntime::writer`（T05b-2）から
+//! `&mut Ledger` として渡る。 ここに残るのは書く側だけ。
 //! [`EntryKey`] は `crate::review::EntryKey` の経路を保つための再輸出——
 //! `studio.rs` はこの経路のまま参照している。
 //!

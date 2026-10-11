@@ -58,6 +58,8 @@ use koeru_core::waveform;
 // `koeru_failure::Outcome` と書く。
 use koeru_failure::{Class, Failure};
 use koeru_model::retake::{self, Anchor, Onsets, Pins};
+use koeru_runtime::time::now_rfc3339;
+use koeru_runtime::{ProjectLease, ProjectRuntime, WriterGuard};
 use koeru_synth::f0;
 use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 
@@ -263,6 +265,14 @@ fn empty_title() -> AppError {
 }
 
 /// 開いている音源が無い。 画面が開く前に読みに来た、または閉じたあとに届いた。
+fn already_recording() -> AppError {
+    AppError::new(
+        "app.already_recording",
+        Class::Rejected,
+        "収録中は別の声を開けない。止めてから移ってほしい",
+    )
+}
+
 fn no_project() -> AppError {
     AppError::new(
         "app.no_project",
@@ -359,10 +369,22 @@ pub struct ReviewItem {
 }
 
 /// 開いているプロジェクト。
+///
+/// 台帳の書き手は [`ProjectRuntime`] が持つ（`DEC-PLT-034`、`DEC-PLT-044`）。
+/// ここが持つのは書き手の側の状態——確認キュー・綴りの表・収録セッション——と、
+/// **プロジェクトの寿命を持つ写し**（[`ProjectCaches`]）。 `Open` が捨てられれば
+/// 写しも一緒に捨てられるので、別のプロジェクトへ移っても前のものが残らない。
 #[derive(Debug)]
 struct Open {
-    dir: ProjectDir,
-    ledger: Ledger,
+    /// 書き手・読み手プール・貸与を持つ実行時。 `Arc` で配り、`AppState` が
+    /// 状態ロックの外から読めるようにする（[`Studio::runtime`]）。
+    runtime: Arc<ProjectRuntime>,
+    /// この `Open` が開いたときの貸与。
+    ///
+    /// 実行時から毎回読み直さず、ここに持つ。 `Studio` が書き手へ添える貸与は
+    /// 「自分が開いたもの」で、実行時が別の貸与へ入れ替わっていれば
+    /// `runtime.lease_expired` で拾える。
+    lease: ProjectLease,
     session_id: i32,
     /// エイリアスの綴りの表（`TR-SYN-36`, `DEC-SYN-010`）。
     ///
@@ -382,8 +404,61 @@ struct Open {
     /// 本人が閉じるまで持つ。 画面は経路を移るたびに開き直すが、同じ音源なら
     /// ここを通らないので、1度きりの応答で返すと移った先で消える。
     presamp_restored: Option<String>,
-    /// 開いたときの検証が見つけた、落ちたあとに残った録音（`TR-REC-28`）。
-    captures: koeru_core::capture::Report,
+    caches: ProjectCaches,
+}
+
+impl Open {
+    /// 台帳の書き手。 **文の終わりで手放す。**
+    ///
+    /// 戻り値は `std::sync::Mutex` の guard そのもので、再入できない
+    /// （[`ProjectRuntime::writer`]）。 別の `Studio` のメソッドを呼ぶあいだ、
+    /// アライメント・合成・DSP・ファイルのコピー・待ちのあいだは持たない。
+    /// `if let` / `match` / `for` の式に直接書くと本体のあいだ生き続けるので、
+    /// 先に `let` で受けて値だけ持ち出す。
+    fn writer(&self) -> Result<WriterGuard<'_>> {
+        Ok(self.writer_raw()?)
+    }
+
+    /// [`Self::writer`] の、失敗を `AppError` へ畳まない形。 失敗をその場で記録する
+    /// だけの経路（`Result` を返せない後始末）が使う。
+    fn writer_raw(&self) -> std::result::Result<WriterGuard<'_>, koeru_runtime::RuntimeError> {
+        self.runtime.writer(&self.lease)
+    }
+
+    fn dir(&self) -> &ProjectDir {
+        self.runtime.dir()
+    }
+}
+
+/// プロジェクトの寿命を持つ写し。
+///
+/// **`Studio` 直下に置かない。** 以前は `Studio` が持っていて、別のプロジェクトへ
+/// 移っても捨てなかった。 テイクの ID は台帳ごとに 1 から振るので、A のテイク N の
+/// 波形の段が、B のテイク N の波形として返った。
+#[derive(Debug)]
+struct ProjectCaches {
+    /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
+    ///
+    /// 素材が変われば鍵が変わるので、同じプロジェクトの中では明示的に捨てなくても
+    /// 古い結果は使われない（`TR-SYN-26`）。 プロジェクトが変われば、ここごと捨てる。
+    song_cache: Arc<Mutex<PhraseCache>>,
+    /// 集めた F0 系列。話者音域を見るため（`TR-SYN-22`）。
+    observed_f0: Vec<Vec<f64>>,
+    /// 話者音域から決めた探索下限。まだ分からなければ `None`。
+    f0_floor: Option<f64>,
+    /// テイクごとの波形の段（`TR-PLT-04`）。上限を置いて持ち回す。
+    mipmaps: HashMap<i32, (Arc<waveform::Mipmap>, u32)>,
+}
+
+impl ProjectCaches {
+    fn new() -> Self {
+        Self {
+            song_cache: Arc::new(Mutex::new(PhraseCache::new())),
+            observed_f0: Vec::new(),
+            f0_floor: None,
+            mipmaps: HashMap::new(),
+        }
+    }
 }
 
 /// 録音している1回。 台帳の予定と同じ識別子を持つ（`DEC-REC-010`）。
@@ -650,17 +725,6 @@ pub struct Studio {
     /// 単一の出力枠（`DEC-REC-011`）。 音高提示・基準音・試唱・テイクの再生・
     /// 曲の試唱が、これを取り合う。 新しい出力を始める前に必ず前を止める。
     output: PlaybackLease,
-    /// フレーズ単位の合成結果（`TR-SYN-02`, `TR-SYN-25`）。
-    ///
-    /// プロジェクトを開いている間だけ持つ。 素材が変われば鍵が変わるので、
-    /// 明示的に捨てなくても古い結果は使われない（`TR-SYN-26`）。
-    song_cache: Arc<Mutex<PhraseCache>>,
-    /// 集めた F0 系列。話者音域を見るため（`TR-SYN-22`）。
-    observed_f0: Vec<Vec<f64>>,
-    /// 話者音域から決めた探索下限。まだ分からなければ `None`。
-    f0_floor: Option<f64>,
-    /// テイクごとの波形の段（`TR-PLT-04`）。上限を置いて持ち回す。
-    mipmaps: HashMap<i32, (Arc<waveform::Mipmap>, u32)>,
     /// 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`）。
     ///
     /// 録音入力とは別のスレッド。 録音のコールバックを妨げない。
@@ -779,10 +843,6 @@ impl Studio {
             leak: None,
             may_mix: false,
             output: PlaybackLease::new(),
-            song_cache: Arc::new(Mutex::new(PhraseCache::new())),
-            observed_f0: Vec::new(),
-            f0_floor: None,
-            mipmaps: HashMap::new(),
             workers: Workers::start(),
             observed: HashMap::new(),
             ever_previewed: false,
@@ -1035,14 +1095,14 @@ impl Studio {
     /// 音源を開いていないとき、manifest か台帳を読めないとき。
     #[tracing::instrument(skip(self))]
     pub fn voice_state(&mut self) -> Result<VoiceState> {
-        let manifest = self.opened()?.dir.read_manifest()?;
+        let manifest = self.opened()?.dir().read_manifest()?;
         let preset = preset_of(&manifest);
         let open = self.opened_mut()?;
         let rules = open.rules.clone();
-        let mut state = voice_state(&mut open.ledger, &rules, preset)?;
+        let mut state = voice_state(&mut *open.writer()?, &rules, preset)?;
         state.display_name = manifest.display_name;
         state.method = manifest.method.as_str().to_owned();
-        state.rows = count_rows(&mut open.ledger)?;
+        state.rows = count_rows(&mut *open.writer()?)?;
         Ok(state)
     }
 
@@ -1071,51 +1131,80 @@ impl Studio {
     /// **移行はここで走らせる。** 一覧（[`Self::library`]）は読み取り専用で状態を
     /// 出すだけで、台帳を書き換えない（`DEC-PLT-041`）。 移行できない・新しい版の
     /// 台帳は、型のついた失敗で断って開かない。
+    ///
+    /// **台帳を開く・移行する・検証する部分は [`ProjectRuntime::open`] が持つ**
+    /// （`DEC-PLT-034`）。 ここは、その書き手を使う綴りの表の確認と確認キューの
+    /// 組み直しだけを足す。
+    ///
+    /// **別の音源へ移るときは、次が開けると分かってから前を閉じる。** 失敗しうる
+    /// こと（一覧の照会、移行、検証、綴りの表、確認キュー）を全部先に済ませ、
+    /// 開けたときだけ前の音源を手放す。 開けなかったら前の音源は何も変わらず、
+    /// ストリームも開いたまま残る。 別々の台帳なので、2つの実行時は一瞬だけ並ぶ。
+    /// 前を手放すときは、前の実行時を `close` して貸与を失効させ（それを握っていた
+    /// 呼び出し側、`AppState` の枠や将来の GraphQL の resolver は
+    /// `runtime.lease_expired` を受け取る）、背後の仕事と再生も止める
+    /// （[`Self::stop_preview`]）。 前の音源のための仕事が、移った先の資源を
+    /// 触らないようにする。
     #[tracing::instrument(skip(self))]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
         if let Some(open) = &self.open {
-            if open.dir.id() == id {
+            if open.dir().id() == id {
                 return Ok(());
             }
             if self.recording.is_some() {
-                return Err(AppError::new(
-                    "app.already_recording",
-                    Class::Rejected,
-                    "収録中は別の声を開けない。止めてから移ってほしい",
-                ));
+                return Err(already_recording());
             }
-            self.disarm();
         }
         let dir = self.library.open_project(id)?;
-        dir.migrate_ledger()?;
-        let mut ledger = Ledger::open(dir.db_path())?;
-        // 落ちたときに録音に使っていた予定へ印を付け、孤児を予定と突き合わせる（`TR-REC-28`）。
-        // 見て回れなくても開く。 読めるものまで読めなくしない。 印を付けられなかった予定が
-        // 残っていれば、次の録音の予定を書くところで断られる。
-        let captures =
-            koeru_core::capture::verify(&mut ledger, dir.root(), &dir.audio_dir(), &now_rfc3339())
-                .unwrap_or_else(|e| {
+        let switching = self.open.is_some();
+        let runtime = ProjectRuntime::open(dir)?;
+        match Self::build_open(&runtime) {
+            Ok(open) => {
+                // ここまで失敗しうるものは全部済んでいる。 前の音源を手放す。
+                // 閉じられなくても（もう閉じていた）、次は開けているので進む。
+                if let Err(e) = self.release_project() {
+                    e.record("project.switch_close");
+                }
+                self.open = Some(open);
+                tracing::info!(switching, "プロジェクトを開いた");
+                Ok(())
+            }
+            Err(e) => {
+                // 開けなかった。 貸与を振ったまま放り出さない。
+                if let Err(close) = runtime.close(runtime.lease()) {
                     koeru_failure::record_failure(
-                        &e,
+                        &close,
                         koeru_failure::Outcome::NotCommitted,
-                        "capture.verify",
+                        "project.open_rollback",
                     );
-                    koeru_core::capture::Report::default()
-                });
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// 開いたばかりの実行時から、書き手の側の状態を組む。
+    ///
+    /// 書き手は文ごとに取って手放す（`Open::writer` の doc）。 ファイルを触る
+    /// `restore_presamp` は書き手を握らずに行う。
+    fn build_open(runtime: &Arc<ProjectRuntime>) -> Result<Open> {
+        let lease = *runtime.lease();
+        let dir = runtime.dir();
         // 確認キューは開くときに組み直す（`crate::review`）。
         // 遷移をやり直すのではなく、書いてあった状態をそのまま載せる。
-        let (review, review_takes) = crate::review::load(&mut ledger)?;
+        let (review, review_takes) = crate::review::load(&mut *runtime.writer(&lease)?)?;
         let set = preset_of(&dir.read_manifest()?).set;
         // 綴りの表は台帳の写し（`DEC-SYN-013`）。 写しを持たない古いプロジェクトは、
         // 作ったときの台帳が既定の表で書かれているので、既定を写しにする。
-        let snapshot = if let Some(t) = ledger.presamp_snapshot()? {
+        let stored = runtime.writer(&lease)?.presamp_snapshot()?;
+        let snapshot = if let Some(t) = stored {
             t
         } else {
             let t = koeru_core::presamp::write(
                 &koeru_core::presamp::Rules::builtin(set),
                 koeru_package::profile::NEWLINE,
             );
-            ledger.put_presamp_snapshot(&t)?;
+            runtime.writer(&lease)?.put_presamp_snapshot(&t)?;
             t
         };
         // フォルダの控えが書き換えられていれば戻し、中身を別名で残す。
@@ -1124,17 +1213,76 @@ impl Studio {
             tracing::info!("書き換えられた綴りの表を戻した");
         }
         let rules = koeru_core::presamp::parse(&snapshot).or_builtin(set);
-        self.open = Some(Open {
-            dir,
-            ledger,
+        Ok(Open {
+            runtime: Arc::clone(runtime),
+            lease,
             session_id: 0,
             rules,
             review,
             review_takes,
             presamp_restored,
-            captures,
-        });
+            caches: ProjectCaches::new(),
+        })
+    }
+
+    /// 開いているプロジェクトを閉じる。
+    ///
+    /// 収録中は閉じない（[`Self::open_project`] が移るのを断るのと同じ理由。
+    /// `app.already_recording`）。 閉じられるなら、再生と背後の仕事を止め、
+    /// ストリームを落とし、実行時の貸与を閉じて、何も開いていない状態へ戻る。
+    ///
+    /// 閉じたあとはプロジェクトが要る操作が `app.no_project` で断られ、
+    /// 開き直せば新しい貸与が振られる（同じ値は二度と出ない）。
+    ///
+    /// **tauri-specta の操作にしない**（`DEC-PLT-035`）。 Rust の呼び出し側と
+    /// 試験が使い、画面からは T09 の GraphQL `closeProject` が呼ぶ。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていないとき（`app.no_project`）、収録中のとき
+    /// （`app.already_recording`）。
+    #[tracing::instrument(skip(self))]
+    pub fn close_project(&mut self) -> Result<()> {
+        self.opened()?;
+        if self.recording.is_some() {
+            return Err(already_recording());
+        }
+        self.release_project()?;
+        tracing::info!("プロジェクトを閉じた");
         Ok(())
+    }
+
+    /// 開いているプロジェクトを手放す。 無ければ何もしない。
+    ///
+    /// 順序が要る。 まず再生と背後の仕事を止め、ストリームを落とす（排出スレッドが
+    /// 先。`disarm`）。 そのあとで実行時の貸与を閉じる——閉じたあとに残った仕事が
+    /// 書き手を取ろうとすれば、`runtime.lease_expired` で断られる。
+    /// `Open` を捨てることで、プロジェクトの寿命を持つ写し（[`ProjectCaches`]）も
+    /// 一緒に捨てる。
+    fn release_project(&mut self) -> Result<()> {
+        if self.open.is_none() {
+            return Ok(());
+        }
+        self.stop_preview();
+        self.disarm();
+        if let Some(open) = self.open.take() {
+            open.runtime.close(&open.lease)?;
+        }
+        Ok(())
+    }
+
+    /// 開いているプロジェクトの実行時。
+    ///
+    /// **`Studio` の状態ロックの外から使うための持ち手。** `AppState` が
+    /// `commands` の経路で開く・移る・閉じるたびにここから写しを取り、ロックの外の
+    /// 枠へ置く（`AppState::project_runtime`）。 T09 の resolver はその枠を読む
+    /// ——`finish_take` が数秒握るロックを待たない。
+    ///
+    /// 貸与が切れたあとに握り続けた持ち手は、`read` / `writer` が
+    /// `runtime.lease_expired` を返す。
+    #[must_use]
+    pub fn runtime(&self) -> Option<Arc<ProjectRuntime>> {
+        self.open.as_ref().map(|o| Arc::clone(&o.runtime))
     }
 
     /// 開いたときの検証が見つけた、落ちたあとに残った録音（`TR-REC-28`）。
@@ -1146,7 +1294,7 @@ impl Studio {
     ///
     /// プロジェクトを開いていない。
     pub fn capture_report(&self) -> Result<koeru_core::capture::Report> {
-        Ok(self.opened()?.captures.clone())
+        Ok((*self.opened()?.runtime.open_report()).clone())
     }
 
     /// 開いたときに戻した `presamp.ini` の中身を残したファイル名（`DEC-SYN-013`）。
@@ -1180,12 +1328,12 @@ impl Studio {
     /// テイクを1つ録るたびに1件ずつの確認へ戻すことになる。
     fn start_new_export_generation(&mut self) -> Result<()> {
         let open = self.opened_mut()?;
-        let mut s = open.ledger.review_state()?;
+        let mut s = open.writer()?.review_state()?;
         if !s.exported {
             return Ok(());
         }
         s.exported = false;
-        open.ledger.put_review_state(&s)?;
+        open.writer()?.put_review_state(&s)?;
         Ok(())
     }
 
@@ -1196,7 +1344,7 @@ impl Studio {
     /// キューの中身も変わる。モードは台帳から読み直すので落ちない。
     fn refresh_review(&mut self) -> Result<()> {
         let open = self.opened_mut()?;
-        let (review, takes) = crate::review::load(&mut open.ledger)?;
+        let (review, takes) = crate::review::load(&mut *open.writer()?)?;
         open.review = review;
         open.review_takes = takes;
         Ok(())
@@ -1251,8 +1399,8 @@ impl Studio {
         // 次のフレーズが変わらない。
         let next_row = self.next_presented_row()?;
         let open = self.opened_mut()?;
-        let covered = open.ledger.covered_units()?;
-        let handoff = if open.ledger.has_been_exported()? {
+        let covered = open.writer()?.covered_units()?;
+        let handoff = if open.writer()?.has_been_exported()? {
             HandoffState::Exported
         } else {
             HandoffState::NotExported
@@ -1271,23 +1419,21 @@ impl Studio {
 
         // 音高ごとの消化率は詳細表示へ（`TR-RCL-26`）。跨いで足さない。
         let by_tone: Vec<(i32, usize, usize)> = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .progress_by_tone()?
             .into_iter()
             .map(|(tone, (done, total))| (tone, done, total))
             .collect();
 
         // 残り（`TR-RCL-09`）。固定の見積もりで出す——実測は採らない（`DEC-RCL-013`）。
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let tones = self.writer()?.recording_tones()?;
         let remaining_rows: Vec<koeru_core::reclist::Row> = {
             // この音源の作り方で数える（`TR-RCL-01`）。 単独音で数えると、
             // 連続音のプロジェクトの残りが常に別のリストの残りになる。
             let rules = self.opened()?.rules.clone();
             let list = preset.reclist(&rules).map_err(AppError::from_failure)?;
             let done: std::collections::BTreeSet<String> = self
-                .opened_mut()?
-                .ledger
+                .writer()?
                 .rows_with_takes()?
                 .into_iter()
                 .filter(|r| r.adopted.is_some())
@@ -1340,7 +1486,7 @@ impl Studio {
         let preset = self.current_preset()?;
         let open = self.opened_mut()?;
         let rules = open.rules.clone();
-        song_status_of(&mut open.ledger, &rules, preset)
+        song_status_of(&mut *open.writer()?, &rules, preset)
     }
 
     /// その曲を歌うために、あと録る行（`TR-RCL-16`, `TR-RCL-17`）。
@@ -1359,9 +1505,9 @@ impl Studio {
         let preset = self.current_preset()?;
         let open = self.opened_mut()?;
         // 必要集合は方式ごとの綴り。 仮名で引くと交わらない。
-        let covered = open.ledger.covered_aliases()?;
+        let covered = open.writer()?.covered_aliases()?;
         let song = open
-            .ledger
+            .writer()?
             .songs_in_bank()?
             .into_iter()
             .find(|(sid, _)| sid == id)
@@ -1432,7 +1578,7 @@ impl Studio {
             .into_iter()
             .map(|song| (Uuid::new_v4().to_string(), song))
             .collect();
-        self.opened_mut()?.ledger.put_songs(&out, &now_rfc3339())?;
+        self.writer()?.put_songs(&out, &now_rfc3339())?;
         tracing::info!(count = out.len(), "曲を取り込んだ");
         Ok(out)
     }
@@ -1470,7 +1616,7 @@ impl Studio {
         if title.is_empty() {
             return Err(empty_title());
         }
-        self.opened_mut()?.ledger.rename_song(id, title)?;
+        self.writer()?.rename_song(id, title)?;
         Ok(())
     }
 
@@ -1484,8 +1630,7 @@ impl Studio {
     /// プロジェクトを開いていない、その曲がバンクに無い。
     #[tracing::instrument(skip(self, id))]
     pub fn song_notes(&mut self, id: &str) -> Result<Vec<koeru_core::song::Note>> {
-        self.opened_mut()?
-            .ledger
+        self.writer()?
             .songs_in_bank()?
             .into_iter()
             .find(|(sid, _)| sid == id)
@@ -1517,8 +1662,8 @@ impl Studio {
         let preset = self.current_preset()?;
         let rules = self.current_rules()?;
         // 収録音高は台帳が持つ（`TR-RCL-01`）。プリセットは方式だけ。
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
-        let songs = self.opened_mut()?.ledger.songs_in_bank()?;
+        let tones = self.writer()?.recording_tones()?;
+        let songs = self.writer()?.songs_in_bank()?;
         // 要るものは（収録音高, 綴り）の組（`TR-RCL-15`）。 ノートの floor の音高でだけ要る。
         //
         // **全部の音高に同じ行を入れていた。** 低い曲を選んでも、使わない高い
@@ -1541,7 +1686,7 @@ impl Studio {
 
         // 一度録った綴りは読ませない（`DEC-RCL-016`）。 まだ録っていない詰め直しの
         // 行が既に作る綴りも除く——選び直すたびに同じ綴りを別の行でもう一度読ませない。
-        let covered = self.opened_mut()?.ledger.covered_aliases_by_tone()?;
+        let covered = self.writer()?.covered_aliases_by_tone()?;
         let suffixed = tones.len() > 1;
         // 返すのは台帳に実際に入った行の数。 **作った数を返していた**ので、
         // 同じ範囲を2度詰め直しても「N 行を足しました」と出ていた
@@ -1549,8 +1694,7 @@ impl Studio {
         let mut added = 0;
         for t in &tones {
             let waiting: std::collections::BTreeSet<String> = self
-                .opened_mut()?
-                .ledger
+                .writer()?
                 .untaken_rows(*t, koeru_core::db::RowOrigin::Repack)?
                 .into_iter()
                 .flat_map(|(_, a)| a)
@@ -1570,7 +1714,7 @@ impl Studio {
             let rows = preset
                 .reclist_for(&rules, &want)
                 .map_err(AppError::from_failure)?;
-            added += self.opened_mut()?.ledger.install_rows(
+            added += self.writer()?.install_rows(
                 &rows,
                 &rules,
                 preset.method,
@@ -1595,7 +1739,7 @@ impl Studio {
     fn reconcile_other_origin(&mut self, row_id: &str) -> Result<()> {
         let preset = self.current_preset()?;
         let rules = self.current_rules()?;
-        let ledger = &mut self.opened_mut()?.ledger;
+        let ledger = &mut *self.writer()?;
         let origin = ledger.row_origin(row_id)?.other();
         let tone = ledger.row_tone(row_id)?;
         let waiting = ledger.untaken_rows(tone, origin)?;
@@ -1641,7 +1785,7 @@ impl Studio {
     /// **収録音高はここから来ない。** 方式と音高は別の選択なので、音高は
     /// 台帳（[`Ledger::recording_tones`]）が持つ。
     fn current_preset(&mut self) -> Result<koeru_core::preset::MethodPreset> {
-        Ok(preset_of(&self.opened()?.dir.read_manifest()?))
+        Ok(preset_of(&self.opened()?.dir().read_manifest()?))
     }
 
     /// いま開いている音源のエイリアス規則（`TR-SYN-36`）。
@@ -1662,7 +1806,7 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を読めない。
     #[tracing::instrument(skip(self))]
     pub fn all_songs(&mut self) -> Result<Vec<(String, Song, bool)>> {
-        Ok(self.opened_mut()?.ledger.all_songs()?)
+        Ok(self.writer()?.all_songs()?)
     }
 
     /// 曲のキーを決める（`TR-SYN-15`, `DEC-SYN-012`）。
@@ -1683,16 +1827,14 @@ impl Studio {
                 "移調は1オクターブの上下まで",
             ));
         }
-        self.opened_mut()?
-            .ledger
-            .set_song_transpose(id, semitones)?;
+        self.writer()?.set_song_transpose(id, semitones)?;
         Ok(())
     }
 
     /// 曲をバンクから外す／戻す（`TR-RCL-12`）。曲そのものは消さない。
     #[tracing::instrument(skip(self))]
     pub fn set_song_in_bank(&mut self, id: &str, in_bank: bool) -> Result<()> {
-        self.opened_mut()?.ledger.set_song_in_bank(id, in_bank)?;
+        self.writer()?.set_song_in_bank(id, in_bank)?;
         Ok(())
     }
 
@@ -1735,7 +1877,7 @@ impl Studio {
         let recording = self.recording.is_some();
         let id = match &self.device {
             Some(d) => Some(d.as_str().to_owned()),
-            None => self.opened_mut()?.ledger.last_device()?,
+            None => self.writer()?.last_device()?,
         };
         Ok((id, armed, recording))
     }
@@ -1805,7 +1947,7 @@ impl Studio {
         // 前に決めたチャンネルを引き継ぐ（`TR-REC-06`）。テイクごとに違う経路から
         // 録った素材が混ざると、合成したときに音色が揃わない。
         let saved_channel = open
-            .ledger
+            .writer()?
             .calibration_of(device.as_str())?
             .map_or(0, |c| c.source_channel);
 
@@ -1815,7 +1957,7 @@ impl Studio {
         let format = cap.format();
         let mode = mac::active_microphone_mode();
 
-        let session_id = open.ledger.start_session(&SessionSnapshot {
+        let session_id = open.writer()?.start_session(&SessionSnapshot {
             started_at: now_rfc3339(),
             device_id: device.as_str().to_owned(),
             sample_rate_hz: i32::try_from(format.sample_rate_hz).unwrap_or(0),
@@ -1896,8 +2038,8 @@ impl Studio {
     pub fn estimate_space(&mut self) -> Result<SpaceEstimate> {
         self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
-        let root = self.opened()?.dir.root().to_path_buf();
-        let remaining = self.opened_mut()?.ledger.remaining_rows()?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let remaining = self.writer()?.remaining_rows()?;
 
         let required = storage::required_bytes(remaining, rate);
         let available = storage::available_bytes(&root);
@@ -1922,7 +2064,7 @@ impl Studio {
     pub fn has_room_for_one_more(&mut self) -> Result<bool> {
         self.capture().ok_or_else(no_stream)?;
         let rate = MASTER_RATE_HZ;
-        let root = self.opened()?.dir.root().to_path_buf();
+        let root = self.opened()?.dir().root().to_path_buf();
         // 引けない環境では止めない。
         let Some(available) = storage::available_bytes(&root) else {
             return Ok(true);
@@ -2084,10 +2226,13 @@ impl Studio {
         }
         self.capture().ok_or_else(no_stream_err)?.set_source_mix();
         let device = self.device.clone().ok_or_else(no_stream_err)?;
-        if let Some(mut c) = self.opened_mut()?.ledger.calibration_of(device.as_str())? {
+        // 先に値だけ取り出す。 `if let` の式に書くと、書き手の guard が本体のあいだ
+        // 生き、下の `writer()` が自分自身を待つ（`Open::writer`）。
+        let saved = self.writer()?.calibration_of(device.as_str())?;
+        if let Some(mut c) = saved {
             c.source_channel = -1;
             let at = now_rfc3339();
-            self.opened_mut()?.ledger.put_calibration(&c, &at)?;
+            self.writer()?.put_calibration(&c, &at)?;
         }
         Ok(())
     }
@@ -2101,8 +2246,7 @@ impl Studio {
             return Ok(None);
         };
         let saved = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .calibration_of(device.as_str())?
             .and_then(|c| c.gain);
         let (Some(saved), Some(now)) = (saved, mac::read_gain(&device)) else {
@@ -2123,8 +2267,7 @@ impl Studio {
             return Err(no_stream_err());
         };
         let saved = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .calibration_of(device.as_str())?
             .and_then(|c| c.gain);
         if let Some(g) = saved {
@@ -2223,7 +2366,7 @@ impl Studio {
             source_channel,
         };
         let at = now_rfc3339();
-        self.opened_mut()?.ledger.put_calibration(&result, &at)?;
+        self.writer()?.put_calibration(&result, &at)?;
         // 校正の直後は状態機械の上でも校正済みにする。
         Ok(result)
     }
@@ -2278,11 +2421,11 @@ impl Studio {
         for id in order {
             // 提示順は台帳の行 ID で来る（多音階なら `s001@G3`）。 音高を
             // 跨いだ並びは `recording_order` が決めるので、ここは先頭から引くだけ。
-            if let Some(text) = open.ledger.unrecorded_row_text(&id)? {
+            if let Some(text) = open.writer()?.unrecorded_row_text(&id)? {
                 return Ok(Some((id, text)));
             }
         }
-        open.ledger.next_row().map_err(Into::into)
+        open.writer()?.next_row().map_err(Into::into)
     }
 
     /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
@@ -2294,7 +2437,7 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を読めない。
     #[tracing::instrument(skip(self))]
     pub fn rows_with_takes(&mut self) -> Result<Vec<koeru_core::db::RowTakes>> {
-        Ok(self.opened_mut()?.ledger.rows_with_takes()?)
+        Ok(self.writer()?.rows_with_takes()?)
     }
 
     /// 対象音高の基準音を鳴らす（`TR-REC-25`）。
@@ -2337,8 +2480,8 @@ impl Studio {
     pub fn recording_order(&mut self) -> Result<(koeru_core::order::Mode, Vec<String>)> {
         let preset = self.current_preset()?;
         let rules = self.current_rules()?;
-        let (stored, pinned) = self.opened_mut()?.ledger.recording_order()?;
-        let status = song_status_of(&mut self.opened_mut()?.ledger, &rules, preset)?;
+        let (stored, pinned) = self.writer()?.recording_order()?;
+        let status = song_status_of(&mut *self.writer()?, &rules, preset)?;
         let empty = status.is_empty();
         // 「完全」は必要単位がすべて収録済みのこと（`TR-SYN-19` の (a)）。
         //
@@ -2354,20 +2497,21 @@ impl Studio {
         };
         if mode != stored {
             // 自動の移行では `pinned` を立てない。 立てると本人が選んだことになる。
-            self.opened_mut()?.ledger.set_recording_order(mode, false)?;
+            self.writer()?.set_recording_order(mode, false)?;
         }
 
-        let rows = self.opened_mut()?.ledger.rows_with_takes()?;
+        let rows = self.writer()?.rows_with_takes()?;
         let recorded: std::collections::BTreeSet<String> = rows
             .iter()
             .filter(|r| r.adopted.is_some())
             .map(|r| r.row_id.clone())
             .collect();
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let tones = self.writer()?.recording_tones()?;
         // 曲が要る綴りは、そのノートの floor の音高ごとに（`TR-RCL-15`, `DEC-SYN-014`）。
         let mut song_required: std::collections::BTreeMap<i32, std::collections::BTreeSet<String>> =
             std::collections::BTreeMap::new();
-        for (_, song) in self.opened_mut()?.ledger.songs_in_bank()? {
+        let bank = self.writer()?.songs_in_bank()?;
+        for (_, song) in bank {
             for (t, a) in song.required_by_tone(&rules, preset.method, preset.set, &tones) {
                 song_required.entry(t).or_default().insert(a);
             }
@@ -2377,7 +2521,7 @@ impl Studio {
         // **プリセットから生成し直したリストを並べていた。** 詰め直した行も、
         // 録った綴りに合わせて組み直した行も一度も並ばず、録り終えた綴りを
         // もう一度読ませるフルリストの行が出続けた。
-        let listed = self.opened_mut()?.ledger.listed_rows(preset.set)?;
+        let listed = self.writer()?.listed_rows(preset.set)?;
 
         // 音高ごとに並べ、低い音高から順に繋ぐ（`TR-RCL-26`）。
         //
@@ -2386,7 +2530,7 @@ impl Studio {
         // 点が 0——モードに関係なく正準順へ戻っていた。
         //
         // 音高の向きは台帳の正準順（`ordinal`）と同じ。 並べ直すのは、各音高の中だけ。
-        let by_tone = self.opened_mut()?.ledger.covered_aliases_by_tone()?;
+        let by_tone = self.writer()?.covered_aliases_by_tone()?;
         let empty = std::collections::BTreeSet::new();
         let mut order = Vec::new();
         for t in &tones {
@@ -2417,7 +2561,7 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を書けない。
     #[tracing::instrument(skip(self), fields(mode = mode.as_str()))]
     pub fn set_recording_order(&mut self, mode: koeru_core::order::Mode) -> Result<()> {
-        Ok(self.opened_mut()?.ledger.set_recording_order(mode, true)?)
+        Ok(self.writer()?.set_recording_order(mode, true)?)
     }
 
     /// 採用テイクを切り替える（`TR-RCL-25`）。
@@ -2431,7 +2575,7 @@ impl Studio {
     /// プロジェクトを開いていない、その行にそのテイクが無い。
     #[tracing::instrument(skip(self))]
     pub fn adopt_take(&mut self, row_id: &str, take_id: i32) -> Result<()> {
-        self.opened_mut()?.ledger.adopt_take(row_id, take_id)?;
+        self.writer()?.adopt_take(row_id, take_id)?;
         // 書き出したあとに採用を動かしたなら、次の書き出しへ進める。
         self.start_new_export_generation()?;
         // 書き出しに出るエントリが変わったので、キューを組み直す。
@@ -2478,40 +2622,40 @@ impl Studio {
         let (root, audio_dir, session_id) = {
             let open = self.opened()?;
             (
-                open.dir.root().to_path_buf(),
-                open.dir.audio_dir(),
+                open.dir().root().to_path_buf(),
+                open.dir().audio_dir(),
                 open.session_id,
             )
         };
         let row_id = row_id.to_owned();
         // **知らない行では始めない。** 名前を打ち間違えたまま録ると、
         // 台帳に載らないファイルができる。
-        self.opened_mut()?.ledger.row_state(&row_id)?;
+        self.writer()?.row_state(&row_id)?;
 
         // 多音階では、収録開始前に対象音高の基準音を必ず鳴らす（`TR-REC-25`）。
         //
         // **省略できない。** 3本を行き来すると、いま何を録っているのかを
         // 音で確かめる手が要る。回り込みが分かっているときは鳴らさない
         // （`TR-REC-24`。ガイドが録音に入る）。
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let tones = self.writer()?.recording_tones()?;
         if tones.len() > 1 {
-            let tone = self.opened_mut()?.ledger.row_tone(&row_id)?;
+            let tone = self.writer()?.row_tone(&row_id)?;
             self.play_tone_reference(tone)?;
         }
 
         // 世代を名前に入れる。 録り直しても既存の WAV を上書きしない（`TR-PKG-39`）。
-        let generation = self.opened_mut()?.ledger.takes_of(&row_id)?.len() + 1;
+        let generation = self.writer()?.takes_of(&row_id)?.len() + 1;
         // 音高ごとのサブディレクトリへ置く（`TR-REC-36`）。
         // 収録後に別ディレクトリへ移す処理は持たない。
         let dir = if tones.len() > 1 {
-            let tone = self.opened_mut()?.ledger.row_tone(&row_id)?;
+            let tone = self.writer()?.row_tone(&row_id)?;
             audio_dir.join(koeru_core::tone::name(tone))
         } else {
             audio_dir.clone()
         };
         // 孤児・書きかけ・予定が持つ名前を避ける。 同じ名前へ rename すると孤児を上書きする。
         let path = koeru_core::capture::free_take_path(
-            &mut self.opened_mut()?.ledger,
+            &mut *self.writer()?,
             &root,
             &dir,
             &row_id,
@@ -2540,7 +2684,7 @@ impl Studio {
 
         // 録る前に予定を書く（`DEC-REC-010`）。 どの行を、どの収録セッションで録るか。
         let capture = CaptureId::generate();
-        self.opened_mut()?.ledger.declare_capture(&NewIntent {
+        self.writer()?.declare_capture(&NewIntent {
             capture: &capture,
             row_id: &row_id,
             session_id,
@@ -2586,11 +2730,20 @@ impl Studio {
     ///
     /// 呼び出し側の失敗をそのまま返させるため、ここの失敗は記録だけする。
     fn settle_capture(&mut self, capture: &CaptureId) {
-        let Ok(open) = self.opened_mut() else { return };
-        let root = open.dir.root().to_path_buf();
-        if let Err(e) =
-            koeru_core::capture::settle(&mut open.ledger, &root, capture, &now_rfc3339())
-        {
+        let Ok(open) = self.opened() else { return };
+        let root = open.dir().root().to_path_buf();
+        let mut writer = match open.writer_raw() {
+            Ok(w) => w,
+            Err(e) => {
+                koeru_failure::record_failure(
+                    &e,
+                    koeru_failure::Outcome::NotCommitted,
+                    "capture.settle",
+                );
+                return;
+            }
+        };
+        if let Err(e) = koeru_core::capture::settle(&mut writer, &root, capture, &now_rfc3339()) {
             koeru_failure::record_failure(
                 &e,
                 koeru_failure::Outcome::NotCommitted,
@@ -2657,7 +2810,8 @@ impl Studio {
         capture: &CaptureId,
     ) -> Result<Finish> {
         // 送り直しは録音が止まったあとに来る。 「録音していない」と断る前に受領証で答える。
-        if let Some(answer) = self.opened_mut()?.ledger.answer_retry(operation, capture)? {
+        let answered = self.writer()?.answer_retry(operation, capture)?;
+        if let Some(answer) = answered {
             return Ok(Finish::Answered(answer));
         }
         if !self
@@ -2717,7 +2871,7 @@ impl Studio {
         }
         // 行・収録セッション・WAV の場所は予定が持っている。 予定を閉じ、受領証を残すのも
         // テイクの行と同じ一手（`project-storage.fsl` の ASSUME-9）。
-        let committed = self.opened_mut()?.ledger.commit_capture(&CommitRequest {
+        let committed = self.writer()?.commit_capture(&CommitRequest {
             operation,
             capture,
             frames: i64::try_from(finished.samples.len()).unwrap_or(i64::MAX),
@@ -2805,21 +2959,30 @@ impl Studio {
         // 話者音域が判明したら Harvest で引き直す。
         // `.frq` が要求するのは F0 と平均振幅だけなので、初期テイクの試唱には
         // DIO の精度で足りる。待たせないことのほうが効く。
-        let purpose = if self.observed_f0.len() >= f0::RANGE_SAMPLE_TAKES {
+        //
+        // 音域は開いているプロジェクトのもの（`ProjectCaches`）。 開いていなければ
+        // 溜めるものが無いので、初めのテイクと同じ DIO の条件で推定する。
+        let (observed, floor) = self.open.as_ref().map_or((0, None), |o| {
+            (o.caches.observed_f0.len(), o.caches.f0_floor)
+        });
+        let purpose = if observed >= f0::RANGE_SAMPLE_TAKES {
             f0::Purpose::Distribution
         } else {
             f0::Purpose::Preview
         };
-        let cond = f0::conditions(purpose, self.f0_floor);
+        let cond = f0::conditions(purpose, floor);
         let (source_f0, _t) = f0::estimate(&f64s, rate, &cond);
 
         // 音域を溜めて、集まったら下限を引き上げる。
-        self.observed_f0.push(source_f0.clone());
-        if self.f0_floor.is_none()
-            && let Some(floor) = f0::tighten_floor(&self.observed_f0)
-        {
-            tracing::info!(floor_hz = floor, "話者音域から探索の下限を上げた");
-            self.f0_floor = Some(floor);
+        if let Some(open) = self.open.as_mut() {
+            let caches = &mut open.caches;
+            caches.observed_f0.push(source_f0.clone());
+            if caches.f0_floor.is_none()
+                && let Some(floor) = f0::tighten_floor(&caches.observed_f0)
+            {
+                tracing::info!(floor_hz = floor, "話者音域から探索の下限を上げた");
+                caches.f0_floor = Some(floor);
+            }
         }
 
         let analysis = TakeAnalysis::compute(
@@ -2876,7 +3039,7 @@ impl Studio {
         // 綴りの表（`TR-SYN-36`）。 録音リストを入れたときと同じものを引く。
         let rules = self.current_rules()?;
 
-        self.opened_mut()?.ledger.put_analysis(take_id, analysis)?;
+        self.writer()?.put_analysis(take_id, analysis)?;
         frq::write(&analysis.frq, &frq::frq_path(&finished.path)?)?;
 
         // ## 境界と oto
@@ -2893,11 +3056,11 @@ impl Studio {
         };
         // 1ファイルに複数モーラが入る（`TR-RCL-03`、`DEC-ALN-013`）。
         // モーラごとに境界を取り出し、oto もモーラごとに作る。
-        let kana = self.opened_mut()?.ledger.units_of(row_id)?;
+        let kana = self.writer()?.units_of(row_id)?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
         // 綴りを作るのに子音と母音クラスが要る。 並びは読み上げ順
         // （`Ledger::row_units_of`）。
-        let line = self.opened_mut()?.ledger.row_units_of(row_id, preset_set)?;
+        let line = self.writer()?.row_units_of(row_id, preset_set)?;
         let per_mora = alignment.as_ref().and_then(|a| per_mora(a, &readings));
         // 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）はファイル全体で見る。
         let boundaries = per_mora.as_ref().and_then(|v| {
@@ -2916,7 +3079,7 @@ impl Studio {
             boundaries.as_ref().map(|b| b.voice_start_ms),
             boundaries.as_ref().map(|b| b.vowel_end_ms),
         );
-        self.opened_mut()?.ledger.put_metrics(
+        self.writer()?.put_metrics(
             take_id,
             &metrics,
             koeru_core::db::TakeGapCounts {
@@ -2940,9 +3103,7 @@ impl Studio {
                 position: i64::try_from(g.position).unwrap_or(i64::MAX),
             })
             .collect();
-        self.opened_mut()?
-            .ledger
-            .put_take_gaps(take_id, &gap_records)?;
+        self.writer()?.put_take_gaps(take_id, &gap_records)?;
         out.metrics = metrics;
 
         let (oto, conf) = match per_mora {
@@ -2999,8 +3160,7 @@ impl Studio {
                 let pops = self.populations()?;
                 // 集団は音階内に閉じる（`TR-ALN-22`）。
                 let row_tone = self
-                    .opened_mut()?
-                    .ledger
+                    .writer()?
                     .row_tones()?
                     .get(row_id)
                     .copied()
@@ -3033,7 +3193,7 @@ impl Studio {
                         _ => None,
                     })
                     .collect();
-                self.opened_mut()?.ledger.put_boundaries(take_id, &saved)?;
+                self.writer()?.put_boundaries(take_id, &saved)?;
 
                 // 5値を置くのは、この行が持ち主の綴りだけ（`TR-ALN-22`, `DEC-RCL-016`）。
                 // 先に録った行が持つので、同じ音高で同じ綴りを既に録ってあれば
@@ -3043,7 +3203,7 @@ impl Studio {
                 // モーラ順に境界を並べ直し、1つでも欠けたらその素材を丸ごと
                 // 落とす（`packaging::rederived_entries`）。持ち主でない
                 // 行頭の境界まで捨てると、その行の綴りが全部消える。
-                let owned = self.opened_mut()?.ledger.owned_aliases_of_row(row_id)?;
+                let owned = self.writer()?.owned_aliases_of_row(row_id)?;
                 let derived: std::collections::BTreeMap<String, Oto> =
                     koeru_align::derive::derive_row(&entries, v, &line, duration_ms, &preset)
                         .into_iter()
@@ -3079,7 +3239,7 @@ impl Studio {
                         c.prior = prior;
                         c
                     });
-                    self.opened_mut()?.ledger.put_oto(
+                    self.writer()?.put_oto(
                         take_id,
                         reading,
                         &o,
@@ -3094,7 +3254,7 @@ impl Studio {
                         .as_ref(),
                         false,
                     )?;
-                    self.opened_mut()?.ledger.set_branch_mismatch(
+                    self.writer()?.set_branch_mismatch(
                         take_id,
                         reading,
                         mismatches.contains(alias),
@@ -3113,7 +3273,7 @@ impl Studio {
                     &preset,
                     self.aligner.identity(),
                 );
-                self.opened_mut()?.ledger.put_fingerprint(
+                self.writer()?.put_fingerprint(
                     take_id,
                     &koeru_core::db::FingerprintRow {
                         audio: fp.audio,
@@ -3147,7 +3307,7 @@ impl Studio {
     /// 返るのは直した数。
     #[tracing::instrument(skip(self))]
     pub fn normalize_file_names(&mut self) -> Result<usize> {
-        let dir = self.opened()?.dir.audio_dir();
+        let dir = self.opened()?.dir().audio_dir();
         Ok(koeru_core::text::normalize_names_to_nfc(&dir)?)
     }
 
@@ -3156,7 +3316,7 @@ impl Studio {
     /// 書き出しの関門。 残っていたら書き出さない。
     #[tracing::instrument(skip(self))]
     pub fn non_nfc_names(&mut self) -> Result<Vec<String>> {
-        let dir = self.opened()?.dir.audio_dir();
+        let dir = self.opened()?.dir().audio_dir();
         Ok(koeru_core::text::find_non_nfc_names(&dir)?)
     }
 
@@ -3168,7 +3328,7 @@ impl Studio {
         // 名前は先に直す。 直せるものを関門で止めない。
         let renamed = self.normalize_file_names()?;
         let non_nfc = self.non_nfc_names()?;
-        let clipped = self.opened_mut()?.ledger.clipped_adopted_takes()?;
+        let clipped = self.writer()?.clipped_adopted_takes()?;
         Ok(Preflight {
             renamed_to_nfc: renamed,
             non_nfc_names: non_nfc,
@@ -3185,32 +3345,26 @@ impl Studio {
     /// （`DEC-PKG-008`）ので、画面は空欄から始めなくてよい。
     #[tracing::instrument(skip(self))]
     pub fn package_settings(&mut self) -> Result<koeru_core::db::Distribution> {
-        let manifest = self.opened()?.dir.read_manifest()?;
-        packaging::settings(&mut self.opened_mut()?.ledger, &manifest)
+        let manifest = self.opened()?.dir().read_manifest()?;
+        packaging::settings(&mut *self.writer()?, &manifest)
     }
 
     /// 配布に出す値を保存する（`PROFILE-M4`）。
     #[tracing::instrument(skip(self, d))]
     pub fn set_package_settings(&mut self, d: &koeru_core::db::Distribution) -> Result<()> {
         packaging::check_settings(d)?;
-        self.opened_mut()?.ledger.set_distribution(d)?;
+        self.writer()?.set_distribution(d)?;
         Ok(())
     }
 
     /// いま書き出せるか（`TR-PKG-49`, `TR-PKG-51`）。
     #[tracing::instrument(skip(self))]
     pub fn package_state(&mut self) -> Result<packaging::PackageState> {
-        let dir = self.opened()?.dir.clone();
+        let dir = self.opened()?.dir().clone();
         let manifest = dir.read_manifest()?;
         let gates = self.package_gates()?;
         let rules = self.current_rules()?;
-        packaging::state(
-            &dir,
-            &mut self.opened_mut()?.ledger,
-            &rules,
-            &manifest,
-            gates,
-        )
+        packaging::state(&dir, &mut *self.writer()?, &rules, &manifest, gates)
     }
 
     /// 書き出しの手前にある、配布物の外の関門（`INV-ALN-003`）。
@@ -3225,8 +3379,8 @@ impl Studio {
     /// 2箇所で判定すると、どちらが先に走ったかで答えが変わる。**
     #[tracing::instrument(skip(self))]
     fn package_gates(&mut self) -> Result<packaging::Gates> {
-        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
-        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        let missing = self.writer()?.adopted_rows_without_oto()?;
+        let conflicting = self.writer()?.adopted_conflicting_aliases()?;
         let confirmed = self.opened()?.review.all_confirmed();
         Ok(packaging::Gates {
             otos_ready: confirmed && missing.is_empty() && conflicting.is_empty(),
@@ -3236,10 +3390,10 @@ impl Studio {
     /// 配布物に入るファイルの一覧（`TR-PKG-28` の同梱物）。
     #[tracing::instrument(skip(self))]
     pub fn package_contents(&mut self) -> Result<Vec<(String, u64)>> {
-        let dir = self.opened()?.dir.clone();
+        let dir = self.opened()?.dir().clone();
         let manifest = dir.read_manifest()?;
         let rules = self.current_rules()?;
-        packaging::preview(&dir, &mut self.opened_mut()?.ledger, &rules, &manifest)
+        packaging::preview(&dir, &mut *self.writer()?, &rules, &manifest)
     }
 
     /// 書き出す（`REQ-PKG-105`, `REQ-PKG-106`）。
@@ -3258,11 +3412,11 @@ impl Studio {
         if !pre.may_export() {
             return Err(non_nfc_names());
         }
-        let dir = self.opened()?.dir.clone();
+        let dir = self.opened()?.dir().clone();
         let manifest = dir.read_manifest()?;
         let at = now_rfc3339();
         let rules = self.current_rules()?;
-        packaging::export(&dir, &mut self.opened_mut()?.ledger, &rules, &manifest, &at)
+        packaging::export(&dir, &mut *self.writer()?, &rules, &manifest, &at)
     }
 
     /// 下位方式へ書き出す（`TR-PKG-23`, `TR-PKG-24`, `TR-PKG-25`）。
@@ -3284,18 +3438,11 @@ impl Studio {
         if !pre.may_export() {
             return Err(non_nfc_names());
         }
-        let dir = self.opened()?.dir.clone();
+        let dir = self.opened()?.dir().clone();
         let manifest = dir.read_manifest()?;
         let at = now_rfc3339();
         let rules = self.current_rules()?;
-        packaging::export_downgrade(
-            &dir,
-            &mut self.opened_mut()?.ledger,
-            &rules,
-            &manifest,
-            method,
-            &at,
-        )
+        packaging::export_downgrade(&dir, &mut *self.writer()?, &rules, &manifest, method, &at)
     }
 
     /// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。
@@ -3311,10 +3458,9 @@ impl Studio {
     /// その連番の記録が無い、ファイルが消えている、開けない。
     #[tracing::instrument(skip(self), fields(seq))]
     pub fn reveal_release(&mut self, seq: i32) -> Result<()> {
-        let dir = self.opened()?.dir.exports_dir();
+        let dir = self.opened()?.dir().exports_dir();
         let release = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .releases()?
             .into_iter()
             .find(|r| r.seq == seq)
@@ -3348,7 +3494,7 @@ impl Studio {
     /// 書き出しの履歴（`TR-PKG-44`）。古い順。
     #[tracing::instrument(skip(self))]
     pub fn releases(&mut self) -> Result<Vec<koeru_core::release::Release>> {
-        Ok(self.opened_mut()?.ledger.releases()?)
+        Ok(self.writer()?.releases()?)
     }
 
     /// 収録済みのテイクを、指定した音高で合成する。鳴らさない。
@@ -3364,17 +3510,12 @@ impl Studio {
         midi: i32,
         length_ms: f64,
     ) -> Result<(Vec<f32>, u32)> {
-        let root = self.opened()?.dir.root().to_path_buf();
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(unknown_take)?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         // 1テイクに複数のエントリがある（`DEC-ALN-013`）。試聴は先頭の1つで鳴らす。
         // 並びはエイリアス順で常に同じ（`TR-ALN-29`）。
         let oto = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .otos_of(take_id)?
             .into_iter()
             .next()
@@ -3386,7 +3527,7 @@ impl Studio {
                     "そのテイクにまだ原音設定が無い",
                 )
             })?;
-        let analysis = self.opened_mut()?.ledger.analysis_of(take_id)?;
+        let analysis = self.writer()?.analysis_of(take_id)?;
 
         let w = wav::read(root.join(&take.rel_path))?;
         let samples: Vec<f64> = w.samples.iter().map(|s| f64::from(*s)).collect();
@@ -3449,7 +3590,11 @@ impl Studio {
         if singable == 0 {
             return;
         }
-        let cache = Arc::clone(&self.song_cache);
+        // 写しは、いま開いているプロジェクトのもの。 仕事が捕まえた `Arc` は、
+        // プロジェクトを移れば（`release_project` が仕事を捨てる）使われない。
+        let Some(cache) = self.open.as_ref().map(|o| Arc::clone(&o.caches.song_cache)) else {
+            return;
+        };
         self.workers.submit(Priority::PostRecording, move || {
             // 鍵に素材の内容ハッシュが入っているので、古い結果は自然に使われない。
             // ここでできるのは、次に押されたときに載っている確率を上げることだけ。
@@ -3529,27 +3674,24 @@ impl Studio {
 
     /// テイクの段を積む。一度積んだら持ち回す。
     fn mipmap_of(&mut self, take_id: i32) -> Result<(Arc<waveform::Mipmap>, u32)> {
-        if let Some((map, rate)) = self.mipmaps.get(&take_id) {
+        if let Some((map, rate)) = self.opened()?.caches.mipmaps.get(&take_id) {
             return Ok((Arc::clone(map), *rate));
         }
         let (samples, rate) = self.samples_of(take_id)?;
         let map = Arc::new(waveform::Mipmap::build(&samples));
         // 上限を置く。 3時間ぶんの段を全部持つとメモリが尽きる。
-        if self.mipmaps.len() >= MIPMAP_CACHE {
-            self.mipmaps.clear();
+        let mipmaps = &mut self.opened_mut()?.caches.mipmaps;
+        if mipmaps.len() >= MIPMAP_CACHE {
+            mipmaps.clear();
         }
-        self.mipmaps.insert(take_id, (Arc::clone(&map), rate));
+        mipmaps.insert(take_id, (Arc::clone(&map), rate));
         Ok((map, rate))
     }
 
     /// テイクの波形を読む。
     fn samples_of(&mut self, take_id: i32) -> Result<(Vec<f32>, u32)> {
-        let root = self.opened()?.dir.root().to_path_buf();
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(unknown_take)?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         let w = wav::read(root.join(&take.rel_path))?;
         Ok((w.samples, w.rate_hz))
     }
@@ -3584,15 +3726,15 @@ impl Studio {
         let mut out = Populations::default();
         let here = self.current_preset()?;
         let rules = self.current_rules()?;
-        let tones = self.opened_mut()?.ledger.row_tones()?;
+        let tones = self.writer()?.row_tones()?;
         // 行ごとに「綴り → 仮名」を1度だけ組む。 エントリは行の数より多い。
         let mut readings: HashMap<String, HashMap<String, &'static str>> = HashMap::new();
-        for e in self.opened_mut()?.ledger.adopted_otos()? {
+        // 先に取り出す。 `for` の式に書くと guard が繰り返しのあいだ生き、本体の `writer()` が
+        // 自分自身を待つ。
+        let adopted = self.writer()?.adopted_otos()?;
+        for e in adopted {
             if !readings.contains_key(&e.row_id) {
-                let line = self
-                    .opened_mut()?
-                    .ledger
-                    .row_units_of(&e.row_id, here.set)?;
+                let line = self.writer()?.row_units_of(&e.row_id, here.set)?;
                 let map = koeru_core::reclist::row_entries(&rules, here.method, &line)
                     .into_iter()
                     .filter_map(|(a, slot)| Some((a, consistency_reading(slot, &line)?)))
@@ -3659,8 +3801,7 @@ impl Studio {
         // 録り足したものを書き出せるようにする（`TR-PKG-44`）。
         self.start_new_export_generation()?;
         let aliases: Vec<String> = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .otos_of(take_id)?
             .into_iter()
             .map(|(a, _)| a)
@@ -3671,14 +3812,12 @@ impl Studio {
         // **素の綴りで引いていた。** 鍵が合わず一度も当たらないので、
         // 録り直すたびに人が直した値が自動の値で上書きされていた（`INV-ALN-001`）。
         let row_id = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .take(take_id)?
             .map(|t| t.row_id)
             .unwrap_or_default();
         let tone = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .row_tones()?
             .get(&row_id)
             .copied()
@@ -3709,7 +3848,7 @@ impl Studio {
             else {
                 continue;
             };
-            let Some(fresh) = self.opened_mut()?.ledger.oto_of(take_id, alias)? else {
+            let Some(fresh) = self.writer()?.oto_of(take_id, alias)? else {
                 continue;
             };
             let prev_take = self.opened()?.review_takes.get(&key).copied();
@@ -3743,7 +3882,7 @@ impl Studio {
             // 値と固定を一度に書く。 別々に流すと、固定だけ落ちたときに
             // 「人の値なのに固定が無い」行が残り、次の録音で上書きされる。
             let open = self.opened_mut()?;
-            open.ledger.put_review_entry(
+            open.writer()?.put_review_entry(
                 take_id,
                 alias,
                 &carried.oto,
@@ -3762,14 +3901,14 @@ impl Studio {
     ///
     /// 境界を残していないテイクなら空。
     fn onsets_of_take(&mut self, take_id: i32) -> Result<std::collections::BTreeMap<String, f64>> {
-        let Some(row_id) = self.opened_mut()?.ledger.take(take_id)?.map(|t| t.row_id) else {
+        let Some(row_id) = self.writer()?.take(take_id)?.map(|t| t.row_id) else {
             return Ok(std::collections::BTreeMap::new());
         };
         let here = self.current_preset()?;
         let rules = self.current_rules()?;
-        let line = self.opened_mut()?.ledger.row_units_of(&row_id, here.set)?;
+        let line = self.writer()?.row_units_of(&row_id, here.set)?;
         let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
-        let saved = self.opened_mut()?.ledger.boundaries_for_take(take_id)?;
+        let saved = self.writer()?.boundaries_for_take(take_id)?;
         Ok(retake::onsets(&entries, &saved))
     }
 
@@ -3779,13 +3918,9 @@ impl Studio {
     ///
     /// プロジェクトを開いていない。
     pub fn review_summary(&mut self) -> Result<ReviewSummary> {
-        let method = self.opened()?.dir.read_manifest()?.method;
-        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?.len();
-        let conflicting = self
-            .opened_mut()?
-            .ledger
-            .adopted_conflicting_aliases()?
-            .len();
+        let method = self.opened()?.dir().read_manifest()?.method;
+        let missing = self.writer()?.adopted_rows_without_oto()?.len();
+        let conflicting = self.writer()?.adopted_conflicting_aliases()?.len();
         let q = &self.opened()?.review;
         let reach = reach::of(match method {
             Method::Single => koeru_core::alias::Method::Single,
@@ -3838,10 +3973,9 @@ impl Studio {
         //
         // **綴りで引いていた。** 多音階では同じ綴りが音高の数だけあるので、
         // 表が1つに潰れ、全部の音高の項目が同じ行を指していた。
-        let tones = self.opened_mut()?.ledger.row_tones()?;
+        let tones = self.writer()?.row_tones()?;
         let rows: HashMap<String, String> = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .adopted_otos()?
             .into_iter()
             .map(|e| {
@@ -3930,7 +4064,7 @@ impl Studio {
             }
         }
         let open = self.opened_mut()?;
-        crate::review::save_mode(&mut open.ledger, &next, true)?;
+        crate::review::save_mode(&mut *open.writer()?, &next, true)?;
         open.review = next;
         Ok(())
     }
@@ -3985,12 +4119,8 @@ impl Studio {
     /// 発声を見つけられない。
     #[tracing::instrument(skip(self))]
     pub fn re_estimate_take(&mut self, take_id: i32) -> Result<()> {
-        let root = self.opened()?.dir.root().to_path_buf();
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(unknown_take)?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         let w = wav::read(root.join(&take.rel_path))?;
         let f64s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
         #[allow(
@@ -3999,7 +4129,7 @@ impl Studio {
         )]
         let duration_ms = f64s.len() as f64 * 1000.0 / f64::from(w.rate_hz);
 
-        let kana = self.opened_mut()?.ledger.units_of(&take.row_id)?;
+        let kana = self.writer()?.units_of(&take.row_id)?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
         // 本人が推定し直しを求めたので、揃えられなければその理由を返す。
         let alignment = self.align_take(&f64s, w.rate_hz, &take.row_id)?;
@@ -4017,15 +4147,11 @@ impl Studio {
         let preset = Preset::default_for(here.method)
             .map_err(|e| AppError::from_failure(e).saying("規約プリセットを読めない"))?;
         let rules = self.current_rules()?;
-        let line = self
-            .opened_mut()?
-            .ledger
-            .row_units_of(&take.row_id, here.set)?;
+        let line = self.writer()?.row_units_of(&take.row_id, here.set)?;
         let pops = self.populations()?;
         // 集団は音階内に閉じる（`TR-ALN-22`）。
         let tone = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .row_tones()?
             .get(&take.row_id)
             .copied()
@@ -4036,10 +4162,7 @@ impl Studio {
         // ——別の表で作り直すと、確認キューに無いエイリアスが生える。
         let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
         // 持ち主の綴りだけ。 確定のときと同じ絞り方を通す（`TR-ALN-22`, `DEC-RCL-016`）。
-        let owned = self
-            .opened_mut()?
-            .ledger
-            .owned_aliases_of_row(&take.row_id)?;
+        let owned = self.writer()?.owned_aliases_of_row(&take.row_id)?;
         let derived: std::collections::BTreeMap<String, Oto> =
             koeru_align::derive::derive_row(&entries, &per_mora, &line, duration_ms, &preset)
                 .into_iter()
@@ -4130,10 +4253,13 @@ impl Studio {
         }
 
         let open = self.opened_mut()?;
-        open.ledger.put_review_entries(&rows)?;
+        open.writer()?.put_review_entries(&rows)?;
         for r in &rows {
-            open.ledger
-                .set_branch_mismatch(r.take_id, &r.alias, mismatches.contains(&r.alias))?;
+            open.writer()?.set_branch_mismatch(
+                r.take_id,
+                &r.alias,
+                mismatches.contains(&r.alias),
+            )?;
         }
         // 印は台帳から載せ直す。 キューの写しは遷移しか運ばない。
         self.refresh_review()
@@ -4161,7 +4287,7 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を読めない。
     #[tracing::instrument(skip(self))]
     pub fn validate_otos(&mut self) -> Result<(usize, Vec<String>)> {
-        let entries = self.opened_mut()?.ledger.adopted_otos()?;
+        let entries = self.writer()?.adopted_otos()?;
         // 重複は WAV ごとに見る（`TR-ALN-20` (6)）。
         //
         // **全テイクのエイリアスを平らにして渡していた。** 別の WAV が同じ
@@ -4185,7 +4311,7 @@ impl Studio {
         let mut fixed = 0;
         let mut blocked = Vec::new();
         // キューの鍵は（音高, 綴り）（`crate::review::load`）。 止めるときは同じ鍵で引く。
-        let tones = self.opened_mut()?.ledger.row_tones()?;
+        let tones = self.writer()?.row_tones()?;
         let mut blocked_keys = Vec::new();
         for e in &entries {
             // 長さは台帳が一緒に返す。1件ずつ引き直さない。
@@ -4215,9 +4341,7 @@ impl Studio {
 
             if next != e.oto {
                 fixed += 1;
-                self.opened_mut()?
-                    .ledger
-                    .set_oto_value(e.take_id, &e.alias, &next)?;
+                self.writer()?.set_oto_value(e.take_id, &e.alias, &next)?;
             }
             // 固定を避けたせいで違反が残るものも止める。 直せていないのに
             // 通すと、`TR-ALN-20` が塞いだはずの形のまま書き出される。
@@ -4266,7 +4390,7 @@ impl Studio {
         // `oto_values` に1行も書かないので、キューが空でも書き出しから
         // 黙って落ちる。キューの関門はエントリしか見られないので、
         // ここで別に見る。
-        let missing = self.opened_mut()?.ledger.adopted_rows_without_oto()?;
+        let missing = self.writer()?.adopted_rows_without_oto()?;
         if !missing.is_empty() {
             return Err(AppError::new(
                 "review.missing_oto",
@@ -4276,7 +4400,7 @@ impl Studio {
         }
         // エイリアスが WAV をまたいで重なると、キューが片方を落とす。
         // 落ちたほうは確認もされず `oto.ini` にも出ない。
-        let conflicting = self.opened_mut()?.ledger.adopted_conflicting_aliases()?;
+        let conflicting = self.writer()?.adopted_conflicting_aliases()?;
         if !conflicting.is_empty() {
             return Err(AppError::new(
                 "review.conflicting_alias",
@@ -4318,7 +4442,7 @@ impl Studio {
         // 音階の数だけ並び、受け取った UTAU は1つしか見ない
         // ——**音域を広げるために録った音階が、まるごと鳴らない。**
         // 音高ごとに分かれた `oto.ini` は配布パッケージが出す（`TR-PKG-04`）。
-        if self.opened_mut()?.ledger.recording_tones()?.len() > 1 {
+        if self.writer()?.recording_tones()?.len() > 1 {
             return Err(AppError::new(
                 "review.multi_pitch_oto_ini",
                 Class::Rejected,
@@ -4361,7 +4485,7 @@ impl Studio {
         // 作業ファイルにはしない（`TR-PKG-40`）。 正本は台帳で、これは派生物。
         // 読み戻して真とすることはない。外部フォルダへ一式を出す経路は
         // `koeru_core::handoff`（`PROFILE-M4`）。
-        let path = self.opened()?.dir.audio_dir().join("oto.ini");
+        let path = self.opened()?.dir().audio_dir().join("oto.ini");
         std::fs::write(&path, bytes)?;
 
         // ここまで来て初めて確定させる。関門はもう一度キューが見る。
@@ -4369,7 +4493,7 @@ impl Studio {
         next.export().map_err(review_error)?;
         let over = next.mode() != ReviewMode::Individual;
         let open = self.opened_mut()?;
-        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        crate::review::save_mode(&mut *open.writer()?, &next, over)?;
         open.review = next;
         Ok(path)
     }
@@ -4390,10 +4514,10 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を読めない。
     pub fn stale_takes(&mut self) -> Result<Vec<String>> {
         let now = self.aligner.identity().to_owned();
-        let entries = self.opened_mut()?.ledger.adopted_otos()?;
+        let entries = self.writer()?.adopted_otos()?;
         let mut out = Vec::new();
         for e in entries {
-            let f = self.opened_mut()?.ledger.fingerprint_of(e.take_id)?;
+            let f = self.writer()?.fingerprint_of(e.take_id)?;
             // 入力が変わったものは本人が動かしたものなので、ここには出さない
             // （`Change::Input` は黙って作り直してよい）。見るのはアライナだけ。
             let unsure = f.is_none_or(|f| f.aligner != now);
@@ -4451,7 +4575,7 @@ impl Studio {
             ));
         };
         let open = self.opened_mut()?;
-        crate::review::save_entry(&mut open.ledger, take_id, parsed.alias(), &entry)?;
+        crate::review::save_entry(&mut *open.writer()?, take_id, parsed.alias(), &entry)?;
         open.review = next;
         Ok(())
     }
@@ -4477,19 +4601,15 @@ impl Studio {
         };
         let over = next.mode() != ReviewMode::Individual;
         let open = self.opened_mut()?;
-        open.ledger.put_review_entries(&rows)?;
-        crate::review::save_mode(&mut open.ledger, &next, over)?;
+        open.writer()?.put_review_entries(&rows)?;
+        crate::review::save_mode(&mut *open.writer()?, &next, over)?;
         open.review = next;
         Ok(())
     }
 
     /// そのテイクの WAV のファイル名。`oto.ini` の左辺に出る。
     fn take_file_name(&mut self, take_id: i32) -> Result<String> {
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(unknown_take)?;
+        let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         Ok(std::path::Path::new(&take.rel_path)
             .file_name()
             .map_or_else(
@@ -4507,7 +4627,7 @@ impl Studio {
     /// プロジェクトを開いていない、台帳を読めない。
     #[tracing::instrument(skip(self))]
     pub fn otos_of_take(&mut self, take_id: i32) -> Result<Vec<(String, koeru_oto::Oto)>> {
-        Ok(self.opened_mut()?.ledger.otos_of(take_id)?)
+        Ok(self.writer()?.otos_of(take_id)?)
     }
 
     /// 録れたものをそのまま鳴らす（`TR-REC-43`）。
@@ -4521,12 +4641,8 @@ impl Studio {
     /// そのテイクが台帳に無い、素材を読めない、出力を開けない。
     #[tracing::instrument(skip(self))]
     pub fn play_take(&mut self, take_id: i32) -> Result<f64> {
-        let root = self.opened()?.dir.root().to_path_buf();
-        let take = self
-            .opened_mut()?
-            .ledger
-            .take(take_id)?
-            .ok_or_else(unknown_take)?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         let w = wav::read(root.join(&take.rel_path))?;
         #[allow(
             clippy::cast_precision_loss,
@@ -4572,10 +4688,9 @@ impl Studio {
         let rules = self.current_rules()?;
 
         let rate = 44_100_u32;
-        let root = self.opened()?.dir.root().to_path_buf();
+        let root = self.opened()?.dir().root().to_path_buf();
         let song = self
-            .opened_mut()?
-            .ledger
+            .writer()?
             .songs_in_bank()?
             .into_iter()
             .find(|(sid, _)| sid == id)
@@ -4591,7 +4706,7 @@ impl Studio {
         // 遠くても止めない。 ±7 半音・二乗平均 4 半音という線に実測の裏付けが
         // 無い（`reclist.toml` の領域リスク）ので、その線で鳴らすことを禁じない。
         // どうなるかは画面が先に出していて、押したのは本人。
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let tones = self.writer()?.recording_tones()?;
         let fit = koeru_core::song::range_fit(&song, &tones);
         if fit.transpose != 0 {
             tracing::info!(semitones = fit.transpose, "指定されたキーで鳴らす");
@@ -4847,20 +4962,17 @@ impl Studio {
         let samples: Arc<dyn koeru_synth::phrase::Samples + Send + Sync> =
             Arc::new(WavSamples { tables });
 
+        // 合成の写しは、いま開いているプロジェクトのもの。 背後のスレッドへ渡した
+        // `Arc` は、プロジェクトを移るときに `stop_preview` が止めて待つ。
+        let song_cache = Arc::clone(&self.opened()?.caches.song_cache);
         let stream = mac::play_streaming(Vec::new(), rate)?;
         let sink = StreamSink {
             feed: stream.feed(),
         };
         // 先頭フレーズも背後のスレッドが流す。 ここで流すと、リングが満杯のあいだ
         // 状態のロックを握ったまま待つ（`preview::start`）。
-        let running = preview::start(
-            owned,
-            samples,
-            Arc::clone(&self.song_cache),
-            Box::new(sink),
-            rate,
-        )
-        .map_err(AppError::from_failure)?;
+        let running = preview::start(owned, samples, song_cache, Box::new(sink), rate)
+            .map_err(AppError::from_failure)?;
 
         self.output.set_song(stream, running);
 
@@ -4938,23 +5050,18 @@ impl Studio {
         // **仮名で集めていた。** 原音設定は綴りで置かれているので、
         // 連続音では `oto_of(take, "か")` が何も返さず、**素材が1つも
         // 載らなかった。** CVVC では渡りと語尾だけが落ちていた。
-        let rows: Vec<String> = self
-            .opened_mut()?
-            .ledger
-            .covered_aliases()?
-            .into_iter()
-            .collect();
+        let rows: Vec<String> = self.writer()?.covered_aliases()?.into_iter().collect();
         for unit in rows {
-            let Some(take) = self.opened_mut()?.ledger.take_for_alias_at(&unit, tone)? else {
+            let Some(take) = self.writer()?.take_for_alias_at(&unit, tone)? else {
                 continue;
             };
             // 1テイクに複数のエントリがあるので、欲しい綴りを名前で引く
             // （`DEC-ALN-013`）。
-            let Some(oto) = self.opened_mut()?.ledger.oto_of(take.id, &unit)? else {
+            let Some(oto) = self.writer()?.oto_of(take.id, &unit)? else {
                 continue;
             };
             paths.insert(unit.clone(), root.join(&take.rel_path));
-            if let Some(a) = self.opened_mut()?.ledger.analysis_of(take.id)? {
+            if let Some(a) = self.writer()?.analysis_of(take.id)? {
                 tables.insert(unit.clone(), a.frq.f0);
             }
             otos.insert(unit, oto);
@@ -4973,7 +5080,7 @@ impl Studio {
         &mut self,
         root: &std::path::Path,
     ) -> Result<std::collections::BTreeMap<Option<i32>, Materials>> {
-        let tones = self.opened_mut()?.ledger.recording_tones()?;
+        let tones = self.writer()?.recording_tones()?;
         let mut out = std::collections::BTreeMap::new();
         if tones.len() <= 1 {
             out.insert(None, self.adopted_materials_at(root, None)?);
@@ -4994,14 +5101,14 @@ impl Studio {
     #[tracing::instrument(skip(self))]
     pub fn mark_recorded_for_test(&mut self, row_id: &str) -> Result<()> {
         let session_id = self.test_session()?;
-        let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
+        let take = self.writer()?.commit_take(&FinalizedTake {
             row_id: row_id.to_owned(),
             session_id,
             rel_path: format!("audio/{row_id}_1.wav"),
             frames: 44_100,
             recorded_at: now_rfc3339(),
         })?;
-        self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+        self.writer()?.adopt_take(row_id, take)?;
         // 本番の確定と同じく、もう片方の出どころを組み直す（`DEC-RCL-016`）。
         self.reconcile_other_origin(row_id)?;
         Ok(())
@@ -5015,10 +5122,10 @@ impl Studio {
     #[tracing::instrument(skip(self))]
     pub fn seed_material_for_test(&mut self, row_id: &str) -> Result<i32> {
         let session_id = self.test_session()?;
-        let root = self.opened()?.dir.root().to_path_buf();
+        let root = self.opened()?.dir().root().to_path_buf();
         let rel = format!("audio/{row_id}_1.wav");
         let path = root.join(&rel);
-        std::fs::create_dir_all(self.opened()?.dir.audio_dir())?;
+        std::fs::create_dir_all(self.opened()?.dir().audio_dir())?;
 
         // 1.5 秒の一定振幅。 中身は問わない——見るのは長さとレートだけ。
         //
@@ -5030,14 +5137,14 @@ impl Studio {
         part.write(&samples)?;
         part.finalize()?;
 
-        let take = self.opened_mut()?.ledger.commit_take(&FinalizedTake {
+        let take = self.writer()?.commit_take(&FinalizedTake {
             row_id: row_id.to_owned(),
             session_id,
             rel_path: rel,
             frames: i64::try_from(samples.len()).unwrap_or(0),
             recorded_at: now_rfc3339(),
         })?;
-        self.opened_mut()?.ledger.adopt_take(row_id, take)?;
+        self.writer()?.adopt_take(row_id, take)?;
 
         // エイリアスは台帳が持つものをそのまま使う。 呼ぶ側に渡させない——
         // 台帳と食い違った名前で置けてしまう。
@@ -5050,8 +5157,8 @@ impl Studio {
         // 導き直すと、本番では作られない5値を試験だけが持つ。
         let here = self.current_preset()?;
         let rules = self.current_rules()?;
-        let line = self.opened_mut()?.ledger.row_units_of(row_id, here.set)?;
-        let aliases = self.opened_mut()?.ledger.owned_aliases_of_row(row_id)?;
+        let line = self.writer()?.row_units_of(row_id, here.set)?;
+        let aliases = self.writer()?.owned_aliases_of_row(row_id)?;
         // 境界も置く。 下位方式の書き出し（`TR-PKG-24`）が引く。
         let saved: Vec<(String, koeru_core::oto::Boundary)> =
             koeru_core::reclist::row_entries(&rules, here.method, &line)
@@ -5079,9 +5186,9 @@ impl Studio {
                     _ => None,
                 })
                 .collect();
-        self.opened_mut()?.ledger.put_boundaries(take, &saved)?;
+        self.writer()?.put_boundaries(take, &saved)?;
         for alias in &aliases {
-            self.opened_mut()?.ledger.put_oto(
+            self.writer()?.put_oto(
                 take,
                 alias,
                 &koeru_core::db::koeru_oto::Oto {
@@ -5097,7 +5204,7 @@ impl Studio {
             )?;
             // 自動で確定したことにする。 確認が残っていると書き出せない
             // （`INV-ALN-003`）ので、ここを飛ばすと書き出しの試験が通らない。
-            self.opened_mut()?.ledger.set_oto_state(
+            self.writer()?.set_oto_state(
                 take,
                 alias,
                 koeru_align::review::EntryState::AutoConfirmed.as_str(),
@@ -5109,7 +5216,7 @@ impl Studio {
             &[220.0_f64; 200],
             0.005,
         );
-        self.opened_mut()?.ledger.put_analysis(take, &analysis)?;
+        self.writer()?.put_analysis(take, &analysis)?;
         self.refresh_review()?;
         // 本番の確定と同じく、もう片方の出どころを組み直す（`DEC-RCL-016`）。
         self.reconcile_other_origin(row_id)?;
@@ -5121,7 +5228,7 @@ impl Studio {
     fn test_session(&mut self) -> Result<i32> {
         let open = self.opened_mut()?;
         if open.session_id == 0 {
-            open.session_id = open.ledger.start_session(&SessionSnapshot {
+            let started = open.writer()?.start_session(&SessionSnapshot {
                 started_at: now_rfc3339(),
                 device_id: "test".to_owned(),
                 sample_rate_hz: 44_100,
@@ -5133,6 +5240,7 @@ impl Studio {
                 resampler: koeru_audio::resample::IDENTIFIER.to_owned(),
                 upstream_conversion: "unknown".to_owned(),
             })?;
+            open.session_id = started;
         }
         Ok(open.session_id)
     }
@@ -5140,11 +5248,11 @@ impl Studio {
     /// 開いているプロジェクトのディレクトリ。
     #[tracing::instrument(skip(self))]
     pub fn project_dir(&self) -> Result<&ProjectDir> {
-        Ok(&self.opened()?.dir)
+        Ok(self.opened()?.dir())
     }
 
     fn display_name(&self) -> Result<String> {
-        Ok(self.opened()?.dir.read_manifest()?.display_name)
+        Ok(self.opened()?.dir().read_manifest()?.display_name)
     }
 
     /// 1テイクをアライメントする（`TR-ALN-03`, `TR-ALN-10`）。
@@ -5175,7 +5283,7 @@ impl Studio {
         use koeru_align::aligner::AlignRequest;
 
         // 読みは録音リストが持っている（`TR-ALN-07`。実行時に g2p を持ち込まない）。
-        let kana = self.opened_mut()?.ledger.units_of(row_id)?;
+        let kana = self.writer()?.units_of(row_id)?;
         let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
         let phonemes =
             koeru_align::phoneme::phonemes_for_all(&readings).map_err(AppError::from_failure)?;
@@ -5190,6 +5298,11 @@ impl Studio {
             .as_aligner()
             .align(&req)
             .map_err(AppError::from_failure)
+    }
+
+    /// 台帳の書き手。 **文の終わりで手放す**（`Open::writer`）。
+    fn writer(&self) -> Result<WriterGuard<'_>> {
+        self.opened()?.writer()
     }
 
     fn opened(&self) -> Result<&Open> {
@@ -5288,23 +5401,33 @@ impl Studio {
         let at = now_rfc3339();
         // 消す実ファイルの場所は、閉じる前の予定から引く。
         let rel_path = self
-            .opened_mut()
+            .writer()
             .ok()
-            .and_then(|open| open.ledger.intent(capture).ok().flatten())
+            .and_then(|mut w| w.intent(capture).ok().flatten())
             .map(|intent| intent.rel_path);
 
-        if let Ok(open) = self.opened_mut()
-            && let Err(e) = open.ledger.discard_capture(capture, &at)
-        {
-            koeru_failure::record_failure(
+        // 書き手を取れない（もう閉じている）ときも、予定を閉じられなかったことを
+        // 記録して進む。 実ファイルの扱いは、予定が閉じたかどうかとは別。
+        match self.open.as_ref().map(Open::writer_raw) {
+            Some(Ok(mut w)) => {
+                if let Err(e) = w.discard_capture(capture, &at) {
+                    koeru_failure::record_failure(
+                        &e,
+                        koeru_failure::Outcome::NotCommitted,
+                        "device_lost.discard",
+                    );
+                }
+            }
+            Some(Err(e)) => koeru_failure::record_failure(
                 &e,
                 koeru_failure::Outcome::NotCommitted,
                 "device_lost.discard",
-            );
+            ),
+            None => {}
         }
 
         if let (Ok(open), Some(rel)) = (self.opened(), rel_path) {
-            let root = open.dir.root().to_path_buf();
+            let root = open.dir().root().to_path_buf();
             delete_capture_file(&root, &rel);
         }
     }
@@ -5372,17 +5495,12 @@ impl Studio {
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn test_begin_capture(&mut self, row_id: &str) -> Result<(CaptureId, PathBuf)> {
         let session_id = self.test_session()?;
-        let root = self.opened()?.dir.root().to_path_buf();
-        let audio_dir = self.opened()?.dir.audio_dir();
+        let root = self.opened()?.dir().root().to_path_buf();
+        let audio_dir = self.opened()?.dir().audio_dir();
         std::fs::create_dir_all(&audio_dir)?;
-        let path = koeru_core::capture::free_take_path(
-            &mut self.opened_mut()?.ledger,
-            &root,
-            &audio_dir,
-            row_id,
-            1,
-        )
-        .map_err(AppError::from_failure)?;
+        let path =
+            koeru_core::capture::free_take_path(&mut *self.writer()?, &root, &audio_dir, row_id, 1)
+                .map_err(AppError::from_failure)?;
 
         // 中身は問わない。 見るのは、破棄したときにファイルが消えるかどうかだけ。
         let samples = vec![0.1_f32; MASTER_RATE_HZ as usize / 10];
@@ -5391,7 +5509,7 @@ impl Studio {
         part.finalize()?;
 
         let capture = CaptureId::generate();
-        self.opened_mut()?.ledger.declare_capture(&NewIntent {
+        self.writer()?.declare_capture(&NewIntent {
             capture: &capture,
             row_id,
             session_id,
@@ -5409,11 +5527,36 @@ impl Studio {
     /// テスト用。 予定の状態を読む（`tests/device_loss.rs`）。
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn test_intent_state(&mut self, capture: &CaptureId) -> Result<Option<&'static str>> {
-        Ok(self
-            .opened_mut()?
-            .ledger
-            .intent(capture)?
-            .map(|i| i.state.as_str()))
+        Ok(self.writer()?.intent(capture)?.map(|i| i.state.as_str()))
+    }
+
+    // ## テスト用（`tests/project_lifecycle.rs`）
+    //
+    // プロジェクトを移る・閉じるとき、寿命がプロジェクトに結びつく写しが
+    // 持ち越されないことを、中身を覗かずに確かめるための入口。
+
+    /// テスト用。 開いているプロジェクトの写しの量。
+    ///
+    /// 返すのは（波形の段の数、集めた F0 系列の数、探索下限が決まっているか）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_project_caches(&self) -> Result<(usize, usize, bool)> {
+        let c = &self.opened()?.caches;
+        Ok((c.mipmaps.len(), c.observed_f0.len(), c.f0_floor.is_some()))
+    }
+
+    /// テスト用。 話者音域の写しを埋める。 本番は `derive_take` が溜める。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_observe_f0(&mut self, series: Vec<f64>, floor: f64) -> Result<()> {
+        let c = &mut self.opened_mut()?.caches;
+        c.observed_f0.push(series);
+        c.f0_floor = Some(floor);
+        Ok(())
+    }
+
+    /// テスト用。 開いている収録セッションの識別子（0 は未開始）。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_session_id(&self) -> Result<i32> {
+        Ok(self.opened()?.session_id)
     }
 
     /// テスト用。 いまの `Device` 状態（`tests/device_loss.rs`）。
@@ -5671,6 +5814,17 @@ impl Drop for Studio {
         // キャプチャストリームと排出スレッドを先に落とす（順序は `CaptureLease` の
         // `Drop` が守る）。 ゲインを触るのはそのあと。
         self.lease = None;
+        // 開いている音源の貸与も閉じる。 `AppState` の枠や T09 の resolver が
+        // `Arc` を握り続けていても、`runtime.lease_expired` で断られる。
+        if let Some(open) = self.open.take()
+            && let Err(e) = open.runtime.close(&open.lease)
+        {
+            koeru_failure::record_failure(
+                &e,
+                koeru_failure::Outcome::NotCommitted,
+                "shutdown.close_project",
+            );
+        }
         if let Some((device, before)) = self.gain_before.take()
             && let Err(e) = mac::write_gain(&device, before)
         {
@@ -5702,40 +5856,6 @@ fn hash_of(path: Option<&PathBuf>) -> u64 {
         }
     }
     h.finish()
-}
-
-/// 現在時刻を RFC 3339 で。
-///
-/// 秒までで足りる。 台帳に入るのは順序を保つためで、精密な時刻ではない。
-pub(crate) fn now_rfc3339() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // 素の算術で組む。日付だけのために依存を増やさない。
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let (y, m, d) = civil_from_days(i64::try_from(days).unwrap_or(0));
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
-}
-
-/// 1970-01-01 からの日数を年月日にする（Howard Hinnant の `civil_from_days`）。
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 /// `device_transition` の純粋な分岐を試験する。
@@ -5877,7 +5997,8 @@ mod tests {
         let session_id = studio.test_session().expect("セッションを始められる");
         let open = studio.opened_mut().expect("開いている");
         let take = open
-            .ledger
+            .writer()
+            .expect("書き手")
             .commit_take(&FinalizedTake {
                 row_id: row.clone(),
                 session_id,
@@ -5886,8 +6007,12 @@ mod tests {
                 recorded_at: now_rfc3339(),
             })
             .expect("テイクを確定できる");
-        open.ledger.adopt_take(&row, take).expect("採れる");
-        open.ledger
+        open.writer()
+            .expect("書き手")
+            .adopt_take(&row, take)
+            .expect("採れる");
+        open.writer()
+            .expect("書き手")
             .put_oto(
                 take,
                 &item.alias,
@@ -5906,9 +6031,8 @@ mod tests {
         studio.enqueue_take(take).expect("キューへ入れられる");
 
         let got = studio
-            .opened_mut()
+            .writer()
             .expect("開いている")
-            .ledger
             .oto_of(take, &item.alias)
             .expect("引ける")
             .expect("エントリがある");
@@ -5959,7 +6083,8 @@ mod tests {
         let session_id = studio.test_session().expect("セッションを始められる");
         let open = studio.opened_mut().expect("開いている");
         let take = open
-            .ledger
+            .writer()
+            .expect("書き手")
             .commit_take(&FinalizedTake {
                 row_id: row.clone(),
                 session_id,
@@ -5968,9 +6093,13 @@ mod tests {
                 recorded_at: now_rfc3339(),
             })
             .expect("テイクを確定できる");
-        open.ledger.adopt_take(&row, take).expect("採れる");
+        open.writer()
+            .expect("書き手")
+            .adopt_take(&row, take)
+            .expect("採れる");
         let later: Vec<(String, koeru_core::oto::Boundary)> = open
-            .ledger
+            .writer()
+            .expect("書き手")
             .boundaries_for_take(first)
             .expect("引ける")
             .into_iter()
@@ -5985,8 +6114,12 @@ mod tests {
                 )
             })
             .collect();
-        open.ledger.put_boundaries(take, &later).expect("置ける");
-        open.ledger
+        open.writer()
+            .expect("書き手")
+            .put_boundaries(take, &later)
+            .expect("置ける");
+        open.writer()
+            .expect("書き手")
             .put_oto(
                 take,
                 &item.alias,
@@ -6012,9 +6145,8 @@ mod tests {
             .expect("2本目もその綴りの発声の始まりを持つ");
         assert!((now - was - 100.0).abs() < f64::EPSILON);
         let got = studio
-            .opened_mut()
+            .writer()
             .expect("開いている")
-            .ledger
             .oto_of(take, &item.alias)
             .expect("引ける")
             .expect("エントリがある");

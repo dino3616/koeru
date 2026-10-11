@@ -300,6 +300,8 @@ const TRACE_FIELDS_ALLOWED: &[&str] = &[
     "source_channel",
     "status",
     "subbanks",
+    // 別の音源から移ったか（`Studio::open_project`）。 真偽だけ。
+    "switching",
     "want",
     "want_ms",
     "added_at",

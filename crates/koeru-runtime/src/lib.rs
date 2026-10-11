@@ -19,8 +19,8 @@
 //! - [`ProjectReadSession`] — 1つの版に固定した読みで、facet ごとに遅延解決する
 //!   （`DEC-PLT-044`）
 //!
-//! `koeru-app` の `Studio` をこれ経由に繋ぎ直すのは T05b-2（別のエージェントの作業）。
-//! ここではまだ `crates/koeru-app/src/{studio.rs,commands.rs,lib.rs}` を書き換えない。
+//! `koeru-app` の `Studio` は T05b-2 でこれ経由に繋ぎ直した。 開く・移る・閉じるが
+//! 貸与を切り替え、台帳の書き込みはすべて [`ProjectRuntime::writer`] を通る。
 //!
 //! `editor`（M6 / T13）と `distribution`（WAV 走査が要る。T08 / T09）の facet は
 //! まだここに無い。 `session` モジュールに理由を書いてある。
@@ -30,6 +30,7 @@ pub mod lease;
 pub mod review;
 pub mod runtime;
 pub mod session;
+pub mod time;
 
 pub use error::RuntimeError;
 pub use lease::ProjectLease;
