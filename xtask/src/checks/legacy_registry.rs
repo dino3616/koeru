@@ -7,8 +7,10 @@
 //!
 //! 欄の並びと文言は、`check-meta` が graph に載せ替える前から持っていたものをそのまま写している。
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::graph::{NodeKey, NodeKind, Registry, RelationClass, RelationRule, SemanticGraph};
-use crate::knowledge::Id;
+use crate::knowledge::{Id, KnowledgeSnapshot};
 
 /// 技術要件（`requirement-set` の項目）の node の種類。
 pub(super) const REQUIREMENT_KIND: &str = "requirement";
@@ -134,15 +136,37 @@ pub(super) fn registry() -> Registry {
 
 /// 参照先を graph で引く。
 ///
-/// 欄の値は ID の形をしているとは限らない。 形をしていなければ、node のどれでもないので
-/// 「存在しない」——文字列の集合で引いていたときと同じ答えになる。
+/// 読み込みは `Id` の文法より緩く、接頭辞とファイル名が合えば `DEC-FOO` のような ID も
+/// 通す。 そういう記録は graph の node にならない（`Id` に読めない）ので、文字列のまま
+/// 引ける控えを別に持つ。 載せ替える前は文字列の集合で引いていたので、答えを変えない。
 pub(super) struct Targets<'a> {
     graph: &'a SemanticGraph,
+    /// `Id` に読めない ID と、その node の種類。
+    unparsed: BTreeMap<String, &'static str>,
 }
 
 impl<'a> Targets<'a> {
-    pub(super) fn new(graph: &'a SemanticGraph) -> Self {
-        Self { graph }
+    pub(super) fn new(
+        graph: &'a SemanticGraph,
+        snapshot: &KnowledgeSnapshot,
+        fsl: &BTreeSet<String>,
+    ) -> Self {
+        let mut unparsed = BTreeMap::new();
+        for r in snapshot.records() {
+            let Some(raw) = r.str("id") else { continue };
+            if raw.parse::<Id>().is_ok() {
+                continue;
+            }
+            if let Some(k) = NODE_KINDS.iter().find(|k| k.schema == r.schema()) {
+                unparsed.insert(raw.to_owned(), k.kind);
+            }
+        }
+        for raw in fsl {
+            if raw.parse::<Id>().is_err() {
+                unparsed.insert(raw.clone(), FSL_KIND);
+            }
+        }
+        Self { graph, unparsed }
     }
 
     /// `raw` が、この種類の node として在る。
@@ -156,8 +180,10 @@ impl<'a> Targets<'a> {
     }
 
     fn kind_of(&self, raw: &str) -> Option<&'static str> {
-        let id: Id = raw.parse().ok()?;
-        self.graph.node(&NodeKey::Object(id)).map(|n| n.kind)
+        match raw.parse::<Id>() {
+            Ok(id) => self.graph.node(&NodeKey::Object(id)).map(|n| n.kind),
+            Err(_) => self.unparsed.get(raw).copied(),
+        }
     }
 }
 

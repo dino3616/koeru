@@ -288,7 +288,7 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
     }
 
     let graph = SemanticGraph::from_snapshot(snapshot, &registry());
-    let known = Targets::new(&graph);
+    let known = Targets::new(&graph, snapshot, &fsl);
     // 欄を引くのは、読んだファイルごとの表の直下。 1件1ファイルの記録も、収集ファイルの
     // 直下に置かれた欄（項目ではなくファイルそのものの欄）も同じ扱い（`SourceRecord`）。
     // 場所はファイルまで——直下の欄には、`id` のような行を引く手掛かりが無い。

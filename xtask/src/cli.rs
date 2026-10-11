@@ -58,7 +58,7 @@ impl Workspace {
 
 /// `cargo xtask` の引数（プログラム名を除く）を受けて、終了コードを返す。
 pub fn run(args: &[String]) -> ExitCode {
-    let (format, args) = match split_format(args) {
+    let (format, given, args) = match split_format(args) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("{e}");
@@ -72,16 +72,24 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    if format == OutputFormat::Json && !supports_json(args.first().map(String::as_str)) {
-        eprintln!("--format json は check-* と check-portfolio だけで使える");
+    if let Some(name) = given
+        && !supports_format(args.first().map(String::as_str))
+    {
+        eprintln!("--format {name} は check-* と check-portfolio だけで使える");
         return ExitCode::FAILURE;
     }
     dispatch(ws, &args)
 }
 
 /// `--format <human|json>` を引数から外して、指定を返す。 位置は問わない。
-fn split_format(args: &[String]) -> Result<(OutputFormat, Vec<String>), String> {
+///
+/// 指定されたかどうかも返す。 `human` でも、指定を受けないコマンドに付いていれば断る
+/// ——自動化が付け間違えた指定を、値によって黙って通さない。
+fn split_format(
+    args: &[String],
+) -> Result<(OutputFormat, Option<&'static str>, Vec<String>), String> {
     let mut format = OutputFormat::Human;
+    let mut given = None;
     let mut rest = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -95,15 +103,15 @@ fn split_format(args: &[String]) -> Result<(OutputFormat, Vec<String>), String> 
         };
         match value {
             None => rest.push(a.clone()),
-            Some("human") => format = OutputFormat::Human,
-            Some("json") => format = OutputFormat::Json,
+            Some("human") => (format, given) = (OutputFormat::Human, Some("human")),
+            Some("json") => (format, given) = (OutputFormat::Json, Some("json")),
             Some(_) => return Err("使い方: --format <human|json>".to_owned()),
         }
     }
-    Ok((format, rest))
+    Ok((format, given, rest))
 }
 
-fn supports_json(command: Option<&str>) -> bool {
+fn supports_format(command: Option<&str>) -> bool {
     command.is_some_and(|c| c == "check-portfolio" || checks::find(c).is_some())
 }
 
@@ -184,9 +192,17 @@ mod tests {
 
     #[test]
     fn 指定が無ければ人向けで引数はそのまま() {
-        let (f, rest) = split_format(&args(&["check-meta"])).expect("読める");
+        let (f, given, rest) = split_format(&args(&["check-meta"])).expect("読める");
         assert_eq!(f, OutputFormat::Human);
+        assert_eq!(given, None);
         assert_eq!(rest, args(&["check-meta"]));
+    }
+
+    #[test]
+    fn 既定の_human_でも指定されたことは残る() {
+        let (f, given, _) = split_format(&args(&["--format", "human", "next-id"])).expect("読める");
+        assert_eq!(f, OutputFormat::Human);
+        assert_eq!(given, Some("human"));
     }
 
     #[test]
@@ -196,8 +212,9 @@ mod tests {
             &["check-profile", "--format", "json", "P"][..],
             &["check-profile", "P", "--format=json"][..],
         ] {
-            let (f, rest) = split_format(&args(a)).expect("読める");
+            let (f, given, rest) = split_format(&args(a)).expect("読める");
             assert_eq!(f, OutputFormat::Json);
+            assert_eq!(given, Some("json"));
             assert_eq!(rest, args(&["check-profile", "P"]));
         }
     }
@@ -210,12 +227,12 @@ mod tests {
     }
 
     #[test]
-    fn json_に対応するのは登録した検査と_check_portfolio() {
-        assert!(supports_json(Some("check-meta")));
-        assert!(supports_json(Some("check-schema")));
-        assert!(supports_json(Some("check-portfolio")));
-        assert!(!supports_json(Some("next-id")));
-        assert!(!supports_json(Some("touched")));
-        assert!(!supports_json(None));
+    fn 形式の指定を受けるのは登録した検査と_check_portfolio() {
+        assert!(supports_format(Some("check-meta")));
+        assert!(supports_format(Some("check-schema")));
+        assert!(supports_format(Some("check-portfolio")));
+        assert!(!supports_format(Some("next-id")));
+        assert!(!supports_format(Some("touched")));
+        assert!(!supports_format(None));
     }
 }

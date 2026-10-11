@@ -134,8 +134,31 @@ fn run_in(cwd: &Path, args: &[&str], root: &Path) -> Run {
         .expect("xtask を起動できる");
     Run {
         code: out.status.code().expect("終了コードがある"),
-        stdout: normalize(&String::from_utf8_lossy(&out.stdout), root),
+        stdout: normalize_output(&String::from_utf8_lossy(&out.stdout), root),
         stderr: normalize(&String::from_utf8_lossy(&out.stderr), root),
+    }
+}
+
+/// [`normalize`] を、JSON の出力にも効くようにする。
+///
+/// JSON は文字列の中の `\` を `\\` と書くので、外側の文字列のまま置き換えると Windows の
+/// パスが `<root>` にならず、区切りだけが `//` に化ける。 読んでから文字列ごとに直す。
+fn normalize_output(text: &str, root: &Path) -> String {
+    if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(text.trim_end())
+        && v.is_object()
+    {
+        normalize_json(&mut v, root);
+        return format!("{v}\n");
+    }
+    normalize(text, root)
+}
+
+fn normalize_json(v: &mut serde_json::Value, root: &Path) {
+    match v {
+        serde_json::Value::String(s) => *s = normalize(s, root),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(|x| normalize_json(x, root)),
+        serde_json::Value::Object(map) => map.values_mut().for_each(|x| normalize_json(x, root)),
+        _ => {}
     }
 }
 
@@ -1362,6 +1385,35 @@ fn json_は検査ではないコマンドと知らない形式を拒む() {
     // 引数が足りないときの使い方は、形式を問わず変わらない。
     let run = fx.run(&["--format", "json", "check-profile"]);
     run.expect(1, &[], &["使い方: cargo xtask check-profile <PROFILE-ID>"]);
+    // 値が既定の `human` でも、指定を受けないコマンドに付いていれば断る。
+    let run = fx.run(&["--format", "human", "next-id", "DEC-fix"]);
+    run.expect(
+        1,
+        &[],
+        &["--format human は check-* と check-portfolio だけで使える"],
+    );
+}
+
+/// 読み込みは `Id` の文法より緩い（接頭辞とファイル名が合えば通す）。 そうして読んだ ID も、
+/// 載せ替える前と同じく参照先として引ける。
+#[test]
+fn check_meta_は_id_の文法に合わない_id_への参照も引ける() {
+    let fx = Fixture::valid("check-meta-unparsed-id");
+    fx.write(
+        "meta/decisions/DEC-fixfoo.toml",
+        &DECISION_1.replace("DEC-fix-001", "DEC-fixfoo"),
+    );
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            "affects_requirements = ['TR-fix-01']\naffects_decisions = ['DEC-fixfoo']",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-meta"]);
+    let v = json(&run);
+    assert!(diagnostics_of(&v, "error").is_empty(), "{v}");
+    assert_eq!(run.code, 0, "{run:?}");
 }
 
 #[test]
