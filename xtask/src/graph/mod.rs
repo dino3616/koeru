@@ -25,4 +25,4 @@ mod registry;
 pub(crate) use build::{GraphIssue, SemanticGraph};
 pub(crate) use diff::{ChangeKind, GraphDiff, diff};
 pub(crate) use model::{GraphNode, NodeKey, NodeProvenance, Relation, RelationClass};
-pub(crate) use registry::{LocatorRule, NodeKind, Registry, RelationRule};
+pub(crate) use registry::{Direction, LocatorRule, NodeKind, Registry, RelationRule};

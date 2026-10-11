@@ -7,7 +7,7 @@ use std::path::Path;
 use super::legacy::{CONTRACT_SCHEMA, Role, spec};
 use super::*;
 use crate::diagnostic::Report;
-use crate::graph::{GraphIssue, NodeKey, RelationClass};
+use crate::graph::{Direction, GraphIssue, NodeKey, RelationClass};
 use crate::knowledge::model::{Entry, SHAPES, Shape};
 use crate::knowledge::{Id, KnowledgeSnapshot, fsl_ids, load};
 use crate::repo::RepoView;
@@ -585,7 +585,7 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     for s in SCHEMAS {
         for f in s.fields {
             match f.role {
-                Role::Edge(name) => {
+                Role::Edge(name) | Role::Inverse(name) => {
                     assert!(
                         relation(name).is_some(),
                         "{}.{} の {name}",
@@ -613,9 +613,8 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
         let spec = relation(rule.relation).expect("語彙にある");
         assert_eq!(rule.class, spec.class);
     }
-    // 組み立てる欄は、組み立てた欄にだけ rule がある。 元の欄から edge を作らない。
+    // 値の行き先で relation を分ける欄は、組み立てた欄にだけ rule がある。 元の欄から edge を作らない。
     for (schema, field) in [
-        ("evidence", "supports_decisions"),
         ("component-ledger", "supports_requirements"),
         ("test-portfolio", "contracts"),
     ] {
@@ -626,10 +625,27 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
             "{schema}.{field}"
         );
     }
-    // `formalized_as` は欄の向きを逆にして contract に持たせる。 rule は contract 側だけ。
-    assert!(
-        !reg.relations.iter().any(|r| r.field == "formalized_as"),
-        "REQ 側の欄から edge を作らない"
+    // 関係の行き先の側に書かれた欄は、逆向きの規則で読む。 欄を持たない記録は組み立てない。
+    for (schema, field, relation) in [
+        ("requirement-set", "formalized_as", "formalizes"),
+        ("evidence", "supports_decisions", "considers"),
+    ] {
+        let rules: Vec<_> = reg
+            .relations
+            .iter()
+            .filter(|r| r.from_schema == schema && r.field == field)
+            .collect();
+        assert_eq!(rules.len(), 1, "{schema}.{field}");
+        assert_eq!(rules[0].relation, relation);
+        assert_eq!(rules[0].direction, Direction::Reverse, "{schema}.{field}");
+    }
+    // 逆向きの規則は、この2つだけ。
+    assert_eq!(
+        reg.relations
+            .iter()
+            .filter(|r| r.direction == Direction::Reverse)
+            .count(),
+        2
     );
 }
 
@@ -758,6 +774,38 @@ fn 関係の両端の種類が合わなければ問題として出る() {
     )));
 }
 
+/// 逆向きに読む欄も、両端の種類を見る。 `formalizes` の起点は形式 contract だけ。
+#[test]
+fn 逆向きの欄が指す相手の種類が合わなければ問題として出る() {
+    // `formalized_as` が、contract ではなく判断を指している。
+    let body = REQUIREMENTS.replace("['REQ-fix-001', 'FB-fix-001']", "['DEC-fix-001']");
+    let issues = design_of(&with("meta/requirements/fix.toml", &body)).audit();
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "formalizes",
+            from_kind: Kind::Decision,
+            to_kind: Kind::Requirement,
+            ..
+        }
+    )));
+    // 調査が `supports_decisions` で、判断ではなく技術要件を指している。
+    let body = EVIDENCE_2.replace(
+        "['DEC-fix-002', 'DEC-fix-001']",
+        "['DEC-fix-002', 'TR-fix-01']",
+    );
+    let issues = design_of(&with("meta/evidence/EVID-fix-002.toml", &body)).audit();
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "considers",
+            from_kind: Kind::Requirement,
+            to_kind: Kind::Evidence,
+            ..
+        }
+    )));
+}
+
 #[test]
 fn 存在しない_contract_を指す_formalized_as_は_edge_を作らず問題として出る() {
     let body = REQUIREMENTS.replace(
@@ -766,10 +814,11 @@ fn 存在しない_contract_を指す_formalized_as_は_edge_を作らず問題�
     );
     let design = design_of(&with("meta/requirements/fix.toml", &body));
     let issues = design.audit();
+    // contract の node が無いので、起点の無い edge として出る。
     assert!(has(&issues, |i| matches!(
         i,
-        DesignIssue::MissingContract { requirement, contract }
-            if requirement == "TR-fix-01" && contract == "REQ-fix-404"
+        DesignIssue::Graph(GraphIssue::Dangling { from, relation: "formalizes", to })
+            if *from == key("REQ-fix-404") && *to == key("TR-fix-01")
     )));
     assert!(edges(&design.graph(), "FB-fix-001").is_empty());
 }
@@ -885,8 +934,9 @@ fn assert_every_field_is_accounted(entries: &[Entry]) {
     }
 }
 
-/// 欄に書かれた参照の数だけ edge ができている。 組み立てる欄（`Role::Lifted`）の値も1つにつき
-/// 1本。 ただし調査の `supports_decisions` は、判断が同じ調査を挙げていれば二重にしない。
+/// 欄に書かれた参照の数だけ edge ができている。 組み立てる欄（`Role::Lifted`）と逆向きに読む欄
+/// （`Role::Inverse`）の値も1つにつき1本。 ただし調査の `supports_decisions` は、判断が同じ
+/// 調査を挙げていれば二重にしない。
 fn expected_edges(entries: &[Entry]) -> usize {
     let mut n = 0;
     let mut considered: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -910,7 +960,7 @@ fn expected_edges(entries: &[Entry]) -> usize {
     for (schema, t) in tables {
         let s = spec(schema).expect("写し方がある");
         for f in s.fields {
-            if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
+            if !matches!(f.role, Role::Edge(_) | Role::Lifted(_) | Role::Inverse(_)) {
                 continue;
             }
             if f.name == "supports_decisions" {
@@ -1087,9 +1137,9 @@ fn 要件を指す_contracts_だけが_targets_になる() {
     );
 }
 
-/// 指す判断が無い `supports_decisions` は、足せないことを問題として出す。
+/// 指す判断が無い `supports_decisions` は、起点の無い edge として出る。
 #[test]
-fn 存在しない判断を指す_supports_decisions_は問題として出る() {
+fn 存在しない判断を指す_supports_decisions_は宙に浮いた_edge_として出る() {
     let body = EVIDENCE_2.replace(
         "['DEC-fix-002', 'DEC-fix-001']",
         "['DEC-fix-002', 'DEC-fix-404']",
@@ -1097,12 +1147,65 @@ fn 存在しない判断を指す_supports_decisions_は問題として出る() 
     let design = design_of(&with("meta/evidence/EVID-fix-002.toml", &body));
     assert!(has(&design.audit(), |i| matches!(
         i,
-        DesignIssue::MissingLiftTarget { source, field: "supports_decisions", target }
-            if source == "EVID-fix-002" && target == "DEC-fix-404"
+        DesignIssue::Graph(GraphIssue::Dangling { from, relation: "considers", to })
+            if *from == key("DEC-fix-404") && *to == key("EVID-fix-002")
     )));
     assert!(
         edges(&design.graph(), "DEC-fix-002").contains(&("considers", "EVID-fix-002".to_owned()))
     );
+}
+
+/// 調査が支える先を変えても、判断の記録そのものは変わらない。 以前は判断の記録に
+/// `considers_evidence` を足していたので、調査の側を直すと判断の digest が変わり、判断が
+/// 変わったように見えた。
+#[test]
+fn 調査の支える先を変えても判断の_digest_は変わらない() {
+    let before = base().graph();
+    let body = EVIDENCE_2.replace(
+        "['DEC-fix-002', 'DEC-fix-001']",
+        "['DEC-fix-002']", // DEC-fix-001 を外す
+    );
+    let after = design_of(&with("meta/evidence/EVID-fix-002.toml", &body)).graph();
+    for raw in ["DEC-fix-001", "DEC-fix-002"] {
+        assert_eq!(
+            before.node(&key(raw)).map(|n| n.fingerprint),
+            after.node(&key(raw)).map(|n| n.fingerprint),
+            "{raw} の digest が変わった"
+        );
+    }
+    // 書き換えた調査自身は、内容が変わったと出る。
+    assert_ne!(
+        before.node(&key("EVID-fix-002")).map(|n| n.fingerprint),
+        after.node(&key("EVID-fix-002")).map(|n| n.fingerprint)
+    );
+    // 変わったのは edge だけ。 判断は内容ではなく edge が変わったと出る。
+    let d = crate::graph::diff(&before, &after);
+    assert_eq!(
+        d.changed.get(&key("DEC-fix-001")),
+        Some(&crate::graph::ChangeKind::Edges)
+    );
+    assert_eq!(
+        d.changed.get(&key("EVID-fix-002")),
+        Some(&crate::graph::ChangeKind::Content)
+    );
+    assert!(!d.changed.contains_key(&key("DEC-fix-002")));
+    assert!(d.added.is_empty() && d.removed.is_empty());
+}
+
+/// REQ の `formalized_as` を直しても、contract の記録そのものは変わらない。
+#[test]
+fn 要件の_formalized_as_を直しても_contract_の_digest_は変わらない() {
+    let before = base().graph();
+    let body = REQUIREMENTS.replace("['REQ-fix-001', 'FB-fix-001']", "['REQ-fix-001']");
+    let after = design_of(&with("meta/requirements/fix.toml", &body)).graph();
+    for raw in ["REQ-fix-001", "FB-fix-001"] {
+        assert_eq!(
+            before.node(&key(raw)).map(|n| n.fingerprint),
+            after.node(&key(raw)).map(|n| n.fingerprint),
+            "{raw}"
+        );
+    }
+    assert!(edges(&after, "FB-fix-001").is_empty());
 }
 
 /// 受入は形式 contract の1種類で、目標の接頭辞は `ACC`。

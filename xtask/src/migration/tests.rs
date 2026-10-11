@@ -12,7 +12,7 @@ use std::process::Command;
 use super::dryrun::{DefaultEquivalence, DryRun, dry_run};
 use super::rewrite::fail_rename_at;
 use super::*;
-use crate::graph::{NodeKind, Registry, RelationClass, RelationRule, SemanticGraph};
+use crate::graph::{Direction, NodeKind, Registry, RelationClass, RelationRule, SemanticGraph};
 use crate::repo::RepoView;
 
 struct Fixture {
@@ -154,6 +154,7 @@ fn registry() -> Registry {
             field: "supersedes",
             relation: "supersedes",
             class: RelationClass::Reference,
+            direction: Direction::Forward,
         }],
         locators: Vec::new(),
         fsl_node_kind: Some("fsl-requirement"),

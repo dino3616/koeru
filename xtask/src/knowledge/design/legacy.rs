@@ -11,8 +11,8 @@
 use std::path::Path;
 
 use super::ontology::{Kind, Layer};
-use crate::knowledge::Id;
 use crate::knowledge::snapshot::{Fields, Record};
+use crate::knowledge::{Id, KnowledgeSnapshot};
 
 /// target では何になるか。
 #[derive(Debug, Clone, Copy)]
@@ -46,10 +46,13 @@ pub(crate) enum Role {
     Data,
     /// ほかの欄が決める関係の、逆向きの写し。 edge にしない（二重になる）。
     Mirror(&'static str),
-    /// 欄の値から、この名前の relation を [`super::lift`] が組み立てる。 向きを逆にして相手側の
-    /// 記録に持たせるもの（`formalizes`・`considers`）と、値の行き先で relation を分けるもの
-    /// （`implements`・`targets`）。 欄そのものは edge の規則を持たない。
+    /// 欄の値から、この名前の relation を [`super::lift`] が組み立てる。 値の行き先で relation を
+    /// 分けるもの（`implements`・`targets`）。 欄そのものは edge の規則を持たない。
     Lifted(&'static str),
+    /// 値の記録から、欄を持つ記録へ向かう、この名前の relation の edge になる（`formalizes`・
+    /// `considers`）。 欄は関係の行き先の側に書かれていて、engine が逆向きに読む
+    /// （`graph::Direction::Reverse`）。 起点の記録は書き換えない。
+    Inverse(&'static str),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -96,8 +99,8 @@ pub(crate) const STRUCTURAL: &[&str] = &["schema", "id"];
 
 /// legacy の schema と、target で加わる schema の表。
 pub(crate) const SCHEMAS: &[SchemaSpec] = &[
-    // 技術要件。 REQ になる。 FSL への `formalized_as` は、FSL 側から見た `formalizes` として
-    // 持たせる（正規の向きが contract から REQ だから。 提案書 5.2.2）。
+    // 技術要件。 REQ になる。 FSL への `formalized_as` は、正規の向き（contract から REQ。
+    // 提案書 5.2.2）の `formalizes` の逆向きの規則で読む。
     SchemaSpec {
         schema: "requirement-set",
         kind: Kind::Requirement,
@@ -112,7 +115,7 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             edge("depends_on", "depends_on"),
             Field {
                 name: "formalized_as",
-                role: Role::Lifted("formalizes"),
+                role: Role::Inverse("formalizes"),
             },
         ],
         open: false,
@@ -212,11 +215,11 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             // 同じ名前の別物なので、locator として読まない。
             data("provenance"),
             data("confidence"),
-            // `considers` の逆向き。 DEC の側に欄を足して、正規の向きの edge にする
-            // （`DEC-PLT-048`）。
+            // `considers`（DEC → EVID）の逆向きの規則で読む（`DEC-PLT-048`）。 判断の記録は
+            // 書き換えない。
             Field {
                 name: "supports_decisions",
-                role: Role::Lifted("considers"),
+                role: Role::Inverse("considers"),
             },
             edge("supports_requirements", "supports_requirements"),
             edge("affects_requirements", "affects"),
@@ -381,14 +384,15 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         open: false,
         file_fields: &[],
     },
-    // FSL の contract。 meta のファイルではなく、`super::lift` が FSL の索引と
-    // `formalized_as` から組み立てる。
+    // FSL の contract。 meta のファイルではなく、`super::lift` が FSL の索引から記録として
+    // 組み立てる（id と宣言の場所だけ）。 REQ との関係は、REQ の `formalized_as` を逆向きに
+    // 読む規則が作る。
     SchemaSpec {
         schema: CONTRACT_SCHEMA,
         kind: Kind::FormalContract,
         meaning: Meaning::Direct,
         title: None,
-        fields: &[data("site"), edge("formalizes", "formalizes")],
+        fields: &[data("site")],
         open: false,
         file_fields: &[],
     },
@@ -533,16 +537,30 @@ pub(crate) struct Object<'a> {
     record: &'a Record,
     id: &'a Id,
     spec: &'static SchemaSpec,
+    /// 記録を含む snapshot。 他の記録から引く値（[`Contract::formalizes`]）を読むのに要る。
+    snapshot: Option<&'a KnowledgeSnapshot>,
 }
 
 impl<'a> Object<'a> {
     /// 知らない schema・ID の形に読めない記録は `None`。 黙って落とさず、
     /// [`super::Design::audit`] が出す。
+    ///
+    /// snapshot を持たないので、他の記録から引く値（[`Contract::formalizes`]）は空になる。
+    /// 記録の全体から読むときは [`Self::in_snapshot`]。
     pub(crate) fn new(record: &'a Record) -> Option<Self> {
         Some(Self {
             id: record.id()?,
             spec: spec(record.schema())?,
             record,
+            snapshot: None,
+        })
+    }
+
+    /// [`Self::new`] に、記録を含む snapshot を持たせる。
+    pub(crate) fn in_snapshot(record: &'a Record, snapshot: &'a KnowledgeSnapshot) -> Option<Self> {
+        Self::new(record).map(|o| Self {
+            snapshot: Some(snapshot),
+            ..o
         })
     }
 
@@ -636,6 +654,7 @@ impl<'a> Object<'a> {
         (self.spec.schema == CONTRACT_SCHEMA).then_some(Contract {
             record: self.record,
             id: self.id,
+            snapshot: self.snapshot,
         })
     }
 }
@@ -1148,6 +1167,7 @@ impl<'a> ReleaseProfile<'a> {
 pub(crate) struct Contract<'a> {
     record: &'a Record,
     id: &'a Id,
+    snapshot: Option<&'a KnowledgeSnapshot>,
 }
 
 impl<'a> Contract<'a> {
@@ -1163,7 +1183,22 @@ impl<'a> Contract<'a> {
 
     /// この contract が一部を形式にしている REQ。 一部であって、完全な表現ではない
     /// （提案書 5.2.2）。 初版は被覆の度合いを持たない。
+    ///
+    /// REQ が `formalized_as` で挙げているものを、記録の並びのまま引く。 contract の記録には
+    /// 持たせない——REQ の欄を書き写すと、REQ を直すたびに contract の内容の digest が変わる。
+    /// snapshot を持たない [`Object::new`] で作った object では空。
     pub(crate) fn formalizes(&self) -> Vec<String> {
-        self.record.strs("formalizes")
+        let Some(snapshot) = self.snapshot else {
+            return Vec::new();
+        };
+        snapshot
+            .by_schema("requirement-set")
+            .filter(|r| {
+                r.strs("formalized_as")
+                    .iter()
+                    .any(|c| c == self.id.as_str())
+            })
+            .filter_map(|r| r.id().map(ToString::to_string))
+            .collect()
     }
 }

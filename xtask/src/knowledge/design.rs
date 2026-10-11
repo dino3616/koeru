@@ -38,13 +38,15 @@ pub(crate) use ontology::{
     Ends, Kind, Layer, RELATIONS, RelationSpec, SEMANTIC, Standing, relation,
 };
 
-use crate::graph::{NodeKind, Registry, RelationRule};
+use crate::graph::{Direction, NodeKind, Registry, RelationRule};
 use legacy::Role;
 
 /// graph engine に渡す語彙。
 ///
 /// 今の meta の schema と、目標の schema の両方を node の種類にし、欄を [`RELATIONS`] の名前の
 /// edge にする。 `affects_*` の族は `affects` に、`closed_by` は `resolved_by` にまとまる。
+/// `formalized_as` と `supports_decisions` は、関係の行き先の側に書かれた欄なので
+/// 逆向きの規則（`Direction::Reverse`）で読む。
 /// FSL の ID は記録としては持たない（`Design` が contract の記録を加える）ので
 /// `fsl_node_kind` は使わない。 locator の欄を持つ schema がまだ無いので、`locators` は空。
 pub(crate) fn registry() -> Registry {
@@ -58,8 +60,10 @@ pub(crate) fn registry() -> Registry {
     let mut relations = Vec::new();
     for schema in SCHEMAS {
         for field in schema.fields {
-            let Role::Edge(name) = field.role else {
-                continue;
+            let (name, direction) = match field.role {
+                Role::Edge(name) => (name, Direction::Forward),
+                Role::Inverse(name) => (name, Direction::Reverse),
+                _ => continue,
             };
             let Some(rule) = relation(name) else {
                 continue;
@@ -69,6 +73,7 @@ pub(crate) fn registry() -> Registry {
                 field: field.name,
                 relation: rule.name,
                 class: rule.class,
+                direction,
             });
         }
     }

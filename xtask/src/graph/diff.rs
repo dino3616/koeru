@@ -103,7 +103,8 @@ pub(crate) fn diff(old: &SemanticGraph, new: &SemanticGraph) -> GraphDiff {
     }
 
     for rel in new.all_relations() {
-        if new.node(&rel.to).is_none() {
+        // 逆向きの edge は起点が無いことがある（`SemanticGraph::validate` と同じ見方）。
+        if new.node(&rel.to).is_none() || new.node(&rel.from).is_none() {
             out.unresolved
                 .insert((rel.from.clone(), rel.name, rel.to.clone()));
         }
@@ -118,7 +119,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
-    use crate::graph::registry::{NodeKind, Registry, RelationRule};
+    use crate::graph::registry::{Direction, NodeKind, Registry, RelationRule};
     use crate::repo::RepoView;
 
     struct TempRoot(std::path::PathBuf);
@@ -178,12 +179,14 @@ mod tests {
                     field: "uses",
                     relation: "uses",
                     class: RelationClass::Reference,
+                    direction: Direction::Forward,
                 },
                 RelationRule {
                     from_schema: "question",
                     field: "replaces",
                     relation: "replaces",
                     class: RelationClass::Supersession,
+                    direction: Direction::Forward,
                 },
             ],
             ..Registry::default()
@@ -352,5 +355,44 @@ mod tests {
         assert!(d.added.contains(&key("Q-fix-03")));
         assert!(d.removed.contains_key(&key("Q-fix-02")));
         assert!(d.superseded.contains(&key("Q-fix-01")));
+    }
+
+    /// 逆向きの edge は、起点（欄の値の記録）が無いときも `unresolved` に入る。
+    /// 起点の記録は変わっていないのに、edge だけが増えた起点は `Edges` と出る。
+    #[test]
+    fn 逆向きの_edge_も_unresolved_と_edges_変更に出る() {
+        let mut reg = registry();
+        reg.relations.push(RelationRule {
+            from_schema: "question",
+            field: "used_by",
+            relation: "uses",
+            class: RelationClass::Reference,
+            direction: Direction::Reverse,
+        });
+        let build_with = |root: &TempRoot| {
+            let (graph, issues) = SemanticGraph::build(&RepoView::working_tree(&root.0), &reg);
+            assert!(issues.is_empty(), "{issues:?}");
+            graph
+        };
+        let old_root = temp_root("reverse-old");
+        write_widget(&old_root, "Q-fix-01", "");
+        write_widget(&old_root, "Q-fix-02", "");
+        let old = build_with(&old_root);
+
+        let new_root = temp_root("reverse-new");
+        write_widget(&new_root, "Q-fix-01", "");
+        // Q-fix-02 が自分を使う相手として Q-fix-01（在る）と Q-fix-99（無い）を挙げた。
+        write_widget(&new_root, "Q-fix-02", "used_by = ['Q-fix-01', 'Q-fix-99']");
+        let new = build_with(&new_root);
+
+        let d = diff(&old, &new);
+        // 起点の Q-fix-01 は記録を直していないが、edge が増えた。
+        assert_eq!(d.changed.get(&key("Q-fix-01")), Some(&ChangeKind::Edges));
+        // 欄を持つ Q-fix-02 は内容が変わった。
+        assert_eq!(d.changed.get(&key("Q-fix-02")), Some(&ChangeKind::Content));
+        assert_eq!(
+            d.unresolved,
+            BTreeSet::from([(key("Q-fix-99"), "uses", key("Q-fix-02"))])
+        );
     }
 }

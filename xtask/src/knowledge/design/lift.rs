@@ -3,22 +3,21 @@
 //! やることは2つ。
 //!
 //! - 記録の欄から、正規の relation の edge を作れる形に組み立てる（`DEC-PLT-048`）。
-//!   graph engine の relation は記録が持つ欄から前向きにしか引けず、値の行き先で relation を
-//!   分けることもできない。 組み立てるのは読んだ記録の写しで、meta のファイルは書き換えない
-//!   - FSL の contract を記録として加え、`formalizes` を持たせる（正規の向きは contract から
-//!     REQ。 提案書 5.2.2。 FSL の ID は記録ではない）
-//!   - 調査の `supports_decisions` を、判断の `considers_evidence` に足す（`considers` の逆向き）
+//!   組み立てるのは読んだ記録の写しで、meta のファイルは書き換えない
+//!   - FSL の contract を記録として加える（id と宣言の場所だけ。 FSL の ID は meta の記録では
+//!     ないが、node と出どころを持たせるため）。 REQ との関係（`formalizes`、contract から REQ。
+//!     提案書 5.2.2）は REQ の `formalized_as` を逆向きに読む規則が作る
 //!   - 部品の `supports_requirements` を、採用なら `implements_requirements`、それ以外なら
 //!     `unadopted_requirements` に振り分ける
 //!   - 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは
 //!     `other_contracts` に振り分ける
 //! - 読んだものが target の意味で引けているかを検査する（[`Design::audit`]）
 //!
-//! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 判断の記録は、足された
-//! 欄の分だけ内容の digest が変わる（調査が支える先を変えると、判断が `changed` に見える）。
+//! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 逆向きの規則で読めるものは
+//! 欄を足さない——相手の記録の内容の digest が、書かれていない欄で変わらないようにするため。
 //!
-//! engine が逆向きの規則と、値からの振り分けを持てば、組み立ては要らなくなる（X05 への要求。
-//! D00 の後の作業）。
+//! 値からの振り分け（`implements`・`targets`）は、engine が値から relation を決められるように
+//! なるまで、ここで組み立てる（X05 への要求。 D00 の後の作業）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -57,12 +56,14 @@ pub(crate) enum DesignIssue {
     },
     /// FSL の ID が ID の形に読めない。 contract の node にならない。
     UnparsedContract { raw: String },
-    /// `formalized_as` が指す contract が FSL に無い。 `formalizes` の edge を作れない。
+    /// `formalized_as` が指す contract が FSL に無い。 **今は出さない。** 逆向きの規則で読むように
+    /// なってから、宙に浮いた edge（`Graph(GraphIssue::Dangling)`）として出る。 互換のために残す。
     MissingContract {
         requirement: String,
         contract: String,
     },
-    /// 欄の値が指す記録が無く、組み立てられなかった（`supports_decisions` が指す判断が無い）。
+    /// 欄の値が指す記録が無く、組み立てられなかった。 **今は出さない。** `supports_decisions` が
+    /// 指す判断が無いときは、`Graph(GraphIssue::Dangling)` として出る。 互換のために残す。
     MissingLiftTarget {
         source: String,
         field: &'static str,
@@ -127,10 +128,9 @@ impl Design {
         mut issues: Vec<DesignIssue>,
     ) -> Self {
         let mut all: Vec<Entry> = entries.iter().map(duplicate).collect();
-        lift_evidence_to_decisions(&mut all, &mut issues);
         lift_components(&mut all);
         lift_suites(&mut all);
-        all.extend(contract_entries(root, entries, fsl_sites, &mut issues));
+        all.extend(contract_entries(root, fsl_sites, &mut issues));
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&all);
         issues.extend(dups.into_iter().map(DesignIssue::Load));
         Self { snapshot, issues }
@@ -146,11 +146,15 @@ impl Design {
     /// target の意味で見た全件。 知らない schema・ID の形に読めない記録は含まない
     /// ——それは [`Self::audit`] が出す。
     pub(crate) fn objects(&self) -> impl Iterator<Item = Object<'_>> {
-        self.snapshot.records().filter_map(Object::new)
+        self.snapshot
+            .records()
+            .filter_map(|r| Object::in_snapshot(r, &self.snapshot))
     }
 
     pub(crate) fn object(&self, id: &Id) -> Option<Object<'_>> {
-        self.snapshot.get(id).and_then(Object::new)
+        self.snapshot
+            .get(id)
+            .and_then(|r| Object::in_snapshot(r, &self.snapshot))
     }
 
     /// 読み込みと組み立てで出た問題だけ。 graph は作らない。
@@ -213,8 +217,8 @@ impl Design {
             }
             let Some(id) = r.id() else { continue };
             for f in spec.fields {
-                // 組み立てる欄も、行き先が ID の形に読めないと edge にならない。
-                if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
+                // 組み立てる欄と逆向きに読む欄も、値が ID の形に読めないと edge にならない。
+                if !matches!(f.role, Role::Edge(_) | Role::Lifted(_) | Role::Inverse(_)) {
                     continue;
                 }
                 for raw in references(r, f.name) {
@@ -237,57 +241,6 @@ impl Design {
                 });
             }
         }
-    }
-}
-
-/// 調査の `supports_decisions` を、判断の `considers_evidence` に足す。
-///
-/// 判断が `evidence` や `considers_evidence` で同じ調査を挙げていれば足さない（edge が二重になる）。
-/// 指す判断が無ければ、足せないことを問題として出す。
-fn lift_evidence_to_decisions(all: &mut [Entry], issues: &mut Vec<DesignIssue>) {
-    let decisions: BTreeSet<String> = all
-        .iter()
-        .filter(|e| e.shape.schema == "decision")
-        .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
-        .collect();
-    let mut supports: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for e in all.iter().filter(|e| e.shape.schema == "evidence") {
-        let Some(evid) = str_of(&e.table, "id") else {
-            continue;
-        };
-        for decision in list_of(&e.table, "supports_decisions") {
-            if decisions.contains(&decision) {
-                supports.entry(decision).or_default().push(evid.to_owned());
-            } else {
-                issues.push(DesignIssue::MissingLiftTarget {
-                    source: evid.to_owned(),
-                    field: "supports_decisions",
-                    target: decision,
-                });
-            }
-        }
-    }
-    for e in all.iter_mut().filter(|e| e.shape.schema == "decision") {
-        let Some(id) = str_of(&e.table, "id").map(str::to_owned) else {
-            continue;
-        };
-        let Some(evidence) = supports.get(&id) else {
-            continue;
-        };
-        let mut known: BTreeSet<String> = list_of(&e.table, "evidence")
-            .into_iter()
-            .chain(list_of(&e.table, "considers_evidence"))
-            .collect();
-        let mut merged = list_of(&e.table, "considers_evidence");
-        for evid in evidence {
-            if known.insert(evid.clone()) {
-                merged.push(evid.clone());
-            }
-        }
-        e.table.insert(
-            "considers_evidence".to_owned(),
-            toml::Value::Array(merged.into_iter().map(toml::Value::String).collect()),
-        );
     }
 }
 
@@ -410,36 +363,14 @@ fn duplicate(e: &Entry) -> Entry {
     }
 }
 
-/// FSL の ID ごとに contract の記録を作る。
+/// FSL の ID ごとに contract の記録を作る。 持つのは id と宣言の場所だけ。
 ///
-/// `formalizes` は、その contract を `formalized_as` で指している REQ の ID の一覧。
+/// REQ との関係（`formalizes`）は記録に持たせない。 REQ の `formalized_as` を逆向きの規則で読む。
 fn contract_entries(
     root: &Path,
-    entries: &[Entry],
     fsl_sites: &BTreeMap<String, String>,
     issues: &mut Vec<DesignIssue>,
 ) -> Vec<Entry> {
-    let mut formalized: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for e in entries
-        .iter()
-        .filter(|e| e.shape.schema == "requirement-set")
-    {
-        for item in e.items() {
-            let Some(req) = str_of(&item, "id") else {
-                continue;
-            };
-            for contract in list_of(&item, "formalized_as") {
-                if !fsl_sites.contains_key(&contract) {
-                    issues.push(DesignIssue::MissingContract {
-                        requirement: req.to_owned(),
-                        contract: contract.clone(),
-                    });
-                }
-                formalized.entry(contract).or_default().push(req.to_owned());
-            }
-        }
-    }
-
     let mut out = Vec::new();
     for (id, site) in fsl_sites {
         if id.parse::<Id>().is_err() {
@@ -453,11 +384,6 @@ fn contract_entries(
         let mut table = toml::Table::new();
         table.insert("id".to_owned(), toml::Value::String(id.clone()));
         table.insert("site".to_owned(), toml::Value::String(site.clone()));
-        let reqs = formalized.remove(id).unwrap_or_default();
-        table.insert(
-            "formalizes".to_owned(),
-            toml::Value::Array(reqs.into_iter().map(toml::Value::String).collect()),
-        );
         // `id = '…'` の行番号を、FSL の宣言の行にそろえる。 記録の出どころが行まで引けるように。
         let pad = "\n".repeat(line.unwrap_or(1).saturating_sub(1));
         out.push(Entry {

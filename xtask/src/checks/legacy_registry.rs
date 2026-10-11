@@ -9,7 +9,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::graph::{NodeKey, NodeKind, Registry, RelationClass, RelationRule, SemanticGraph};
+use crate::graph::{
+    Direction, NodeKey, NodeKind, Registry, RelationClass, RelationRule, SemanticGraph,
+};
 use crate::knowledge::{Id, KnowledgeSnapshot};
 
 /// 技術要件（`requirement-set` の項目）の node の種類。
@@ -123,6 +125,7 @@ pub(super) fn registry() -> Registry {
                 } else {
                     RelationClass::Reference
                 },
+                direction: Direction::Forward,
             });
         }
     }
