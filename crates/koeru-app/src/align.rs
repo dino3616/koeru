@@ -26,8 +26,9 @@
 //! （`TR-PLT-19` の「初回起動後の追加ダウンロードをゼロにする」）。
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use koeru_align::aligner::Aligner;
+use koeru_align::aligner::{AlignError, AlignRequest, Aligner, Alignment};
 use koeru_align::mfa::MfaAligner;
 use koeru_failure::Class;
 
@@ -48,9 +49,17 @@ const MODEL_DIRS_RELATIVE: [&str; 2] = ["models/japanese_mfa", "../Resources/mod
 ///
 /// **必ず在る。** 無い状態を型で表さない——無いのはビルドの失敗で、
 /// そこまで来たら起動が止まっている（[`Chosen::detect`]）。
-#[derive(Debug)]
+///
+/// 複製は持ち手の複製で、モデルは1つ。 計算を別のスレッドへ渡すときは、これを渡す。
+///
+/// **`MfaAligner` は `Send` だが `Sync` ではない。** Kaldi の `Mfcc` が作業バッファを
+/// 持っていて、同時に呼ぶと壊れる。 `Arc` だけで共有すると `!Sync` が `Arc` ごと
+/// スレッドを渡れなくするので、`Mutex` で包んで同時に呼べない形にしてある。
+#[derive(Debug, Clone)]
 pub struct Chosen {
-    inner: Box<MfaAligner>,
+    inner: Arc<Mutex<Box<MfaAligner>>>,
+    /// 何で推定したかの札（`TR-ALN-29`）。 モデルを包んだ鍵を待たずに引ける。
+    identity: Arc<str>,
 }
 
 impl Chosen {
@@ -77,7 +86,10 @@ impl Chosen {
         match MfaAligner::open(&dir, &identity) {
             Ok(a) => {
                 tracing::info!(dim = a.feature_dim(), "自動原音設定は MFA で動く");
-                Ok(Self { inner: Box::new(a) })
+                Ok(Self {
+                    identity: Arc::from(a.identity()),
+                    inner: Arc::new(Mutex::new(Box::new(a))),
+                })
             }
             // パスは載せない（AGENTS.md #3）。種別だけ。
             Err(e) => {
@@ -86,16 +98,24 @@ impl Chosen {
         }
     }
 
-    /// 使うアライナ。
-    #[must_use]
-    pub fn as_aligner(&self) -> &dyn Aligner {
-        self.inner.as_ref()
+    /// 1テイクをアライメントする。 同時には1つしか走らない。
+    ///
+    /// # Errors
+    ///
+    /// [`Aligner::align`] と同じ。
+    pub fn align(&self, req: &AlignRequest<'_>) -> Result<Alignment, AlignError> {
+        // 鍵が毒されていても取り出して使う。 `MfaAligner` は Rust 側に守る不変条件を
+        // 持たない（`koeru_align::mfa` の `Send` の注を参照）。
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .align(req)
     }
 
     /// 何で推定したかの札（`TR-ALN-29`）。
     #[must_use]
     pub fn identity(&self) -> &str {
-        self.inner.identity()
+        &self.identity
     }
 }
 

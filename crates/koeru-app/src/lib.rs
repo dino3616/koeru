@@ -24,6 +24,7 @@ pub mod pump;
 pub mod review;
 pub mod storage;
 pub mod studio;
+mod take_analysis;
 pub mod workers;
 
 pub use error::{AppError, Result};
