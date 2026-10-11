@@ -264,6 +264,37 @@ fn 読みは新しいセッションを開いて初めて書き込みを見る()
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 移り先が開けなかったら、前の音源は何も変わらない（貸与も、開いたストリームも）。
+#[test]
+fn 移り先が開けなければ前の音源はそのまま() {
+    let (mut s, root) = studio("failed-switch");
+    let a = s.create_project("A").expect("作れる");
+    let b = s.create_project("B").expect("作れる");
+    s.open_project(a).expect("開ける");
+    let held = s.runtime().expect("開いている");
+    let lease = *held.lease();
+    // ストリームを開いた状態（選択済み）にして、落とされないことを見る。
+    let missing = DeviceId::new("koeru-test-project-lifecycle-存在しない識別子");
+    s.test_select_device(&missing).expect("選べる");
+    assert_eq!(s.test_device_state(), "selected");
+
+    // B の manifest を壊す。 台帳は開けるが、確認キューの組み直しの前に読めず落ちる。
+    let manifest = root.join(b.to_string()).join("manifest.toml");
+    std::fs::write(&manifest, "これは manifest ではない = = =").expect("壊せる");
+
+    s.open_project(b).expect_err("壊れた音源は開けない");
+
+    let now = s.runtime().expect("A が開いたまま");
+    assert!(Arc::ptr_eq(&held, &now), "同じ実行時のまま");
+    assert_eq!(*now.lease(), lease, "貸与は動かない");
+    assert_eq!(s.test_device_state(), "selected", "A の選択は残る");
+    drop(held.read(&lease).expect("A の貸与はまだ読める"));
+    drop(held.writer(&lease).expect("A の貸与はまだ書ける"));
+    s.progress().expect("A はまだ操作できる");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// 一覧に無い識別子を断るのは、前の音源を閉じる前（移る途中で何も開いていない
 /// 状態を作らない）。
 #[test]

@@ -454,7 +454,7 @@ package = 'koeru-app'
 target = 'project_lifecycle'
 platforms = ['macos']
 backends = ['native']
-min_cases = 6
+min_cases = 7
 contracts = ['DEC-PLT-034', 'DEC-PLT-044']
 
 # ## xtask

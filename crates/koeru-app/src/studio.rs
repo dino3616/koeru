@@ -1136,15 +1136,15 @@ impl Studio {
     /// （`DEC-PLT-034`）。 ここは、その書き手を使う綴りの表の確認と確認キューの
     /// 組み直しだけを足す。
     ///
-    /// **別の音源へ移るときは、前の貸与を閉じてから次を開く。** 同じ音源を
-    /// 開き直す場合と違い、前の実行時は `close` で貸与が失効し、それを握っていた
-    /// 呼び出し側（`AppState` の枠、将来の GraphQL の resolver）は
-    /// `runtime.lease_expired` を受け取る。 背後の仕事と再生も止める
+    /// **別の音源へ移るときは、次が開けると分かってから前を閉じる。** 失敗しうる
+    /// こと（一覧の照会、移行、検証、綴りの表、確認キュー）を全部先に済ませ、
+    /// 開けたときだけ前の音源を手放す。 開けなかったら前の音源は何も変わらず、
+    /// ストリームも開いたまま残る。 別々の台帳なので、2つの実行時は一瞬だけ並ぶ。
+    /// 前を手放すときは、前の実行時を `close` して貸与を失効させ（それを握っていた
+    /// 呼び出し側、`AppState` の枠や将来の GraphQL の resolver は
+    /// `runtime.lease_expired` を受け取る）、背後の仕事と再生も止める
     /// （[`Self::stop_preview`]）。 前の音源のための仕事が、移った先の資源を
     /// 触らないようにする。
-    ///
-    /// 開けなかったとき、前の音源は閉じたまま（何も開いていない状態）に残る。
-    /// 一覧にない識別子はここで断るので、移る前の音源は閉じない。
     #[tracing::instrument(skip(self))]
     pub fn open_project(&mut self, id: Uuid) -> Result<()> {
         if let Some(open) = &self.open {
@@ -1157,10 +1157,14 @@ impl Studio {
         }
         let dir = self.library.open_project(id)?;
         let switching = self.open.is_some();
-        self.release_project()?;
         let runtime = ProjectRuntime::open(dir)?;
         match Self::build_open(&runtime) {
             Ok(open) => {
+                // ここまで失敗しうるものは全部済んでいる。 前の音源を手放す。
+                // 閉じられなくても（もう閉じていた）、次は開けているので進む。
+                if let Err(e) = self.release_project() {
+                    e.record("project.switch_close");
+                }
                 self.open = Some(open);
                 tracing::info!(switching, "プロジェクトを開いた");
                 Ok(())

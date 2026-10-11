@@ -135,8 +135,9 @@ impl AppState {
         let (progress, runtime, pending) = {
             let mut s = lock(self)?;
             let opened = s.open_project(id);
-            // 失敗しても枠は実際の状態へ揃える。 別の音源へ移る途中で失敗すると、
-            // 前の音源の貸与は閉じたまま何も開いていない（`Studio::open_project`）。
+            // 失敗しても枠は `Studio` の実際の状態から取る。 別の音源へ移るのに
+            // 失敗したら前の音源が開いたままなので、枠も前のまま
+            // （`Studio::open_project`）。
             let progress = opened.and_then(|()| {
                 s.progress()
                     .map_err(|e| e.with_outcome(koeru_failure::Outcome::Committed))
