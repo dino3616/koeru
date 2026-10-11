@@ -51,7 +51,7 @@ type ConstraintViolation {
 }
 
 # 一括編集の種類（`TR-EDT-27`）のうち、ここに置いたのは値の一括適用だけ。 残りの種類の
-# 入力の形は、M6 の代表の縦切り（T13）で決める（`DEC-PLT-042`）。
+# 入力の形は、architecture refactor の T13 ではなく別の M6 実装計画で決める（`DEC-PLT-042`）。
 "一括編集の対象と中身（`TR-EDT-27`, `TR-EDT-28`）。"
 input BulkEditInput {
   scope: EntryScopeInput!

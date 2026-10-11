@@ -4,7 +4,7 @@
 
 最終的に単一の新runtimeと単一のconsumer contractへ切り替える。productionで旧Specta/Tauri application surfaceと新GraphQL surfaceを恒久併用しない。旧data reader/migration fixture/read-only backupは互換・復旧のため残してよいが、旧write pathとapplication-specific Channel contractを残さない。
 
-T00–T17がarchitecture refactoring deliverables。H6/H7はその後のmilestone completion branch。T13でM6の難しい代表sliceを実装・検証し、GraphQL/WASM/read modelが実要件へ耐えることを確認する。T16のcutoverまでは既存機能の等価性とsafe rollback pathを維持する。
+T00–T17のみをarchitecture refactoring deliverablesとする。M6/M7の新規機能実装、未完了要求の充足、milestone固有の品質・配布判定は本DAGの対象外とし、別の実装計画で管理する。ここでは既存機能の新contractへの移行、互換性・回帰検証、architecture boundaryの検証を行う。T13は既存のreview/edit経路を代表としてGraphQL/WASM/read modelの接続を検証し、M6の新規機能実装は行わない。T16のcutoverまでは既存機能の等価性とsafe rollback pathを維持する。
 
 ```text
 T00 -> T01 -> T02 -> T03 canonical SDL
@@ -20,7 +20,7 @@ T03 + T05 + T07 ----------> T09 GraphQL adapter
 T03 + T09 ----------------> T10 generic Tauri GraphQL transport/ops manifest
 T03 + T05 + T09 + T10 ---> T11 frontend fragments/TanStack
 T06 + T07 + T09 + T10 ---> T12 Subscription unification
-T02 + T04 + T05 + T11 ---> T13 M6 editor vertical slice
+T02 + T04 + T05 + T11 ---> T13 existing edit/review contract migration
 T03 + T05 + T07 + T09 ---> T14 diagnostics/errors/consent/privacy
 T04..T14 ----------------> T15 integrated fitness/performance/schema gates
                               ^
@@ -31,7 +31,6 @@ X07 xtask checks/probe substrate
 X01..X05
 T15 ---------------------> T16 coherent cutover / legacy contract removal
 T16 ---------------------> T17 contributor governance / Agent Skills
-T16 ---------------------> H6 / H7 milestone completion
 ```
 
 公開contract/root configを複数agentが独自変更しない。T03はcanonical SDL vocabulary、T04はstorage/migration、T05はProjectRuntime/read consistency、T06はRT unsafe、T07はjob/result admission、T09はGraphQL Rust adapter、T10はdesktop transport/persisted operations、T15はCI/fitness portfolioのowner。interface変更要求は該当ownerへ返す。
@@ -130,7 +129,7 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Tests:** cross-facet query consistency、parallel mutation中read、A→B→A、lease close/open、selection/history integrity。
 - **Observability:** project lease lifecycle、read revision、snapshot construction duration、invariant mismatch。
 - **Migration / recovery:** existing current-project stateをexplicit leaseへmapping。restart後のepoch reuse禁止。
-- **Acceptance:** recording/review/repertoire/editor/distributionが同revisionのfacetとして読める。resolverがDBを個別再読込する必要がない。
+- **Acceptance:** 既存のrecording/review/repertoire等のproject-derived readが同revisionのfacetとして読める。resolverがDBを個別再読込する必要がない。未提供のM6 editor facetの新規機能実装は要求しない。
 - **Adversarial:** query途中commit、old lease、project switch、large facet、lazy facet failure。
 - **Verification:** real DB + concurrent scheduler; query responseにsingle revision receipt。
 - **Evidence outputs:** read-session contract、latency/memory baseline、consistency tests。
@@ -248,21 +247,21 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Evidence outputs:** stream policy table、queue budgets、channel-removal report。
 - **Human review / decision:** transient frame rate/coalescing UX、binary payload threshold。
 
-## T13 — M6 representative editor vertical slice
+## T13 — Existing edit/review contract migration / architecture verification
 
-- **Objective:** GraphQL Query/Mutation + fragment colocation + coherent read + WASM kernelでM6の難所を通す。
+- **Objective:** 既存のreview/edit相当のread・mutation経路を新contractへ移行し、GraphQL Query/Mutation、fragment colocation、coherent read、native/WASM kernelの境界を検証する。M6の新規機能実装は行わない。
 - **Prerequisites:** T02,T04,T05,T11,T12。
-- **Architecture contract:** same Rust editing kernel native/WASM; per-frame local proposal、durable commit only Mutation。EditingSession mode is application state; view layout mode is frontend local。
-- **Owned / affected:** editor read facets/windowing、ApplyEditorCommand、bulk preview/commit representative path、WASM facade、React editor fragments。
-- **Must not change:** 8ms/undo/manual protection/invalid numeric/lossless semanticsをGraphQL往復で悪化、arbitrary scripting runtime追加。
-- **Tests:** native/WASM parity、pointer/keyboard/IME、stale reestimate vs manual edit、one-undo、5000 entry window/bulk performance、fragment data dependency。
-- **Observability:** edit operation/receipt、conflict/protected counts、gesture/commit/window query latency。pointermove trace禁止。
-- **Migration / recovery:** existing editor/review data identity mapping、history/provenance preservation。
-- **Acceptance:** representative normal/advanced workflowが同truthを扱い、route/view changeでmode/session invariantsが壊れない。
-- **Adversarial:** advanced session closes before delayed mutation、bulk preview stale、5000 rows overfetch、invalid draft、late job result。
-- **Verification:** browser + WASM + native commit + real SQLite + budget harness。
-- **Evidence outputs:** parity fixtures、performance receipt、editor operation documents。
-- **Human review / decision:** IME/focus/pitchmark/normal-mode correction quality。
+- **Architecture contract:** 既存編集規則のownerは共通Rust kernel。local proposalはdurable stateにせず、確定はMutationとlatest revision validationを通す。未提供のM6 EditingSession mode、新bulk操作、editor UXを増やさない。
+- **Owned / affected:** 既存review/edit操作のread projection・Mutation adapter・React fragments、native/WASM parity fixture。現行機能に無い操作はisolated test fixtureに限定し、production featureとして追加しない。
+- **Must not change:** 既存のmanual protection、undo、invalid data、import losslessness、revision semantics。M6固有の8ms・5000 entries・IME・bulk feature completionをrefactor gateにしない。
+- **Tests:** 既存read/edit operationのGraphQL roundtrip、same-revision query、native/WASM semantic parity（fixture）、protected edit、stale revision、codegen/fragment validation、現行動作の回帰。
+- **Observability:** safe operation/receipt、conflict/protected counts、read/commit latency。pointermove trace禁止。
+- **Migration / recovery:** 既存review/editのidentity、history、provenanceを保存し、legacy pathから新contractへ移行する。
+- **Acceptance:** 既存の編集・レビュー操作が新contractと共通kernelで矛盾なく動作する。未実装のM6機能は実装済み・検証済みと判定しない。
+- **Adversarial:** stale result、protected edits、invalid data、old project lease、delayed mutation、fixture-only operationがproductionへ紛れ込む。
+- **Verification:** real DB + runtime/GraphQL tests、existing browser/WebView journey、native/WASM fixture parity。M6全要求のqualificationは対象外。
+- **Evidence outputs:** legacy parity matrix、operation documents、contract/parity receipts。
+- **Human review / decision:** 既存動作とのsemantic equivalenceとcontract boundaryを確認する。M6固有のUX/quality判断は別計画で行う。
 
 ## T14 — Errors / diagnostics / consent / GraphQL privacy
 
@@ -306,7 +305,7 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Tests:** full representative journeys、migration/reopen、native device、export、all persisted operations、no legacy registration/imports。
 - **Observability:** startup contract/schema hash、legacy path invocation counter must be zero/removed、cutover failure diagnostics。
 - **Migration / recovery:** pre-cutover coherent backup、new generation validation、safe fallback before first new write as defined; after cutover one writer only。
-- **Acceptance:** production bundle has canonical GraphQL consumer surface + generic Tauri transport only; old application-specific bindings absent。
+- **Acceptance:** production bundle has canonical GraphQL consumer surface + generic Tauri transport only; old application-specific bindings absent。M6/M7の未完了機能・release qualificationをcutover条件としない。
 - **Adversarial:** stale frontend bundle、schema hash mismatch、rollback after new write、forgotten test-hook command/channel。
 - **Verification:** clean install/upgrade/reopen across target platforms; dependency/import scan。
 - **Evidence outputs:** legacy removal manifest、upgrade receipt、bundle inspection。
@@ -327,35 +326,3 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Verification:** representative real changes + negative cases + skill validator/package/install smoke。
 - **Evidence outputs:** canonical reference map、skill eval report、individual `skill.zip` artifacts。
 - **Human review / decision:** skill trigger scope, maintainer ownership, documentation wording。
-
-## H6 — M6 全要求の実装・品質判定
-
-- **Objective:** editor/review/audition requirements全体を新architecture上で完成させる。
-- **Prerequisites:** T16。T13は代表sliceであり全M6要件ではない。
-- **Architecture contract:** one document truth、GraphQL fragments/projections、same editing kernel、protected edits、bounded bulk/windowing、lossless import。
-- **Owned / affected:** remaining M6 feature implementation。
-- **Must not change:** architecture refactor完了をM6 completionと偽らない。
-- **Tests:** requirement-to-test map、5000 entries、30min chart、external roundtrip、real audition、a11y/IME。
-- **Observability:** product quality + performance budgets, not arbitrary usage telemetry。
-- **Migration / recovery:** existing edits/history/import raw data preserved。
-- **Acceptance:** all M6 TR/FSL acceptance + evidence/human gates。
-- **Adversarial:** large projects、invalid imported data、manual vs auto conflict、subscription stalls。
-- **Verification:** release-like builds and human/native checks。
-- **Evidence outputs:** M6 qualification report。
-- **Human review / decision:** unresolved assumptions/Qs closed or explicitly blocked。
-
-## H7 — M7 実環境 / 配布 / privacy qualification
-
-- **Objective:** 3OS distribution/signing/update/accessibility/telemetryをproduction qualifyする。
-- **Prerequisites:** T16。
-- **Architecture contract:** same canonical GraphQL schema/capabilities across platforms; unavailable backend is not functional support。
-- **Owned / affected:** platform backends、packaging/update、a11y、consent/telemetry adapter。
-- **Must not change:** default-off consent、privacy fields、support claims without native evidence。
-- **Tests:** 3OS native positive tests、installer/update/rollback、screenreader/IME、consent/revoke/privacy、schema hash compatibility。
-- **Observability:** release/build/schema/operation-manifest versions、safe backend/result metrics。
-- **Migration / recovery:** upgrade/rollback data compatibility、queued telemetry revoke semantics。
-- **Acceptance:** M7 profile evidence complete; Q-TEL provider decision resolved before actual sending。
-- **Adversarial:** signed stale frontend/schema mismatch、update during migration、unsupported audio on claimed OS、telemetry retry after revoke。
-- **Verification:** distribution artifacts/hashes and human platform qualification。
-- **Evidence outputs:** M7 release qualification report。
-- **Human review / decision:** signing/provider/legal/privacy/retention/location/licensing。

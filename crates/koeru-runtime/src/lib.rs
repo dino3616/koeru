@@ -22,7 +22,7 @@
 //! `koeru-app` の `Studio` は T05b-2 でこれ経由に繋ぎ直した。 開く・移る・閉じるが
 //! 貸与を切り替え、台帳の書き込みはすべて [`ProjectRuntime::writer`] を通る。
 //!
-//! `editor`（M6 / T13）と `distribution`（WAV 走査が要る。T08 / T09）の facet は
+//! `editor`（T13 で既存契約の移行を検証。M6新機能は別計画）と `distribution`（WAV 走査が要る。T08 / T09）の facet は
 //! まだここに無い。 `session` モジュールに理由を書いてある。
 
 pub mod error;

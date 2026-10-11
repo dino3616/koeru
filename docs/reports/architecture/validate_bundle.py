@@ -63,6 +63,18 @@ else:
     try:
         j = json.loads(dag_path.read_text())
         pr = j['prerequisites']
+        core = j.get('core_deliverables', [])
+        if len(core) != len(pr) or set(core) != set(pr):
+            errors.append('task-dag.json: core deliverables must exactly match DAG nodes')
+        if j.get('milestone_branches'):
+            errors.append('task-dag.json: M6/M7 milestone branches must not be in the refactoring DAG')
+        if any(not re.fullmatch(r'T\d{2}', node) for node in pr):
+            errors.append('task-dag.json: non-refactoring node in prerequisites')
+        declared_order = j.get('topological_order', [])
+        if len(declared_order) != len(pr) or set(declared_order) != set(pr):
+            errors.append('task-dag.json: topological order must list each core task exactly once')
+        elif any(declared_order.index(dep) >= declared_order.index(node) for node, deps in pr.items() for dep in deps if dep in pr):
+            errors.append('task-dag.json: topological order violates prerequisites')
     except Exception as e:
         errors.append(f'task-dag.json invalid: {e}')
         pr = {}
@@ -85,6 +97,10 @@ else:
 task_md = root / '03-task-dag.md'
 if task_md.exists():
     s = task_md.read_text()
+    if re.search(r'^## H[67]\b', s, re.M):
+        errors.append('03-task-dag.md: M6/M7 milestone implementation is outside this DAG')
+    if '## T13 — Existing edit/review contract migration' not in s:
+        errors.append('03-task-dag.md: T13 must remain existing-feature migration only')
     fields = [
         'Objective', 'Prerequisites', 'Architecture contract', 'Owned / affected',
         'Must not change', 'Tests', 'Observability', 'Migration / recovery',
