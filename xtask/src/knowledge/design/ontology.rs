@@ -18,8 +18,8 @@ pub(crate) enum Layer {
     Formal,
     /// 観測方法・workload・実装・provenance など、semantic object と結ぶ実体。
     Operational,
-    /// target の語彙に居場所が決まっていない legacy の object。 D08 が行き先を決めるまでの置き場で、
-    /// 新しい知識の追加先にしない。
+    /// 意味が決まっていない legacy の object。 D08 が行き先を決めるまでの置き場で、
+    /// 新しい知識の追加先にしない（`DEC-PLT-048`）。
     Transitional,
 }
 
@@ -44,8 +44,10 @@ pub(crate) enum Kind {
     Commit,
     Receipt,
     /// legacy の `TGT`。 意味で分類するまで、REQ / HYP / EVID / DEC のどれにも決めない。
+    /// D08 で1件ずつ分類する（`DEC-PLT-048`）。
     UnclassifiedTarget,
-    /// legacy の `PROFILE`。 目標の語彙に居場所が書かれていない。
+    /// legacy の `PROFILE`。 リリース対象の定義で、運用の定義（operational resource）として残す
+    /// （`DEC-PLT-048`）。 semantic object ではない。
     ReleaseProfile,
 }
 
@@ -121,8 +123,9 @@ impl Kind {
             | Kind::Issue
             | Kind::PullRequest
             | Kind::Commit
-            | Kind::Receipt => Layer::Operational,
-            Kind::UnclassifiedTarget | Kind::ReleaseProfile => Layer::Transitional,
+            | Kind::Receipt
+            | Kind::ReleaseProfile => Layer::Operational,
+            Kind::UnclassifiedTarget => Layer::Transitional,
         }
     }
 }
@@ -300,15 +303,13 @@ pub(crate) const RELATIONS: &[RelationSpec] = &[
         Ends::Of(&[Kind::Source, Kind::Dependency, Kind::Artifact]),
         Ends::Of(&[Kind::Requirement]),
     ),
-    // ここから下は legacy の欄を写すための仮の名前。
-    transitional(
-        "supports_decisions",
-        Ends::Of(&[Kind::Evidence]),
-        Ends::Of(&[Kind::Decision]),
-    ),
+    // ここから下は legacy の欄を写すための仮の名前。 `EVID.supports_decisions` は
+    // `considers` の逆向きとして正規にしたので、ここには無い（`DEC-PLT-048`）。
+    // 調査が支える要件と、採用以外の部品が結びつく要件。 前者は D08 が1件ずつ見る。
+    // 後者は、採用の部品だけが `implements` になる（`DEC-PLT-048`）。
     transitional(
         "supports_requirements",
-        Ends::Of(&[Kind::Evidence]),
+        Ends::Of(&[Kind::Evidence, Kind::Dependency]),
         Ends::Of(&[Kind::Requirement]),
     ),
     transitional(
@@ -332,8 +333,9 @@ pub(crate) const RELATIONS: &[RelationSpec] = &[
         Ends::Of(&[Kind::Dependency, Kind::UnclassifiedTarget]),
         Ends::Of(&[Kind::Decision]),
     ),
-    // 試験が支える契約。 要件・FSL・判断・調査が混ざる（`check-meta` も、どの meta でもよいとして
-    // 実在だけを見ている）ので、行き先の種類は縛らない。
+    // 試験が支える契約のうち、要件ではないもの。 判断・調査・FSL の contract が混ざる
+    // （`check-meta` も、どの meta でもよいとして実在だけを見ている）ので、行き先の種類は縛らない。
+    // 要件を指すものは `targets` になる。 残りは D02 が決める（`DEC-PLT-048`）。
     transitional("contracts", Ends::Of(&[Kind::Probe]), Ends::Any),
     transitional(
         "blocks_profiles",
@@ -492,5 +494,8 @@ mod tests {
         assert_eq!(Kind::Workload.layer(), Layer::Operational);
         assert_eq!(Kind::FormalContract.layer(), Layer::Formal);
         assert_eq!(Kind::UnclassifiedTarget.layer(), Layer::Transitional);
+        // リリース対象は運用の定義。 semantic object ではない。
+        assert_eq!(Kind::ReleaseProfile.layer(), Layer::Operational);
+        assert!(!SEMANTIC.contains(&Kind::ReleaseProfile));
     }
 }

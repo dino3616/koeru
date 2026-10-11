@@ -24,8 +24,6 @@ pub(crate) enum Meaning {
     Decomposed(&'static [Part]),
     /// 意味で分類しないと決められない。 機械で決めない（実装計画 9.2）。
     Unclassified { candidates: &'static [Kind] },
-    /// target の語彙に居場所が書かれていない。
-    Unplaced,
 }
 
 /// 分解された部品。
@@ -48,7 +46,9 @@ pub(crate) enum Role {
     Data,
     /// ほかの欄が決める関係の、逆向きの写し。 edge にしない（二重になる）。
     Mirror(&'static str),
-    /// 向きを逆にして、相手側の記録に持たせる。 [`super::lift`] が組み立てる。
+    /// 欄の値から、この名前の relation を [`super::lift`] が組み立てる。 向きを逆にして相手側の
+    /// 記録に持たせるもの（`formalizes`・`considers`）と、値の行き先で relation を分けるもの
+    /// （`implements`・`targets`）。 欄そのものは edge の規則を持たない。
     Lifted(&'static str),
 }
 
@@ -97,7 +97,7 @@ pub(crate) const STRUCTURAL: &[&str] = &["schema", "id"];
 /// legacy の schema と、target で加わる schema の表。
 pub(crate) const SCHEMAS: &[SchemaSpec] = &[
     // 技術要件。 REQ になる。 FSL への `formalized_as` は、FSL 側から見た `formalizes` として
-    // 持たせる（正規の向きが contract から REQ だから。 5.2.2）。
+    // 持たせる（正規の向きが contract から REQ だから。 提案書 5.2.2）。
     SchemaSpec {
         schema: "requirement-set",
         kind: Kind::Requirement,
@@ -142,10 +142,21 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
                 role: Role::Mirror("supersedes"),
             },
             edge("evidence", "considers"),
-            // 次の3つは提案書 5.5 の例が使う欄名。 確定した欄名ではない。
+            // 次の欄は目標の形（提案書 5.5、`DEC-PLT-048`）。 `revises_requirements` と
+            // `removes_requirements` は5.5 に例が無く、同じ流儀で補った。
             edge("relies_on_hypotheses", "relies_on_hypotheses"),
             edge("considers_evidence", "considers"),
             edge("establishes_requirements", "establishes"),
+            edge("revises_requirements", "revises"),
+            edge("removes_requirements", "removes"),
+            // 閉じる問い。 正規の `resolved_by` は Q から DEC なので、逆向きの写し。
+            // engine が逆向きの規則を読めるまで edge にしない。
+            Field {
+                name: "question",
+                role: Role::Mirror("resolved_by"),
+            },
+            // locator の一覧。 engine が値から種類を決められるまで edge にしない。
+            data("provenance"),
             edge("affects_requirements", "affects"),
             edge("affects_decisions", "affects"),
             edge("affects_questions", "affects"),
@@ -201,7 +212,12 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             // 同じ名前の別物なので、locator として読まない。
             data("provenance"),
             data("confidence"),
-            edge("supports_decisions", "supports_decisions"),
+            // `considers` の逆向き。 DEC の側に欄を足して、正規の向きの edge にする
+            // （`DEC-PLT-048`）。
+            Field {
+                name: "supports_decisions",
+                role: Role::Lifted("considers"),
+            },
             edge("supports_requirements", "supports_requirements"),
             edge("affects_requirements", "affects"),
             edge("affects_decisions", "affects"),
@@ -240,7 +256,7 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         file_fields: &[],
     },
     // 目標値。 守る線（REQ）、予測（HYP）、実測（EVID）、目標を置く選択（DEC）が混ざっていて、
-    // 機械では分けられない。 人が分類するまで、どれにもしない（実装計画 9.2）。
+    // 機械では分けられない。 D00 では分類せず、D08 で1件ずつ分類する（`DEC-PLT-048`）。
     SchemaSpec {
         schema: "target-set",
         kind: Kind::UnclassifiedTarget,
@@ -307,7 +323,14 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("note"),
             data("domains"),
             edge("decided_by", "decided_by"),
-            edge("supports_requirements", "implements"),
+            // 採用の部品だけが `implements`。 ほかは仮の名前（`DEC-PLT-048`）。 どちらになるかは
+            // `status` で決まるので、`lift` が次の2つの欄に振り分ける。
+            Field {
+                name: "supports_requirements",
+                role: Role::Lifted("implements"),
+            },
+            edge("implements_requirements", "implements"),
+            edge("unadopted_requirements", "supports_requirements"),
         ],
         open: false,
         file_fields: &[],
@@ -327,16 +350,23 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("backends"),
             data("min_cases"),
             data("manual"),
-            edge("contracts", "contracts"),
+            // 行き先が要件のものだけ `targets`。 残りは仮の名前（`DEC-PLT-048`）。 `lift` が
+            // 次の2つの欄に振り分ける。
+            Field {
+                name: "contracts",
+                role: Role::Lifted("targets"),
+            },
+            edge("targets_requirements", "targets"),
+            edge("other_contracts", "contracts"),
         ],
         open: false,
         file_fields: &[],
     },
-    // リリース対象。 5.1.5 にも実装計画 9 にも居場所が無い。
+    // リリース対象。 運用の定義（operational resource）として残す（`DEC-PLT-048`）。
     SchemaSpec {
         schema: "profile",
         kind: Kind::ReleaseProfile,
-        meaning: Meaning::Unplaced,
+        meaning: Meaning::Direct,
         title: Some("title"),
         fields: &[
             data("title"),
@@ -362,10 +392,59 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         open: false,
         file_fields: &[],
     },
-    // 目標の形（提案書 5.5）。 まだ読み込みが受け付けない。 欄は決まっていないので閉じない。
+    // 目標の形（提案書 5.5、`DEC-PLT-048`）。 まだ読み込みが受け付けない
+    // （`SHAPES` に無い。 X03 への要求）。 `decision` と `evidence` は今の schema 名を引き継ぐ。
+    // 逆向きに持つ欄（`question`・`established_by`・`supporting_evidence`・
+    // `contradicting_evidence`）は、engine が逆向きの規則を読めるまで edge にしない。
     SchemaSpec {
         schema: "design-hypothesis",
         kind: Kind::Hypothesis,
+        meaning: Meaning::Direct,
+        title: None,
+        fields: &[
+            data("question"),
+            data("hypothesis_kind"),
+            data("statement"),
+            data("scope"),
+            data("assessment"),
+            Field {
+                name: "supporting_evidence",
+                role: Role::Mirror("assesses"),
+            },
+            Field {
+                name: "contradicting_evidence",
+                role: Role::Mirror("assesses"),
+            },
+        ],
+        open: false,
+        file_fields: &[],
+    },
+    SchemaSpec {
+        schema: "requirement",
+        kind: Kind::Requirement,
+        meaning: Meaning::Direct,
+        title: None,
+        fields: &[
+            data("statement"),
+            Field {
+                name: "established_by",
+                role: Role::Mirror("establishes"),
+            },
+            // 定量の REQ（5.1.5）。
+            data("kind"),
+            data("metric"),
+            data("operator"),
+            data("limit"),
+            data("unit"),
+            data("scope"),
+        ],
+        open: false,
+        file_fields: &[],
+    },
+    // 欄の名前は決まっていない。 schema 名だけを登録する。
+    SchemaSpec {
+        schema: "probe",
+        kind: Kind::Probe,
         meaning: Meaning::Direct,
         title: None,
         fields: &[],
@@ -373,8 +452,8 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         file_fields: &[],
     },
     SchemaSpec {
-        schema: "requirement",
-        kind: Kind::Requirement,
+        schema: "workload",
+        kind: Kind::Workload,
         meaning: Meaning::Direct,
         title: None,
         fields: &[],
@@ -407,13 +486,13 @@ impl SchemaSpec {
     }
 }
 
-/// FSL の contract の種類。 目標の命名は OBL / INV / FB（提案書 5.2.1）。
+/// FSL の contract の種類。 目標の命名は OBL / INV / FB / ACC（提案書 5.2.1、`DEC-PLT-048`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContractKind {
     Obligation,
     Invariant,
     ForbiddenBehavior,
-    /// FSL の `acceptance`。 提案書 5.2.1 の表に無く、目標でどう呼ぶか決まっていない。
+    /// FSL の `acceptance`。 形式 contract の1種類で、目標の接頭辞は `ACC`（`DEC-PLT-048`）。
     Acceptance,
 }
 
@@ -426,6 +505,16 @@ impl ContractKind {
             "FB" => Some(Self::ForbiddenBehavior),
             "AC" => Some(Self::Acceptance),
             _ => None,
+        }
+    }
+
+    /// 目標の ID の接頭辞（提案書 5.2.1、`DEC-PLT-048`）。
+    pub(crate) fn target_prefix(self) -> &'static str {
+        match self {
+            Self::Obligation => "OBL",
+            Self::Invariant => "INV",
+            Self::ForbiddenBehavior => "FB",
+            Self::Acceptance => "ACC",
         }
     }
 }
@@ -493,7 +582,7 @@ impl<'a> Object<'a> {
         matches!(self.spec.meaning, Meaning::Unclassified { .. })
     }
 
-    /// 意味で決まる種類。 分類できないもの・居場所の無いものは `None`。
+    /// 意味で決まる種類。 分類できないもの・semantic object ではないものは `None`。
     pub(crate) fn semantic_kind(&self) -> Option<Kind> {
         match self.spec.meaning {
             Meaning::Direct | Meaning::Decomposed(_) if self.layer() == Layer::Semantic => {
@@ -1032,7 +1121,7 @@ impl<'a> UnclassifiedTarget<'a> {
     }
 }
 
-/// リリース対象。 居場所が決まっていない。
+/// リリース対象。 運用の定義で、semantic object ではない。
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ReleaseProfile<'a>(&'a Record);
 

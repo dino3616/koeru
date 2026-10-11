@@ -86,6 +86,16 @@ supports_requirements = ['TR-fix-01']
 finding = '調べたことごとに違う自由記述'
 ";
 
+const EVIDENCE_2: &str = "schema = 'evidence'
+id = 'EVID-fix-002'
+title = '2件目の調査'
+kind = 'measurement'
+source = '出典'
+provenance = '出どころ'
+confidence = 'Fact'
+supports_decisions = ['DEC-fix-002', 'DEC-fix-001']
+";
+
 const COMPONENTS: &str = "schema = 'component-ledger'
 
 [[component]]
@@ -104,6 +114,7 @@ name = '別の部品'
 purpose = '用途'
 license = 'GPL'
 status = '不適'
+supports_requirements = ['TR-fix-02']
 ";
 
 const BUDGET: &str = "schema = 'budget'
@@ -202,6 +213,7 @@ fn files() -> BTreeMap<String, String> {
         ("meta/decisions/DEC-fix-002.toml", DECISION_2),
         ("meta/questions/Q-fix-001.toml", QUESTION),
         ("meta/evidence/EVID-fix-001.toml", EVIDENCE),
+        ("meta/evidence/EVID-fix-002.toml", EVIDENCE_2),
         ("meta/evidence/components.toml", COMPONENTS),
         ("meta/budgets/BUDGET-fix-001.toml", BUDGET),
         ("meta/budgets/SCALE-fix-001.toml", SCALE),
@@ -304,10 +316,7 @@ fn legacy_の欄は正規の関係として引ける() {
     }
     // 置き換えは新しい側だけが edge を持つ。 `superseded_by` の写しは二重にしない。
     assert_eq!(dec1.iter().filter(|(n, _)| *n == "supersedes").count(), 0);
-    assert_eq!(
-        edges(&graph, "DEC-fix-002"),
-        [("supersedes", "DEC-fix-001".to_owned())]
-    );
+    assert!(edges(&graph, "DEC-fix-002").contains(&("supersedes", "DEC-fix-001".to_owned())));
     assert_eq!(
         graph
             .supersession_chain(&key("DEC-fix-002"))
@@ -318,10 +327,39 @@ fn legacy_の欄は正規の関係として引ける() {
         graph.outgoing(&key("DEC-fix-002"))[0].class,
         RelationClass::Supersession
     );
-    // 部品が REQ を実現する。 採否を決めた判断は仮の名前のまま。
+    // 採用の部品だけが REQ を実現する。 採否を決めた判断は仮の名前のまま。
     let cmp = edges(&graph, "CMP-fix-001");
     assert!(cmp.contains(&("implements", "TR-fix-01".to_owned())));
     assert!(cmp.contains(&("decided_by", "DEC-fix-001".to_owned())));
+    assert!(!cmp.iter().any(|(n, _)| *n == "supports_requirements"));
+    // 不適の部品からは implements が出ない。 結びつきは仮の名前で残る。
+    assert_eq!(
+        edges(&graph, "CMP-fix-002"),
+        [("supports_requirements", "TR-fix-02".to_owned())]
+    );
+    // 調査が支える判断は、判断から調査への considers になる。 判断が `evidence` で既に挙げている
+    // 調査は二重にならない。
+    assert_eq!(
+        dec1.iter()
+            .filter(|(n, t)| *n == "considers" && t == "EVID-fix-001")
+            .count(),
+        1
+    );
+    let dec2 = edges(&graph, "DEC-fix-002");
+    assert!(dec2.contains(&("considers", "EVID-fix-002".to_owned())));
+    assert!(dec1.contains(&("considers", "EVID-fix-002".to_owned())));
+    // 調査側には逆向きの edge を持たない。 要件への結びつきだけが仮の名前で残る。
+    assert_eq!(
+        edges(&graph, "EVID-fix-001"),
+        [("supports_requirements", "TR-fix-01".to_owned())]
+    );
+    assert!(edges(&graph, "EVID-fix-002").is_empty());
+    // 要件を指す contracts だけが targets。 判断・FSL の contract は仮の名前のまま。
+    let probe = edges(&graph, "SUITE-fix-001");
+    assert!(probe.contains(&("targets", "TR-fix-01".to_owned())));
+    assert!(probe.contains(&("contracts", "REQ-fix-001".to_owned())));
+    assert!(probe.contains(&("contracts", "DEC-fix-001".to_owned())));
+    assert_eq!(probe.len(), 3);
     // TR の depends_on は depends_on。
     assert_eq!(
         edges(&graph, "TR-fix-02"),
@@ -367,7 +405,7 @@ fn 意味で引ける_接頭辞を知らなくてよい() {
     assert_eq!(by_kind(Kind::Requirement), 3, "技術要件2 + 上限1");
     assert_eq!(by_kind(Kind::Decision), 2);
     assert_eq!(by_kind(Kind::Question), 1);
-    assert_eq!(by_kind(Kind::Evidence), 1);
+    assert_eq!(by_kind(Kind::Evidence), 2);
     assert_eq!(by_kind(Kind::Probe), 1);
     assert_eq!(by_kind(Kind::Workload), 1);
     assert_eq!(by_kind(Kind::Dependency), 2);
@@ -504,9 +542,10 @@ fn tgt_は分類されないまま引ける() {
         .map(|o| o.id().clone())
         .collect();
     assert!(!semantic.contains(&id("TGT-fix-001")));
-    // 居場所が決まっていないものも、同じく semantic にしない。
+    // リリース対象は運用の定義。 semantic object ではない。
     let profile = design.object(&id("PROFILE-fix-1")).expect("在る");
-    assert!(matches!(profile.meaning(), Meaning::Unplaced));
+    assert!(matches!(profile.meaning(), Meaning::Direct));
+    assert_eq!(profile.layer(), Layer::Operational);
     assert_eq!(profile.semantic_kind(), None);
 }
 
@@ -545,14 +584,25 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     let mut expected = 0;
     for s in SCHEMAS {
         for f in s.fields {
-            if let Role::Edge(name) = f.role {
-                assert!(
-                    relation(name).is_some(),
-                    "{}.{} の {name}",
-                    s.schema,
-                    f.name
-                );
-                expected += 1;
+            match f.role {
+                Role::Edge(name) => {
+                    assert!(
+                        relation(name).is_some(),
+                        "{}.{} の {name}",
+                        s.schema,
+                        f.name
+                    );
+                    expected += 1;
+                }
+                Role::Lifted(name) | Role::Mirror(name) => {
+                    assert!(
+                        relation(name).is_some(),
+                        "{}.{} の {name}",
+                        s.schema,
+                        f.name
+                    );
+                }
+                Role::Data => {}
             }
         }
     }
@@ -562,6 +612,19 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     for rule in &reg.relations {
         let spec = relation(rule.relation).expect("語彙にある");
         assert_eq!(rule.class, spec.class);
+    }
+    // 組み立てる欄は、組み立てた欄にだけ rule がある。 元の欄から edge を作らない。
+    for (schema, field) in [
+        ("evidence", "supports_decisions"),
+        ("component-ledger", "supports_requirements"),
+        ("test-portfolio", "contracts"),
+    ] {
+        assert!(
+            !reg.relations
+                .iter()
+                .any(|r| r.from_schema == schema && r.field == field),
+            "{schema}.{field}"
+        );
     }
     // `formalized_as` は欄の向きを逆にして contract に持たせる。 rule は contract 側だけ。
     assert!(
@@ -822,9 +885,19 @@ fn assert_every_field_is_accounted(entries: &[Entry]) {
     }
 }
 
-/// 欄に書かれた参照の数だけ edge ができている。
+/// 欄に書かれた参照の数だけ edge ができている。 組み立てる欄（`Role::Lifted`）の値も1つにつき
+/// 1本。 ただし調査の `supports_decisions` は、判断が同じ調査を挙げていれば二重にしない。
 fn expected_edges(entries: &[Entry]) -> usize {
     let mut n = 0;
+    let mut considered: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for e in entries.iter().filter(|e| e.shape.schema == "decision") {
+        let id = crate::knowledge::str_of(&e.table, "id")
+            .expect("id")
+            .to_owned();
+        let set = considered.entry(id).or_default();
+        set.extend(crate::knowledge::list_of(&e.table, "evidence"));
+        set.extend(crate::knowledge::list_of(&e.table, "considers_evidence"));
+    }
     let mut tables: Vec<(&str, toml::Table)> = Vec::new();
     for e in entries {
         if e.shape.entity.is_some() {
@@ -837,7 +910,15 @@ fn expected_edges(entries: &[Entry]) -> usize {
     for (schema, t) in tables {
         let s = spec(schema).expect("写し方がある");
         for f in s.fields {
-            if !matches!(f.role, Role::Edge(_)) {
+            if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
+                continue;
+            }
+            if f.name == "supports_decisions" {
+                let evid = crate::knowledge::str_of(&t, "id").expect("id");
+                n += crate::knowledge::list_of(&t, "supports_decisions")
+                    .iter()
+                    .filter(|d| !considered.get(*d).is_some_and(|set| set.contains(evid)))
+                    .count();
                 continue;
             }
             match t.get(f.name) {
@@ -863,8 +944,7 @@ fn fixture_の欄は全て表に割り当たり_参照は全て_edge_になる()
     let entries = load_entries(&files());
     assert_every_field_is_accounted(&entries);
     let graph = base().graph();
-    // 欄の参照に加え、contract 側の `formalizes` が2本（TR-fix-01 が2つの contract を指す）。
-    assert_eq!(graph.all_relations().count(), expected_edges(&entries) + 2);
+    assert_eq!(graph.all_relations().count(), expected_edges(&entries));
 }
 
 /// 実在する meta を全部読ませる。 件数は legacy の読み方（`check-meta` が使うのと同じ
@@ -911,10 +991,7 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
         .filter(|r| r.name == "formalizes")
         .count();
     assert_eq!(formalizes, formalized_as_values(&entries));
-    assert_eq!(
-        graph.all_relations().count(),
-        expected_edges(&entries) + formalizes
-    );
+    assert_eq!(graph.all_relations().count(), expected_edges(&entries));
     // 実在する要件の中に、FSL を持つものがある。
     assert!(formalizes > 0);
 }
@@ -927,4 +1004,125 @@ fn formalized_as_values(entries: &[Entry]) -> usize {
         .flat_map(Entry::items)
         .map(|t| crate::knowledge::list_of(&t, "formalized_as").len())
         .sum()
+}
+
+// ## 決まった写し方（`DEC-PLT-048`）
+
+/// 目標の schema を node の種類として登録し、目標の欄を relation の規則にする。
+#[test]
+fn 目標の_schema_と欄が登録される() {
+    let reg = registry();
+    for (schema, kind) in [
+        ("design-hypothesis", "hypothesis"),
+        ("requirement", "requirement"),
+        ("evidence", "evidence"),
+        ("probe", "probe"),
+        ("workload", "workload"),
+        ("decision", "decision"),
+    ] {
+        assert_eq!(reg.kind_for_schema(schema), Some(kind), "{schema} の種類");
+    }
+    let rule = |field: &str| {
+        reg.relations
+            .iter()
+            .find(|r| r.from_schema == "decision" && r.field == field)
+            .map(|r| r.relation)
+    };
+    for (field, relation) in [
+        ("relies_on_hypotheses", "relies_on_hypotheses"),
+        ("considers_evidence", "considers"),
+        ("establishes_requirements", "establishes"),
+        ("revises_requirements", "revises"),
+        ("removes_requirements", "removes"),
+    ] {
+        assert_eq!(rule(field), Some(relation), "{field}");
+    }
+    // 逆向きに持つ欄は edge にしない。
+    assert_eq!(rule("question"), None);
+    assert_eq!(rule("provenance"), None);
+}
+
+/// 採否の語が採用でないもの（知らない語を含む）は、`implements` にならない。
+#[test]
+fn 採用でない部品は_implements_にならない() {
+    for status in ["不適", "不採用", "採用候補", "条件付き", "要調査", "保留"] {
+        let body = COMPONENTS.replace("status = '採用'", &format!("status = '{status}'"));
+        let design = design_of(&with("meta/evidence/components.toml", &body));
+        let graph = design.graph();
+        let cmp = edges(&graph, "CMP-fix-001");
+        assert!(!cmp.iter().any(|(n, _)| *n == "implements"), "{status}");
+        assert!(
+            cmp.contains(&("supports_requirements", "TR-fix-01".to_owned())),
+            "{status}"
+        );
+    }
+}
+
+/// 要件を指す contracts だけが targets。 定量の要件（上限）も要件。
+#[test]
+fn 要件を指す_contracts_だけが_targets_になる() {
+    let body = SUITES.replace(
+        "contracts = ['TR-fix-01', 'REQ-fix-001', 'DEC-fix-001']",
+        "contracts = ['BUDGET-fix-001', 'EVID-fix-001', 'FB-fix-001']",
+    );
+    let graph = design_of(&with("meta/suites/cargo.toml", &body)).graph();
+    let probe = edges(&graph, "SUITE-fix-001");
+    assert!(probe.contains(&("targets", "BUDGET-fix-001".to_owned())));
+    assert!(probe.contains(&("contracts", "EVID-fix-001".to_owned())));
+    assert!(probe.contains(&("contracts", "FB-fix-001".to_owned())));
+    assert_eq!(probe.len(), 3);
+    // 型つきの口は、元の並びのまま読める。
+    let original = design_of(&files());
+    let contracts = original
+        .object(&id("SUITE-fix-001"))
+        .and_then(|o| o.as_probe())
+        .map(|p| p.contracts());
+    assert_eq!(
+        contracts,
+        Some(vec![
+            "TR-fix-01".to_owned(),
+            "REQ-fix-001".to_owned(),
+            "DEC-fix-001".to_owned()
+        ])
+    );
+}
+
+/// 指す判断が無い `supports_decisions` は、足せないことを問題として出す。
+#[test]
+fn 存在しない判断を指す_supports_decisions_は問題として出る() {
+    let body = EVIDENCE_2.replace(
+        "['DEC-fix-002', 'DEC-fix-001']",
+        "['DEC-fix-002', 'DEC-fix-404']",
+    );
+    let design = design_of(&with("meta/evidence/EVID-fix-002.toml", &body));
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::MissingLiftTarget { source, field: "supports_decisions", target }
+            if source == "EVID-fix-002" && target == "DEC-fix-404"
+    )));
+    assert!(
+        edges(&design.graph(), "DEC-fix-002").contains(&("considers", "EVID-fix-002".to_owned()))
+    );
+}
+
+/// 受入は形式 contract の1種類で、目標の接頭辞は `ACC`。
+#[test]
+fn 受入の目標の接頭辞は_acc() {
+    assert_eq!(ContractKind::Acceptance.target_prefix(), "ACC");
+    assert_eq!(ContractKind::Obligation.target_prefix(), "OBL");
+    assert_eq!(ContractKind::Invariant.target_prefix(), "INV");
+    assert_eq!(ContractKind::ForbiddenBehavior.target_prefix(), "FB");
+    for kind in [
+        ContractKind::Obligation,
+        ContractKind::Invariant,
+        ContractKind::ForbiddenBehavior,
+        ContractKind::Acceptance,
+    ] {
+        let id = format!("{}-4K7DP2", kind.target_prefix());
+        assert_eq!(
+            id.parse::<TargetId>().map(|t| t.kind()),
+            Ok(Kind::FormalContract),
+            "{id}"
+        );
+    }
 }

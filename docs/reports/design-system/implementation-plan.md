@@ -404,6 +404,7 @@ xtask/src/
 - **Canonical relations:** `resolved_by`, `relies_on_hypotheses`, `targets`, `derived_from`, `assesses`, `considers`, `establishes/revises/removes`, `constrains`, `formalizes`, `provenance`, `implements`, `context_for`。
 - **Legacy read:** TR / FSL REQ / BUDGET / TGT / SCALE / CMP / SUITE を target meaning へ lossless に expose する compatibility adapter。
 - **Acceptance:** downstream consumer は legacy prefix / raw TOML layout を知らない。
+- **写し方の判断:** `DEC-PLT-048`。
 
 ## D01 — Current / Comparative Context
 

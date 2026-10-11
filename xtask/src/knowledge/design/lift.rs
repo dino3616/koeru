@@ -2,19 +2,28 @@
 //!
 //! やることは2つ。
 //!
-//! - FSL の contract を記録として加える。 正規の `formalizes` は contract から REQ へ向かう
-//!   （提案書 5.2.2）が、今の meta は REQ の側が `formalized_as` で持つ。 graph engine の
-//!   relation は記録が持つ欄から前向きにしか引けず、FSL の ID は記録ではないので、
-//!   contract の側に `formalizes` を持つ記録を組み立てる。 meta のファイルは書き換えない
+//! - 記録の欄から、正規の relation の edge を作れる形に組み立てる（`DEC-PLT-048`）。
+//!   graph engine の relation は記録が持つ欄から前向きにしか引けず、値の行き先で relation を
+//!   分けることもできない。 組み立てるのは読んだ記録の写しで、meta のファイルは書き換えない
+//!   - FSL の contract を記録として加え、`formalizes` を持たせる（正規の向きは contract から
+//!     REQ。 提案書 5.2.2。 FSL の ID は記録ではない）
+//!   - 調査の `supports_decisions` を、判断の `considers_evidence` に足す（`considers` の逆向き）
+//!   - 部品の `supports_requirements` を、採用なら `implements_requirements`、それ以外なら
+//!     `unadopted_requirements` に振り分ける
+//!   - 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは
+//!     `other_contracts` に振り分ける
 //! - 読んだものが target の意味で引けているかを検査する（[`Design::audit`]）
 //!
-//! engine 側に逆向きの規則（記録が持つ欄を、相手から相手への edge として読む）が入れば、
-//! 組み立ては要らなくなる。 PR 本文の interface 変更の要求を見る。
+//! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 判断の記録は、足された
+//! 欄の分だけ内容の digest が変わる（調査が支える先を変えると、判断が `changed` に見える）。
+//!
+//! engine が逆向きの規則と、値からの振り分けを持てば、組み立ては要らなくなる（X05 への要求。
+//! D00 の後の作業）。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::legacy::{CONTRACT_SCHEMA, Object, Role, spec};
+use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, spec};
 use super::ontology::{Kind, relation};
 use crate::diagnostic::{Report, Severity};
 use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
@@ -52,6 +61,12 @@ pub(crate) enum DesignIssue {
     MissingContract {
         requirement: String,
         contract: String,
+    },
+    /// 欄の値が指す記録が無く、組み立てられなかった（`supports_decisions` が指す判断が無い）。
+    MissingLiftTarget {
+        source: String,
+        field: &'static str,
+        target: String,
     },
     /// この adapter に写し方が無い schema。 読み込みは通るのに target の意味で引けない。
     UnmappedSchema { schema: &'static str },
@@ -112,6 +127,9 @@ impl Design {
         mut issues: Vec<DesignIssue>,
     ) -> Self {
         let mut all: Vec<Entry> = entries.iter().map(duplicate).collect();
+        lift_evidence_to_decisions(&mut all, &mut issues);
+        lift_components(&mut all);
+        lift_suites(&mut all);
         all.extend(contract_entries(root, entries, fsl_sites, &mut issues));
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&all);
         issues.extend(dups.into_iter().map(DesignIssue::Load));
@@ -155,7 +173,9 @@ impl Design {
     /// `self` を古い版、`new` を新しい版として、採用済みの判断が上書きされていないかを見る。
     ///
     /// 見るのは `selected` の文字列が変わったかだけで、意味が変わったかは判定できない。
-    /// 誤字の修正も出る。 出たものを、人が新しい判断にするか直すかを決める。
+    /// 誤字の修正も出る。 「意味を変えない修正」と明示した変更を通すには、判断に編集の記録の欄が
+    /// 要る。 欄の追加は X03 の `SHAPES` に触るので、D00 の後の作業で行う（`DEC-PLT-048`）。
+    /// それまでは、出たものを人が新しい判断にするか直すかを決める。
     pub(crate) fn overwritten_decisions(&self, new: &Design) -> Vec<DesignIssue> {
         let mut out = Vec::new();
         for old in self
@@ -193,7 +213,8 @@ impl Design {
             }
             let Some(id) = r.id() else { continue };
             for f in spec.fields {
-                if !matches!(f.role, Role::Edge(_)) {
+                // 組み立てる欄も、行き先が ID の形に読めないと edge にならない。
+                if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
                     continue;
                 }
                 for raw in references(r, f.name) {
@@ -216,6 +237,133 @@ impl Design {
                 });
             }
         }
+    }
+}
+
+/// 調査の `supports_decisions` を、判断の `considers_evidence` に足す。
+///
+/// 判断が `evidence` や `considers_evidence` で同じ調査を挙げていれば足さない（edge が二重になる）。
+/// 指す判断が無ければ、足せないことを問題として出す。
+fn lift_evidence_to_decisions(all: &mut [Entry], issues: &mut Vec<DesignIssue>) {
+    let decisions: BTreeSet<String> = all
+        .iter()
+        .filter(|e| e.shape.schema == "decision")
+        .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
+        .collect();
+    let mut supports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for e in all.iter().filter(|e| e.shape.schema == "evidence") {
+        let Some(evid) = str_of(&e.table, "id") else {
+            continue;
+        };
+        for decision in list_of(&e.table, "supports_decisions") {
+            if decisions.contains(&decision) {
+                supports.entry(decision).or_default().push(evid.to_owned());
+            } else {
+                issues.push(DesignIssue::MissingLiftTarget {
+                    source: evid.to_owned(),
+                    field: "supports_decisions",
+                    target: decision,
+                });
+            }
+        }
+    }
+    for e in all.iter_mut().filter(|e| e.shape.schema == "decision") {
+        let Some(id) = str_of(&e.table, "id").map(str::to_owned) else {
+            continue;
+        };
+        let Some(evidence) = supports.get(&id) else {
+            continue;
+        };
+        let mut known: BTreeSet<String> = list_of(&e.table, "evidence")
+            .into_iter()
+            .chain(list_of(&e.table, "considers_evidence"))
+            .collect();
+        let mut merged = list_of(&e.table, "considers_evidence");
+        for evid in evidence {
+            if known.insert(evid.clone()) {
+                merged.push(evid.clone());
+            }
+        }
+        e.table.insert(
+            "considers_evidence".to_owned(),
+            toml::Value::Array(merged.into_iter().map(toml::Value::String).collect()),
+        );
+    }
+}
+
+/// 収集ファイルの項目の表を、書き換えられる形で順に渡す。
+fn for_each_item(e: &mut Entry, mut f: impl FnMut(&mut toml::Table)) {
+    let Some((key, _, _)) = e.shape.collection else {
+        return;
+    };
+    let Some(items) = e.table.get_mut(key).and_then(toml::Value::as_array_mut) else {
+        return;
+    };
+    for item in items.iter_mut().filter_map(toml::Value::as_table_mut) {
+        f(item);
+    }
+}
+
+fn string_array(values: Vec<String>) -> toml::Value {
+    toml::Value::Array(values.into_iter().map(toml::Value::String).collect())
+}
+
+/// 部品の `supports_requirements` を、採用なら `implements_requirements`、それ以外
+/// （知らない採否の語を含む）なら `unadopted_requirements` に振り分ける（`DEC-PLT-048`）。
+fn lift_components(all: &mut [Entry]) {
+    for e in all
+        .iter_mut()
+        .filter(|e| e.shape.schema == "component-ledger")
+    {
+        for_each_item(e, |item| {
+            let reqs = list_of(item, "supports_requirements");
+            if reqs.is_empty() {
+                return;
+            }
+            let adopted =
+                str_of(item, "status").and_then(Adoption::parse) == Some(Adoption::Adopted);
+            let field = if adopted {
+                "implements_requirements"
+            } else {
+                "unadopted_requirements"
+            };
+            item.insert(field.to_owned(), string_array(reqs));
+        });
+    }
+}
+
+/// 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは `other_contracts` に
+/// 振り分ける（`DEC-PLT-048`）。 要件は、技術要件と、定量の要件（上限）の両方。
+fn lift_suites(all: &mut [Entry]) {
+    let mut requirements: BTreeSet<String> = BTreeSet::new();
+    for e in all.iter() {
+        match e.shape.schema {
+            "requirement-set" => requirements.extend(
+                e.items()
+                    .iter()
+                    .filter_map(|i| str_of(i, "id").map(str::to_owned)),
+            ),
+            "budget" | "requirement" => {
+                requirements.extend(str_of(&e.table, "id").map(str::to_owned));
+            }
+            _ => {}
+        }
+    }
+    for e in all
+        .iter_mut()
+        .filter(|e| e.shape.schema == "test-portfolio")
+    {
+        for_each_item(e, |item| {
+            let (targets, others): (Vec<String>, Vec<String>) = list_of(item, "contracts")
+                .into_iter()
+                .partition(|c| requirements.contains(c));
+            if !targets.is_empty() {
+                item.insert("targets_requirements".to_owned(), string_array(targets));
+            }
+            if !others.is_empty() {
+                item.insert("other_contracts".to_owned(), string_array(others));
+            }
+        });
     }
 }
 

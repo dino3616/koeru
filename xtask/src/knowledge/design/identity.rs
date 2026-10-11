@@ -5,7 +5,7 @@
 //!
 //! 今の `Id`（`knowledge::Id`）は `PREFIX-AREA-NUMBER` の形しか読めないので、目標の ID
 //! （`REQ-5H8NQ2`）はそちらでは読めない。 graph の node はまだ `Id` で持つ
-//! （PR 本文の interface 変更の要求）。 ここはその前に、形だけを検査する。
+//! （X03 への要求。 D00 の後の作業）。 ここはその前に、形だけを検査する。
 
 use std::fmt;
 use std::str::FromStr;
@@ -23,13 +23,18 @@ const PREFIXES: &[(&str, Kind)] = &[
     ("OBL", Kind::FormalContract),
     ("INV", Kind::FormalContract),
     ("FB", Kind::FormalContract),
+    // FSL の `acceptance`（`DEC-PLT-048`）。
+    ("ACC", Kind::FormalContract),
 ];
+
+/// opaque の長さ。 `DEC-PLT-048`。
+const OPAQUE_LEN: usize = 6;
 
 /// 目標の ID。 `<接頭辞>-<opaque>`。
 ///
-/// opaque は本文から計算する hash ではなく、作成時に一度だけ払い出す値で、内容が変わっても
-/// 変わらない。 払い出しの方法（字種・長さ）は提案書が実装時に決めるとしている。
-/// ここが読むのは、例に現れる形（大文字と数字）までで、長さは縛らない。
+/// opaque は Crockford Base32（`0-9` と、I・L・O・U を除く `A-Z`）の6文字固定で、本文から
+/// 計算する hash ではない。 作成時に乱数で一度だけ払い出し、衝突を検査し、内容が変わっても
+/// 変わらない（`DEC-PLT-048`）。 払い出す生成器は将来の `new-id` が持つ。 ここが持つのは形の検査だけ。
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TargetId {
     kind: Kind,
@@ -84,11 +89,7 @@ impl FromStr for TargetId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (prefix, token) = s.split_once('-').ok_or(IdentityError::NotTargetForm)?;
         // 分類（領域）を ID に入れない。 token にハイフンが続くのは今の形。
-        if token.is_empty()
-            || !token
-                .bytes()
-                .all(|b| b.is_ascii_digit() || b.is_ascii_uppercase())
-        {
+        if token.len() != OPAQUE_LEN || !token.bytes().all(is_crockford) {
             return Err(IdentityError::NotTargetForm);
         }
         let kind = PREFIXES
@@ -103,13 +104,19 @@ impl FromStr for TargetId {
     }
 }
 
+/// Crockford Base32 の字。 小文字と、紛らわしい I・L・O・U は含まない。
+fn is_crockford(b: u8) -> bool {
+    b.is_ascii_digit() || (b.is_ascii_uppercase() && !matches!(b, b'I' | b'L' | b'O' | b'U'))
+}
+
 /// 目標の形で書かれた1件1ファイルの記録の、ID を検査する。
 ///
 /// ID の形、接頭辞と記録の種類の一致、ファイル名と ID の一致の3つ。 どれも
 /// 内容を見ずに決まる——内容が変わっても ID が変わらないための前提。
 ///
-/// 「内容を直したら ID が変わった」は、この関数では見えない。 2つの版を比べる検査で、
-/// 何を同じ記録とみなすかが決まっていない（PR 本文の未決）。
+/// 「内容を直したら ID が変わった」は、この関数では見えない。 2つの版の差分で、git の改名検出
+/// を使い、同じ種類のファイルの改名として出す（`DEC-PLT-048`）。 `RepoView` が改名の情報を出す口
+/// （X02）が要るので、D00 の後の作業で行う。
 pub(crate) fn check_identity(
     expected: Kind,
     file_stem: &str,
@@ -241,7 +248,6 @@ mod tests {
             "TR-REC-03",
             "REQ-REC-101",
             "CMP-081",
-            "Q-4k7dp2",
             "DEC-",
             "DEC",
             "-6CQ3NA",
@@ -256,6 +262,40 @@ mod tests {
             "DEC-ALL-001".parse::<TargetId>(),
             Err(IdentityError::NotTargetForm)
         );
+    }
+
+    /// opaque は Crockford Base32 の6文字固定。 小文字、I・L・O・U、長さの違いは落とす。
+    #[test]
+    fn opaque_は_crockford_base32_の6文字固定() {
+        for raw in [
+            "DEC-6CQ3NA",
+            "DEC-000000",
+            "DEC-ZZZZZZ",
+            "ACC-4K7DP2",
+            "FB-4K7DP2",
+            "OBL-4K7DP2",
+            "INV-4K7DP2",
+        ] {
+            assert!(raw.parse::<TargetId>().is_ok(), "{raw}");
+        }
+        for raw in [
+            "Q-4k7dp2",
+            "DEC-6cq3na",
+            "DEC-6CQ3NI",
+            "DEC-6CQ3NL",
+            "DEC-6CQ3NO",
+            "DEC-6CQ3NU",
+            "DEC-6CQ3N",
+            "DEC-6CQ3NAA",
+            "DEC-6CQ3N-",
+            "DEC-6CQ 3N",
+        ] {
+            assert_eq!(
+                raw.parse::<TargetId>(),
+                Err(IdentityError::NotTargetForm),
+                "{raw}"
+            );
+        }
     }
 
     #[test]
