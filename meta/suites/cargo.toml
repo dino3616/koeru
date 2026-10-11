@@ -446,6 +446,17 @@ min_cases = 7
 manual = 1
 contracts = ['TR-REC-04', 'REQ-REC-109', 'INV-REC-101', 'DEC-REC-011']
 
+[[suite]]
+id = 'SUITE-APP-016'
+title = 'project の開閉で貸与が切り替わり、project の写しが持ち越されない'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'project_lifecycle'
+platforms = ['macos']
+backends = ['native']
+min_cases = 6
+contracts = ['DEC-PLT-034', 'DEC-PLT-044']
+
 # ## xtask
 
 [[suite]]

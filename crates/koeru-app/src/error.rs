@@ -160,6 +160,7 @@ from_failure!(
     koeru_package::icon::IconError,
     koeru_package::tree::BuildError,
     koeru_package::archive::ArchiveError,
+    koeru_runtime::RuntimeError,
     crate::pump::PumpError,
 );
 

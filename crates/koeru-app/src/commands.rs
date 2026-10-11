@@ -35,6 +35,7 @@ use tauri::ipc::Channel;
 
 use koeru_audio::backend::current as mac;
 use koeru_failure::Class;
+use koeru_runtime::ProjectRuntime;
 
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
@@ -78,6 +79,19 @@ pub struct AppState {
     /// 数秒握ることがあるので、変化が無い間はロックを取らずに読みたい。
     /// `arm_device` コマンドがストリームを開き直すたびにここを更新する。
     device_watch: Arc<Mutex<Option<mac::DeviceListChangedHandle>>>,
+    /// 開いているプロジェクトの実行時（`DEC-PLT-034`）。これも `studio` の外。
+    ///
+    /// T09 の GraphQL resolver は、ここから `ProjectRuntime` を取って `read` /
+    /// `writer` へ貸与を添える。 `studio` のロックを取らない——`finish_take` が
+    /// 数秒握るあいだ、読みを待たせないため。 `commands::open_project`（と
+    /// [`AppState::open_project`]）が開く・移るたびに入れ替え、[`AppState::close_project`]
+    /// が空にする。
+    ///
+    /// **この枠は consumer への契約ではない**（`DEC-PLT-035`）。 「いま開いている
+    /// project」を大域の状態として公開するのではなく、resolver が要求に添えて
+    /// 受け取った貸与と突き合わせるための入口。 貸与が合わなければ、実行時が
+    /// `runtime.lease_expired` で断る。
+    runtime: Arc<Mutex<Option<Arc<ProjectRuntime>>>>,
 }
 
 impl AppState {
@@ -90,7 +104,65 @@ impl AppState {
             pending: Arc::new(Mutex::new(None)),
             stream: Arc::new(AtomicU32::new(0)),
             device_watch: Arc::new(Mutex::new(None)),
+            runtime: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// いま開いているプロジェクトの実行時。 `studio` のロックを取らない。
+    ///
+    /// 開いていなければ `None`。 握り続けた持ち手は、閉じたあとに
+    /// `runtime.lease_expired` で断られる。
+    #[must_use]
+    pub fn project_runtime(&self) -> Option<Arc<ProjectRuntime>> {
+        self.runtime.lock().ok()?.clone()
+    }
+
+    fn set_project_runtime(&self, runtime: Option<Arc<ProjectRuntime>>) {
+        if let Ok(mut g) = self.runtime.lock() {
+            *g = runtime;
+        }
+    }
+
+    /// プロジェクトを開く（`open_project` コマンドの本体）。
+    ///
+    /// 開いたあとの進み具合を読めなくても、開いたことは取り消さない
+    /// （成功した操作の失敗は `Committed` を添えて返す）。
+    ///
+    /// # Errors
+    ///
+    /// [`Studio::open_project`] と [`Studio::progress`] の失敗。
+    pub fn open_project(&self, id: uuid::Uuid) -> Result<ProgressView> {
+        let (progress, runtime, pending) = {
+            let mut s = lock(self)?;
+            let opened = s.open_project(id);
+            // 失敗しても枠は実際の状態へ揃える。 別の音源へ移る途中で失敗すると、
+            // 前の音源の貸与は閉じたまま何も開いていない（`Studio::open_project`）。
+            let progress = opened.and_then(|()| {
+                s.progress()
+                    .map_err(|e| e.with_outcome(koeru_failure::Outcome::Committed))
+            });
+            (progress, s.runtime(), s.pending_handle())
+        };
+        // 実行時の枠と待ち数の持ち手を、状態ロックの外へ出しておく（`TR-SYN-33`）。
+        self.set_project_runtime(runtime);
+        if let Ok(mut g) = self.pending.lock() {
+            *g = Some(pending);
+        }
+        Ok(ProgressView::from(progress?))
+    }
+
+    /// プロジェクトを閉じる。 枠も空にする。
+    ///
+    /// 画面からは呼ばない（tauri-specta の操作にしない。`DEC-PLT-035`）。
+    /// T09 の GraphQL `closeProject` が呼ぶ。
+    ///
+    /// # Errors
+    ///
+    /// [`Studio::close_project`] の失敗。 閉じられなかったときは枠も触らない。
+    pub fn close_project(&self) -> Result<()> {
+        lock(self)?.close_project()?;
+        self.set_project_runtime(None);
+        Ok(())
     }
 
     /// 見張りスレッドから、`studio` のロックを取らずに読む（`TR-REC-04`）。
@@ -791,21 +863,7 @@ pub fn dismiss_presamp_notice(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command(async)]
 #[specta::specta]
 pub fn open_project(state: State<'_, AppState>, id: String) -> Result<ProgressView> {
-    let (view, pending) = {
-        let mut s = lock(&state)?;
-        let uuid = id.parse().map_err(|_| bad_id())?;
-        s.open_project(uuid)?;
-        // ここまでで開けている。進み具合を読めなくても、開いたことは取り消さない。
-        let progress = s
-            .progress()
-            .map_err(|e| e.with_outcome(koeru_failure::Outcome::Committed))?;
-        (ProgressView::from(progress), s.pending_handle())
-    };
-    // 待ち数の持ち手を、状態ロックの外へ出しておく（`TR-SYN-33`）。
-    if let Ok(mut g) = state.pending.lock() {
-        *g = Some(pending);
-    }
-    Ok(view)
+    state.open_project(id.parse().map_err(|_| bad_id())?)
 }
 
 /// いまの進み具合。

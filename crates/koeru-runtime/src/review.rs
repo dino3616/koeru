@@ -6,7 +6,7 @@
 //! `specs/requirements/align-review.fsl`。ここがするのは、台帳に置いた状態から
 //! キューを組み直すことだけ——遷移の結果を台帳へ書き戻す側（`save_entry` /
 //! `save_mode`）と、5値の名前の変換（`slot_of` / `slot_name`）は `koeru-app` に残る。
-//! 書き手はまだ `Studio` が持っていて（T05b-2 で `ProjectRuntime::writer` へ移る）、
+//! 書き手は `ProjectRuntime::writer` から `Studio` が使い（T05b-2）、
 //! 遷移の判定はこの crate の役割ではない。
 //!
 //! # 台帳とスナップショットの両方から組める
