@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
 
-use crate::diagnostic::Report;
-use crate::knowledge::{Entry, citations, fsl_ids, id_tokens, squash, str_of};
+use super::CheckContext;
+use crate::diagnostic::{Location, Report};
+use crate::knowledge::{citations, fsl_ids, id_tokens, squash, str_of};
 use crate::repo::SKIPPED_DIRS;
 
 /// ID を引きうる本文の拡張子。
@@ -25,11 +25,12 @@ const SCANNED_EXT: &[&str] = &["md", "rs", "ts", "tsx", "nix", "graphql"];
 ///
 /// 手書き文書には ID で参照させる、という規律（`AGENTS.md` の禁止事項6）は、
 /// 参照が生きていることを機械が確かめないと成立しない。
-pub(crate) fn check_references(root: &Path, entries: &[Entry], mut rep: Report) -> ExitCode {
+pub(crate) fn check_references(ctx: &CheckContext<'_>, rep: &mut Report) {
+    let root = ctx.root;
     let mut known = fsl_ids(root);
     // ID ごとの原文。`ID の「…」` と書かれた引用を突き合わせるために持つ。
     let mut source: BTreeMap<String, String> = BTreeMap::new();
-    for e in entries {
+    for e in ctx.entries {
         if let Some(id) = str_of(&e.table, "id") {
             known.insert(id.to_owned());
             source.insert(id.to_owned(), flatten(&e.table));
@@ -42,9 +43,10 @@ pub(crate) fn check_references(root: &Path, entries: &[Entry], mut rep: Report) 
         }
     }
 
-    let mut refs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // 実体の無い ID が書かれている場所。 文言は「相対のパス:行」に畳むが、場所は構造で持つ。
+    let mut refs: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
     let mut total = 0usize;
-    let mut stale: Vec<String> = Vec::new();
+    let mut stale: Vec<(Location, String)> = Vec::new();
     let mut quoted = 0usize;
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -71,21 +73,25 @@ pub(crate) fn check_references(root: &Path, entries: &[Entry], mut rep: Report) 
             let Ok(text) = fs::read_to_string(&p) else {
                 continue;
             };
-            let rel = p.strip_prefix(root).unwrap_or(&p).display().to_string();
+            let rel = p.strip_prefix(root).unwrap_or(&p).to_path_buf();
             for (n, line) in text.lines().enumerate() {
                 for id in id_tokens(line) {
                     total += 1;
                     if !known.contains(&id) {
-                        refs.entry(id).or_default().push(format!("{rel}:{}", n + 1));
+                        refs.entry(id).or_default().push((rel.clone(), n + 1));
                     }
                 }
                 for (id, quote) in citations(line) {
                     quoted += 1;
                     let Some(src) = source.get(&id) else { continue };
                     if !squash(src).contains(&squash(&quote)) {
-                        stale.push(format!(
-                            "{rel}:{}: {id} に「{quote}」という文字列が無い",
-                            n + 1
+                        stale.push((
+                            Location::new(&rel, Some(n + 1)),
+                            format!(
+                                "{}:{}: {id} に「{quote}」という文字列が無い",
+                                rel.display(),
+                                n + 1
+                            ),
                         ));
                     }
                 }
@@ -94,14 +100,26 @@ pub(crate) fn check_references(root: &Path, entries: &[Entry], mut rep: Report) 
     }
 
     for (id, at) in &refs {
-        rep.error(format!("{id} の実体が無い（{}）", at.join(", ")));
+        let sites: Vec<String> = at
+            .iter()
+            .map(|(p, n)| format!("{}:{n}", p.display()))
+            .collect();
+        // 場所は複数ある。 構造で持つのは最初の1つで、全部は文言にある。
+        let first = at.first().map(|(p, n)| Location::new(p, Some(*n)));
+        rep.error_at(
+            "references.unknown-id",
+            first,
+            format!("{id} の実体が無い（{}）", sites.join(", ")),
+        );
     }
-    for at in &stale {
-        rep.error(at.clone());
+    for (location, message) in stale {
+        rep.error_at("references.stale-citation", Some(location), message);
     }
-    rep.note(format!("ID 参照 {total} 件、実体 {} 種", known.len()));
-    rep.note(format!("引用 {quoted} 件"));
-    rep.finish("check-references")
+    rep.note_code(
+        "references.summary",
+        format!("ID 参照 {total} 件、実体 {} 種", known.len()),
+    );
+    rep.note_code("references.summary", format!("引用 {quoted} 件"));
 }
 
 /// 表の中の文字列を全部つなぐ。引用がどのフィールドに書かれていても拾えるように。

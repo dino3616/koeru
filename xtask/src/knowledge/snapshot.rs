@@ -24,9 +24,6 @@ use crate::repo::RepoView;
 pub(crate) struct Provenance {
     path: PathBuf,
     /// 収集ファイルの中の何番目か（0始まり）。1件1ファイルの記録なら無い。
-    ///
-    /// 今はまだ試験だけが読む。
-    #[allow(dead_code)]
     index: Option<usize>,
     /// `id = '…'` の行番号。 安く取れる場合だけ持つ——1ファイルにつき読み直しは1回。
     line: Option<usize>,
@@ -37,8 +34,7 @@ impl Provenance {
         &self.path
     }
 
-    /// 今はまだ試験だけが呼ぶ。
-    #[allow(dead_code)]
+    /// 1件1ファイルの記録かどうかを `check-meta` が分けるのに読む。
     pub(crate) fn index(&self) -> Option<usize> {
         self.index
     }
@@ -97,6 +93,12 @@ impl Record {
 
     pub(crate) fn strs(&self, key: &str) -> Vec<String> {
         list_of(&self.fields, key)
+    }
+
+    /// 持っている欄の名前。 並びは欄の名前の順（`toml::Table` が `BTreeMap` なので決定的）。
+    /// 「どの欄に同じ値が2度出ているか」のように、欄を名指さずに全部見たい検査が使う。
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &str> {
+        self.fields.keys().map(String::as_str)
     }
 }
 
@@ -225,10 +227,8 @@ impl KnowledgeSnapshot {
 impl KnowledgeSnapshot {
     /// FSL の ID と出どころ（作業ツリーの `specs/` の原文から拾ったもの）も
     /// 合わせて持つ。 版を選びたい消費者（X05 の graph 構築）は
-    /// [`Self::with_fsl_view`] を呼ぶ。
-    ///
-    /// 今はまだ試験だけが呼ぶ。
-    #[allow(dead_code)]
+    /// [`Self::with_fsl_view`] を呼ぶ。 作業ツリーだけを読む既存のコマンドは
+    /// `cli` が組む snapshot がこれを通る。
     pub(crate) fn with_fsl(self, root: &Path) -> Self {
         self.with_fsl_view(&RepoView::working_tree(root))
     }

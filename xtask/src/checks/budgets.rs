@@ -1,17 +1,26 @@
 //! `cargo xtask check-budgets`
 
 use std::collections::BTreeMap;
-use std::process::ExitCode;
 
-use crate::diagnostic::Report;
-use crate::knowledge::{Entry, str_of, with_schema};
+use super::CheckContext;
+use crate::diagnostic::{Location, Report};
+use crate::knowledge::{str_of, with_schema};
 
-pub(crate) fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
-    for e in with_schema(entries, "budget") {
+/// 配分の合計が上限を超えていないか。
+///
+/// 旧い meta（`BUDGET`）を `Entry` のまま読む互換 view。 D07a の Budget View が
+/// 数え直すようになるまで、ここが合否を持つ。
+pub(crate) fn check_budgets(ctx: &CheckContext<'_>, rep: &mut Report) {
+    for e in with_schema(ctx.entries, "budget") {
         let file = e.path.display().to_string();
+        let here = || Some(Location::new(&e.path, None));
         let id = str_of(&e.table, "id").unwrap_or("?");
         let Some(limit) = e.table.get("limit").and_then(toml::Value::as_integer) else {
-            rep.error(format!("{file}: `limit` が整数でない"));
+            rep.error_at(
+                "budgets.limit-not-integer",
+                here(),
+                format!("{file}: `limit` が整数でない"),
+            );
             continue;
         };
         let unit = str_of(&e.table, "unit").unwrap_or("");
@@ -67,21 +76,32 @@ pub(crate) fn check_budgets(entries: &[Entry], mut rep: Report) -> ExitCode {
         };
 
         let ratio = if limit > 0 { total * 100 / limit } else { 0 };
-        rep.note(format!(
-            "{id}: 山 {total}{unit}（{peak_mode}） / 上限 {limit}{unit}（{ratio}%）工程 {steps} 件 / 実測済みでない {unmeasured} / 数値未設定 {without_value}"
-        ));
+        rep.note_at(
+            "budgets.peak",
+            here(),
+            format!(
+                "{id}: 山 {total}{unit}（{peak_mode}） / 上限 {limit}{unit}（{ratio}%）工程 {steps} 件 / 実測済みでない {unmeasured} / 数値未設定 {without_value}"
+            ),
+        );
         for (m, v) in &per_mode {
-            rep.note(format!(
-                "    {m}: {}{unit}（共通 {common}{unit} を含む）",
-                common + v
-            ));
+            rep.note_at(
+                "budgets.mode",
+                here(),
+                format!(
+                    "    {m}: {}{unit}（共通 {common}{unit} を含む）",
+                    common + v
+                ),
+            );
         }
         if total > limit {
-            rep.error(format!(
-                "{id}: {peak_mode} の合計 {total}{unit} が上限 {limit}{unit} を超えている（{}{unit} 超過）",
-                total - limit
-            ));
+            rep.error_at(
+                "budgets.over-limit",
+                here(),
+                format!(
+                    "{id}: {peak_mode} の合計 {total}{unit} が上限 {limit}{unit} を超えている（{}{unit} 超過）",
+                    total - limit
+                ),
+            );
         }
     }
-    rep.finish("check-budgets")
 }

@@ -13,7 +13,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
-use std::process::ExitCode;
 
 use apollo_compiler::ast::{DirectiveList, Type};
 use apollo_compiler::diagnostic::ToCliReport;
@@ -23,7 +22,8 @@ use apollo_compiler::schema::ExtendedType;
 use apollo_compiler::validation::{DiagnosticList, Valid};
 use apollo_compiler::{Name, Schema};
 
-use crate::diagnostic::Report;
+use super::CheckContext;
+use crate::diagnostic::{Location, Report};
 use crate::knowledge::{list_of, str_of};
 
 /// 契約は領域ごとのファイルに分かれていて、この下の `*.graphql` すべてで1つになる。
@@ -64,75 +64,153 @@ const BUILT_IN_ID: &str = "ID";
 /// `@deprecated` の理由を書かなかったときに入る既定の文。
 const DEFAULT_DEPRECATION: &str = "No longer supported";
 
+/// 規則の違反1件。 `message` は人に見せる文で、`code` は規則ごとに決まる。
+#[derive(Debug, PartialEq, Eq)]
+struct Finding {
+    code: &'static str,
+    message: String,
+}
+
+/// 規則の違反の集まり。 検査の関数が `push` で積む。
+#[derive(Debug, Default)]
+struct Findings(Vec<Finding>);
+
+impl Findings {
+    fn push(&mut self, code: &'static str, message: String) {
+        self.0.push(Finding { code, message });
+    }
+}
+
+/// 違反を報告へ積む。 場所は文言の先頭の `パス:行:桁: `（`place` と `diagnostics` が
+/// 同じ形で作る）から取り出す。 文言そのものは変えない。
+fn report_findings(rep: &mut Report, findings: Vec<Finding>) {
+    for f in findings {
+        let location = located(&f.message);
+        rep.error_at(f.code, location, f.message);
+    }
+}
+
+/// `パス:行:桁: 文` の先頭から場所を取る。 場所を持たない文言は `None`。
+fn located(message: &str) -> Option<Location> {
+    let (head, _) = message.split_once(": ")?;
+    let mut parts = head.rsplitn(3, ':');
+    let _column: usize = parts.next()?.parse().ok()?;
+    let line: usize = parts.next()?.parse().ok()?;
+    let path = parts.next()?;
+    Some(Location::new(path, Some(line)))
+}
+
+/// 組み立てに失敗した理由を、規則の違反として積む。 `none` は入力が1本も無いときの code。
+fn report_parse_errors(
+    rep: &mut Report,
+    errors: Vec<String>,
+    none: &'static str,
+    code: &'static str,
+    empty_input: bool,
+) {
+    let code = if empty_input { none } else { code };
+    for e in errors {
+        let location = located(&e);
+        rep.error_at(code, location, e);
+    }
+}
+
 /// `cargo xtask check-schema`
-pub(crate) fn check_schema(root: &Path, mut rep: Report) -> ExitCode {
+pub(crate) fn check_schema(ctx: &CheckContext<'_>, rep: &mut Report) {
+    let root = ctx.root;
     let sources = match read_graphql(root, SCHEMA) {
         Ok(s) => s,
         Err(e) => {
-            rep.error(e);
-            return rep.finish("check-schema");
+            rep.error_code("schema.unreadable", e);
+            return;
         }
     };
     let schema = match parse_schema(&sources) {
         Ok(s) => s,
         Err(errors) => {
-            errors.into_iter().for_each(|e| rep.error(e));
-            return rep.finish("check-schema");
+            report_parse_errors(
+                rep,
+                errors,
+                "schema.no-sdl",
+                "schema.invalid-sdl",
+                sources.is_empty(),
+            );
+            return;
         }
     };
-    lint_schema(&schema).into_iter().for_each(|e| rep.error(e));
+    report_findings(rep, lint_schema(&schema));
 
     let docs = match read_graphql(root, OPERATIONS) {
         Ok(d) => d,
         Err(e) => {
-            rep.error(e);
-            return rep.finish("check-schema");
+            rep.error_code("operations.unreadable", e);
+            return;
         }
     };
     match parse_documents(&schema, &docs) {
         Ok(doc) => {
-            lint_documents(&doc).into_iter().for_each(|e| rep.error(e));
+            report_findings(rep, lint_documents(&doc));
             let count = |kind| {
                 doc.operations
                     .iter()
                     .filter(|o| o.operation_type.name() == kind)
                     .count()
             };
-            rep.note(format!(
-                "operation {} 件（query {} / mutation {} / subscription {}）、fragment {} 件、文書 {} 本",
-                doc.operations.len(),
-                count("query"),
-                count("mutation"),
-                count("subscription"),
-                doc.fragments.len(),
-                docs.len()
-            ));
+            rep.note_code(
+                "schema.summary",
+                format!(
+                    "operation {} 件（query {} / mutation {} / subscription {}）、fragment {} 件、文書 {} 本",
+                    doc.operations.len(),
+                    count("query"),
+                    count("mutation"),
+                    count("subscription"),
+                    doc.fragments.len(),
+                    docs.len()
+                ),
+            );
             let unused = unexercised(&schema, &doc);
             if !unused.is_empty() {
-                rep.note(format!(
-                    "見本の operation が使っていない root の欄 {} 個: {}",
-                    unused.len(),
-                    unused.join(", ")
-                ));
+                rep.note_code(
+                    "schema.unexercised-root-fields",
+                    format!(
+                        "見本の operation が使っていない root の欄 {} 個: {}",
+                        unused.len(),
+                        unused.join(", ")
+                    ),
+                );
             }
         }
-        Err(errors) => errors.into_iter().for_each(|e| rep.error(e)),
+        Err(errors) => report_parse_errors(
+            rep,
+            errors,
+            "operations.no-documents",
+            "operations.invalid",
+            docs.is_empty(),
+        ),
     }
 
     match fs::read_to_string(root.join(CAPABILITIES)).map(|t| t.parse::<toml::Table>()) {
-        Ok(Ok(table)) => check_capabilities(&schema, &table)
-            .into_iter()
-            .for_each(|e| rep.error(e)),
-        Ok(Err(e)) => rep.error(format!("{CAPABILITIES} を TOML として読めない: {e}")),
-        Err(e) => rep.error(format!("{CAPABILITIES} を読めない: {e}")),
+        Ok(Ok(table)) => report_findings(rep, check_capabilities(&schema, &table)),
+        Ok(Err(e)) => rep.error_at(
+            "capabilities.invalid-toml",
+            Some(Location::new(CAPABILITIES, None)),
+            format!("{CAPABILITIES} を TOML として読めない: {e}"),
+        ),
+        Err(e) => rep.error_at(
+            "capabilities.unreadable",
+            Some(Location::new(CAPABILITIES, None)),
+            format!("{CAPABILITIES} を読めない: {e}"),
+        ),
     }
 
     let (types, roots) = sizes(&schema);
-    rep.note(format!(
-        "型 {types} 個、root の欄 {roots} 個、SDL {} 本",
-        sources.len()
-    ));
-    rep.finish("check-schema")
+    rep.note_code(
+        "schema.summary",
+        format!(
+            "型 {types} 個、root の欄 {roots} 個、SDL {} 本",
+            sources.len()
+        ),
+    );
 }
 
 /// SDL のファイルをすべて1つの schema に組み、GraphQL の仕様どおりかを確かめる。
@@ -272,15 +350,15 @@ fn sizes(schema: &Schema) -> (usize, usize) {
 }
 
 /// GraphQL の仕様が言わない、この契約の規則。
-fn lint_schema(schema: &Schema) -> Vec<String> {
-    let mut out = Vec::new();
+fn lint_schema(schema: &Schema) -> Vec<Finding> {
+    let mut out = Findings::default();
     lint_names(schema, &mut out);
     lint_roots(schema, &mut out);
     lint_mutations(schema, &mut out);
     lint_stale_outcomes(schema, &mut out);
     lint_cycles(schema, &mut out);
     lint_deprecations(schema, &mut out);
-    out
+    out.0
 }
 
 fn is_pascal(s: &str) -> bool {
@@ -303,7 +381,7 @@ fn is_screaming(s: &str) -> bool {
 /// パスは host の権限を契約へ持ち込む（§12）。 識別子を文字列にすると、エイリアスや
 /// 結合した文字列がそのまま鍵になる（`DEC-RCL-017`）。 組み込みの `ID` は種類を
 /// 区別しない（[`BUILT_IN_ID`]）。
-fn lint_names(schema: &Schema, out: &mut Vec<String>) {
+fn lint_names(schema: &Schema, out: &mut Findings) {
     let src = &schema.sources;
     // 欄・引数・input の欄を集めてから見る。 (持ち主, 名前, 型, 場所)。
     let mut values: Vec<(String, &Name, &Type, Option<SourceSpan>)> = Vec::new();
@@ -311,11 +389,14 @@ fn lint_names(schema: &Schema, out: &mut Vec<String>) {
     for (name, ty) in own_types(schema) {
         let at = place(src, ty_location(ty));
         if !is_pascal(name) {
-            out.push(format!("{at}{name}: 型の名前は PascalCase にする"));
+            out.push(
+                "schema.type-name-case",
+                format!("{at}{name}: 型の名前は PascalCase にする"),
+            );
         }
         let is_input = matches!(ty, ExtendedType::InputObject(_));
         if is_input != name.ends_with("Input") {
-            out.push(format!(
+            out.push("schema.input-suffix", format!(
                 "{at}{name}: `Input` で終わる名前は input の型だけに使い、input の型はどれも `Input` で終える"
             ));
         }
@@ -338,11 +419,14 @@ fn lint_names(schema: &Schema, out: &mut Vec<String>) {
         if let ExtendedType::Enum(e) = ty {
             for v in e.values.values() {
                 if !is_screaming(&v.value) {
-                    out.push(format!(
-                        "{}{name}.{}: enum の値は SCREAMING_SNAKE_CASE にする",
-                        place(src, v.location()),
-                        v.value
-                    ));
+                    out.push(
+                        "schema.enum-value-case",
+                        format!(
+                            "{}{name}.{}: enum の値は SCREAMING_SNAKE_CASE にする",
+                            place(src, v.location()),
+                            v.value
+                        ),
+                    );
                 }
             }
         }
@@ -351,13 +435,14 @@ fn lint_names(schema: &Schema, out: &mut Vec<String>) {
     for (owner, name, ty, span) in values {
         let at = place(src, span);
         if !is_camel(name) {
-            out.push(format!(
-                "{at}{owner}.{name}: 欄と引数の名前は camelCase にする"
-            ));
+            out.push(
+                "schema.field-name-case",
+                format!("{at}{owner}.{name}: 欄と引数の名前は camelCase にする"),
+            );
         }
         let lower = name.to_ascii_lowercase();
         if PATH_SUFFIXES.iter().any(|s| lower.ends_with(s)) {
-            out.push(format!(
+            out.push("schema.path-in-contract", format!(
                 "{at}{owner}.{name}: パスを契約に入れない。 host が選んだものは意味のある入力に写す"
             ));
         }
@@ -365,19 +450,22 @@ fn lint_names(schema: &Schema, out: &mut Vec<String>) {
         if (name == "id" || name.ends_with("Id") || name.ends_with("Ids"))
             && PLAIN_SCALARS.contains(&inner)
         {
-            out.push(format!(
-                "{at}{owner}.{name}: 識別子を {inner} にしない。 種類ごとの scalar にする"
-            ));
+            out.push(
+                "schema.plain-scalar-identifier",
+                format!("{at}{owner}.{name}: 識別子を {inner} にしない。 種類ごとの scalar にする"),
+            );
         }
         if inner == BUILT_IN_ID {
-            out.push(format!(
-                "{at}{owner}.{name}: 組み込みの ID を使わない。 種類ごとの scalar にする"
-            ));
+            out.push(
+                "schema.built-in-id",
+                format!("{at}{owner}.{name}: 組み込みの ID を使わない。 種類ごとの scalar にする"),
+            );
         }
         if (name == "key" || name.ends_with("Key")) && inner == "String" {
-            out.push(format!(
-                "{at}{owner}.{name}: 文字列を鍵にしない。 識別子で指す"
-            ));
+            out.push(
+                "schema.string-key",
+                format!("{at}{owner}.{name}: 文字列を鍵にしない。 識別子で指す"),
+            );
         }
     }
 }
@@ -397,7 +485,7 @@ fn ty_location(ty: &ExtendedType) -> Option<SourceSpan> {
 ///
 /// null の伝播を状態の代わりにしない（`DEC-PLT-038`）。 Subscription が object を
 /// 返すと、貸与が切れた・続きが欠けたを値で言えず、`errors[]` へ落ちる（`DEC-PLT-036`）。
-fn lint_roots(schema: &Schema, out: &mut Vec<String>) {
+fn lint_roots(schema: &Schema, out: &mut Findings) {
     let src = &schema.sources;
     for (kind, root) in root_names(schema) {
         let Some(obj) = schema.get_object(&root) else {
@@ -406,16 +494,22 @@ fn lint_roots(schema: &Schema, out: &mut Vec<String>) {
         for f in obj.fields.values() {
             let at = place(src, f.location());
             if !f.ty.is_non_null() {
-                out.push(format!(
-                    "{at}{root}.{}: root の結果を null にしない。 起きうる結果は union で返す",
-                    f.name
-                ));
+                out.push(
+                    "schema.root-nullable",
+                    format!(
+                        "{at}{root}.{}: root の結果を null にしない。 起きうる結果は union で返す",
+                        f.name
+                    ),
+                );
             }
             if kind == "Subscription" && schema.get_union(f.ty.inner_named_type()).is_none() {
-                out.push(format!(
-                    "{at}{root}.{}: Subscription は union を返す。 終わりと欠けを値で言うため",
-                    f.name
-                ));
+                out.push(
+                    "schema.subscription-not-union",
+                    format!(
+                        "{at}{root}.{}: Subscription は union を返す。 終わりと欠けを値で言うため",
+                        f.name
+                    ),
+                );
             }
         }
     }
@@ -433,7 +527,7 @@ fn upper_first(s: &str) -> String {
 /// `x(input: XInput!): XPayload!` で、payload は `outcome: XOutcome!` の union を持つ。
 /// 確定を伴うものは `operationId` を取り、payload に受領証を持つ。 片方だけだと、
 /// 応答を失ったときに同じ操作かを照合できないか、照合できない受領証が返る。
-fn lint_mutations(schema: &Schema, out: &mut Vec<String>) {
+fn lint_mutations(schema: &Schema, out: &mut Findings) {
     let src = &schema.sources;
     let mut payloads = BTreeSet::new();
     let mutation = root_names(schema)
@@ -457,23 +551,26 @@ fn lint_mutations(schema: &Schema, out: &mut Vec<String>) {
                 && f.arguments[0].name == "input"
                 && *f.arguments[0].ty == Type::NonNullNamed(Name::new_unchecked(&input));
             if !arg_ok {
-                out.push(format!(
-                    "{at}Mutation.{}: 引数は `input: {input}!` の1つだけにする",
-                    f.name
-                ));
+                out.push(
+                    "schema.mutation-argument",
+                    format!(
+                        "{at}Mutation.{}: 引数は `input: {input}!` の1つだけにする",
+                        f.name
+                    ),
+                );
             }
             if f.ty != Type::NonNullNamed(Name::new_unchecked(&payload)) {
-                out.push(format!(
-                    "{at}Mutation.{}: 結果は `{payload}!` にする",
-                    f.name
-                ));
+                out.push(
+                    "schema.mutation-result",
+                    format!("{at}Mutation.{}: 結果は `{payload}!` にする", f.name),
+                );
                 continue;
             }
             let Some(p) = schema.get_object(&payload) else {
-                out.push(format!(
-                    "{at}Mutation.{}: `{payload}` が object でない",
-                    f.name
-                ));
+                out.push(
+                    "schema.mutation-payload-not-object",
+                    format!("{at}Mutation.{}: `{payload}` が object でない", f.name),
+                );
                 continue;
             };
             let outcome_ok = p.fields.get("outcome").is_some_and(|o| {
@@ -481,10 +578,13 @@ fn lint_mutations(schema: &Schema, out: &mut Vec<String>) {
                     && schema.get_union(&outcome).is_some()
             });
             if !outcome_ok {
-                out.push(format!(
-                    "{}{payload}: `outcome: {outcome}!` を持ち、`{outcome}` を union にする",
-                    place(src, p.location())
-                ));
+                out.push(
+                    "schema.mutation-outcome",
+                    format!(
+                        "{}{payload}: `outcome: {outcome}!` を持ち、`{outcome}` を union にする",
+                        place(src, p.location())
+                    ),
+                );
             }
             let receipt = p.fields.get("receipt").is_some_and(|r| {
                 r.ty == Type::NonNullNamed(Name::new_unchecked("MutationReceipt"))
@@ -495,7 +595,7 @@ fn lint_mutations(schema: &Schema, out: &mut Vec<String>) {
                     .any(|v| *v.ty == Type::NonNullNamed(Name::new_unchecked("OperationId")))
             });
             if receipt != operation_id {
-                out.push(format!(
+                out.push("schema.mutation-receipt", format!(
                     "{at}Mutation.{}: `operationId: OperationId!` を取るなら payload に `receipt: MutationReceipt!` を持ち、取らないなら持たない",
                     f.name
                 ));
@@ -504,16 +604,19 @@ fn lint_mutations(schema: &Schema, out: &mut Vec<String>) {
     }
     for (name, ty) in own_types(schema) {
         if name.ends_with("Payload") && !payloads.contains(name.as_str()) {
-            out.push(format!(
-                "{}{name}: `Payload` で終わる名前は Mutation の結果だけに使う",
-                place(src, ty_location(ty))
-            ));
+            out.push(
+                "schema.payload-name",
+                format!(
+                    "{}{name}: `Payload` で終わる名前は Mutation の結果だけに使う",
+                    place(src, ty_location(ty))
+                ),
+            );
         }
     }
 }
 
 /// 古くなりうる入力を取る root の欄は、そのときの結果を union に持つ（[`STALE`]）。
-fn lint_stale_outcomes(schema: &Schema, out: &mut Vec<String>) {
+fn lint_stale_outcomes(schema: &Schema, out: &mut Findings) {
     let src = &schema.sources;
     for (kind, root) in root_names(schema) {
         let Some(obj) = schema.get_object(&root) else {
@@ -552,11 +655,14 @@ fn lint_stale_outcomes(schema: &Schema, out: &mut Vec<String>) {
                 .unwrap_or_default();
             for n in needed {
                 if !members.contains(n) {
-                    out.push(format!(
-                        "{}{root}.{}: 古くなりうる入力を取るので、結果の union に `{n}` を持つ",
-                        place(src, f.location()),
-                        f.name
-                    ));
+                    out.push(
+                        "schema.stale-outcome",
+                        format!(
+                            "{}{root}.{}: 古くなりうる入力を取るので、結果の union に `{n}` を持つ",
+                            place(src, f.location()),
+                            f.name
+                        ),
+                    );
                 }
             }
         }
@@ -567,7 +673,7 @@ fn lint_stale_outcomes(schema: &Schema, out: &mut Vec<String>) {
 ///
 /// 戻れると、consumer は深さに上限の無い読みを書ける。 大きなものは root の窓の欄に置き、
 /// 戻る向きの参照は識別子の scalar で持つ（§5）。
-fn lint_cycles(schema: &Schema, out: &mut Vec<String>) {
+fn lint_cycles(schema: &Schema, out: &mut Findings) {
     let roots: BTreeSet<Name> = root_names(schema).into_iter().map(|(_, n)| n).collect();
     let implementers = schema.implementers_map();
     let composite = |n: &Name| {
@@ -637,10 +743,13 @@ fn lint_cycles(schema: &Schema, out: &mut Vec<String>) {
     }
     for cycle in found {
         let names: Vec<&str> = cycle.iter().map(Name::as_str).collect();
-        out.push(format!(
-            "参照が環になっている: {}。 戻る向きは識別子で持つ",
-            names.join(" / ")
-        ));
+        out.push(
+            "schema.reference-cycle",
+            format!(
+                "参照が環になっている: {}。 戻る向きは識別子で持つ",
+                names.join(" / ")
+            ),
+        );
     }
 }
 
@@ -648,7 +757,7 @@ fn lint_cycles(schema: &Schema, out: &mut Vec<String>) {
 ///
 /// 改名は「新しい欄を足す → 古い欄を非推奨にする → 使われなくなってから消す」の順で、
 /// 理由が無いと consumer は移る先を知らない。
-fn lint_deprecations(schema: &Schema, out: &mut Vec<String>) {
+fn lint_deprecations(schema: &Schema, out: &mut Findings) {
     let src = &schema.sources;
     let mut check = |what: String, directives: &DirectiveList, span: Option<SourceSpan>| {
         let Some(d) = directives.get("deprecated") else {
@@ -660,10 +769,13 @@ fn lint_deprecations(schema: &Schema, out: &mut Vec<String>) {
             .map(str::trim)
             .unwrap_or_default();
         if reason.is_empty() || reason == DEFAULT_DEPRECATION {
-            out.push(format!(
-                "{}{what}: `@deprecated` に reason を書き、代わりに使うものを名指す",
-                place(src, span)
-            ));
+            out.push(
+                "schema.deprecation-reason",
+                format!(
+                    "{}{what}: `@deprecated` に reason を書き、代わりに使うものを名指す",
+                    place(src, span)
+                ),
+            );
         }
     };
     for (name, ty) in own_types(schema) {
@@ -705,21 +817,27 @@ fn lint_deprecations(schema: &Schema, out: &mut Vec<String>) {
 /// - 名前を持つ。 persisted operation の manifest は名前で引く（§11）
 /// - fragment は `持ち主_型`。 部品ごとに置くので、名前が持ち主を言う（§8）
 /// - 非推奨の欄を選ばない。 見本は今の語彙を示す（§14）
-fn lint_documents(doc: &ExecutableDocument) -> Vec<String> {
+fn lint_documents(doc: &ExecutableDocument) -> Vec<Finding> {
     let src = &doc.sources;
-    let mut out = Vec::new();
+    let mut out = Findings::default();
     if let Some(op) = &doc.operations.anonymous {
-        out.push(format!(
-            "{}名前の無い operation。 manifest は名前で引く",
-            place(src, op.location())
-        ));
+        out.push(
+            "operations.anonymous",
+            format!(
+                "{}名前の無い operation。 manifest は名前で引く",
+                place(src, op.location())
+            ),
+        );
     }
     for (name, op) in &doc.operations.named {
         if !is_pascal(name) {
-            out.push(format!(
-                "{}{name}: operation の名前は PascalCase にする",
-                place(src, op.location())
-            ));
+            out.push(
+                "operations.name-case",
+                format!(
+                    "{}{name}: operation の名前は PascalCase にする",
+                    place(src, op.location())
+                ),
+            );
         }
         deprecated_in(&op.selection_set, src, name, &mut out);
     }
@@ -727,27 +845,33 @@ fn lint_documents(doc: &ExecutableDocument) -> Vec<String> {
         let ty = fragment.selection_set.ty.as_str();
         let owner = name.strip_suffix(&format!("_{ty}"));
         if !owner.is_some_and(is_pascal) {
-            out.push(format!(
-                "{}{name}: fragment の名前は `持ち主_{ty}` にする",
-                place(src, fragment.location())
-            ));
+            out.push(
+                "operations.fragment-name",
+                format!(
+                    "{}{name}: fragment の名前は `持ち主_{ty}` にする",
+                    place(src, fragment.location())
+                ),
+            );
         }
         deprecated_in(&fragment.selection_set, src, name, &mut out);
     }
-    out
+    out.0
 }
 
-fn deprecated_in(set: &SelectionSet, src: &SourceMap, owner: &str, out: &mut Vec<String>) {
+fn deprecated_in(set: &SelectionSet, src: &SourceMap, owner: &str, out: &mut Findings) {
     for s in &set.selections {
         match s {
             Selection::Field(f) => {
                 if f.definition.directives.get("deprecated").is_some() {
-                    out.push(format!(
-                        "{}{owner}: 非推奨の `{}.{}` を選んでいる",
-                        place(src, f.location()),
-                        set.ty,
-                        f.name
-                    ));
+                    out.push(
+                        "operations.deprecated-field",
+                        format!(
+                            "{}{owner}: 非推奨の `{}.{}` を選んでいる",
+                            place(src, f.location()),
+                            set.ty,
+                            f.name
+                        ),
+                    );
                 }
                 deprecated_in(&f.selection_set, src, owner, out);
             }
@@ -804,23 +928,30 @@ fn unexercised(schema: &Schema, doc: &ExecutableDocument) -> Vec<String> {
 /// root の欄はどれも能力と費用を1つずつ持つ。 表の座標は SDL に実在し、能力と費用は
 /// 表の語彙から選ぶ。 語彙に使われないものを残さない——残すと、どの欄にも付かない
 /// 能力を consumer に許すかどうかが、何も言わないまま決まる。
-fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<String> {
-    let mut out = Vec::new();
+fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<Finding> {
+    let mut out = Findings::default();
     if str_of(table, "schema") != Some("capability-map") {
-        out.push(format!(
-            "{CAPABILITIES}: 先頭で `schema = 'capability-map'` を名乗る"
-        ));
+        out.push(
+            "capabilities.schema-undeclared",
+            format!("{CAPABILITIES}: 先頭で `schema = 'capability-map'` を名乗る"),
+        );
     }
     let vocabulary = table.get("vocabulary").and_then(toml::Value::as_table);
     let vocab = |key: &str| vocabulary.map(|v| list_of(v, key)).unwrap_or_default();
     let (capabilities, costs) = (vocab("capabilities"), vocab("costs"));
     for (key, list) in [("capabilities", &capabilities), ("costs", &costs)] {
         if list.is_empty() {
-            out.push(format!("{CAPABILITIES}: `vocabulary.{key}` が空"));
+            out.push(
+                "capabilities.empty-vocabulary",
+                format!("{CAPABILITIES}: `vocabulary.{key}` が空"),
+            );
         }
         let unique: BTreeSet<&String> = list.iter().collect();
         if unique.len() != list.len() {
-            out.push(format!("{CAPABILITIES}: `vocabulary.{key}` に重複がある"));
+            out.push(
+                "capabilities.duplicate-vocabulary",
+                format!("{CAPABILITIES}: `vocabulary.{key}` に重複がある"),
+            );
         }
     }
 
@@ -841,33 +972,43 @@ fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<String> {
                     _ => false,
                 });
         if !exists {
-            out.push(format!(
-                "{CAPABILITIES}: `{coordinate}` という欄は SDL に無い"
-            ));
+            out.push(
+                "capabilities.unknown-field",
+                format!("{CAPABILITIES}: `{coordinate}` という欄は SDL に無い"),
+            );
         }
         let Some(entry) = v.as_table() else {
-            out.push(format!("{CAPABILITIES}: `{coordinate}` は表にする"));
+            out.push(
+                "capabilities.entry-not-table",
+                format!("{CAPABILITIES}: `{coordinate}` は表にする"),
+            );
             continue;
         };
         match str_of(entry, "capability") {
             Some(c) if capabilities.iter().any(|x| x == c) => {
                 used_capabilities.insert(c.to_owned());
             }
-            Some(c) => out.push(format!(
-                "{CAPABILITIES}: `{coordinate}` の能力 `{c}` は語彙に無い"
-            )),
-            None => out.push(format!(
-                "{CAPABILITIES}: `{coordinate}` に capability が無い"
-            )),
+            Some(c) => out.push(
+                "capabilities.unknown-capability",
+                format!("{CAPABILITIES}: `{coordinate}` の能力 `{c}` は語彙に無い"),
+            ),
+            None => out.push(
+                "capabilities.missing-capability",
+                format!("{CAPABILITIES}: `{coordinate}` に capability が無い"),
+            ),
         }
         match str_of(entry, "cost") {
             Some(c) if costs.iter().any(|x| x == c) => {
                 used_costs.insert(c.to_owned());
             }
-            Some(c) => out.push(format!(
-                "{CAPABILITIES}: `{coordinate}` の費用 `{c}` は語彙に無い"
-            )),
-            None => out.push(format!("{CAPABILITIES}: `{coordinate}` に cost が無い")),
+            Some(c) => out.push(
+                "capabilities.unknown-cost",
+                format!("{CAPABILITIES}: `{coordinate}` の費用 `{c}` は語彙に無い"),
+            ),
+            None => out.push(
+                "capabilities.missing-cost",
+                format!("{CAPABILITIES}: `{coordinate}` に cost が無い"),
+            ),
         }
     }
     for (_, root) in root_names(schema) {
@@ -875,7 +1016,10 @@ fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<String> {
             for f in obj.fields.keys() {
                 let c = format!("{root}.{f}");
                 if !fields.contains_key(&c) {
-                    out.push(format!("{CAPABILITIES}: root の欄 `{c}` に能力が無い"));
+                    out.push(
+                        "capabilities.root-field-without-capability",
+                        format!("{CAPABILITIES}: root の欄 `{c}` に能力が無い"),
+                    );
                 }
             }
         }
@@ -884,17 +1028,40 @@ fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<String> {
         .iter()
         .filter(|c| !used_capabilities.contains(*c))
     {
-        out.push(format!("{CAPABILITIES}: 能力 `{c}` を使う欄が無い"));
+        out.push(
+            "capabilities.unused-capability",
+            format!("{CAPABILITIES}: 能力 `{c}` を使う欄が無い"),
+        );
     }
     for c in costs.iter().filter(|c| !used_costs.contains(*c)) {
-        out.push(format!("{CAPABILITIES}: 費用 `{c}` を使う欄が無い"));
+        out.push(
+            "capabilities.unused-cost",
+            format!("{CAPABILITIES}: 費用 `{c}` を使う欄が無い"),
+        );
     }
-    out
+    out.0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 試験の大半は文言だけを見る。 code を見る試験は `super::` を付けて呼ぶ。
+    fn messages(findings: Vec<Finding>) -> Vec<String> {
+        findings.into_iter().map(|f| f.message).collect()
+    }
+
+    fn lint_schema(schema: &Schema) -> Vec<String> {
+        messages(super::lint_schema(schema))
+    }
+
+    fn lint_documents(doc: &ExecutableDocument) -> Vec<String> {
+        messages(super::lint_documents(doc))
+    }
+
+    fn check_capabilities(schema: &Schema, table: &toml::Table) -> Vec<String> {
+        messages(super::check_capabilities(schema, table))
+    }
 
     /// 規則を1つも破らない、最小の契約。 各試験はここから1箇所だけ変える。
     const BASE: &str = r#"
@@ -1419,5 +1586,41 @@ union OtherResult = Other | ProjectLeaseExpired
             mentions(&errors, "`thing.export` を使う欄が無い"),
             "{errors:?}"
         );
+    }
+
+    /// 違反は規則ごとの code を持ち、文言の先頭の場所は構造になる。
+    #[test]
+    fn 違反は_code_と場所を持つ() {
+        let schema = schema_of(&with("id: ThingId!", "id: String!"));
+        let found = super::lint_schema(&schema);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].code, "schema.plain-scalar-identifier");
+        let location = located(&found[0].message).expect("場所が文言の先頭にある");
+        assert_eq!(location.path, std::path::Path::new("schema.graphql"));
+        assert!(location.line.is_some());
+
+        let map: toml::Table = CAPABILITY_MAP
+            .replace("'thing.modify']", "'thing.modify', 'thing.export']")
+            .parse()
+            .expect("TOML");
+        let found = super::check_capabilities(&schema, &map);
+        assert!(
+            found
+                .iter()
+                .any(|f| f.code == "capabilities.unused-capability"),
+            "{found:?}"
+        );
+        // 表の欄は場所を持たない。
+        assert!(found.iter().all(|f| located(&f.message).is_none()));
+    }
+
+    #[test]
+    fn 場所は先頭のパス行桁だけから取る() {
+        let l = located("specs/a/b.graphql:12:3: 文").expect("取れる");
+        assert_eq!(l.path, std::path::Path::new("specs/a/b.graphql"));
+        assert_eq!(l.line, Some(12));
+        assert!(located("Query.foo: 文").is_none());
+        assert!(located("参照が環になっている: A / B").is_none());
+        assert!(located("文だけ").is_none());
     }
 }
