@@ -23,13 +23,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use koeru_align::aligner::Alignment;
-use koeru_align::confidence::Confidence;
-use koeru_align::consistency::{self, Measure};
-use koeru_align::phoneme::Phoneme;
-use koeru_align::preset::Preset;
 use koeru_align::review::{EntryState, ReviewError, ReviewMode, ReviewQueue, Slot};
-use koeru_align::segment::{Boundaries, SegmentConfig, confidence, per_mora};
 use koeru_align::{ini, ledger, reach, validate};
 use koeru_audio::backend::current as mac;
 use koeru_audio::wav::MASTER_RATE_HZ;
@@ -65,7 +59,7 @@ use koeru_synth::resampler::{FrequencyTable, RenderRequest, render};
 
 use uuid::Uuid;
 
-use crate::capture_lease::{CaptureLease, TakeGap, TakeGapKind, TakeGaps, TakeGuard};
+use crate::capture_lease::{CaptureLease, TakeGaps, TakeGuard};
 use crate::error::{AppError, Result};
 use crate::latency::ms_u32;
 use crate::latency::{self, Case, Observed};
@@ -75,6 +69,10 @@ use crate::preview::{self, PhraseCache, Sink, WavSamples};
 use crate::pump::{PREROLL_MS, Pump};
 use crate::review::slot_of;
 use crate::storage;
+use crate::take_analysis::{
+    self, Populations, ReEstimateInput, RowReads, Setup, Step, TakeAnalysisInput,
+    TakeAnalysisOutput, TakeFacts, consistency_reading,
+};
 use crate::workers::{Priority, Workers};
 
 /// 単独音の収録音高。A3 を既定にする（`TR-RCL` の音階既定）。
@@ -115,25 +113,6 @@ const CAUSE_THRESHOLD: f64 = 0.5;
 /// 確信度の成分より先に名指す。 キューの先頭に並べた理由がこれなので
 /// （`ReviewQueue::queued`）、成分の主因を出すと並べた理由と食い違う。
 const BRANCH_MISMATCH_CAUSE: &str = "branch.mismatch";
-
-/// 読みの最初の音素。集団の鍵にする（`TR-ALN-12` (b)）。
-///
-/// 音素へ写せない読みは `None`。 推測で既定の音素を当てない——
-/// 別の音素の集団に混ざると、その集団の中央値まで動く。
-fn first_phoneme(reading: &str) -> Option<Phoneme> {
-    koeru_align::phoneme::phonemes_for(reading)
-        .ok()
-        .and_then(|p| p.first().copied())
-}
-
-/// 読みの最後の音素。母音長の集団の鍵にする（`TR-ALN-12` (b)）。
-///
-/// 母音の長さは母音で決まる。 子音で束ねると、あ段とう段が同じ集団に入る。
-fn last_phoneme(reading: &str) -> Option<Phoneme> {
-    koeru_align::phoneme::phonemes_for(reading)
-        .ok()
-        .and_then(|p| p.last().copied())
-}
 
 /// 取り込む曲を確かめる（`TR-RCL-12`）。 取り込みと下見が同じものを通る。
 ///
@@ -176,73 +155,6 @@ fn check_song(song: &Song) -> Result<()> {
         ));
     }
     Ok(())
-}
-
-/// 話者内一貫性（`TR-ALN-12`）の集団を引く読み。 CV の枠だけ返す。
-///
-/// 集団の鍵は音素で、音素は仮名から引く（`phoneme::phonemes_for` は仮名の辞書）。
-/// **綴りを渡していた。** `a か` も `- か` も `a k` も辞書に無いので、
-/// 連続音と CVVC では集団が1つも作れず、事前分布がいつも 1.0 だった
-/// ——単独音だけは綴りが仮名そのものなので、試験が素通りしていた。
-///
-/// 渡りと語尾は測らない。 先行発声も子音長も CV とは別の区間を指すので、
-/// 同じ音素の集団へ混ぜると CV の集団のほうが歪む。分からないものを
-/// 外れ値にしない方針（[`Studio::prior_of`]）どおり、1.0 のままにする。
-fn consistency_reading(
-    slot: koeru_core::reclist::Slot,
-    line: &[koeru_core::inventory::Unit],
-) -> Option<&'static str> {
-    match slot {
-        koeru_core::reclist::Slot::Cv { mora } => line.get(mora).map(|u| u.kana),
-        koeru_core::reclist::Slot::Vc { .. } | koeru_core::reclist::Slot::Ending { .. } => None,
-    }
-}
-
-/// 音素ごとに集めた測度の集団（`TR-ALN-12`）。
-///
-/// 条文が挙げるのは「先行発声位置・子音長・母音長」。 oto からそれぞれを引く。
-///
-/// **測度ごとに違う音素で集める。** 先頭音素ひとつで全部を束ねていたので、
-/// か・く・け・こ の**母音長が全部 `k` の集団へ入り**、あ段の長さと
-/// う段の長さが同じ集団で比べられていた。母音の長さは母音で決まる。
-///
-/// **子音長は先行発声位置の定数ずらしになる**（`derive_cv`: 子音長 =
-/// 先行発声 − 前余白マージン）。同じプリセットの中では中央値からの距離が
-/// 一致するので、別に測っても新しいことは言わない。それでも並べているのは、
-/// プリセットが混ざったプロジェクト（`TR-ALN-23` の編集）でずれるため。
-#[derive(Debug, Default)]
-struct Populations {
-    /// (収録音高, 先頭音素) → 先行発声位置と子音長。
-    ///
-    /// **音階を鍵に含める**（`TR-ALN-22` の「集団統計は音階内に閉じる」）。
-    /// 高音階と低音階では発声が変わるので、混ぜると全部が外れ値になる。
-    /// `consistency::Population` は初めから音階を持っていたが、
-    /// ここの集計が音素だけで畳んでいた。**踏んだ。**
-    onset: HashMap<(i32, Phoneme), (Vec<f64>, Vec<f64>)>,
-    /// (収録音高, 末尾音素) → 母音長。
-    vowel: HashMap<(i32, Phoneme), Vec<f64>>,
-}
-
-impl Populations {
-    /// その oto から子音長と母音長を引く。
-    ///
-    /// 母音長 = 使える区間 − 先行発声。 子音長 = 先行発声（前余白ぶんずれている）。
-    fn spans(o: &Oto, len_ms: f64) -> (f64, f64) {
-        let usable = o.usable_ms(len_ms);
-        (o.preutterance_ms, (usable - o.preutterance_ms).max(0.0))
-    }
-
-    fn push(&mut self, tone: i32, reading: &str, o: &Oto, len_ms: f64) {
-        let (consonant, vowel) = Self::spans(o, len_ms);
-        if let Some(k) = first_phoneme(reading) {
-            let e = self.onset.entry((tone, k)).or_default();
-            e.0.push(o.preutterance_ms);
-            e.1.push(consonant);
-        }
-        if let Some(k) = last_phoneme(reading) {
-            self.vowel.entry((tone, k)).or_default().push(vowel);
-        }
-    }
 }
 
 /// キューの遷移が通らなかったことを、境界の失敗へ畳む。
@@ -520,7 +432,7 @@ pub struct TakeResult {
     pub followup: Option<AppError>,
 }
 
-/// [`Studio::derive_take`] が作ったもの。
+/// [`Studio::admit_take_analysis`] が受理した結果。
 #[derive(Debug)]
 struct DerivedTake {
     peak: f32,
@@ -530,24 +442,6 @@ struct DerivedTake {
     confidence: Option<f64>,
     /// 最初に落ちた工程の失敗。 そこから先の派生物は無い。
     failure: Option<AppError>,
-}
-
-/// テイクの派生物を作るのに要る、確定のときに分かっていたこと。
-#[derive(Debug, Clone, Copy)]
-struct TakeFacts<'a> {
-    take_id: i32,
-    row_id: &'a str,
-    discontinuities: usize,
-    /// リングが満杯で捨てたサンプル数（`TR-REC-07`）。
-    dropped: usize,
-    /// レンダの失敗回数（`TR-REC-07`）。
-    render_errors: usize,
-    /// 欠落の固定長領域に収まらず、件数だけ数えたぶん。
-    gaps_overflowed: usize,
-    /// 記録できた欠落の位置。 テイクの先頭からのマスター標本位置。
-    gaps: &'a [TakeGap],
-    guide_offset: Option<i64>,
-    duration_ms: f64,
 }
 
 /// 残量の見積もり（`TR-REC-41`）。
@@ -2889,19 +2783,27 @@ impl Studio {
         let take_id = receipt.take_id;
 
         // ## ここから先は派生物。落ちてもテイクは確定している
+        //
+        // 入力を集める → 計算する → 受理して書く、の順。 同じスレッドで続けて走らせる
+        // （応答は解析を待つ）。
+        let frames = finished.samples.len();
+        let duration_ms = frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+        let preroll_ms = finished.preroll_frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
         let facts = TakeFacts {
-            take_id,
-            row_id: &row_id,
-            discontinuities,
-            dropped: gaps.dropped,
-            render_errors: gaps.render_errors,
-            gaps_overflowed: gaps.overflowed,
-            gaps: &gaps.entries,
+            counts: koeru_core::db::TakeGapCounts {
+                discontinuities,
+                dropped: gaps.dropped,
+                render_errors: gaps.render_errors,
+                overflowed: gaps.overflowed,
+            },
+            gaps: gaps.entries.clone(),
             guide_offset,
-            duration_ms: finished.samples.len() as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
+            preroll_frames: finished.preroll_frames,
+            duration_ms,
         };
-        let duration_ms = facts.duration_ms;
-        let derived = self.derive_take(facts, &finished);
+        let input = self.collect_take_analysis(take_id, &row_id, finished, facts);
+        let output = take_analysis::analyze_take(&input);
+        let derived = self.admit_take_analysis(output);
         // 記録は画面へ渡すときに1回だけ（`crate::error::AppError` の直列化）。
         let followup = derived
             .failure
@@ -2929,7 +2831,7 @@ impl Studio {
             render_errors: gaps.render_errors,
             invalidated,
             metrics: derived.metrics,
-            preroll_ms: finished.preroll_frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
+            preroll_ms,
             followup,
         };
         Ok(Finish::Committed {
@@ -2938,28 +2840,17 @@ impl Studio {
         })
     }
 
-    /// 確定したテイクから派生物を作って台帳へ置く。 解析・`.frq`・計測・境界・oto・確認キュー。
+    /// 入力を集める。 台帳から読むだけで、何も書かない。
     ///
-    /// 失敗を返さない。 最初に落ちた工程の失敗を [`DerivedTake::failure`] に入れ、
-    /// そこまでに作れたものを返す。 計測と波形の要約は台帳に置けなくても画面へ返す
-    /// ——測るのは手元の標本だけで済む。
-    fn derive_take(
+    /// 読めなかったものは失敗ごと入力に持つ（[`take_analysis`] の冒頭）。 計算は
+    /// その読みを要る段に着いたときに出力へ移す。
+    fn collect_take_analysis(
         &mut self,
-        facts: TakeFacts<'_>,
-        finished: &crate::pump::Finished,
-    ) -> DerivedTake {
-        let rate = MASTER_RATE_HZ;
-
-        // ## 解析。録音停止時に確定させて、以後 WAV を読み直さない
-        let f64s: Vec<f64> = finished.samples.iter().map(|s| f64::from(*s)).collect();
-        // 試唱のために走らせる解析を、そのまま .frq へ回す（`TR-PKG-05`）。
-        // 書き出しのために推定し直さない。
-        //
-        // 二段構え（`TR-SYN-22`）。最初の数テイクは DIO+StoneMask で即座に確定し、
-        // 話者音域が判明したら Harvest で引き直す。
-        // `.frq` が要求するのは F0 と平均振幅だけなので、初期テイクの試唱には
-        // DIO の精度で足りる。待たせないことのほうが効く。
-        //
+        take_id: i32,
+        row_id: &str,
+        finished: crate::pump::Finished,
+        facts: TakeFacts,
+    ) -> TakeAnalysisInput {
         // 音域は開いているプロジェクトのもの（`ProjectCaches`）。 開いていなければ
         // 溜めるものが無いので、初めのテイクと同じ DIO の条件で推定する。
         let (observed, floor) = self.open.as_ref().map_or((0, None), |o| {
@@ -2970,41 +2861,96 @@ impl Studio {
         } else {
             f0::Purpose::Preview
         };
-        let cond = f0::conditions(purpose, floor);
-        let (source_f0, _t) = f0::estimate(&f64s, rate, &cond);
-
-        // 音域を溜めて、集まったら下限を引き上げる。
-        if let Some(open) = self.open.as_mut() {
-            let caches = &mut open.caches;
-            caches.observed_f0.push(source_f0.clone());
-            if caches.f0_floor.is_none()
-                && let Some(floor) = f0::tighten_floor(&caches.observed_f0)
-            {
-                tracing::info!(floor_hz = floor, "話者音域から探索の下限を上げた");
-                caches.f0_floor = Some(floor);
-            }
+        TakeAnalysisInput {
+            take_id,
+            row_id: row_id.to_owned(),
+            wav_path: finished.path,
+            // 複写しない。 持ち出すのは持ち手だけ。
+            samples: Arc::new(finished.samples),
+            rate: MASTER_RATE_HZ,
+            f0_purpose: purpose,
+            f0_floor: floor,
+            facts,
+            row: self.read_row(row_id),
+            aligner: self.aligner.clone(),
         }
+    }
 
-        let analysis = TakeAnalysis::compute(
-            &finished.samples,
-            rate,
-            &source_f0,
-            cond.frame_period_ms / 1000.0,
-        );
+    /// 行についての事実を台帳から読む。 読みの失敗は値で持つ。
+    ///
+    /// どれも、テイクの解析値・計測・境界の書き込みに左右されない（持ち主にも集団にも
+    /// 効かない）。 だから以前のように書き込みのあいだではなく、計算の前にまとめて読める。
+    fn read_row(&mut self, row_id: &str) -> RowReads {
+        let setup = self.current_preset().and_then(|preset| {
+            Ok(Setup {
+                method: preset.method,
+                set: preset.set,
+                rules: self.current_rules()?,
+            })
+        });
+        let kana = self
+            .writer()
+            .and_then(|mut w| w.units_of(row_id).map_err(AppError::from));
+        let line = match &setup {
+            Ok(s) => self
+                .writer()
+                .and_then(|mut w| w.row_units_of(row_id, s.set).map_err(AppError::from)),
+            Err(e) => Err(e.clone()),
+        };
+        let populations = self.populations();
+        let tone = self
+            .writer()
+            .and_then(|mut w| Ok(w.row_tones()?.get(row_id).copied().unwrap_or_default()));
+        let owned = self
+            .writer()
+            .and_then(|mut w| w.owned_aliases_of_row(row_id).map_err(AppError::from));
+        RowReads {
+            setup,
+            kana,
+            line,
+            populations,
+            tone,
+            owned,
+        }
+    }
+
+    /// 計算の出力を受理して、台帳とファイルへ置く。 解析・`.frq`・計測・境界・oto・確認キュー。
+    ///
+    /// 失敗を返さない。 最初に落ちた工程の失敗を [`DerivedTake::failure`] に入れ、
+    /// そこまでに置けたものを返す。 計測と波形の要約は台帳に置けなくても画面へ返す
+    /// ——測るのは手元の標本だけで済む。
+    fn admit_take_analysis(&mut self, output: TakeAnalysisOutput) -> DerivedTake {
+        let TakeAnalysisOutput {
+            take_id,
+            row_id,
+            wav_path,
+            discontinuities,
+            f0,
+            analysis,
+            measured,
+            steps,
+            failure,
+        } = output;
+
+        self.note_f0_range(f0);
+
         let mut out = DerivedTake {
             peak: analysis.peak,
             thumbnail: analysis.thumbnail.clone(),
-            // 境界が分かる前の測り方。 揃えられれば下で測り直す。
-            metrics: TakeMetrics::measure(&finished.samples, rate, None, None),
+            // 境界が分かる前の測り方。 揃えられれば置くときに測り直した値へ替わる。
+            metrics: measured,
             oto: None,
             confidence: None,
             failure: None,
         };
-        let placed = self.place_derivations(facts, finished, &f64s, &analysis, &mut out);
+        let placed = self
+            .place_steps(take_id, &wav_path, &analysis, steps, &mut out)
+            // 計算が途中で落ちていたら、置けた分の次がその失敗。
+            .and_then(|()| failure.map_or(Ok(()), Err));
         // 録れた綴りを、もう片方の出どころで二度読ませない（`DEC-RCL-016`）。
         // 原音設定を作れなくても、録れてはいる。
-        let reconciled = if facts.discontinuities == 0 {
-            self.reconcile_other_origin(facts.row_id)
+        let reconciled = if discontinuities == 0 {
+            self.reconcile_other_origin(&row_id)
         } else {
             Ok(())
         };
@@ -3012,288 +2958,77 @@ impl Studio {
         out
     }
 
-    /// [`Self::derive_take`] のうち、台帳とファイルへ置く工程。 作れた順に `out` を埋める。
-    fn place_derivations(
+    /// 音域を溜めて、集まったら下限を引き上げる（`TR-SYN-22`）。
+    ///
+    /// このテイクの推定は更新前の値で済んでいる。 変わるのは次のテイクの条件だけ。
+    fn note_f0_range(&mut self, f0: Vec<f64>) {
+        if let Some(open) = self.open.as_mut() {
+            let caches = &mut open.caches;
+            caches.observed_f0.push(f0);
+            if caches.f0_floor.is_none()
+                && let Some(floor) = f0::tighten_floor(&caches.observed_f0)
+            {
+                tracing::info!(floor_hz = floor, "話者音域から探索の下限を上げた");
+                caches.f0_floor = Some(floor);
+            }
+        }
+    }
+
+    /// [`Self::admit_take_analysis`] のうち、台帳とファイルへ置く工程。
+    /// 上から順に置き、最初に落ちた工程で止まる。 作れた順に `out` を埋める。
+    fn place_steps(
         &mut self,
-        facts: TakeFacts<'_>,
-        finished: &crate::pump::Finished,
-        f64s: &[f64],
+        take_id: i32,
+        wav_path: &std::path::Path,
         analysis: &TakeAnalysis,
+        steps: Vec<Step>,
         out: &mut DerivedTake,
     ) -> Result<()> {
-        let rate = MASTER_RATE_HZ;
-        let TakeFacts {
-            take_id,
-            row_id,
-            discontinuities,
-            dropped,
-            render_errors,
-            gaps_overflowed,
-            gaps,
-            guide_offset,
-            duration_ms,
-        } = facts;
-        // この音源の作り方（`TR-RCL-01`）。 原音設定の規約がこれで決まる。
-        let preset_here = self.current_preset()?;
-        let (method, preset_set) = (preset_here.method, preset_here.set);
-        // 綴りの表（`TR-SYN-36`）。 録音リストを入れたときと同じものを引く。
-        let rules = self.current_rules()?;
-
-        self.writer()?.put_analysis(take_id, analysis)?;
-        frq::write(&analysis.frq, &frq::frq_path(&finished.path)?)?;
-
-        // ## 境界と oto
-        let cfg = SegmentConfig::default();
-        // アライナを通す（`TR-ALN-03`）。 揃えられなければ原音設定を作らないだけで、
-        // テイクの確定は取り消さない。 なぜ揃わなかったかは code で残す。
-        let alignment = match self.align_take(f64s, rate, row_id) {
-            Ok(a) => Some(a),
-            Err(e) => {
-                e.with_outcome(koeru_failure::Outcome::Committed)
-                    .record("take.align");
-                None
-            }
-        };
-        // 1ファイルに複数モーラが入る（`TR-RCL-03`、`DEC-ALN-013`）。
-        // モーラごとに境界を取り出し、oto もモーラごとに作る。
-        let kana = self.writer()?.units_of(row_id)?;
-        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
-        // 綴りを作るのに子音と母音クラスが要る。 並びは読み上げ順
-        // （`Ledger::row_units_of`）。
-        let line = self.writer()?.row_units_of(row_id, preset_set)?;
-        let per_mora = alignment.as_ref().and_then(|a| per_mora(a, &readings));
-        // 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）はファイル全体で見る。
-        let boundaries = per_mora.as_ref().and_then(|v| {
-            Some(Boundaries {
-                voice_start_ms: v.first()?.voice_start_ms,
-                vowel_start_ms: v.first()?.vowel_start_ms,
-                vowel_end_ms: v.last()?.vowel_end_ms,
-            })
-        });
-
-        // ## 計測（`TR-REC-16`）と無音マージン（`TR-REC-38`）
-        // 測るだけ。判定も指摘もしない。
-        let metrics = TakeMetrics::measure(
-            &finished.samples,
-            rate,
-            boundaries.as_ref().map(|b| b.voice_start_ms),
-            boundaries.as_ref().map(|b| b.vowel_end_ms),
-        );
-        self.writer()?.put_metrics(
-            take_id,
-            &metrics,
-            koeru_core::db::TakeGapCounts {
-                discontinuities,
-                dropped,
-                render_errors,
-                overflowed: gaps_overflowed,
-            },
-            finished.preroll_frames,
-            guide_offset,
-        )?;
-        // 欠落の位置（`TR-REC-07` の「欠落の発生数と位置をメタデータに記録する」）。
-        let gap_records: Vec<koeru_core::db::GapRecord> = gaps
-            .iter()
-            .map(|g| koeru_core::db::GapRecord {
-                kind: match g.kind {
-                    TakeGapKind::Dropped => koeru_core::db::GapRecordKind::Dropped,
-                    TakeGapKind::Discontinuity => koeru_core::db::GapRecordKind::Discontinuity,
-                    TakeGapKind::RenderError => koeru_core::db::GapRecordKind::RenderError,
-                },
-                position: i64::try_from(g.position).unwrap_or(i64::MAX),
-            })
-            .collect();
-        self.writer()?.put_take_gaps(take_id, &gap_records)?;
-        out.metrics = metrics;
-
-        let (oto, conf) = match per_mora {
-            None => (None, None),
-            Some(ref v) => {
-                // 確信度はテイク全体で1つ。 事後確率があればそこから組み立てる
-                // （`TR-ALN-24` の成分 (1)(2)）。無ければ退避経路の計算へ落ちる。
-                // MFA が動いたのにパワー比で境界鋭さを測ると、
-                // 要件の定義と違うものを記録することになる。
-                // 確信度はモーラごとに作る（`TR-ALN-26`）。
-                //
-                // **ファイル全体で1つ作ってエントリ全部へ写さない。** 境界鋭さは
-                // いちばん弱い境界で決まるので、1モーラが曖昧なだけで全部の
-                // 確信度と主因が同じ値になり、**どのエントリを見ればよいかが消える。**
-                // 音響異常度も同じで、範囲外の割れが混ざる。
-                let span_conf = |b: &Boundaries, from_ms: f64, to_ms: f64| {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "収録の長さはサンプル数に収まる"
-                    )]
-                    let cut = |ms: f64| {
-                        ((ms / 1000.0 * f64::from(rate)).max(0.0) as usize).min(f64s.len())
-                    };
-                    let (a0, a1) = (cut(from_ms), cut(to_ms));
-                    let part = &f64s[a0.min(a1)..a1.max(a0)];
-                    alignment
-                        .as_ref()
-                        .and_then(|a| {
-                            koeru_align::confidence::from_alignment_span(a, part, from_ms, to_ms)
-                        })
-                        .or_else(|| {
-                            // 退避経路もモーラの範囲で測る（`TR-ALN-26`）。
-                            // **ファイル全体の境界で測っていた。** MFA が無い環境
-                            //（書いていない OS、モデルが無いビルド）では、
-                            // 1モーラの曖昧さが全エントリへ伝播したままだった。
-                            //
-                            // 境界は切った先頭からの相対へ直す。 `segment::confidence`
-                            // はサンプルと同じ原点で位置を数える。
-                            let shifted = Boundaries {
-                                voice_start_ms: b.voice_start_ms - from_ms,
-                                vowel_start_ms: b.vowel_start_ms - from_ms,
-                                vowel_end_ms: b.vowel_end_ms - from_ms,
-                            };
-                            Some(confidence(part, rate, &shifted, &cfg))
-                        })
-                };
-
-                // この音源の作り方の規約で導く（`TR-ALN-13`）。 単独音の規約で
-                // 連続音の行を切ると、子音の扱いも母音の終端も別の位置になる。
-                let preset = Preset::default_for(method)
-                    .map_err(|e| AppError::from_failure(e).saying("規約プリセットを読めない"))?;
-                // 集団は行の中で変わらない。1度だけ作る（`TR-ALN-12`）。
-                let pops = self.populations()?;
-                // 集団は音階内に閉じる（`TR-ALN-22`）。
-                let row_tone = self
-                    .writer()?
-                    .row_tones()?
-                    .get(row_id)
-                    .copied()
-                    .unwrap_or_default();
-
-                // モーラごとに1つ。 同じ WAV を別のエイリアスが別の位置で指す。
-                //
-                // テイク全体の確信度は先頭モーラのものを出す。 成分 (3) は
-                // モーラごとに違うので、テイクに1つしかない値としては代表を採る。
-                let mut first = None;
-                let mut first_score = None;
-                // 行が生むエイリアスと、その5値の出どころ（`TR-RCL-18`）。
-                //
-                // **モーラと1対1で置いていた。** 連続音では綴りが仮名のまま
-                // 配られ、CVVC では渡りも語尾も `oto.ini` に入らなかった。
-                let entries = koeru_core::reclist::row_entries(&rules, method, &line);
-                // 境界を残す（`TR-ALN-34`）。 5値は境界と規約プリセットから導く
-                // 派生物なので、境界さえあれば規約を変えても作り直せる。
-                // **捨てていた。** プリセットを編集するだけで再アライメントが
-                // 走っていた——`TR-ALN-23` の「再アライメントを要求しない」と
-                // 食い違ったまま出荷されていた（`DEC-ALN-014`）。
-                //
-                // 置く名前はそのモーラの CV エイリアス。 モーラの添字を
-                // 名前にしない——下位方式へ書き出すとき（`TR-PKG-24`）に
-                // 引き直すのは、この行の CV の綴りからになる。
-                let saved: Vec<(String, koeru_core::oto::Boundary)> = entries
-                    .iter()
-                    .filter_map(|(a, slot)| match *slot {
-                        koeru_core::reclist::Slot::Cv { mora } => Some((a.clone(), *v.get(mora)?)),
-                        _ => None,
-                    })
-                    .collect();
-                self.writer()?.put_boundaries(take_id, &saved)?;
-
-                // 5値を置くのは、この行が持ち主の綴りだけ（`TR-ALN-22`, `DEC-RCL-016`）。
-                // 先に録った行が持つので、同じ音高で同じ綴りを既に録ってあれば
-                // ここでは置かない。
-                //
-                // **境界のほうは全モーラぶん残す。** 下位方式への書き出しは
-                // モーラ順に境界を並べ直し、1つでも欠けたらその素材を丸ごと
-                // 落とす（`packaging::rederived_entries`）。持ち主でない
-                // 行頭の境界まで捨てると、その行の綴りが全部消える。
-                let owned = self.writer()?.owned_aliases_of_row(row_id)?;
-                let derived: std::collections::BTreeMap<String, Oto> =
-                    koeru_align::derive::derive_row(&entries, v, &line, duration_ms, &preset)
-                        .into_iter()
-                        .collect();
-                // 無声破裂音の分岐を閉鎖の短時間パワーで確かめる（`TR-ALN-16`, `DEC-ALN-018`）。
-                let mismatches = koeru_align::derive::closure_mismatches(
-                    &entries, v, &line, f64s, rate, method, &preset,
-                );
-                if !mismatches.is_empty() {
-                    tracing::info!(count = mismatches.len(), "閉鎖を確かめられなかった");
+        for step in steps {
+            match step {
+                Step::Analysis => {
+                    self.writer()?.put_analysis(take_id, analysis)?;
+                    frq::write(&analysis.frq, &frq::frq_path(wav_path)?)?;
                 }
-                for (alias, slot) in &entries {
-                    if !owned.contains(alias) {
-                        continue;
-                    }
-                    let Some(o) = derived.get(alias).copied() else {
-                        continue;
-                    };
-                    // 確信度は、その枠が乗っているモーラの区間で測る（`TR-ALN-26`）。
-                    // 渡りは直前のモーラの尾に乗るので、そちらを見る。
-                    let Some(b) = v.get(slot.mora()) else {
-                        continue;
-                    };
-                    let reading = alias.as_str();
-                    // 話者内一貫性（`TR-ALN-12`）。 成分 (3) を差し替える。
-                    // `from_alignment` は 1.0 を置いて「呼び出し側が集団を持ったときに
-                    // 差し替える」と書いている。**合成スコアに掛けない**——掛けると
-                    // 成分としては 1.0 のまま残り、保存した内訳が嘘になる。
-                    // 集団が `MIN_SAMPLES` に満たなければ 1.0 のまま（`TR-ALN-10` notes）。
-                    let prior = consistency_reading(*slot, &line)
-                        .map_or(1.0, |k| Self::prior_of(&pops, row_tone, k, &o, duration_ms));
-                    let c = span_conf(b, b.voice_start_ms, b.vowel_end_ms).map(|mut c| {
-                        c.prior = prior;
-                        c
-                    });
-                    self.writer()?.put_oto(
-                        take_id,
-                        reading,
-                        &o,
-                        c.map_or(0.0, |x| x.score()),
-                        // 成分も残す（`TR-ALN-24`）。合成からは作り直せない。
-                        c.map(|x| koeru_core::db::ConfidenceParts {
-                            path: x.path,
-                            sharpness: x.sharpness,
-                            prior: x.prior,
-                            acoustic: x.acoustic,
-                        })
-                        .as_ref(),
-                        false,
-                    )?;
-                    self.writer()?.set_branch_mismatch(
-                        take_id,
-                        reading,
-                        mismatches.contains(alias),
-                    )?;
-                    if first.is_none() {
-                        first = Some(o);
-                        first_score = Some(c.map_or(0.0, |x| x.score()));
-                    }
+                Step::AlignmentFailed(e) => {
+                    e.with_outcome(koeru_failure::Outcome::Committed)
+                        .record("take.align");
                 }
-
-                // 何で推定したかを残す（`TR-ALN-29`）。
-                // モデルが変わったときに、黙って作り直さないための鍵。
-                let fp = koeru_align::determinism::Fingerprint::new(
-                    f64s,
-                    &kana.join(" "),
-                    &preset,
-                    self.aligner.identity(),
-                );
-                self.writer()?.put_fingerprint(
-                    take_id,
-                    &koeru_core::db::FingerprintRow {
-                        audio: fp.audio,
-                        reading: fp.reading,
-                        preset: fp.preset,
-                        aligner: fp.aligner,
-                    },
-                )?;
-                (first, first_score)
+                Step::Measured(m) => {
+                    let m = *m;
+                    self.writer()?.put_metrics(
+                        take_id,
+                        &m.metrics,
+                        m.counts,
+                        m.preroll_frames,
+                        m.guide_offset,
+                    )?;
+                    self.writer()?.put_take_gaps(take_id, &m.gaps)?;
+                    out.metrics = m.metrics;
+                }
+                Step::Boundaries(saved) => {
+                    self.writer()?.put_boundaries(take_id, &saved)?;
+                }
+                Step::Entries(e) => {
+                    let e = *e;
+                    for row in &e.rows {
+                        self.writer()?.put_oto(
+                            take_id,
+                            &row.alias,
+                            &row.oto,
+                            row.score,
+                            Some(&row.parts),
+                            false,
+                        )?;
+                        self.writer()?
+                            .set_branch_mismatch(take_id, &row.alias, row.mismatch)?;
+                    }
+                    self.writer()?.put_fingerprint(take_id, &e.fingerprint)?;
+                    out.oto = e.first.map(|(oto, _)| oto);
+                    out.confidence = e.first.map(|(_, score)| score);
+                }
+                Step::Enqueue => self.enqueue_take(take_id)?,
             }
-        };
-        out.oto = oto;
-        out.confidence = conf;
-
-        // ## 確認キュー
-        //
-        // 採否は確定と同じ一手で済んでいる（`Ledger::commit_take`）。 取りこぼしたテイクは
-        // 採用の候補に入らないので、キューにも入れない。
-        if discontinuities == 0 {
-            self.enqueue_take(take_id)?;
         }
         Ok(())
     }
@@ -3756,36 +3491,6 @@ impl Studio {
         Ok(out)
     }
 
-    /// 集団から見た、その推定の素直さ（`TR-ALN-12`）。
-    ///
-    /// 1.0 が「集団の真ん中」、0.0 が「大きく外れている」。
-    /// 集団が集まっていなければ 1.0——序盤のテイクを外れ値にしない
-    /// （`TR-ALN-10` notes）。
-    ///
-    /// **3つの測度のうち、いちばん外れているものが決める。** どれか1つでも
-    /// 集団から外れていれば見てほしいので、平均では薄まる。
-    /// `tone` はそのテイクの収録音高（`TR-ALN-22`）。 集団は音階内に閉じる。
-    fn prior_of(pops: &Populations, tone: i32, reading: &str, o: &Oto, len_ms: f64) -> f64 {
-        let score = |measure, value: f64, population: &[f64]| {
-            consistency::deviation(measure, value, population).map_or(1.0, |d| d.prior_score())
-        };
-        let (consonant, vowel) = Populations::spans(o, len_ms);
-        // 音素へ写せない読みは集団を作れない。 分からないものを外れ値にしない。
-        let onset = first_phoneme(reading)
-            .and_then(|k| pops.onset.get(&(tone, k)))
-            .map_or(1.0, |(pre, cons)| {
-                score(Measure::Preutterance, o.preutterance_ms, pre).min(score(
-                    Measure::ConsonantLength,
-                    consonant,
-                    cons,
-                ))
-            });
-        let tail = last_phoneme(reading)
-            .and_then(|k| pops.vowel.get(&(tone, k)))
-            .map_or(1.0, |v| score(Measure::VowelLength, vowel, v));
-        onset.min(tail)
-    }
-
     /// 確定したテイクのエントリを確認キューへ入れる（`REQ-ALN-002`）。
     ///
     /// 全件キューへ入れる。 確信度に絶対閾値を置かない（`TR-ALN-25` の
@@ -4113,142 +3818,58 @@ impl Studio {
     /// 固定されていない値だけを書き換える（`INV-ALN-001`）。固定はキューが守る
     /// （[`ReviewQueue::re_estimate`]）ので、ここは新しい推定を渡すだけ。
     ///
+    /// 入力を集める → 計算する → キューと台帳へ受理する、の3段。 同じスレッドで続けて走らせる。
+    ///
     /// # Errors
     ///
     /// プロジェクトを開いていない、WAV を読めない、読みを音素へ写せない、
     /// 発声を見つけられない。
     #[tracing::instrument(skip(self))]
     pub fn re_estimate_take(&mut self, take_id: i32) -> Result<()> {
+        let input = self.collect_re_estimate(take_id)?;
+        let estimation = take_analysis::re_estimate(&input)?;
+        self.admit_re_estimate(estimation)
+    }
+
+    /// 推定し直しの入力を集める。 台帳と WAV を読むだけで、何も書かない。
+    fn collect_re_estimate(&mut self, take_id: i32) -> Result<ReEstimateInput> {
         let root = self.opened()?.dir().root().to_path_buf();
         let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         let w = wav::read(root.join(&take.rel_path))?;
-        let f64s: Vec<f64> = w.samples.iter().map(|v| f64::from(*v)).collect();
-        #[allow(
-            clippy::cast_precision_loss,
-            reason = "収録の長さは 2^53 サンプルに届かない"
-        )]
-        let duration_ms = f64s.len() as f64 * 1000.0 / f64::from(w.rate_hz);
+        Ok(ReEstimateInput {
+            take_id,
+            rate: w.rate_hz,
+            samples: Arc::new(w.samples),
+            row: self.read_row(&take.row_id),
+            aligner: self.aligner.clone(),
+        })
+    }
 
-        let kana = self.writer()?.units_of(&take.row_id)?;
-        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
-        // 本人が推定し直しを求めたので、揃えられなければその理由を返す。
-        let alignment = self.align_take(&f64s, w.rate_hz, &take.row_id)?;
-        let per_mora = per_mora(&alignment, &readings).ok_or_else(|| {
-            AppError::new(
-                "align.no_voice",
-                Class::EngineFailed,
-                "発声を見つけられなかった",
-            )
-        })?;
-        let alignment = Some(alignment);
-
-        // この音源の作り方の規約で導く（`TR-ALN-13`）。
-        let here = self.current_preset()?;
-        let preset = Preset::default_for(here.method)
-            .map_err(|e| AppError::from_failure(e).saying("規約プリセットを読めない"))?;
-        let rules = self.current_rules()?;
-        let line = self.writer()?.row_units_of(&take.row_id, here.set)?;
-        let pops = self.populations()?;
-        // 集団は音階内に閉じる（`TR-ALN-22`）。
-        let tone = self
-            .writer()?
-            .row_tones()?
-            .get(&take.row_id)
-            .copied()
-            .unwrap_or_default();
-        let cfg = SegmentConfig::default();
-
-        // 行が生むエイリアスごとに1つ（`TR-RCL-18`）。 確定のときと同じ表を通す
-        // ——別の表で作り直すと、確認キューに無いエイリアスが生える。
-        let entries = koeru_core::reclist::row_entries(&rules, here.method, &line);
-        // 持ち主の綴りだけ。 確定のときと同じ絞り方を通す（`TR-ALN-22`, `DEC-RCL-016`）。
-        let owned = self.writer()?.owned_aliases_of_row(&take.row_id)?;
-        let derived: std::collections::BTreeMap<String, Oto> =
-            koeru_align::derive::derive_row(&entries, &per_mora, &line, duration_ms, &preset)
-                .into_iter()
-                .collect();
-        // 境界が動いたので、閉鎖も確かめ直す（`DEC-ALN-018`）。 前の印を残さない。
-        let mismatches = koeru_align::derive::closure_mismatches(
-            &entries,
-            &per_mora,
-            &line,
-            &f64s,
-            w.rate_hz,
-            here.method,
-            &preset,
-        );
-
+    /// 推定し直した結果を、キューと台帳へ受理する。
+    fn admit_re_estimate(&mut self, estimation: take_analysis::ReEstimation) -> Result<()> {
+        let take_analysis::ReEstimation {
+            take_id,
+            tone,
+            entries,
+            mismatches,
+        } = estimation;
         let mut next = self.opened()?.review.clone();
         let mut rows = Vec::new();
-        for (alias, slot) in &entries {
-            if !owned.contains(alias) {
-                continue;
-            }
-            let Some(o) = derived.get(alias).copied() else {
-                continue;
-            };
-            let owner = match *slot {
-                koeru_core::reclist::Slot::Cv { mora }
-                | koeru_core::reclist::Slot::Ending { mora } => mora,
-                koeru_core::reclist::Slot::Vc { prev, .. } => prev,
-            };
-            let Some(b) = per_mora.get(owner) else {
-                continue;
-            };
-            let reading = alias.as_str();
+        for e in &entries {
             // キューの鍵は（音高, 綴り）（`TR-ALN-22`）。
-            let key = crate::review::EntryKey::new(tone, reading).handle();
-            // 集団はそのモーラの仮名で引く（`consistency_reading`）。
-            // 綴りは音素へ写せないので、渡すと集団が引けない。
-            let prior = consistency_reading(*slot, &line)
-                .map_or(1.0, |k| Self::prior_of(&pops, tone, k, &o, duration_ms));
-            // 音の質はその枠の区間で測る（`TR-ALN-26`）。
-            //
-            // **ファイル全体を渡していた。** 隣のモーラが割れていたり
-            // 小さかったりするだけで、きれいな枠まで確認待ちへ戻る
-            // ——テイク確定側は区間で切っているので、固定を解いただけで
-            // 別の答えが出ていた。
-            #[allow(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "位置はミリ秒。標本数へ落として範囲に丸める"
-            )]
-            let cut =
-                |ms: f64| ((ms / 1000.0 * f64::from(w.rate_hz)).max(0.0) as usize).min(f64s.len());
-            let (a0, a1) = (cut(b.voice_start_ms), cut(b.vowel_end_ms));
-            let part = &f64s[a0.min(a1)..a1.max(a0)];
-            // 退避経路は切った先頭からの相対で測る。 `segment::confidence` は
-            // サンプルと同じ原点で位置を数える。
-            let shifted = Boundaries {
-                voice_start_ms: 0.0,
-                vowel_start_ms: b.vowel_start_ms - b.voice_start_ms,
-                vowel_end_ms: b.vowel_end_ms - b.voice_start_ms,
-            };
-            let c = alignment
-                .as_ref()
-                .and_then(|a| {
-                    koeru_align::confidence::from_alignment_span(
-                        a,
-                        part,
-                        b.voice_start_ms,
-                        b.vowel_end_ms,
-                    )
-                })
-                .or_else(|| Some(confidence(part, w.rate_hz, &shifted, &cfg)))
-                .map(|mut c| {
-                    c.prior = prior;
-                    c
-                })
-                .unwrap_or_else(Confidence::full);
+            let key = crate::review::EntryKey::new(tone, e.alias.as_str()).handle();
             // 固定されていない値だけが動く（`INV-ALN-001`）。
-            next.re_estimate(&key, o, c).map_err(review_error)?;
-            let Some(e) = next.get(&key) else { continue };
+            next.re_estimate(&key, e.oto, e.confidence)
+                .map_err(review_error)?;
+            let Some(entry) = next.get(&key) else {
+                continue;
+            };
             rows.push(koeru_core::db::ReviewEntryRow {
                 take_id,
-                alias: alias.clone(),
-                oto: e.oto,
-                state: e.state.as_str().to_owned(),
-                pinned: e.pins(),
+                alias: e.alias.clone(),
+                oto: entry.oto,
+                state: entry.state.as_str().to_owned(),
+                pinned: entry.pins(),
             });
         }
 
@@ -5255,51 +4876,6 @@ impl Studio {
         Ok(self.opened()?.dir().read_manifest()?.display_name)
     }
 
-    /// 1テイクをアライメントする（`TR-ALN-03`, `TR-ALN-10`）。
-    ///
-    /// 録音完了の直後に呼ぶ（`TR-ALN-10` の逐次推定）。
-    ///
-    /// `Alignment` をそのまま返す。 境界だけに畳んで返すと、
-    /// 事後確率が捨てられて `TR-ALN-24` の成分 (1) 経路確信度が永久に出せない
-    /// （一度そう書いた）。呼び出し側が確信度を組み立てるのに要る。
-    ///
-    /// アライナが答えられなければ `None`。 oto は付かず、エントリは未推定のまま
-    /// 確認キューへ回る。黙って諦めない——落ちた理由はトレースに種別で出す。
-    ///
-    /// **発声区間の検出で境界を作っていた。** `Chosen::detect` から退避経路を
-    /// 消したあとも、ここに2本残っていた——読みを音素へ写せないときと、
-    /// テキスト逸脱以外で MFA が落ちたとき。どちらも無音だけの区間を作り、
-    /// そこから5値を導いて、アライナを通していない値を推定済みとして
-    /// 出していた（`DEC-ALN-016`）。
-    /// テイクを揃える。
-    ///
-    /// **失敗を `None` に潰していた。** 読みを音素へ写せないことも、推定が通らないことも、
-    /// 台帳を読めないことも、呼び出し側には「発声が無い」としか見えなかった。
-    /// 失敗は code ごと返し、続けるかどうかは呼び出し側が決める。
-    ///
-    /// テキスト逸脱も、それ以外の推定の失敗も、原音設定を作らない点では同じ扱い
-    /// （`TR-ALN-09`）。 違うのは記録に残る code だけ。
-    fn align_take(&mut self, samples: &[f64], rate: u32, row_id: &str) -> Result<Alignment> {
-        use koeru_align::aligner::AlignRequest;
-
-        // 読みは録音リストが持っている（`TR-ALN-07`。実行時に g2p を持ち込まない）。
-        let kana = self.writer()?.units_of(row_id)?;
-        let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
-        let phonemes =
-            koeru_align::phoneme::phonemes_for_all(&readings).map_err(AppError::from_failure)?;
-
-        let req = AlignRequest {
-            samples,
-            sample_rate_hz: rate,
-            phonemes: &phonemes,
-            grid: None,
-        };
-        self.aligner
-            .as_aligner()
-            .align(&req)
-            .map_err(AppError::from_failure)
-    }
-
     /// 台帳の書き手。 **文の終わりで手放す**（`Open::writer`）。
     fn writer(&self) -> Result<WriterGuard<'_>> {
         self.opened()?.writer()
@@ -6215,11 +5791,128 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// 解析は、計算では何も置かず、受理で初めて台帳・`.frq`・音域へ置く（`DEC-PLT-034`）。
+    ///
+    /// 計算した oto が、そのまま台帳に載り、画面へ返る値と一致する。
+    /// 合成音なので構造しか見ていない（`EVID-ALN-001`）。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 解析は受理で初めて置かれる() {
+        use crate::take_analysis::{Step, analyze_take, tests::synthetic_voice};
+
+        let root = std::env::temp_dir().join(format!("koeru-admit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("受理").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let session_id = studio.test_session().expect("セッションを始められる");
+        let rows = studio.rows_with_takes().expect("行を引ける");
+        let row = rows[0].row_id.clone();
+        let moras = studio
+            .writer()
+            .expect("書き手")
+            .units_of(&row)
+            .expect("読み")
+            .len();
+
+        let samples = synthetic_voice(moras, 180.0);
+        let rel = format!("audio/{row}_1.wav");
+        let path = studio.opened().expect("開いている").dir().root().join(&rel);
+        std::fs::create_dir_all(studio.opened().expect("開いている").dir().audio_dir())
+            .expect("音声の置き場を作れる");
+        let mut part =
+            koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ).expect("作れる");
+        part.write(&samples).expect("書ける");
+        part.finalize().expect("確定できる");
+        let take = studio
+            .writer()
+            .expect("書き手")
+            .commit_take(&FinalizedTake {
+                row_id: row.clone(),
+                session_id,
+                rel_path: rel,
+                frames: i64::try_from(samples.len()).unwrap_or(0),
+                recorded_at: now_rfc3339(),
+            })
+            .expect("確定できる");
+        studio
+            .writer()
+            .expect("書き手")
+            .adopt_take(&row, take)
+            .expect("採用できる");
+
+        let facts = TakeFacts {
+            counts: koeru_core::db::TakeGapCounts::default(),
+            gaps: Vec::new(),
+            guide_offset: None,
+            preroll_frames: 0,
+            duration_ms: samples.len() as f64 * 1000.0 / f64::from(MASTER_RATE_HZ),
+        };
+        let finished = crate::pump::Finished {
+            path: path.clone(),
+            samples,
+            preroll_frames: 0,
+        };
+        let observed = |s: &Studio| s.opened().expect("開いている").caches.observed_f0.len();
+        let before = observed(&studio);
+
+        let input = studio.collect_take_analysis(take, &row, finished, facts);
+        let output = analyze_take(&input);
+
+        // 計算では何も置かない。 音域も動かさない。
+        assert!(
+            studio
+                .writer()
+                .expect("書き手")
+                .analysis_of(take)
+                .expect("引ける")
+                .is_none(),
+            "計算は台帳へ書かない"
+        );
+        assert!(!koeru_core::frq::frq_path(&path).expect("名前").exists());
+        assert_eq!(observed(&studio), before, "音域の更新は受理でする");
+
+        let computed = output.steps.iter().find_map(|s| match s {
+            Step::Entries(e) => e.first,
+            _ => None,
+        });
+        let derived = studio.admit_take_analysis(output);
+
+        assert!(derived.failure.is_none(), "{:?}", derived.failure);
+        assert!(
+            studio
+                .writer()
+                .expect("書き手")
+                .analysis_of(take)
+                .expect("引ける")
+                .is_some(),
+            "受理で解析値を置く"
+        );
+        assert!(koeru_core::frq::frq_path(&path).expect("名前").exists());
+        assert_eq!(observed(&studio), before + 1, "受理で音域へ足す");
+        // 計算した oto が、画面へ返る値と台帳の値の両方になる。
+        assert_eq!(derived.oto, computed.map(|(oto, _)| oto));
+        assert_eq!(derived.confidence, computed.map(|(_, score)| score));
+        if let Some(oto) = derived.oto {
+            let stored: Vec<_> = studio
+                .writer()
+                .expect("書き手")
+                .otos_of(take)
+                .expect("引ける")
+                .into_iter()
+                .map(|(_, o)| o)
+                .collect();
+            assert!(stored.contains(&oto), "先頭の oto は台帳にある");
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 #[cfg(test)]
 mod consistency_tests {
-    use super::*;
+    use crate::take_analysis::{consistency_reading, first_phoneme, last_phoneme};
     use koeru_core::alias::Method;
     use koeru_core::inventory::UnitSet;
     use koeru_core::reclist::{Slot, row_entries};
