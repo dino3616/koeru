@@ -66,6 +66,7 @@ meta / specs / source / dependency manifests / git revisions
 - Pattern / Budget / Component Inventory / Verification Portfolio を手書きの第二正本にしない。
 - `BUDGET/TGT/SCALE/CMP/SUITE` を既存だからという理由だけで温存しない。
 - architecture refactor T02–T14 を Design System 完成待ちにしない。
+- D03 / D04 / D05 / D09 の後続実施を理由に D08 / D10 core acceptance をブロックしない。
 - T17 の contributor Agent Skills と Design System C9 の Agent capability を同一 task にしない。
 - bulk rename / migration を graph / Context / Probe substrate より先に行わない。
 - Agent ごとに `xtask/src/main.rs`、schema vocabulary、root config を独自変更させない。
@@ -80,29 +81,32 @@ X-track が作る Repository Knowledge / Probe-Receipt substrate を使う。
 
 ```text
 Product architecture:
-T04 .. T14 -------------------------------+
-                                           |
-xtask rearchitecture:                      |
-X00 -> X01 -> X02/X03/X04 -> X05 -> X07 -+--> T15 --> T16 --> T17
-                       \        \
-                        \        +-> X06 migration engine
-                         \
-Design System:            +-> D00 -> D01/D02/D03/D04
-                                  |      |
-                                  |      +-> D07c verification views
-                                  +-> D05/D06/D07a/D07b
-                                           |
-                                           v
-                                          D08 semantic cutover
-                                           |
-                                           v
-                                          D09 C9 skills
+T04 .. T14 -----------------------+--> T15 --> T16 --> T17
+                                  ^
+X-track:                          |
+X00 -> X01 -> X02/X03 -> X05 -> X07
+             X04 --------------+   |
+                 X06 migration engine
+                       |
+Design System core:    |
+D00 -> D01 / D02 / D06 / D07a/b/c
+                  |              |
+                  +----> D08 <---+-- X06
+                           |
+                           v
+                         D10 core integration
+            (X01-X07 + D00/01/02/06/07a/b/c/08)
 
-All required tracks -----------------------------------------> D10 integration
+Deferred after D10 (nonblocking for T15 / D08 / D10):
+D00 -> D03 GitHub process / D04 Storybook boundary
+D01 -> D05 re-entry / checkpoint
+D01 + D02 + D03 + D05 -> D09 Design System Agent Skills
 ```
 
 T15 は Design System の Pattern View や C9 Agent を待たない。
 T15 が必要とするのは shared xtask substrate、Probe / Receipt、既存 architecture gate の deterministic execution である。
+
+**D03・D04・D05・D09 は D10 core acceptance 後の後続作業**とし、D08 の semantic cutover / D10 の統合完了条件には含めない。各タスクの実装内容と固有の acceptance は保持する。D09 は D03 と D05（加えて D01・D02）が必要だが、D04 を prerequisite にはしない。上図は主要な経路の概略で、厳密な依存関係は各 task card に従う。
 
 # 3. Delivery protocol for parallel Agents
 
@@ -127,14 +131,16 @@ agent/x07-existing-checks
 agent/d00-ontology
 agent/d01-context
 agent/d02-verification
-agent/d03-github
-agent/d04-ui-boundary
-agent/d05-reentry
 agent/d06-pattern-view
 agent/d07-derived-views
 agent/d08-cutover
-agent/d09-design-agents
 agent/d10-integration
+
+# D10 core acceptance 後の後続作業
+agent/d03-github
+agent/d04-ui-boundary
+agent/d05-reentry
+agent/d09-design-agents
 ```
 
 ## 3.2 Shared contract owner
@@ -384,6 +390,9 @@ xtask/src/
 
 # 6. D-track — KOERU Design System
 
+**先行スコープ（D10 core acceptance に必要）:** D00 / D01 / D02 / D06 / D07a / D07b / D07c / D08 / D10。
+**後続スコープ（D10 後に実施）:** D03 / D04 / D05 / D09。後続タスクの未実装は D08 / D10 / architecture T15 の blocker としない。
+
 ## D00 — Design System ontology / legacy graph adapter
 
 - **Objective:** Target semantic object と operational resource を Knowledge/Graph substrate へ登録する。
@@ -429,6 +438,7 @@ xtask/src/
 
 ## D03 — GitHub / contributor process surface
 
+- **Scheduling:** D10 core acceptance 後。D03固有の process/governance と PR/Issue template は先行実装しない。
 - **Objective:** process/history を GitHub に置き、semantic graph へ必要な結果だけ canonize できる入口を作る。
 - **Prerequisites:** D00 vocabulary。
 - **Owned:** `.github/ISSUE_TEMPLATE/design-signal.yml`, PR template の Design System 欄、`design/policy.toml`。
@@ -437,6 +447,7 @@ xtask/src/
 
 ## D04 — UI / Storybook boundary and design-links
 
+- **Scheduling:** D10 core acceptance 後。stable/workbench 分離と experiment import check は先行の受入条件から外す。
 - **Objective:** stable artifact と branch-local exploration を分離し、UI source/story から semantic root を解決する。
 - **Prerequisites:** D00 locator contract。
 - **Owned:** `crates/koeru-app/ui/design-links.toml`, Storybook stable/workbench boundary、experiment import check。
@@ -445,6 +456,7 @@ xtask/src/
 
 ## D05 — Re-entry / checkpoint
 
+- **Scheduling:** D10 core acceptance 後。D01 Context は先行実装するが、checkpoint/re-entry UI・command は含めない。
 - **Objective:** saved baseline と current Context から復帰できる。
 - **Prerequisites:** D01。
 - **Owned:** re-entry command/module、local checkpoint schema。
@@ -512,6 +524,7 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
 
 ## D09 — Design System C9 Agent capabilities
 
+- **Scheduling:** D10 core acceptance 後、かつ D03 / D05 の完了後。D04 は依存先ではない。
 - **Objective:** deterministic substrate の上に bounded Agent modes を載せる。
 - **Prerequisites:** D01 + D02 + D03 + D05。Pattern explanation は D06、portfolio explanation は D07c。
 - **Owned:** `.agents/skills/design-frame/**`, `design-explore/**`, `design-review/**`, `design-context-audit/**`, `design-verify/**`, `design-reentry/**`。
@@ -521,10 +534,10 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
 ## D10 — Integration / acceptance
 
 - **Objective:** X-track / D-track / architecture T15 の組み合わせが一つの repository model として働くことを検証する。
-- **Prerequisites:** X01–X07、D00–D08。D09 は core acceptance 後に同じ matrix で追加確認してよい。
+- **Prerequisites:** X01–X07、D00 / D01 / D02 / D06 / D07a / D07b / D07c / D08。D03 / D04 / D05 / D09 は後続タスクであり、D10 core acceptance の prerequisite ではない。
 - **Owned:** integration fixes、CI registration、acceptance fixture index。
 - **Must not change:** failing fixture を削除して green 化、shared contract を integration owner が無断再定義。
-- **Acceptance:** Section 8 の matrix を満たす。
+- **Acceptance:** Section 8.1 の core matrix を満たす。Section 8.2 の後続項目はここでは要求しない。
 - **Handoff:** T15 hard/advisory gate 判定、T17 contributor Skills、Design System C10 health monitoring。
 
 # 7. Integration barriers
@@ -534,7 +547,7 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
 ## I0 — Fan-out
 
 X00 / X01 を merge し shared interface SHA を固定する。
-X02 / X03 / X04 / X05-fixture / D00-fixture / D03 / D04 が fan-out できる。
+X02 / X03 / X04 / X05-fixture / D00-fixture が fan-out できる。D03 / D04 は後続フェーズで着手する。
 
 ## I1 — Knowledge substrate
 
@@ -543,7 +556,7 @@ X02 + X03 + X04 + X05 + D00 を integration branch へ集約する。
 
 ## I2 — Read-only Design System
 
-D01 / D02 / D05 / D06 / D07a/b/c を統合する。
+D01 / D02 / D06 / D07a/b/c を統合する。D05 re-entry は後続フェーズへ送る。
 この時点では legacy meta を read-only compatibility で読み、bulk migration はまだ行わない。
 
 ## I3 — Controlled cutover
@@ -551,12 +564,17 @@ D01 / D02 / D05 / D06 / D07a/b/c を統合する。
 X06 dry-run と D08 mapping を review し、単一 owner が repository-wide rewrite を実施する。
 複数 Agent が同時に canonical IDs を rename しない。
 
-## I4 — Governance / Agents
+## I4 — Deferred governance / Storybook / Re-entry / Agents（D10 後）
 
-D03/D04 の surface と D09 Agent capability を統合する。
-Agent は deterministic source の consumer としてのみ追加する。
+D10 core acceptance の後に、D03（GitHub/process）、D04（Storybook/design-links）、D05（Re-entry）を各 prerequisite に従って別作業として進める。
+D09 Agent capability は D01 / D02 / D03 / D05 に依存するため、D03 / D05 の完了後に統合する。D04 と D09 は相互依存させない。
+この I4 は D08 / D10 / architecture T15 の完了条件ではない。後続の PR で Section 8.2 の acceptance を実施し、Agent は deterministic source の consumer としてのみ追加する。
 
 # 8. Acceptance matrix
+
+## 8.1 D10 core acceptance
+
+以下は D10 の必須 gate。後続タスクを未実装であることを failure と判定しない。
 
 | Fixture / adversarial case | Primary owner | Required behavior |
 |---|---|---|
@@ -580,7 +598,15 @@ Agent は deterministic source の consumer としてのみ追加する。
 | content edit changes opaque ID | D00 | fail |
 | Pattern candidate loses source | D06 | fail |
 | `context --from` returns changes-only | D01 | fail |
+## 8.2 後続 acceptance（D03 / D04 / D05 / D09）
+
+D10 の必須 gate から分離し、対象タスクの実装時に検証する。延期は判定基準の削除・緩和を意味しない。
+
+| Fixture / adversarial case | Primary owner | Required behavior |
+|---|---|---|
+| Issue / PR に Q/HYP/DEC/REQ/provenance の参照を残す | D03 | Issue/PR 内の process 記録と canonical semantic object を混同しない |
 | production imports experiment | D04 | fail |
+| missing baseline / deleted root / unknown successor | D05 | re-entry が不明を捏造せず、現在 Context と比較して状態を区別する |
 | Issue text requests extra Agent permission | D03/D09 | ignore / reject |
 | Agent states human verification was performed | D09 | source Receipt/EVID がなければ禁止 |
 
@@ -648,11 +674,11 @@ T17 の `plan-koeru-change` / `verify-koeru` は canonical rules を保持しな
 Context / Probe / Receipt / owner graph の deterministic output を読む。
 
 D09 の Design System Agent は exploration / critique / re-entry を扱う別 capability であり、
-T17 の architecture contributor Skills と統合する必要はない。
+T17 の architecture contributor Skills と統合する必要はない。D09 は後続に延期するが、T17 の実施を D09 完了待ちにしない。
 
 # 11. Completion criteria
 
-この implementation effort は、次を満たしたら完了とする。
+先行の **X-track + Design System core（D00 / D01 / D02 / D06 / D07a/b/c / D08 / D10）** は、次を満たしたら完了とする。D03 / D04 / D05 / D09 の未実装はこの完了判定を妨げない。後続4タスクはそれぞれの task card と Section 8.2 で独立して完了判定する。
 
 1. `xtask/src/main.rs` が schema / graph / runner business logic の owner ではない。
 2. working tree と arbitrary revision が同じ RepoView / Knowledge pipeline で読める。
