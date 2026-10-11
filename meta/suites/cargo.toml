@@ -262,7 +262,7 @@ runner = 'cargo'
 package = 'koeru-runtime'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 14
+min_cases = 55
 contracts = ['DEC-PLT-044', 'DEC-PLT-038']
 
 [[suite]]
@@ -304,7 +304,7 @@ runner = 'cargo'
 package = 'koeru-app'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 62
+min_cases = 71
 
 [[suite]]
 id = 'SUITE-APP-002'
@@ -476,7 +476,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 129
+min_cases = 170
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
 
 [[suite]]
