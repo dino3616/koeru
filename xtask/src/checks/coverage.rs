@@ -1,16 +1,21 @@
 //! `cargo xtask check-coverage`
 
 use std::collections::BTreeSet;
-use std::process::ExitCode;
 
+use super::CheckContext;
 use crate::diagnostic::Report;
-use crate::knowledge::{Entry, list_of, requirements, str_of, with_schema};
+use crate::knowledge::{list_of, requirements, str_of, with_schema};
 
 /// どの部品にも支えられていない要件を数える。
 ///
 /// 通常の CI では走らせない。実装前は埋まっていないのが正常で、
 /// 埋まらないまま実装に入るのが異常だという線引きにしている。
-pub(crate) fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
+///
+/// 旧い meta（`CMP` の台帳）を `Entry` のまま読む互換 view。 D07b の Requirement
+/// Coverage が `formalizes` / `implements` / Probe の対象を別々に数えるようになるまで、
+/// ここが合否を持つ。
+pub(crate) fn check_coverage(ctx: &CheckContext<'_>, rep: &mut Report) {
+    let entries = ctx.entries;
     let (reqs, _) = requirements(entries);
     let mut supported: BTreeSet<String> = BTreeSet::new();
     let mut with_link = 0usize;
@@ -49,18 +54,25 @@ pub(crate) fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
         .filter(|id| !supported.contains(*id))
         .collect();
     uncovered.sort_unstable();
-    rep.note(format!(
-        "採る見込みの部品 {components} 件 / うち要件を指しているもの {with_link} 件"
-    ));
-    rep.note(format!(
-        "要件 {} 件 / 外部部品が要らないと宣言 {} 件 / 支える部品がある {} 件 / 無い {} 件",
-        reqs.len(),
-        self_contained,
-        supported.len(),
-        uncovered.len()
-    ));
+    rep.note_code(
+        "coverage.summary",
+        format!("採る見込みの部品 {components} 件 / うち要件を指しているもの {with_link} 件"),
+    );
+    rep.note_code(
+        "coverage.summary",
+        format!(
+            "要件 {} 件 / 外部部品が要らないと宣言 {} 件 / 支える部品がある {} 件 / 無い {} 件",
+            reqs.len(),
+            self_contained,
+            supported.len(),
+            uncovered.len()
+        ),
+    );
     for id in &uncovered {
-        rep.error(format!("{id} を支える部品が1つも無い"));
+        rep.error_code(
+            "coverage.uncovered-requirement",
+            format!("{id} を支える部品が1つも無い"),
+        );
     }
     // 両方を宣言しているのは、どちらかが間違っている。
     // 部品に支えられているなら「外部部品が要らない」は成り立たない。
@@ -70,10 +82,10 @@ pub(crate) fn check_coverage(entries: &[Entry], mut rep: Report) -> ExitCode {
             .and_then(toml::Value::as_bool)
             .is_some_and(|b| !b);
         if free && supported.contains(id) {
-            rep.error(format!(
-                "{id} は needs_component = false なのに、支える部品が宣言されている"
-            ));
+            rep.error_code(
+                "coverage.needs-component-conflict",
+                format!("{id} は needs_component = false なのに、支える部品が宣言されている"),
+            );
         }
     }
-    rep.finish("check-coverage")
 }

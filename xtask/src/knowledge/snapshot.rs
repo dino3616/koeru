@@ -8,7 +8,7 @@
 //! `[[requirement]]` など）も、同じ [`Record`] として持つ。 どちらだったかは
 //! [`Provenance::index`] が言う——収集ファイルの中の何番目かで、1件1ファイルの記録なら無い。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::fsl::fsl_sites_view;
@@ -100,6 +100,45 @@ impl Record {
     }
 }
 
+/// meta ファイル直下の欄を読む compatibility view（`7e3a621` の `SourceRecord`）。
+///
+/// 収集ファイルでは [`Record`] が各項目を表すため、ファイル直下に置かれた relation は
+/// 別に保持する。表そのものや任意の欄列挙は公開せず、既存の `check-meta` が必要とする
+/// keyed read と文字列配列の重複検出だけを提供する。
+#[derive(Debug, Clone)]
+pub(crate) struct SourceRecord {
+    path: PathBuf,
+    fields: toml::Table,
+}
+
+impl SourceRecord {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn strs(&self, key: &str) -> Vec<String> {
+        list_of(&self.fields, key)
+    }
+
+    /// 同じ文字列が同じ配列に2度出ている欄。 欄の名前の順（`toml::Table` が `BTreeMap`
+    /// なので決定的）、欄の中は出た順。
+    pub(crate) fn duplicate_string_values(&self) -> Vec<(&str, String)> {
+        let mut duplicates = Vec::new();
+        for (key, value) in &self.fields {
+            let Some(values) = value.as_array() else {
+                continue;
+            };
+            let mut seen = BTreeSet::new();
+            for value in values.iter().filter_map(toml::Value::as_str) {
+                if !seen.insert(value) {
+                    duplicates.push((key.as_str(), value.to_owned()));
+                }
+            }
+        }
+        duplicates
+    }
+}
+
 impl Record {
     /// この記録の schema。 X05 の graph 構築が、`Registry` の node 種類・
     /// relation 規則をどの記録に適用するかを選ぶのに読む。
@@ -161,6 +200,8 @@ impl Record {
 #[derive(Debug, Default)]
 pub(crate) struct KnowledgeSnapshot {
     records: Vec<Record>,
+    sources: Vec<SourceRecord>,
+    source_counts: BTreeMap<&'static str, usize>,
     // ID からの索引は `get` / `contains_id` からしか読まない。 どちらも
     // 今はまだ試験だけが呼ぶ（下の `impl` を見る）。
     #[allow(dead_code)]
@@ -174,10 +215,17 @@ impl KnowledgeSnapshot {
     /// meta だけから作る。 FSL の索引は空のまま——要る消費者は [`Self::with_fsl`] を足す。
     pub(crate) fn from_entries(entries: &[Entry]) -> (Self, Vec<String>) {
         let mut records = Vec::new();
+        let mut sources = Vec::new();
         let mut by_id: BTreeMap<Id, usize> = BTreeMap::new();
         let mut dups = Vec::new();
+        let mut source_counts = BTreeMap::new();
 
         for e in entries {
+            *source_counts.entry(e.shape.schema).or_default() += 1;
+            sources.push(SourceRecord {
+                path: e.path.clone(),
+                fields: e.table.clone(),
+            });
             let lines = id_lines(&e.text);
 
             if e.shape.entity.is_some() {
@@ -207,6 +255,8 @@ impl KnowledgeSnapshot {
         (
             Self {
                 records,
+                sources,
+                source_counts,
                 by_id,
                 fsl_sites: BTreeMap::new(),
             },
@@ -225,10 +275,8 @@ impl KnowledgeSnapshot {
 impl KnowledgeSnapshot {
     /// FSL の ID と出どころ（作業ツリーの `specs/` の原文から拾ったもの）も
     /// 合わせて持つ。 版を選びたい消費者（X05 の graph 構築）は
-    /// [`Self::with_fsl_view`] を呼ぶ。
-    ///
-    /// 今はまだ試験だけが呼ぶ。
-    #[allow(dead_code)]
+    /// [`Self::with_fsl_view`] を呼ぶ。 作業ツリーだけを読む既存のコマンドは
+    /// `cli` が組む snapshot がこれを通る。
     pub(crate) fn with_fsl(self, root: &Path) -> Self {
         self.with_fsl_view(&RepoView::working_tree(root))
     }
@@ -254,6 +302,18 @@ impl KnowledgeSnapshot {
     /// 全件。 X05 のグラフ構築が node を作るのに読む。
     pub(crate) fn records(&self) -> impl Iterator<Item = &Record> {
         self.records.iter()
+    }
+
+    /// meta ファイルごとの直下の欄。空の収集ファイルも1件として残る。
+    pub(crate) fn sources(&self) -> impl Iterator<Item = &SourceRecord> {
+        self.sources.iter()
+    }
+
+    /// schema ごとの元ファイル数。収集ファイルは中の記録数によらず1件と数える。
+    pub(crate) fn source_counts(&self) -> impl Iterator<Item = (&'static str, usize)> + '_ {
+        self.source_counts
+            .iter()
+            .map(|(&schema, &count)| (schema, count))
     }
 
     /// 今はまだ試験だけが呼ぶ。
@@ -384,6 +444,20 @@ review_triggers = ['…']
 "#;
 
     #[test]
+    fn 元ファイル直下の文字列配列を型つきで検査できる() {
+        let decision = DECISION.replace("options = ['a', 'b']", "options = ['a', 'a']");
+        let (_dir, entries, rep) = fixture(&[("decisions/DEC-fix-001.toml", &decision)]);
+        assert!(!rep.has_errors(), "{:?}", rep.diagnostics());
+        let (snapshot, _) = KnowledgeSnapshot::from_entries(&entries);
+        let source = snapshot.sources().next().expect("元ファイルがある");
+        assert_eq!(source.strs("options"), ["a", "a"]);
+        assert_eq!(
+            source.duplicate_string_values(),
+            [("options", "a".to_owned())]
+        );
+    }
+
+    #[test]
     fn 単独ファイルの記録を持てる() {
         let (_dir, entries, rep) = fixture(&[("decisions/DEC-fix-001.toml", DECISION)]);
         assert!(!rep.has_errors(), "{:?}", rep.diagnostics());
@@ -450,6 +524,10 @@ statement = '…'
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&entries);
         assert!(dups.is_empty());
         assert_eq!(snapshot.by_schema("requirement-set").count(), 0);
+        assert_eq!(
+            snapshot.source_counts().collect::<Vec<_>>(),
+            [("requirement-set", 1)]
+        );
     }
 
     /// 同じ ID を2つの項目が名乗ったら、診断に積む。 索引には後勝ちで残る

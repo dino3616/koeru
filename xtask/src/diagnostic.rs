@@ -1,14 +1,22 @@
 //! 検査の結果。 集めることと、人に見せることを分ける。
 //!
 //! 検査は [`Report`] に [`Diagnostic`] を積むだけで、書式を知らない。 人に見せる形は
-//! [`render_human`] が1箇所で決める。 機械が読む形を足すときは、ここに別の renderer を
-//! 並べる。 検査の側は変えない。
+//! [`render_human`]、機械が読む形は [`render_json`] が1箇所で決める。 検査の側はどちらも
+//! 知らず、どちらで出すかは入口（`cli`）が [`Report::set_output`] で決める。
 //!
-//! 文言はまだ文字列のまま持つ。 code や場所を型で持たせるのは、検査を載せ替えるとき
-//! （X07）に、検査ごとに決める。
+//! 文言（`message`）は人に見せる文のまま持つ。 `code` と `location` は文言の代わりではなく、
+//! 機械が同じ失敗を同じものとして数えるための構造で、人向けの出力には1字も出ない。
+//! code を決めていない呼び出し（[`Report::error`] / [`Report::note`]）は [`GENERIC_CODE`]
+//! になる——検査を載せ替えるときに、規則ごとに決めて足す。
 
 use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use serde_json::{Value, json};
+
+/// code を決めていない診断が名乗る値。
+pub const GENERIC_CODE: &str = "generic";
 
 /// 落とすか、知らせるだけか。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,31 +27,104 @@ pub enum Severity {
     Note,
 }
 
+impl Severity {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Note => "note",
+        }
+    }
+}
+
+/// 診断が指す場所。 `line` は1始まりで、分かるときだけ持つ。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Location {
+    pub path: PathBuf,
+    pub line: Option<usize>,
+}
+
+impl Location {
+    pub fn new(path: impl Into<PathBuf>, line: Option<usize>) -> Self {
+        Self {
+            path: path.into(),
+            line,
+        }
+    }
+}
+
 /// 検査が出した1件。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,
+    /// 規則ごとに決まる安定した名前（`meta.unknown-reference` のような、`.` 区切り）。
+    pub code: &'static str,
+    pub location: Option<Location>,
     pub message: String,
+}
+
+/// 出す形。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OutputFormat {
+    #[default]
+    Human,
+    Json,
 }
 
 /// 1回のコマンドが集めた診断。 読み込みの段の失敗もここに積まれて、コマンドへ渡る。
 #[derive(Debug, Default)]
 pub struct Report {
     diagnostics: Vec<Diagnostic>,
+    format: OutputFormat,
+    /// JSON の `location.path` をこの根からの相対にする。 人向けの出力には効かない。
+    root: Option<PathBuf>,
 }
 
 impl Report {
     pub fn error(&mut self, msg: impl Into<String>) {
-        self.push(Severity::Error, msg);
+        self.push(Severity::Error, GENERIC_CODE, None, msg);
     }
 
     pub fn note(&mut self, msg: impl Into<String>) {
-        self.push(Severity::Note, msg);
+        self.push(Severity::Note, GENERIC_CODE, None, msg);
     }
 
-    fn push(&mut self, severity: Severity, msg: impl Into<String>) {
+    pub fn error_code(&mut self, code: &'static str, msg: impl Into<String>) {
+        self.push(Severity::Error, code, None, msg);
+    }
+
+    pub fn note_code(&mut self, code: &'static str, msg: impl Into<String>) {
+        self.push(Severity::Note, code, None, msg);
+    }
+
+    pub fn error_at(
+        &mut self,
+        code: &'static str,
+        location: Option<Location>,
+        msg: impl Into<String>,
+    ) {
+        self.push(Severity::Error, code, location, msg);
+    }
+
+    pub fn note_at(
+        &mut self,
+        code: &'static str,
+        location: Option<Location>,
+        msg: impl Into<String>,
+    ) {
+        self.push(Severity::Note, code, location, msg);
+    }
+
+    fn push(
+        &mut self,
+        severity: Severity,
+        code: &'static str,
+        location: Option<Location>,
+        msg: impl Into<String>,
+    ) {
         self.diagnostics.push(Diagnostic {
             severity,
+            code,
+            location,
             message: msg.into(),
         });
     }
@@ -59,9 +140,21 @@ impl Report {
             .any(|d| d.severity == Severity::Error)
     }
 
-    /// 人向けに書き出して、終了コードを返す。
+    /// 出す形と、JSON の場所の基準にする根を決める。
+    pub fn set_output(&mut self, format: OutputFormat, root: &Path) {
+        self.format = format;
+        self.root = Some(root.to_path_buf());
+    }
+
+    /// 決めた形で書き出して、終了コードを返す。 形によらず、終了コードは同じ規則。
     pub fn finish(&self, command: &str) -> ExitCode {
-        print!("{}", render_human(command, &self.diagnostics));
+        match self.format {
+            OutputFormat::Human => print!("{}", render_human(command, &self.diagnostics)),
+            OutputFormat::Json => println!(
+                "{}",
+                render_json(command, &self.diagnostics, self.root.as_deref())
+            ),
+        }
         if self.has_errors() {
             ExitCode::FAILURE
         } else {
@@ -93,6 +186,46 @@ pub fn render_human(command: &str, diagnostics: &[Diagnostic]) -> String {
     out
 }
 
+/// 機械が読む形。 積んだ順のまま、知らせも失敗も1本の配列に入れる。
+///
+/// `ok` は失敗が1件も無いこと。 `location.path` は `root` の下なら根からの相対で、
+/// 区切りは `/` に揃える。 `root` の外のパスはそのまま。
+pub fn render_json(command: &str, diagnostics: &[Diagnostic], root: Option<&Path>) -> String {
+    let items: Vec<Value> = diagnostics
+        .iter()
+        .map(|d| {
+            let location = d.location.as_ref().map(|l| {
+                json!({
+                    "path": relative(&l.path, root),
+                    "line": l.line,
+                })
+            });
+            json!({
+                "severity": d.severity.as_str(),
+                "code": d.code,
+                "message": d.message,
+                "location": location,
+            })
+        })
+        .collect();
+    let ok = !diagnostics.iter().any(|d| d.severity == Severity::Error);
+    json!({
+        "command": command,
+        "ok": ok,
+        "diagnostics": items,
+    })
+    .to_string()
+}
+
+fn relative(path: &Path, root: Option<&Path>) -> String {
+    let shown = root
+        .and_then(|r| path.strip_prefix(r).ok())
+        .unwrap_or(path)
+        .display()
+        .to_string();
+    shown.replace('\\', "/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +253,82 @@ mod tests {
         );
         assert!(!rep.has_errors());
         assert_eq!(render_human("check-x", &[]), "check-x: ok\n");
+    }
+
+    /// code と場所は人向けの出力に出ない。 載せ替えで文言が変わらないことの土台。
+    #[test]
+    fn code_と場所は人向けの出力を変えない() {
+        let mut plain = Report::default();
+        plain.error("文言");
+        let mut rich = Report::default();
+        rich.error_at("x.y", Some(Location::new("meta/a.toml", Some(3))), "文言");
+        assert_eq!(
+            render_human("check-x", plain.diagnostics()),
+            render_human("check-x", rich.diagnostics())
+        );
+    }
+
+    #[test]
+    fn code_を決めない診断は汎用の_code_になる() {
+        let mut rep = Report::default();
+        rep.error("a");
+        rep.note("b");
+        assert!(rep.diagnostics().iter().all(|d| d.code == GENERIC_CODE));
+        assert!(rep.diagnostics().iter().all(|d| d.location.is_none()));
+    }
+
+    #[test]
+    fn json_の封筒は積んだ順で_ok_を持つ() {
+        let mut rep = Report::default();
+        rep.error_at(
+            "meta.x",
+            Some(Location::new("/repo/meta/a.toml", Some(7))),
+            "失敗",
+        );
+        rep.note_code("meta.summary", "数");
+        let v: Value = serde_json::from_str(&render_json(
+            "check-meta",
+            rep.diagnostics(),
+            Some(Path::new("/repo")),
+        ))
+        .expect("JSON として読める");
+        assert_eq!(v["command"], "check-meta");
+        assert_eq!(v["ok"], false);
+        let d = v["diagnostics"].as_array().expect("配列");
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0]["severity"], "error");
+        assert_eq!(d[0]["code"], "meta.x");
+        assert_eq!(d[0]["message"], "失敗");
+        assert_eq!(d[0]["location"]["path"], "meta/a.toml");
+        assert_eq!(d[0]["location"]["line"], 7);
+        assert_eq!(d[1]["severity"], "note");
+        assert_eq!(d[1]["location"], Value::Null);
+    }
+
+    #[test]
+    fn 失敗が無ければ_ok_は_true() {
+        let v: Value = serde_json::from_str(&render_json("check-x", &[], None)).expect("読める");
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["diagnostics"], json!([]));
+        // 知らせだけでも失敗ではない。
+        let mut rep = Report::default();
+        rep.note("数");
+        let v: Value =
+            serde_json::from_str(&render_json("check-x", rep.diagnostics(), None)).expect("読める");
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn 根の外のパスと行の無い場所はそのまま出す() {
+        let mut rep = Report::default();
+        rep.error_at("x", Some(Location::new("/elsewhere/a.md", None)), "m");
+        let v: Value = serde_json::from_str(&render_json(
+            "check-x",
+            rep.diagnostics(),
+            Some(Path::new("/repo")),
+        ))
+        .expect("読める");
+        assert_eq!(v["diagnostics"][0]["location"]["path"], "/elsewhere/a.md");
+        assert_eq!(v["diagnostics"][0]["location"]["line"], Value::Null);
     }
 }

@@ -134,8 +134,31 @@ fn run_in(cwd: &Path, args: &[&str], root: &Path) -> Run {
         .expect("xtask を起動できる");
     Run {
         code: out.status.code().expect("終了コードがある"),
-        stdout: normalize(&String::from_utf8_lossy(&out.stdout), root),
+        stdout: normalize_output(&String::from_utf8_lossy(&out.stdout), root),
         stderr: normalize(&String::from_utf8_lossy(&out.stderr), root),
+    }
+}
+
+/// [`normalize`] を、JSON の出力にも効くようにする。
+///
+/// JSON は文字列の中の `\` を `\\` と書くので、外側の文字列のまま置き換えると Windows の
+/// パスが `<root>` にならず、区切りだけが `//` に化ける。 読んでから文字列ごとに直す。
+fn normalize_output(text: &str, root: &Path) -> String {
+    if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(text.trim_end())
+        && v.is_object()
+    {
+        normalize_json(&mut v, root);
+        return format!("{v}\n");
+    }
+    normalize(text, root)
+}
+
+fn normalize_json(v: &mut serde_json::Value, root: &Path) {
+    match v {
+        serde_json::Value::String(s) => *s = normalize(s, root),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(|x| normalize_json(x, root)),
+        serde_json::Value::Object(map) => map.values_mut().for_each(|x| normalize_json(x, root)),
+        _ => {}
     }
 }
 
@@ -402,6 +425,29 @@ fn check_meta_は整った_meta_を通す() {
             "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
             "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
             "check-meta: ok",
+        ],
+        &[],
+    );
+}
+
+/// 収集ファイルの各項目だけでなく、ファイル直下の relation も検査する。
+#[test]
+fn check_meta_は収集ファイル直下の参照切れを落とす() {
+    let fx = Fixture::valid("check-meta-collection-source");
+    fx.write(
+        "meta/requirements/core.toml",
+        &REQUIREMENTS.replace(
+            "schema = 'requirement-set'",
+            "schema = 'requirement-set'\naffects_requirements = ['TR-fix-404']",
+        ),
+    );
+    fx.run(&["check-meta"]).expect(
+        1,
+        &[
+            "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
+            "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            "  NG <root>/meta/requirements/core.toml: affects_requirements の `TR-fix-404` は技術要件に存在しない",
+            "check-meta: 1 件",
         ],
         &[],
     );
@@ -1222,6 +1268,449 @@ fn check_schema_は_sdl_の置き場所が無ければ落とす() {
         "{run:?}"
     );
     assert!(run.stdout.ends_with("check-schema: 1 件\n"), "{run:?}");
+}
+
+// ## 機械が読む出力（`--format json`）と、検査ごとの code
+//
+// 載せ替えた検査が、壊した fixture で期待する code で落ちること。 文言の固定は上の試験が
+// 持つので、ここは code・場所・封筒の形と、人向けの出力を変えていないことだけを見る。
+
+/// `--format json` の出力を読む。 1行の JSON で、stderr は空。
+#[track_caller]
+fn json(run: &Run) -> serde_json::Value {
+    assert!(run.stderr.is_empty(), "{run:?}");
+    assert_eq!(run.stdout.matches('\n').count(), 1, "{run:?}");
+    serde_json::from_str(&run.stdout).expect("JSON として読める")
+}
+
+fn diagnostics_of<'a>(v: &'a serde_json::Value, severity: &str) -> Vec<&'a serde_json::Value> {
+    v["diagnostics"]
+        .as_array()
+        .expect("配列")
+        .iter()
+        .filter(|d| d["severity"] == severity)
+        .collect()
+}
+
+/// 失敗の code を、積んだ順に。
+fn error_codes(v: &serde_json::Value) -> Vec<String> {
+    diagnostics_of(v, "error")
+        .iter()
+        .map(|d| d["code"].as_str().expect("code は文字列").to_owned())
+        .collect()
+}
+
+/// check-schema が通る fixture の SDL・見本・能力の表。
+fn with_schema_files(fx: &Fixture) -> &Fixture {
+    fx.write("specs/application/schema/shared.graphql", SCHEMA)
+        .write("specs/application/operations/read.graphql", OPERATION)
+        .write("specs/application/capabilities.toml", CAPABILITY_MAP)
+}
+
+#[test]
+fn json_は通る_fixture_で_ok_を返し失敗を持たない() {
+    let fx = Fixture::valid("json-ok");
+    with_schema_files(&fx);
+    for args in [
+        &["--format", "json", "check-meta"][..],
+        &["--format", "json", "check-budgets"][..],
+        &["--format", "json", "check-coverage"][..],
+        &["--format", "json", "check-references"][..],
+        &["--format", "json", "check-profile", "PROFILE-fix-1"][..],
+        &["check-schema", "--format", "json"][..],
+    ] {
+        let run = fx.run(args);
+        assert_eq!(run.code, 0, "{args:?}: {run:?}");
+        let v = json(&run);
+        assert_eq!(
+            v["command"],
+            args.iter()
+                .find(|a| a.starts_with("check-"))
+                .copied()
+                .expect("コマンド")
+        );
+        assert_eq!(v["ok"], true, "{args:?}");
+        assert!(diagnostics_of(&v, "error").is_empty(), "{args:?}");
+        // 知らせは落とさず、同じ配列に入る。
+        assert!(!diagnostics_of(&v, "note").is_empty(), "{args:?}");
+    }
+}
+
+/// 失敗する fixture でも、人向けの出力は指定の有無で変わらず、JSON の文言から
+/// 同じ出力を組み直せる。 code と場所が文言を変えていないことの確かめ。
+#[test]
+fn json_を足しても人向けの出力は変わらない() {
+    let fx = Fixture::valid("json-human");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            "affects_requirements = ['TR-fix-01', 'TR-fix-55']\naffects_budgets = ['BUDGET-fix-404']",
+        ),
+    );
+    let plain = fx.run(&["check-meta"]);
+    assert_eq!(plain.code, 1, "{plain:?}");
+    let explicit = fx.run(&["--format", "human", "check-meta"]);
+    assert_eq!(explicit.stdout, plain.stdout);
+    assert_eq!(explicit.code, plain.code);
+
+    let run = fx.run(&["check-meta", "--format=json"]);
+    assert_eq!(run.code, plain.code);
+    let v = json(&run);
+    assert_eq!(v["ok"], false);
+    let line = |d: &serde_json::Value| d["message"].as_str().expect("文言").to_owned();
+    let mut rebuilt = String::new();
+    for d in diagnostics_of(&v, "note") {
+        rebuilt.push_str(&format!("  {}\n", line(d)));
+    }
+    let errors = diagnostics_of(&v, "error");
+    for d in &errors {
+        rebuilt.push_str(&format!("  NG {}\n", line(d)));
+    }
+    rebuilt.push_str(&format!("check-meta: {} 件\n", errors.len()));
+    assert_eq!(rebuilt, plain.stdout);
+}
+
+#[test]
+fn json_は検査ではないコマンドと知らない形式を拒む() {
+    let fx = Fixture::valid("json-reject");
+    let run = fx.run(&["--format", "json", "next-id", "DEC-fix"]);
+    run.expect(
+        1,
+        &[],
+        &["--format json は check-* と check-portfolio だけで使える"],
+    );
+    let run = fx.run(&["check-meta", "--format", "xml"]);
+    run.expect(1, &[], &["使い方: --format <human|json>"]);
+    // 引数が足りないときの使い方は、形式を問わず変わらない。
+    let run = fx.run(&["--format", "json", "check-profile"]);
+    run.expect(1, &[], &["使い方: cargo xtask check-profile <PROFILE-ID>"]);
+    // 値が既定の `human` でも、指定を受けないコマンドに付いていれば断る。
+    let run = fx.run(&["--format", "human", "next-id", "DEC-fix"]);
+    run.expect(
+        1,
+        &[],
+        &["--format human は check-* と check-portfolio だけで使える"],
+    );
+}
+
+/// 読み込みは `Id` の文法より緩い（接頭辞とファイル名が合えば通す）。 そうして読んだ ID も、
+/// 載せ替える前と同じく参照先として引ける。
+#[test]
+fn check_meta_は_id_の文法に合わない_id_への参照も引ける() {
+    let fx = Fixture::valid("check-meta-unparsed-id");
+    fx.write(
+        "meta/decisions/DEC-fixfoo.toml",
+        &DECISION_1.replace("DEC-fix-001", "DEC-fixfoo"),
+    );
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            "affects_requirements = ['TR-fix-01']\naffects_decisions = ['DEC-fixfoo']",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-meta"]);
+    let v = json(&run);
+    assert!(diagnostics_of(&v, "error").is_empty(), "{v}");
+    assert_eq!(run.code, 0, "{run:?}");
+}
+
+#[test]
+fn check_meta_の参照切れは_code_と場所を持つ() {
+    let fx = Fixture::valid("json-meta-refs");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            "affects_requirements = ['TR-fix-01', 'TR-fix-55']\naffects_fsl = ['REQ-fix-999']\naffects_budgets = ['BUDGET-fix-404']",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(
+        error_codes(&v),
+        [
+            "meta.unknown-requirement-reference",
+            "meta.unknown-fsl-reference",
+            "meta.unknown-reference",
+        ]
+    );
+    let first = diagnostics_of(&v, "error")[0];
+    assert_eq!(
+        first["location"]["path"],
+        ids("meta/decisions/DEC-fix-001.toml")
+    );
+    // 場所はファイルまで。 行は、ファイル直下の欄には引く手掛かりが無い。
+    assert_eq!(first["location"]["line"], serde_json::Value::Null);
+}
+
+/// 収集ファイル直下の欄は、`code` と、ファイルを指す場所（行は無い）を持つ。
+/// 同じ値が2度出ていることと、meta を指す欄の行き先が無いことも同じ口で落ちる。
+#[test]
+fn check_meta_の収集ファイル直下の参照切れは_code_と場所を持つ() {
+    let fx = Fixture::valid("json-meta-collection-source");
+    fx.write(
+        "meta/requirements/core.toml",
+        &REQUIREMENTS.replace(
+            "schema = 'requirement-set'",
+            "schema = 'requirement-set'\naffects_requirements = ['TR-fix-404']\ndecisions = ['DEC-fix-001', 'DEC-fix-001', 'DEC-fix-404']",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(
+        error_codes(&v),
+        [
+            "meta.duplicate-list-entry",
+            "meta.unknown-requirement-reference",
+            "meta.unknown-reference",
+        ]
+    );
+    for d in diagnostics_of(&v, "error") {
+        assert_eq!(d["location"]["path"], "meta/requirements/core.toml");
+        assert_eq!(d["location"]["line"], serde_json::Value::Null);
+    }
+}
+
+/// 欄の行き先は、実在するだけでなく種類が合う。 graph が node の種類を持つので、
+/// 別の種類の ID を指していても「存在しない」になる——文字列の集合で引いていたときと同じ。
+#[test]
+fn check_meta_は行き先の種類が違う参照も落とす() {
+    let fx = Fixture::valid("json-meta-kind");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            // 判断記録は技術要件ではなく、FSL の要求は meta ではない。
+            "affects_requirements = ['DEC-fix-002']\naffects_decisions = ['REQ-fix-001']\nincludes_fsl = ['TR-fix-01']",
+        ),
+    );
+    let run = fx.run(&["check-meta"]);
+    run.expect(
+        1,
+        &[
+            "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
+            "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            "  NG <root>/meta/decisions/DEC-fix-001.toml: affects_requirements の `DEC-fix-002` は技術要件に存在しない",
+            "  NG <root>/meta/decisions/DEC-fix-001.toml: includes_fsl の `TR-fix-01` はFSL の要求に存在しない",
+            "  NG <root>/meta/decisions/DEC-fix-001.toml: affects_decisions の `REQ-fix-001` という meta は存在しない",
+            "check-meta: 3 件",
+        ],
+        &[],
+    );
+}
+
+/// 欄の中の並びは、文言の並びを決める。 graph の edge の並びに任せていない。
+/// 起点の ID が後でも、ファイルの順が先なら先に出る。
+#[test]
+fn check_meta_の参照切れはファイルの順_欄の順_値の順に並ぶ() {
+    let fx = Fixture::valid("json-meta-order");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace(
+            "affects_requirements = ['TR-fix-01']",
+            "affects_requirements = ['TR-fix-90', 'TR-fix-10']\nsupersedes = ['DEC-fix-98', 'DEC-fix-97']\nbudgets = ['BUDGET-fix-99']",
+        ),
+    )
+    .write(
+        "meta/budgets/BUDGET-fix-001.toml",
+        &BUDGET.replace("scope = '常駐'", "scope = '常駐'\ndecisions = ['DEC-fix-96']"),
+    );
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let ng: Vec<&str> = run
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("  NG "))
+        .filter(|l| l.contains("存在しない"))
+        .collect();
+    // `meta/budgets/` が `meta/decisions/` より先。 欄は宣言の順（要件 → meta の並び）で、
+    // 欄の中は書いた順。
+    let tail = |l: &&str| l.rsplit_once(": ").expect("区切り").1.to_owned();
+    assert_eq!(
+        ng.iter().map(tail).collect::<Vec<_>>(),
+        lines(&[
+            "decisions の `DEC-fix-96` という meta は存在しない",
+            "affects_requirements の `TR-fix-90` は技術要件に存在しない",
+            "affects_requirements の `TR-fix-10` は技術要件に存在しない",
+            "budgets の `BUDGET-fix-99` という meta は存在しない",
+            "supersedes の `DEC-fix-98` という meta は存在しない",
+            "supersedes の `DEC-fix-97` という meta は存在しない",
+        ])
+        .lines()
+        .collect::<Vec<_>>()
+    );
+    assert!(
+        ng[0].contains(&ids("/meta/budgets/BUDGET-fix-001.toml")),
+        "{ng:?}"
+    );
+}
+
+#[test]
+fn check_meta_は重複と置き換えの食い違いを_code_で分ける() {
+    let fx = Fixture::valid("json-meta-dup");
+    fx.write(
+        "meta/requirements/core.toml",
+        &format!(
+            "{REQUIREMENTS}
+[[requirement]]
+id = 'TR-fix-01'
+title = '重複'
+confidence = 'Fact'
+statement = '重複した'
+"
+        ),
+    )
+    .write(
+        "meta/decisions/DEC-fix-003.toml",
+        &DECISION_3.replace(
+            "supersedes = ['DEC-fix-002']",
+            "supersedes = ['DEC-fix-001']",
+        ),
+    );
+    let v = json(&fx.run(&["--format", "json", "check-meta"]));
+    let codes = error_codes(&v);
+    for want in [
+        "meta.duplicate-requirement-id",
+        "meta.duplicate-id",
+        "meta.supersession-status-mismatch",
+        "meta.supersession-back-reference-missing",
+        "meta.supersession-not-listed",
+    ] {
+        assert!(codes.iter().any(|c| c == want), "{want} が無い: {codes:?}");
+    }
+}
+
+#[test]
+fn check_budgets_は上限超過を_code_で返す() {
+    let fx = Fixture::valid("json-budgets");
+    fx.write(
+        "meta/budgets/BUDGET-fix-001.toml",
+        &BUDGET.replace("limit = 1000", "limit = 700"),
+    );
+    let run = fx.run(&["--format", "json", "check-budgets"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(v["ok"], false);
+    assert_eq!(error_codes(&v), ["budgets.over-limit"]);
+    assert_eq!(
+        diagnostics_of(&v, "error")[0]["location"]["path"],
+        ids("meta/budgets/BUDGET-fix-001.toml")
+    );
+    fx.write(
+        "meta/budgets/BUDGET-fix-001.toml",
+        &BUDGET.replace("limit = 1000", "limit = '千'"),
+    );
+    let v = json(&fx.run(&["--format", "json", "check-budgets"]));
+    assert_eq!(error_codes(&v), ["budgets.limit-not-integer"]);
+}
+
+#[test]
+fn check_coverage_は支えの無い要件を_code_で返す() {
+    let fx = Fixture::valid("json-coverage");
+    fx.write(
+        "meta/requirements/core.toml",
+        &format!(
+            "{REQUIREMENTS}
+[[requirement]]
+id = 'TR-fix-03'
+title = '支えが無い'
+confidence = 'Unknown'
+statement = '誰も支えない。'
+"
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-coverage"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_eq!(error_codes(&json(&run)), ["coverage.uncovered-requirement"]);
+}
+
+#[test]
+fn check_references_は場所つきの_code_を返す() {
+    let fx = Fixture::valid("json-references");
+    fx.write(
+        "src/lib.rs",
+        "//! `TR-fix-99` を引く。\n//! `TR-fix-01` の「48000 Hz で保存する」\n",
+    );
+    let run = fx.run(&["--format", "json", "check-references"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(
+        error_codes(&v),
+        ["references.unknown-id", "references.stale-citation"]
+    );
+    let errors = diagnostics_of(&v, "error");
+    assert_eq!(errors[0]["location"]["path"], "src/lib.rs");
+    assert_eq!(errors[0]["location"]["line"], 1);
+    assert_eq!(errors[1]["location"]["path"], "src/lib.rs");
+    assert_eq!(errors[1]["location"]["line"], 2);
+}
+
+#[test]
+fn check_profile_は塞ぐ問いと知らないプロファイルを_code_で返す() {
+    let fx = Fixture::valid("json-profile");
+    let run = fx.run(&["--format", "json", "check-profile", "PROFILE-fix-2"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(error_codes(&v), ["profile.blocked-by-open-question"]);
+    assert_eq!(
+        diagnostics_of(&v, "error")[0]["location"]["path"],
+        ids("meta/questions/Q-fix-001.toml")
+    );
+    let v = json(&fx.run(&["--format", "json", "check-profile", "PROFILE-fix-9"]));
+    assert_eq!(error_codes(&v), ["profile.unknown-profile"]);
+}
+
+#[test]
+fn check_schema_は規則ごとの_code_を返す() {
+    let fx = Fixture::valid("json-schema");
+    with_schema_files(&fx).write(
+        "specs/application/capabilities.toml",
+        &CAPABILITY_MAP.replace(
+            "'Subscription.thingEvents' = { capability = 'thing.read', cost = 'cheap-read' }\n",
+            "",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-schema"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_eq!(
+        error_codes(&json(&run)),
+        ["capabilities.root-field-without-capability"]
+    );
+
+    // SDL の規則違反は、文言の先頭の場所が構造になる。
+    fx.write("specs/application/capabilities.toml", CAPABILITY_MAP)
+        .write(
+            "specs/application/schema/shared.graphql",
+            &SCHEMA.replace("id: ThingId!", "id: String!"),
+        );
+    let v = json(&fx.run(&["--format", "json", "check-schema"]));
+    let codes = error_codes(&v);
+    assert!(
+        codes.iter().any(|c| c == "schema.plain-scalar-identifier"),
+        "{codes:?}"
+    );
+    let e = diagnostics_of(&v, "error")
+        .into_iter()
+        .find(|d| d["code"] == "schema.plain-scalar-identifier")
+        .expect("ある");
+    assert_eq!(
+        e["location"]["path"],
+        "specs/application/schema/shared.graphql"
+    );
+    assert!(e["location"]["line"].is_u64(), "{e}");
+
+    // 見本が1本も無い。
+    fx.remove("specs/application/operations/read.graphql");
+    let v = json(&fx.run(&["--format", "json", "check-schema"]));
+    assert!(
+        error_codes(&v)
+            .iter()
+            .any(|c| c == "operations.no-documents")
+    );
 }
 
 // ## check-portfolio と test-receipt

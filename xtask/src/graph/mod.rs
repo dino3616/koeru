@@ -12,10 +12,10 @@
 //!   supersession chain・validate の traversal もここに持つ
 //! - [`diff`] — 2つの版の `SemanticGraph` を比べる
 //!
-//! この crate から呼ぶ経路はまだ無い。 消費するのは D01（Context）・
-//! X06（migration の before/after 検証）・X07（既存 check の載せ替え）で、
-//! それまでは通常の組み立てでは到達しない——`#[allow(dead_code)]` は
-//! `lib.rs` の `mod graph;` に1つだけ置いてある。
+//! production から呼ぶのは `check-meta`（`checks::legacy_registry` が語彙を登録し、
+//! 参照先を node の種類つきで引く）だけ。 D01（Context）・X06（migration の
+//! before/after 検証）が消費するまで、`diff` などは通常の組み立てでは到達しない
+//! ——`#[allow(dead_code)]` は `lib.rs` の `mod graph;` に1つだけ置いてある。
 
 mod build;
 mod diff;
