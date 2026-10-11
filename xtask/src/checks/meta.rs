@@ -289,26 +289,20 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
 
     let graph = SemanticGraph::from_snapshot(snapshot, &registry());
     let known = Targets::new(&graph);
-    // 欄を持つのは1件1ファイルの記録の表の直下だけ。 収集ファイルの項目は持たない。
-    for r in snapshot
-        .records()
-        .filter(|r| r.provenance().index().is_none())
-    {
-        let file = r.provenance().path().display().to_string();
+    // 欄を引くのは、読んだファイルごとの表の直下。 1件1ファイルの記録も、収集ファイルの
+    // 直下に置かれた欄（項目ではなくファイルそのものの欄）も同じ扱い（`SourceRecord`）。
+    // 場所はファイルまで——直下の欄には、`id` のような行を引く手掛かりが無い。
+    for r in snapshot.sources() {
+        let file = r.path().display().to_string();
+        let at = || Some(Location::new(r.path(), None));
         // 同じ ID が同じ一覧に2度出るのは、たいてい編集の取りこぼし。
         // 害は薄いが、書き換えを間違えた合図としては確かなので落とす。
-        for key in r.keys() {
-            let items = r.strs(key);
-            let mut seen = BTreeSet::new();
-            for item in &items {
-                if !seen.insert(item.clone()) {
-                    rep.error_at(
-                        "meta.duplicate-list-entry",
-                        at(r),
-                        format!("{file}: {key} に `{item}` が2度出ている"),
-                    );
-                }
-            }
+        for (key, value) in r.duplicate_string_values() {
+            rep.error_at(
+                "meta.duplicate-list-entry",
+                at(),
+                format!("{file}: {key} に `{value}` が2度出ている"),
+            );
         }
         for (fields, kind, label, code) in [
             (
@@ -329,7 +323,7 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
                     if !known.is_kind(&target, kind) {
                         rep.error_at(
                             code,
-                            at(r),
+                            at(),
                             format!("{file}: {key} の `{target}` は{label}に存在しない"),
                         );
                     }
@@ -341,7 +335,7 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
                 if !known.is_meta(&target) {
                     rep.error_at(
                         "meta.unknown-reference",
-                        at(r),
+                        at(),
                         format!("{file}: {key} の `{target}` という meta は存在しない"),
                     );
                 }
@@ -354,12 +348,12 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
                 Ok(text) if text.contains("@undecided(") || text.contains("undecided:") => {}
                 Ok(_) => rep.error_at(
                     "meta.undecided-marker-missing",
-                    at(r),
+                    at(),
                     format!("{file}: {rel} に未決の印が無い"),
                 ),
                 Err(_) => rep.error_at(
                     "meta.undecided-file-unreadable",
-                    at(r),
+                    at(),
                     format!("{file}: {rel} が読めない"),
                 ),
             }
@@ -367,7 +361,7 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
     }
 
     // suite が支える契約（`DEC-PLT-039`）。 技術要件・FSL・meta のどれかに実在すること。
-    // 収集ファイルの項目の中の欄なので、上の走査（表の直下だけを見る）には入らない。
+    // 収集ファイルの項目の中の欄なので、上の走査（ファイル直下だけを見る）には入らない。
     for r in snapshot.by_schema("test-portfolio") {
         let id = r.str("id").unwrap_or("?");
         for c in r.strs("contracts") {
@@ -393,15 +387,11 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
         ),
     );
     // ファイル単位の数え方。 記録ではなく、読んだファイルの数。
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for e in ctx.entries {
-        *counts.entry(e.shape.schema).or_default() += 1;
-    }
     rep.note_code(
         "meta.summary",
-        counts
-            .iter()
-            .map(|(k, v)| format!("{k} {v}"))
+        snapshot
+            .source_counts()
+            .map(|(schema, count)| format!("{schema} {count}"))
             .collect::<Vec<_>>()
             .join(" / "),
     );

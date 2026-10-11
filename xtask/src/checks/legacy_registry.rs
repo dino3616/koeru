@@ -43,9 +43,11 @@ pub(super) const META_FIELDS: &[&str] = &[
     "supersedes",
 ];
 
-/// 1件1ファイルの schema。 上の欄を持ちうるのはこの記録の表の直下。
+/// 1件1ファイルの schema。 上の欄が graph の edge になるのはこの記録だけ。
 ///
-/// 収集ファイルの項目（`[[component]]` など）は、これらの欄を持たない。
+/// 収集ファイルの項目（`[[component]]` など）はこれらの欄を持たない。 収集ファイルの
+/// 直下に置かれた欄は記録ではないので edge にならず、`check-meta` が `SourceRecord` で
+/// 読んで、行き先の実在だけを graph に尋ねる。
 const ENTITY_SCHEMAS: &[&str] = &[
     "decision",
     "question",

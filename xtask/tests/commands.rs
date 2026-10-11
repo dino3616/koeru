@@ -407,6 +407,29 @@ fn check_meta_は整った_meta_を通す() {
     );
 }
 
+/// 収集ファイルの各項目だけでなく、ファイル直下の relation も検査する。
+#[test]
+fn check_meta_は収集ファイル直下の参照切れを落とす() {
+    let fx = Fixture::valid("check-meta-collection-source");
+    fx.write(
+        "meta/requirements/core.toml",
+        &REQUIREMENTS.replace(
+            "schema = 'requirement-set'",
+            "schema = 'requirement-set'\naffects_requirements = ['TR-fix-404']",
+        ),
+    );
+    fx.run(&["check-meta"]).expect(
+        1,
+        &[
+            "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
+            "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            "  NG <root>/meta/requirements/core.toml: affects_requirements の `TR-fix-404` は技術要件に存在しない",
+            "check-meta: 1 件",
+        ],
+        &[],
+    );
+}
+
 /// 読み込みの段の失敗（形を名乗らない・知らない形・置き場所の違い・形と中身の不一致）。
 #[test]
 fn check_meta_は形の崩れた_meta_を落とす() {
@@ -1367,7 +1390,37 @@ fn check_meta_の参照切れは_code_と場所を持つ() {
         first["location"]["path"],
         ids("meta/decisions/DEC-fix-001.toml")
     );
-    assert!(first["location"]["line"].is_u64(), "{first}");
+    // 場所はファイルまで。 行は、ファイル直下の欄には引く手掛かりが無い。
+    assert_eq!(first["location"]["line"], serde_json::Value::Null);
+}
+
+/// 収集ファイル直下の欄は、`code` と、ファイルを指す場所（行は無い）を持つ。
+/// 同じ値が2度出ていることと、meta を指す欄の行き先が無いことも同じ口で落ちる。
+#[test]
+fn check_meta_の収集ファイル直下の参照切れは_code_と場所を持つ() {
+    let fx = Fixture::valid("json-meta-collection-source");
+    fx.write(
+        "meta/requirements/core.toml",
+        &REQUIREMENTS.replace(
+            "schema = 'requirement-set'",
+            "schema = 'requirement-set'\naffects_requirements = ['TR-fix-404']\ndecisions = ['DEC-fix-001', 'DEC-fix-001', 'DEC-fix-404']",
+        ),
+    );
+    let run = fx.run(&["--format", "json", "check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v = json(&run);
+    assert_eq!(
+        error_codes(&v),
+        [
+            "meta.duplicate-list-entry",
+            "meta.unknown-requirement-reference",
+            "meta.unknown-reference",
+        ]
+    );
+    for d in diagnostics_of(&v, "error") {
+        assert_eq!(d["location"]["path"], "meta/requirements/core.toml");
+        assert_eq!(d["location"]["line"], serde_json::Value::Null);
+    }
 }
 
 /// 欄の行き先は、実在するだけでなく種類が合う。 graph が node の種類を持つので、
