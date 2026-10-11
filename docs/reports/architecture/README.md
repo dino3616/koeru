@@ -18,6 +18,10 @@
 - MCP / automation / extension consumer は同じ canonical GraphQL executor と approved operations を使い、Rust `Application` API を別 public contract として直接公開しない。
 - identity、durability、realtime safety、result admission、WASM editing kernel は GraphQL より下位の architecture invariant として維持する。
 
+## アーキテクチャ刷新のスコープ
+
+`03-task-dag.md` / `task-dag.json` の T00–T17 は既存機能の新runtime・GraphQL contractへの移行とarchitectureの検証・cutoverを扱う。**M6/M7の未実装機能の開発、全要求の品質判定、配布・署名・更新等のrelease qualificationは含めない。** これらは別のマイルストーン実装計画の対象とする。M6/M7要件への言及は、architecture設計の制約や既存機能の回帰防止を示すもので、実装完了を意味しない。
+
 ## 文書一覧
 
 | File | Purpose |

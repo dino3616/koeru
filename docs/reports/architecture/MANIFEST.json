@@ -6,8 +6,8 @@
   "files": [
     {
       "path": "00-architecture-report.md",
-      "bytes": 47648,
-      "sha256": "c1c744998850540494aae021694841d650c3084dd4547463d66290dc86b8274d",
+      "bytes": 48070,
+      "sha256": "f2f7bd3717a032b288b58c664ce7469f51c1b69eba73d3d081811a3b52f28cd0",
       "purpose": "Primary architecture investigation and target redesign report."
     },
     {
@@ -18,14 +18,14 @@
     },
     {
       "path": "02-tests-observability.md",
-      "bytes": 33664,
-      "sha256": "7b97a225bd6b802a50b1ca259f2f3bdca61b1ab15cf51e36e7e52d1ab470bfd8",
+      "bytes": 34722,
+      "sha256": "87165f40f9b4af3af94afab6ab3e4b86faf657c890febec72a4cfc32a107bac4",
       "purpose": "Risk-based testing, observability, privacy, performance and fitness functions."
     },
     {
       "path": "03-task-dag.md",
-      "bytes": 33831,
-      "sha256": "c17b1610d11fc4e90964adbd08d917dff70434c0a4a4bfd97d0cc6515d7c3c7b",
+      "bytes": 33819,
+      "sha256": "d51b5b219db24beffdbb59b92447b32f74a7104ca6b994812b406148c9d9d264",
       "purpose": "Detailed GraphQL-first refactoring task DAG."
     },
     {
@@ -54,32 +54,32 @@
     },
     {
       "path": "08-graphql-application-contract.md",
-      "bytes": 19806,
-      "sha256": "8db91b98e1d9ca25ca669cf68e02a64663066a5c96c594d702dc6c17b8099f07",
+      "bytes": 20273,
+      "sha256": "098aa2a14b9dd47ebbf763c2ceac9be8ce70872f23d1bd066748b0e9b72bdac0",
       "purpose": "Detailed schema-first GraphQL application contract design."
     },
     {
       "path": "QA.md",
-      "bytes": 3264,
-      "sha256": "f03ca86410bce27a5d596f2f7971c3c605c918c99e12554d7d7bfcbbb4cac99b",
+      "bytes": 3497,
+      "sha256": "f7216782ba042928599250295c9731bdc45ae702771b17d821bd8d7eb488ab1c",
       "purpose": "Bundle validation scope, limitations and remaining human decisions."
     },
     {
       "path": "README.md",
-      "bytes": 4215,
-      "sha256": "f1b5c33896b979ba761e36d7187254d4a93904e241cda7ec1268f18614d26b01",
+      "bytes": 4766,
+      "sha256": "3cb6c25a463e67b5040e97c5222acead387ea4a862cbdf1ed2e0ac7bdc46a55f",
       "purpose": "Bundle index, revised architecture decisions, reading order, status."
     },
     {
       "path": "task-dag.json",
-      "bytes": 1823,
-      "sha256": "79356f92ae20ac925ccd75a5fdf46a5d5e826246e241f2202856918aff4fb322",
+      "bytes": 1691,
+      "sha256": "ff5bbabacc6a5d9315018930fa523fadeb00516abf06e8e4ddc11e03875e6067",
       "purpose": "Machine-readable task dependencies."
     },
     {
       "path": "validate_bundle.py",
-      "bytes": 5623,
-      "sha256": "24040d66d57b34b4c250010ec2dde838ed2cc9c77efaaf85a98e1ba82cd3a459",
+      "bytes": 6854,
+      "sha256": "e7b0b07dec8498946b7ddd40d1c059300e2bf6004ef7b8ffbc3d6717e16a6d1a",
       "purpose": "Mechanical bundle consistency and integrity validator."
     }
   ]

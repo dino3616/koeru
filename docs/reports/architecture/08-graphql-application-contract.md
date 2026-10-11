@@ -299,7 +299,9 @@ durable change notification -> invalidate/refetch
 transient observation       -> feature-local external store + rAF/useSyncExternalStore
 ```
 
-## 10. M6 editor
+## 10. Editor contract — M6 向け設計制約（実装は別計画）
+
+以下はM6を別計画で実装する際のarchitecture constraintsであり、このrefactorでM6の編集画面・bulk・windowing等の未提供機能を新規実装する意味ではない。T13は既存read/edit経路（必要ならisolated fixture）によるcontract/semantic parityの検証に限定する。
 
 GraphQL 採用でも per-pointermove IPC はしない。WASM editing kernel を維持する。
 
@@ -453,7 +455,7 @@ Guard は positive/negative canary と execution receiptを持つ。operation/fr
 3. `finishTake` Mutation: durable receipt / partial success / expected outcome。
 4. `jobEvents` + `inputEnvelope` Subscription: lifecycle と transient stream の両方。
 5. React fragment colocation + TanStack integration。
-6. M6 editor representative fragment/mutation + WASM commit。
+6. 既存review/edit経路のfragment/mutation移行と、必要に応じたfixtureベースのnative/WASM parity検証（M6機能追加は対象外）。
 7. remaining IPC/Channel migration。
 8. application-specific Specta command surfaceを削除。
 

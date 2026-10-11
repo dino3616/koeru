@@ -350,7 +350,7 @@ TanStack StartはGraphQL判断と独立である。productionでSSR/serverを使
 
 ドラッグの各frameをTauri往復にしない。同じ `model::editing` kernelをWASMで呼び、sample整数・operation種別・modifier・snap candidates・base stateからproposalとviolationsを得る。Reactはpixels↔sampleの表示変換とpointer/focusだけを扱う。確定時はnative側が同じkernelと最新revisionで検証し、単一undo単位でcommitする。WASMが真実を持たず、DB/write/selectionはできない。
 
-追加build targetという欠点は認める。まず3ms制約・snap・negative overlap・IME・drag性能を含む代表sliceでnative/WASM parityを試す。WASMが不利ならローカルdraftは単なるraw proposalに限定し、承認済み状態を偽らない代案を評価するが、最終仕様の常時制約/8msを削って帳尻を合わせない。
+追加build targetという欠点は認める。architecture refactorでは既存review/edit操作（不足分はisolated fixture）を用いてnative/WASM parityとlocal proposal/commitの境界を検証する。M6固有の3ms制約・snap・negative overlap・IME・drag性能の実装・受入判定は別計画で行う。WASMが不利ならローカルdraftをraw proposalに限定する代案を評価してよいが、後続M6仕様の常時制約/8msを削って帳尻を合わせない。
 
 ## 10. Filesystem durability / DB / migration
 
@@ -384,6 +384,8 @@ migrationはsupported旧versionごとのfixtureを揃え、sourceをconsistent b
 manifestとDBに同じmutable truthを二重管理しない。manifestはformat/bootstrap locator、DBはprojectのmutable truthとする案を推す。既存FSL/互換形式に触る変更はDECとmigrationに明記する。
 
 ## 11. M6 / M7 / その先
+
+ここで扱うM6/M7は将来マイルストーンに適用するarchitecture上の制約・設計可能性である。M6/M7の機能実装、全要求の品質判定、3OS配布・署名・更新等のrelease qualificationは、`03-task-dag.md` のT00–T17に含めず、別のマイルストーン実装計画で管理する。
 
 M6は同じEntryId/command kernelにnormal/advanced、numeric invaliddraft、manual protection、12種＋制限式bulk、lossless import、external watcher、undo、bounded chartsを載せられる。操作modeの切替でdata modelを変えない。先行発声確認/合成試聴は本体capabilityでありpluginへ追い出さない。[R15]
 

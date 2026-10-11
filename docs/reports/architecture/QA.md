@@ -30,7 +30,7 @@
 - SQLite migration / crash killpoint / recovery test。
 - signing / updater / telemetry provider の M7 release verification。
 
-これらは `03-task-dag.md` と `02-tests-observability.md` に実装時の acceptance/evidence gate として残している。
+刷新で変更する既存機能の回帰・互換性・contract検証は `03-task-dag.md` と `02-tests-observability.md` の対象。M6/M7固有の未実装機能、全要求の受入、3OS配布・署名・更新・telemetry providerを含むrelease qualificationは別のマイルストーン実装計画で扱い、刷新のT15/T16 gateには含めない。
 
 ## 設計上まだ human/product decision が必要な領域
 
