@@ -1,7 +1,10 @@
 //! meta と FSL を読んだもの。 検査もコマンドも、読み方はここから引く。
 //!
-//! 引くのは `repo` と `diagnostic` だけ。 検査やコマンドを引かない。
+//! 引くのは `repo` と `diagnostic` だけ。 検査やコマンドを引かない。 例外は [`design`]（D00）で、
+//! graph の `Registry` に載せる語彙を作るので `graph` の型を引く。 `graph` が引くのは
+//! この module の下の読み取りだけで、`design` は引かない。
 
+pub(crate) mod design;
 mod fsl;
 mod ids;
 mod load;

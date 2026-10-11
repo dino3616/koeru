@@ -1,0 +1,142 @@
+schema = 'decision'
+id = 'DEC-PLT-048'
+constraint_label = 'legacy の meta を target の意味で読むときに、機械で意味を推測しないこと'
+constraint = '写し方が文書から一意に決まらないものを、機械が既定値で埋めない。 分類は人が確かめる。 対応する正規の関係が無い欄は、仮の名前で区別して残し、正規の名前へ当て推量で寄せない'
+title = 'Design System の ontology は D00 が登録し、legacy の meta は無損失に target の意味で読む。決まっていなかった写し方 12 件をここで決める'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'TGT は既定で HYP に写す（「実測に置き換わるまでは目標」）',
+  'TGT は既定で REQ に写す',
+  'TGT は D00 では分類せず、D08 で1件ずつ分類する（Agent が案を出し、人が確かめる）',
+  'PROFILE を REQ の属性に畳む',
+  'PROFILE を手書きの正本をやめて derived view にする',
+  'PROFILE を運用の定義（operational resource）として残す',
+  'EVID の supports_decisions を仮の名前のまま D08 で個別に見る',
+  'EVID の supports_decisions を considers（DEC → EVID）の逆向きとして正規にする',
+  'CMP の supports_requirements を全部 implements にし、D07b が採否で絞る',
+  'CMP の採用の部品の supports_requirements だけを implements にする',
+  'SUITE の contracts を全部仮の名前のまま D02 で決める',
+  'SUITE の contracts のうち行き先が要件のものだけを targets にする',
+  '目標の schema と欄の名前を、提案書 5.5 の例から外れた名前で決め直す',
+  '目標の schema と欄の名前を、提案書 5.5 の名前で正式にし、欠けているものを同じ流儀で補う',
+  'opaque ID の字種と長さを縛らない',
+  'opaque ID を Crockford Base32 の 6 文字固定にする',
+  'affects_* を族ごとの名前のまま持つ',
+  'affects_* を affects の1本にまとめる',
+]
+selected = '''
+D00 は次のとおり決めた。 提案書と実装計画の本文は書き換えない。
+
+1. TGT は D00 では `unclassified-target` のまま持つ。 D08 で1件ずつ、Agent が案を出し人が確かめて分類する
+2. PROFILE は運用の定義（operational resource）として残す。 `check-profile` の入力は変えない
+3. EVID の `supports_decisions` は `considers`（DEC → EVID）の逆向きとして正規にする。 X05 の engine は変えず、D00 の組み立てで正規の向きの edge を作る。 `supports_requirements` は仮の名前のまま D08 で1件ずつ見る
+4. CMP は採用（`status = '採用'`）の部品の `supports_requirements` だけを `implements` にする。 それ以外は仮の名前 `supports_requirements`。 採否を決めた判断への `decided_by` は仮の名前のまま
+5. SUITE の `contracts` は、行き先が要件のものだけを `targets`（PROBE → REQ）にする。 判断・調査・FSL の contract を指すものは仮の名前 `contracts` のまま、D02 が決める
+6. 目標の schema と欄の名前は提案書 5.5 の名前を正式にする。 欠けているものは同じ流儀で補う: DEC の `revises_requirements` / `removes_requirements`、schema 名は EVID が `evidence`、PROBE が `probe`、WORKLOAD が `workload`
+7. opaque ID は Crockford Base32（`0-9` と、I・L・O・U を除く `A-Z`）の 6 文字固定。 乱数で作り、衝突を検査する。 生成器は将来の `new-id`。 D00 は形の検査だけを持つ
+8. 「内容を直したら ID が変わった」は、2つの版の差分で git の改名検出を使い、同じ種類のファイルの改名として出す。 実装は D00 の後に、`RepoView` が改名の情報を出す口（X02）と合わせて行う
+9. 採用済みの DEC の上書きは、同じ変更の中で「意味を変えない修正」と明示すれば通す。 DEC に編集の記録の欄を足す。 欄の追加は X03 の SHAPES に触るので、実装は D00 の後に行う。 それまで `overwritten_decisions` は `selected` の文字列の変化をすべて出す
+10. FSL の `acceptance` は形式 contract の1種類で、目標の接頭辞は `ACC`。 OBL・INV・FB と同じく `formalizes` で REQ へ向ける。 `INV-*` を `fsl_ids` が拾わない件は、D00 の後に X03 が直す
+11. `affects_*` は `affects` の1本のまま持つ。 行き先の種類が族を言う
+12. 正規の relation は提案書 7.1 の 20 本すべて。 実装計画の D00 の列挙（14 本）に無い 6 本（`supersedes`・`runs_with`・`produces`・`depends_on`・`affects`・`mentions`）も含める
+'''
+rationale = '''
+D00（`xtask/src/knowledge/design.rs`）は、提案書と実装計画に書かれていない、
+または書かれていても一意に決まらない写し方を12件残して止まった。 ここはその答え。
+同じ規則を2箇所に書かないので、提案書と計画の本文は直さず、写し方の判断はこの記録が持つ。
+
+## 1. TGT
+
+守る線（REQ）・予測（HYP）・実測（EVID）・目標を置く選択（DEC）が1つの型に混ざっていて、
+欄からは分けられない。 既定で HYP に倒すと、守る線だった値が予測に格下げされ、REQ に倒すと、
+達成の根拠のない値が obligation になる。 どちらも機械の推測で、実装計画 9.2 の
+「分類不能なら migration blocker」に反する。 D00 は分類を持たず（`Meaning::Unclassified`）、
+D08 が1件ずつ決める。 件数が多いので Agent が案を出す。 確かめるのは人。
+
+## 2. PROFILE
+
+リリース対象（M1〜M7）は、要件を束ねて塞ぎ方（`check-profile`）を決める運用の定義で、
+提案書 5.1.4 の「必ずしも一件一ファイルの semantic object にしない operational resource」
+に当たる。 REQ の属性に畳むと「要件はちょうど1つに属する」を欄の検査にできるが、
+`includes_*` と `blocks_profiles` の入力を作り替えることになり、リリース判定が動く。
+derived view にするのも同じ理由で採らない。 `check-profile` の入力は変えない。
+
+## 3. EVID の supports_decisions
+
+「判断を支える」は、判断が直接参照した調査（`considers`）と同じ関係として読む。
+engine は前向きの規則しか持たない（逆向きの規則は X05 への要求として残す）ので、
+D00 の組み立てが DEC の記録に `considers` の欄を足して正規の向きの edge を作る。
+`formalizes` と同じ手。 DEC が `evidence` で同じ調査を挙げていれば足さない（edge が二重になる）。
+`supports_requirements`（EVID → REQ）には正規の関係が無く、`assesses`（EVID → HYP）へ
+寄せるのは当て推量なので、仮の名前のまま D08 で見る。
+
+## 4. CMP
+
+部品の台帳に載っているだけでは、要件を実現しているとは言えない。 `implements` は
+「実現する資源」の関係なので、採用した部品だけに限る。 不適・採用候補・条件付きは、
+要件との結びつきは残すが `implements` にしない（仮の名前 `supports_requirements`）。
+採否を決めた判断への `decided_by` には 7.1 に対応する関係が無く、仮の名前のまま。
+
+## 5. SUITE の contracts
+
+`contracts` は要件・FSL の contract・判断・調査が混ざっている。 `targets` は PROBE が
+何を観測するかを言う関係で、行き先は HYP と REQ。 要件を指すものだけは
+意味が一致するので `targets` にし、残りは D02（Evidence capability の登録）が
+決める。 行き先を広げて `targets` に全部入れる案は、関係の意味をぼかすので採らない。
+
+## 6. 目標の schema と欄の名前
+
+提案書 5.5 の例を正式にする: schema `design-hypothesis` / `requirement`、DEC の
+`question` / `relies_on_hypotheses` / `considers_evidence` / `establishes_requirements` /
+`provenance`、REQ の `established_by`、HYP の `question` / `hypothesis_kind` / `statement` /
+`scope` / `assessment` / `supporting_evidence` / `contradicting_evidence`。 例が無い
+`revises` / `removes` は同じ流儀で `revises_requirements` / `removes_requirements`。
+EVID は今の schema 名 `evidence` を引き継ぎ、PROBE は `probe`、WORKLOAD は `workload`。
+`DEC.question` のような逆向きに持つ欄は、engine が逆向きを読めるようになるまで
+edge にしない。
+
+## 7. opaque ID
+
+字種と長さを縛らないと、小文字と大文字、紛らわしい字（I・L・O・U）が混ざり、
+ファイル名と ID の一致や人の転記で壊れる。 Crockford Base32 は紛らわしい字を除く。
+6 文字は 32^6 = 約 10 億で、一件ごとに乱数で振り衝突を検査する前提なら足りる
+（提案書の例もすべて 6 文字）。 本文から計算する hash にはしない。
+
+## 8. 内容を直したら ID が変わったことの検出
+
+1つの版の中では「同じ記録」を決められない。 2つの版の差分で、同じ種類のファイルが
+改名されたことを git の改名検出で拾う。 `RepoView` が改名の情報を出す口（X02）が
+先に要るので、D00 の後に行う。
+
+## 9. 採用済みの DEC の上書き
+
+`selected` の文字列が変わったかしか機械には見えず、誤字の修正も出る。 意味を変えない
+修正は、同じ変更の中で明示すれば通す。 そのための欄を DEC に足す必要があり、
+X03 の SHAPES に触るので D00 の後に行う。 それまでは出るものを人が見る。
+
+## 10. FSL の acceptance
+
+OBL（必須の挙動）・INV・FB と並ぶ、形式 contract の1種類として `ACC` を目標の接頭辞にする。
+REQ の一部を形式にしている点は他と同じで、`formalizes` で REQ へ向ける。
+`INV-*` は FSL の中で識別子名で宣言され、今の `fsl_ids` が拾わないので graph に現れない。
+これは X03 が直す。
+
+## 11, 12. affects と relation の範囲
+
+`affects_*` は行き先の種類が族を言うので `affects` の1本で足りる。 D01 が接頭辞で引く必要が無い。
+relation は提案書 7.1 の表の 20 本を全部登録する。 計画の列挙にない 6 本のうち
+`supersedes` は `Supersession` の循環検査に要る。
+'''
+review_triggers = [
+  'D02 が SUITE の contracts の行き先（判断・調査・FSL の contract）を決めたとき。 仮の名前 `contracts` を正規の関係に置き換える',
+  'D08 で TGT を分類したとき。 `unclassified-target` を使い終える',
+  'D07b が CMP の採否と implements の対応を使い、採用以外の部品にも implements が要ると分かったとき',
+  '6 文字の ID 空間（約 10 億）で、衝突が実際に起きたとき',
+  'X05 の engine が逆向きの規則を持ったとき。 D00 の組み立て（formalizes・considers・implements・targets）を engine の規則に置き換える',
+  '実装計画の先行スコープが変わり、PROFILE を operational resource として残す前提（check-profile の入力）が動いたとき',
+]
+affects_decisions = [
+  'DEC-PLT-039',
+  'DEC-PLT-040',
+]
