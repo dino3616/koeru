@@ -103,6 +103,7 @@
 | [DEC-PLT-044](DEC-PLT-044.toml) | 版と投影が構造的にずれないこと | 台帳から導ける投影は読みセッションの中でスナップショットから遅延に組み直す。台帳の単一の書き手は koeru-runtime の ProjectRuntime へ置き、貸与そのものを世代とする | accepted |
 | [DEC-PLT-045](DEC-PLT-045.toml) | 発表資料の置き場所と道具 | 発表資料は dek で作り、リポジトリ直下の talks/ に置く。dek は commit で固定し、書き出した HTML と PDF をコミットする。公開はしない | superseded |
 | [DEC-PLT-046](DEC-PLT-046.toml) | 発表資料の置き場所と道具 | 発表資料は dek で作り、リポジトリ直下の talks/ に置く。dek は npm の版で固定し、書き出した HTML と PDF をコミットする。公開はしない | accepted |
+| [DEC-PLT-048](DEC-PLT-048.toml) | legacy の meta を target の意味で読むときに、機械で意味を推測しないこと | Design System の ontology は D00 が登録し、legacy の meta は無損失に target の意味で読む。決まっていなかった写し方 12 件をここで決める | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -147,4 +148,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-137 件。
+138 件。
