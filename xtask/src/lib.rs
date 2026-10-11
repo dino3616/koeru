@@ -42,3 +42,8 @@ mod repo;
 // 誰も使わない import に見える。
 #[allow(dead_code, unused_imports)]
 mod graph;
+
+// X06: 呼ぶコマンドは D08（対応表を渡す側）が足す。 それまで production からは
+// 呼ばれない。
+#[allow(dead_code, unused_imports)]
+mod migration;

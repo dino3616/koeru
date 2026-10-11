@@ -7,6 +7,7 @@
 //! パスはすべて repo の根からの相対で、区切りは `/` に揃えてある——版から読むときは
 //! git がもともとそう返し、作業ツリーから読むときは組み立てた文字列を明示的に揃える。
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -49,11 +50,33 @@ pub(crate) enum RevisionRef {
 /// 作業ツリーと、解決済みの版を同じ形で読む。
 #[derive(Debug)]
 pub(crate) enum RepoView {
-    WorkingTree { root: PathBuf },
-    Revision { root: PathBuf, sha: String },
+    WorkingTree {
+        root: PathBuf,
+    },
+    Revision {
+        root: PathBuf,
+        sha: String,
+    },
+    /// ディスクにも git にも触れず、渡された本文だけを読む。
+    ///
+    /// `migration`（X06）が、書き換えを書き出す前に「書き換えた後」を
+    /// `knowledge` と `graph` へ通すのに使う。 版を持たないので
+    /// [`RepoView::identity`] は常に失敗する。
+    InMemory {
+        root: PathBuf,
+        files: BTreeMap<String, String>,
+    },
 }
 
 impl RepoView {
+    /// `files`（repo の根からの相対パス → 本文）だけを読む view。
+    pub(crate) fn in_memory(root: &Path, files: BTreeMap<String, String>) -> Self {
+        RepoView::InMemory {
+            root: root.to_path_buf(),
+            files,
+        }
+    }
+
     /// 作業ツリーをそのまま読む view。
     pub(crate) fn working_tree(root: &Path) -> Self {
         RepoView::WorkingTree {
@@ -87,7 +110,9 @@ impl RepoView {
     /// 版を選んでも根は変わらない——版の違いは `read` / `walk` の中身にだけ出る。
     pub(crate) fn root(&self) -> &Path {
         match self {
-            RepoView::WorkingTree { root } | RepoView::Revision { root, .. } => root,
+            RepoView::WorkingTree { root }
+            | RepoView::Revision { root, .. }
+            | RepoView::InMemory { root, .. } => root,
         }
     }
 
@@ -96,6 +121,7 @@ impl RepoView {
         match self {
             RepoView::WorkingTree { root } => read_working_tree(root, rel),
             RepoView::Revision { root, sha } => read_revision(root, sha, rel),
+            RepoView::InMemory { files, .. } => Ok(files.get(rel).cloned()),
         }
     }
 
@@ -110,6 +136,7 @@ impl RepoView {
                 let spec = format!("{sha}:{rel}");
                 process::run(root, "git", &["cat-file", "-e", &spec]).is_ok()
             }
+            RepoView::InMemory { files, .. } => files.contains_key(rel),
         }
     }
 
@@ -123,6 +150,19 @@ impl RepoView {
         match self {
             RepoView::WorkingTree { root } => walk_working_tree(root, dir),
             RepoView::Revision { root, sha } => walk_revision(root, sha, dir),
+            RepoView::InMemory { files, .. } => {
+                // `BTreeMap` は鍵順なので、並びは作業ツリーの走査と同じ辞書順になる。
+                let prefix = if dir.is_empty() {
+                    String::new()
+                } else {
+                    format!("{dir}/")
+                };
+                files
+                    .keys()
+                    .filter(|rel| rel.starts_with(&prefix))
+                    .cloned()
+                    .collect()
+            }
         }
     }
 
@@ -133,6 +173,9 @@ impl RepoView {
     pub(crate) fn identity(&self) -> Result<RevisionRef, ViewError> {
         match self {
             RepoView::Revision { sha, .. } => Ok(RevisionRef::Revision { sha: sha.clone() }),
+            RepoView::InMemory { .. } => Err(ViewError::Failed(
+                "メモリ上の view は版を持たない".to_owned(),
+            )),
             RepoView::WorkingTree { root } => {
                 let head = process::run_text(root, "git", &["rev-parse", "HEAD"])
                     .map_err(|e| ViewError::Failed(e.to_string()))?
@@ -441,6 +484,24 @@ mod tests {
 
         let revision = RepoView::revision(repo.root(), &sha).unwrap().walk("");
         assert_eq!(revision, want, "版の走査");
+    }
+
+    /// メモリ上の view は、渡した本文だけを読み、版を持たない。
+    #[test]
+    fn メモリ上の_view_は渡した本文だけを読む() {
+        let files = BTreeMap::from([
+            ("meta/a.toml".to_owned(), "a\n".to_owned()),
+            ("meta/sub/b.toml".to_owned(), "b\n".to_owned()),
+            ("specs/c.fsl".to_owned(), "c\n".to_owned()),
+        ]);
+        let view = RepoView::in_memory(Path::new("/nowhere"), files);
+        assert_eq!(view.root(), Path::new("/nowhere"));
+        assert_eq!(view.read("meta/a.toml").unwrap(), Some("a\n".to_owned()));
+        assert_eq!(view.read("meta/none.toml").unwrap(), None);
+        assert!(view.exists("specs/c.fsl"));
+        assert_eq!(view.walk("meta"), ["meta/a.toml", "meta/sub/b.toml"]);
+        assert_eq!(view.walk("").len(), 3);
+        assert!(view.identity().is_err());
     }
 
     /// 変更されたファイルの一覧。 内容までは持たない、いちばん軽い問い合わせ。
