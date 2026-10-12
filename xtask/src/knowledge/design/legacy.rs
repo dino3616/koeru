@@ -53,6 +53,10 @@ pub(crate) enum Role {
     /// `considers`）。 欄は関係の行き先の側に書かれていて、engine が逆向きに読む
     /// （`graph::Direction::Reverse`）。 起点の記録は書き換えない。
     Inverse(&'static str),
+    /// 値が操作上の locator（`github:pr/123@<rev>` など）の一覧で、この名前の relation の edge に
+    /// なる。 行き先の node の種類は、値の書式から [`super::Locator::parse`] が決める。 書式が
+    /// 決まっていない値は node にならず、graph が読めないと言う。
+    Locator(&'static str),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -158,8 +162,11 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
                 name: "question",
                 role: Role::Mirror("resolved_by"),
             },
-            // locator の一覧。 engine が値から種類を決められるまで edge にしない。
-            data("provenance"),
+            // 元の議論・実装 event への locator の一覧。 値の書式から node の種類を決める。
+            Field {
+                name: "provenance",
+                role: Role::Locator("provenance"),
+            },
             edge("affects_requirements", "affects"),
             edge("affects_decisions", "affects"),
             edge("affects_questions", "affects"),

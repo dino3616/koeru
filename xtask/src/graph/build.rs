@@ -32,6 +32,13 @@ pub(crate) enum GraphIssue {
         relation: &'static str,
         to: NodeKey,
     },
+    /// locator の欄の値から、種類を決められなかった（`LocatorRule::kind_of` が `None`）。
+    /// node にも edge にもならない。
+    UnreadableLocator {
+        from: NodeKey,
+        field: &'static str,
+        value: String,
+    },
     /// `Supersession` class の edge が循環していた。 先頭から辿った経路を持つ
     /// ——最後の要素が、どこかで既に列に入っていた node。
     SupersessionCycle(Vec<NodeKey>),
@@ -44,6 +51,8 @@ pub(crate) struct SemanticGraph {
     outgoing: BTreeMap<NodeKey, Vec<Relation>>,
     incoming: BTreeMap<NodeKey, Vec<Relation>>,
     revision: Option<RevisionRef>,
+    /// 組み立てのときに見つかった、読めない locator。 `validate` が返す。
+    unreadable_locators: Vec<GraphIssue>,
 }
 
 impl SemanticGraph {
@@ -125,6 +134,7 @@ impl SemanticGraph {
         let mut incoming: BTreeMap<NodeKey, Vec<Relation>> = BTreeMap::new();
         // 逆向きの規則が作った edge。 前向きの edge を全部積んでから入れる。
         let mut reversed: Vec<Relation> = Vec::new();
+        let mut unreadable_locators: Vec<GraphIssue> = Vec::new();
 
         for record in snapshot.records() {
             let Some(id) = record.id() else { continue };
@@ -171,13 +181,27 @@ impl SemanticGraph {
                     continue;
                 }
                 for value in field_targets(record, rule.field) {
+                    let kind = match rule.kind_of {
+                        None => rule.locator_kind,
+                        Some(kind_of) => {
+                            let Some(kind) = kind_of(&value) else {
+                                unreadable_locators.push(GraphIssue::UnreadableLocator {
+                                    from: from_key.clone(),
+                                    field: rule.field,
+                                    value,
+                                });
+                                continue;
+                            };
+                            kind
+                        }
+                    };
                     let to_key = NodeKey::Locator {
-                        kind: rule.locator_kind,
+                        kind,
                         value: value.clone(),
                     };
                     nodes.entry(to_key.clone()).or_insert_with(|| GraphNode {
                         key: to_key.clone(),
-                        kind: rule.locator_kind,
+                        kind,
                         provenance: NodeProvenance::default(),
                         fingerprint: fnv1a_64(&value),
                     });
@@ -220,6 +244,7 @@ impl SemanticGraph {
             outgoing,
             incoming,
             revision: None,
+            unreadable_locators,
         }
     }
 
@@ -316,7 +341,7 @@ impl SemanticGraph {
     /// build 自体はこれらの理由で止まらない（edge は残したまま、値として返す）。
     /// 呼びたいときに呼ぶ、独立した検査。
     pub(crate) fn validate(&self) -> Vec<GraphIssue> {
-        let mut issues = Vec::new();
+        let mut issues = self.unreadable_locators.clone();
         for rel in self.all_relations() {
             // 前向きの edge は起点が必ず node にあるので、見るのは行き先だけだった。
             // 逆向きの edge は、起点（欄の値の記録）が無いことがある。
@@ -480,6 +505,7 @@ mod tests {
                 field: "story",
                 relation: "context_for",
                 locator_kind: "story",
+                kind_of: None,
             }],
             fsl_node_kind: Some("fsl-requirement"),
         }
@@ -847,6 +873,67 @@ mod tests {
         assert!(
             out.iter()
                 .any(|r| r.to == locator && r.name == "context_for")
+        );
+    }
+
+    /// 値から種類を決める fixture の関数。 `pr:` と `commit:` だけ書式が決まっている。
+    fn fixture_kind_of(value: &str) -> Option<&'static str> {
+        if value.starts_with("pr:") {
+            Some("pull-request")
+        } else if value.starts_with("commit:") {
+            Some("commit")
+        } else {
+            None
+        }
+    }
+
+    /// locator の種類を値から決められる。 同じ欄の値でも、種類の別の node になる。
+    /// 書式が決まっていない値は node にならず、読めないと言う。
+    #[test]
+    fn locator_の種類を値から決められ_決められない値は_node_にならない() {
+        let root = temp_root("locator-kind-of");
+        write_widget(
+            &root,
+            "Q-fix-01",
+            "refs = ['pr:123@abc', 'commit:abc', 'issue:5']",
+        );
+        let mut reg = fixture_registry();
+        reg.locators = vec![LocatorRule {
+            from_schema: "question",
+            field: "refs",
+            relation: "provenance",
+            locator_kind: "unused",
+            kind_of: Some(fixture_kind_of),
+        }];
+        let (graph, issues) = SemanticGraph::build(&RepoView::working_tree(&root.0), &reg);
+        assert!(issues.is_empty(), "{issues:?}");
+
+        let locator = |kind: &'static str, value: &str| NodeKey::Locator {
+            kind,
+            value: value.to_owned(),
+        };
+        assert_eq!(
+            graph
+                .node(&locator("pull-request", "pr:123@abc"))
+                .map(|n| n.kind),
+            Some("pull-request")
+        );
+        assert_eq!(
+            graph.node(&locator("commit", "commit:abc")).map(|n| n.kind),
+            Some("commit")
+        );
+        // 種類を決められない値は、node にも edge にもならない。 固定の種類を当てて救わない。
+        assert!(graph.node(&locator("unused", "issue:5")).is_none());
+        assert_eq!(graph.nodes().count(), 3, "Q と locator 2 件");
+        let out = graph.outgoing(&key("Q-fix-01"));
+        assert_eq!(out.len(), 2, "読めた値の分だけ edge がある");
+        assert_eq!(
+            graph.validate(),
+            [GraphIssue::UnreadableLocator {
+                from: key("Q-fix-01"),
+                field: "refs",
+                value: "issue:5".to_owned(),
+            }]
         );
     }
 

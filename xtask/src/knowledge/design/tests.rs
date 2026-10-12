@@ -594,7 +594,7 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
                     );
                     expected += 1;
                 }
-                Role::Lifted(name) | Role::Mirror(name) => {
+                Role::Lifted(name) | Role::Mirror(name) | Role::Locator(name) => {
                     assert!(
                         relation(name).is_some(),
                         "{}.{} の {name}",
@@ -608,7 +608,13 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     }
     let reg = registry();
     assert_eq!(reg.relations.len(), expected);
-    assert!(reg.locators.is_empty());
+    // locator の欄は、判断の `provenance` だけ。 値から node の種類を決める。
+    assert_eq!(reg.locators.len(), 1);
+    assert_eq!(
+        (reg.locators[0].from_schema, reg.locators[0].field),
+        ("decision", "provenance")
+    );
+    assert!(reg.locators[0].kind_of.is_some());
     for rule in &reg.relations {
         let spec = relation(rule.relation).expect("語彙にある");
         assert_eq!(rule.class, spec.class);
@@ -1133,6 +1139,7 @@ fn 目標の_schema_と欄が登録される() {
     }
     // 逆向きに持つ欄は edge にしない。
     assert_eq!(rule("question"), None);
+    // `provenance` は locator の欄で、relation の規則ではなく locator の規則。
     assert_eq!(rule("provenance"), None);
 }
 
@@ -1513,4 +1520,77 @@ fn 目標の形は写し方の表と読み込みの形に矛盾しない() {
             "{sample}"
         );
     }
+}
+
+// ## locator の種類を値から決める（X08）
+
+/// 判断の `provenance` の locator は、値の書式から node の種類が決まる。 書式が決まっていない値
+/// （commit・issue・artifact の書式は提案書に無い）と崩れた値は、node にならず読めないと言う。
+#[test]
+fn provenance_の_locator_は値の書式で_node_の種類が決まる() {
+    let body = TARGET_DECISION.replace(
+        "question = 'Q-fix-001'\n",
+        "question = 'Q-fix-001'\nprovenance = ['github:pr/123@abc123', 'github:commit/abc', 'github:pr/x', 'crates/a/src/lib.rs']\n",
+    );
+    let design = design_of(&with("meta/decisions/DEC-6CQ3NA.toml", &body));
+    let graph = design.graph();
+    let node = |kind: &'static str, value: &str| {
+        graph.node(&NodeKey::Locator {
+            kind,
+            value: value.to_owned(),
+        })
+    };
+    assert_eq!(
+        node("pull-request", "github:pr/123@abc123").map(|n| n.kind),
+        Some("pull-request")
+    );
+    assert_eq!(
+        node("source", "crates/a/src/lib.rs").map(|n| n.kind),
+        Some("source")
+    );
+    // 書式が決まっていない・崩れた値は node にならない。
+    assert_eq!(
+        graph
+            .nodes()
+            .filter(|n| matches!(n.key, NodeKey::Locator { .. }))
+            .count(),
+        2
+    );
+    let issues = design.audit();
+    for value in ["github:commit/abc", "github:pr/x"] {
+        assert!(
+            has(&issues, |i| matches!(
+                i,
+                DesignIssue::Graph(GraphIssue::UnreadableLocator { value: v, .. }) if v == value
+            )),
+            "{value}"
+        );
+    }
+    // provenance の行き先に取れるのは Issue / PR / commit / artifact。 ソースのパスは取れない。
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "provenance",
+            to_kind: Kind::Source,
+            ..
+        }
+    )));
+    // PR への edge は問題にならない。
+    assert!(!has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            to_kind: Kind::PullRequest,
+            ..
+        }
+    )));
+    // 同じ PR を2つの判断が挙げれば、1つの node に edge が2本。
+    let other = body.replace("DEC-6CQ3NA", "DEC-6CQ3NB");
+    let mut f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    f.insert("meta/decisions/DEC-6CQ3NB.toml".to_owned(), other);
+    let graph = design_of(&f).graph();
+    let pr = NodeKey::Locator {
+        kind: "pull-request",
+        value: "github:pr/123@abc123".to_owned(),
+    };
+    assert_eq!(graph.incoming(&pr).len(), 2);
 }

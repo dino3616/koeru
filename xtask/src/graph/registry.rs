@@ -44,6 +44,9 @@ pub(crate) struct RelationRule {
     pub(crate) direction: Direction,
 }
 
+/// 欄の値から、locator node の種類を決める関数。 書式が決まっていない値は `None`。
+pub(crate) type LocatorKindOf = fn(&str) -> Option<&'static str>;
+
 /// 欄の値が ID ではなく操作上の locator（path・URL）を持つときの規則。
 ///
 /// [`RelationRule`] と違い、行き先は ID として解決せず、そのまま
@@ -53,8 +56,13 @@ pub(crate) struct LocatorRule {
     pub(crate) from_schema: &'static str,
     pub(crate) field: &'static str,
     pub(crate) relation: &'static str,
-    /// locator node の種類（`NodeKey::Locator` の `kind`）。
+    /// locator node の種類（`NodeKey::Locator` の `kind`）。 `kind_of` が無いときの、欄ごとに
+    /// 固定の種類。
     pub(crate) locator_kind: &'static str,
+    /// 値から種類を決める。 あれば `locator_kind` の代わりにこちらを使う。 `None` を返した値は
+    /// node にも edge にもせず、graph の問題（`GraphIssue::UnreadableLocator`）として持つ
+    /// ——種類を推測して node にしない。
+    pub(crate) kind_of: Option<LocatorKindOf>,
 }
 
 /// graph engine が読む、呼び出し側の語彙。
