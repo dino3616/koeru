@@ -476,7 +476,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 209
+min_cases = 232
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
 
 [[suite]]

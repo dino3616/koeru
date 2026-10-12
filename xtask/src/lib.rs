@@ -47,3 +47,6 @@ mod graph;
 // 呼ばれない。
 #[allow(dead_code, unused_imports)]
 mod migration;
+
+// D07: 呼ぶものは D08・Context・CLI が足す。 許す範囲は `views` の中に閉じる。
+mod views;
