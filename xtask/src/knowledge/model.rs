@@ -18,6 +18,7 @@ pub(crate) struct Shape {
     pub(crate) entity: Option<(&'static str, &'static [&'static str])>,
     /// 配列で複数件。配列のキー、項目 ID の接頭辞、各項目の必須項目。
     /// 項目にも ID を持たせる。 引けないものは参照できず、参照できないものは検査できない。
+    /// 例外は、ほかから引かれない表の行（`evidence-capability`）。
     pub(crate) collection: Option<(&'static str, &'static str, &'static [&'static str])>,
     /// entity が持ってよい表の配列。ここに無い `[[key]]` は打ち間違いとして弾く。
     /// **collection と同じ穴が entity 側にも空いていた。** 一部だけ綴りを間違えると
@@ -139,6 +140,20 @@ pub(crate) const SHAPES: &[Shape] = &[
                 "platforms",
                 "min_cases",
             ],
+        )),
+        entity_arrays: &[],
+    },
+    // 観測方法が、どの種類の仮説について証言できるかの表（`DEC-PLT-050`: `verification/`、D02）。
+    // **この形だけ、項目が ID を持たない。** 鍵は（仮説の種類、観測方法）の組で、ほかの記録から
+    // 引かれない。 接頭辞が空なのは、ID を書いても形を縛らないため。
+    Shape {
+        schema: "evidence-capability",
+        dir: "verification",
+        entity: None,
+        collection: Some((
+            "capability",
+            "",
+            &["hypothesis_kind", "method", "support", "source"],
         )),
         entity_arrays: &[],
     },

@@ -1093,8 +1093,17 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
     assert_eq!(count(Kind::Workload), schema("scale-reference"));
     assert_eq!(count(Kind::Probe), schema("test-portfolio"));
     assert_eq!(count(Kind::ReleaseProfile), schema("profile"));
-    // 全 node が語彙にある種類で、記録を1件も取りこぼしていない。
-    assert_eq!(graph.nodes().count(), legacy.records().count() + fsl.len());
+    // 全 node が語彙にある種類で、記録を1件も取りこぼしていない。 ID を持たない記録
+    // （資格の表の行。 `evidence-capability`）は node にならない。 ID を持たないのは、その形だけ。
+    let identified = legacy.records().filter(|r| r.id().is_some()).count();
+    assert!(
+        legacy
+            .records()
+            .filter(|r| r.id().is_none())
+            .all(|r| r.schema() == "evidence-capability"),
+        "ID を持たない記録は資格の表の行だけ"
+    );
+    assert_eq!(graph.nodes().count(), identified + fsl.len());
     assert!(graph.nodes().all(|n| Kind::of(n).is_some()));
     // 欄に書かれた参照の数 + `formalizes` の数だけ edge がある。
     let formalizes = graph
