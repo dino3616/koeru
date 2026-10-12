@@ -206,16 +206,17 @@ impl Design {
         out
     }
 
-    /// 現在有効か。 後継を持たず、判断なら置き換えられたと名乗っていない。
+    /// 現在有効か。 後継を持たず、判断・仮説なら置き換えられたと名乗っていない。
     ///
     /// 次のどれか1つでも当たれば現在有効ではない。
     ///
     /// - graph で `supersedes` の行き先になっている（後継を持つ）
     /// - 判断が `status = 'superseded'` と名乗っている
     /// - 判断が `superseded_by` を持つ
+    /// - 仮説が `assessment = 'superseded'` と名乗っている
     ///
-    /// `check-meta` は3つが揃うことを求めるが、直している途中の版で片方だけが書かれていても、
-    /// 現在有効として数えない。 判断でない記録は、graph の edge だけで決める。 `graph` は
+    /// `check-meta` は判断の3つが揃うことを求めるが、直している途中の版で片方だけが書かれていても、
+    /// 現在有効として数えない。 判断と仮説でない記録は、graph の edge だけで決める。 `graph` は
     /// [`Self::graph`]。
     pub(crate) fn is_current(&self, graph: &SemanticGraph, key: &NodeKey) -> bool {
         if successor_edges(graph, key).next().is_some() {
@@ -224,9 +225,16 @@ impl Design {
         let NodeKey::Object(id) = key else {
             return true;
         };
-        self.object(id)
-            .and_then(|o| o.as_decision())
-            .is_none_or(|d| !d.declares_superseded())
+        let Some(object) = self.object(id) else {
+            return true;
+        };
+        let decision_superseded = object
+            .as_decision()
+            .is_some_and(|d| d.declares_superseded());
+        let hypothesis_superseded = object
+            .as_hypothesis()
+            .is_some_and(|h| h.declares_superseded());
+        !(decision_superseded || hypothesis_superseded)
     }
 
     /// ファイル直下の欄を持つ収集ファイル（技術要件・目標値）。 領域の名前などを型つきで読む。

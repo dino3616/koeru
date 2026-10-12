@@ -1022,6 +1022,7 @@ fn 別の_probe_の_receipt_と対象外の仮説は断る() {
         supporting: Vec::new(),
         contradicting: Vec::new(),
         assessment: None,
+        declares_superseded: false,
     };
     let probe = &facts.probes[0];
     let definition = probe.definition().expect("契約");

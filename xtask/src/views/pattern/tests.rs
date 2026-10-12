@@ -543,6 +543,27 @@ fn 前提を共有する判断が_superseded_になると候補が消える() {
     assert_eq!(gone.candidates, Vec::new());
 }
 
+/// 共有の対象の仮説が置き換えられたと名乗れば（`assessment = 'superseded'`）、その前提を
+/// 共有する候補は出ない。 後継を書く欄が無い仮説の名乗りは、`assessment` だけ。
+#[test]
+fn 共有の対象の仮説が_superseded_になると候補が消える() {
+    let fx = |assessment: &str| {
+        let mut fx = Fx::default()
+            .hypothesis("HYP-3A1B2C")
+            .dec("DEC-fix-001", &["relies_on_hypotheses = ['HYP-3A1B2C']"])
+            .dec("DEC-fix-002", &["relies_on_hypotheses = ['HYP-3A1B2C']"]);
+        fx.files
+            .entry("meta/hypotheses/HYP-3A1B2C.toml".to_owned())
+            .and_modify(|body| body.push_str(&format!("assessment = '{assessment}'\n")));
+        fx.pattern()
+    };
+    assert_eq!(
+        fx("supported").of_kind(PatternKind::SharedPremise).count(),
+        1
+    );
+    assert_eq!(fx("superseded").candidates, Vec::new());
+}
+
 #[test]
 fn 形の候補は_q_を閉じた判断が_superseded_になると消え_後継で組み直される() {
     let first = || chain(Fx::default(), "Q-fix-001", "DEC-fix-001", "EVID-fix-001");

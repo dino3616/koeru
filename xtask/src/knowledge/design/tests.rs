@@ -2236,3 +2236,37 @@ fn 要件は旧形も目標の形も同じ口で本文を読める() {
     );
     assert_eq!(statement("DEC-6CQ3NA"), None);
 }
+
+/// 仮説は後継を書く欄を持たないので、置き換えられたという名乗りは `assessment` だけ。
+/// 判断と同じ1つの判定（`is_current`）で、現在有効でないと数える。
+#[test]
+fn assessment_が_superseded_の仮説は現在有効ではない() {
+    let hypothesis = |assessment: &str| {
+        HYPOTHESIS.replace(
+            "assessment = 'untested'",
+            &format!("assessment = '{assessment}'"),
+        )
+    };
+    let current_of = |assessment: &str| {
+        let mut f = target_files();
+        f.insert(
+            "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+            hypothesis(assessment),
+        );
+        let design = design_of(&f);
+        let graph = design.graph();
+        let h = design
+            .object(&id("HYP-91MTWX"))
+            .and_then(|o| o.as_hypothesis())
+            .expect("仮説");
+        (
+            h.declares_superseded(),
+            design.is_current(&graph, &key("HYP-91MTWX")),
+            // 同じ版の、仮説でも判断でもない記録は影響を受けない。
+            design.is_current(&graph, &key("REQ-5H8NQ2")),
+        )
+    };
+    assert_eq!(current_of("untested"), (false, true, true));
+    assert_eq!(current_of("supported"), (false, true, true));
+    assert_eq!(current_of("superseded"), (true, false, true));
+}

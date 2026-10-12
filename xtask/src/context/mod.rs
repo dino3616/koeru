@@ -140,17 +140,8 @@ pub(crate) fn execute(
 ) -> Output {
     let inputs: Vec<RootInput> = request.roots.iter().map(|r| RootInput::parse(r)).collect();
 
-    // 比べる2つの版は並べて読む。
-    let (now_world, before_world) = std::thread::scope(|scope| {
-        let before = from.map(|view| scope.spawn(|| World::load(view)));
-        let now = World::load(at);
-        let before = before.map(|handle| {
-            handle
-                .join()
-                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
-        });
-        (now, before)
-    });
+    let now_world = World::load(at);
+    let before_world = from.map(World::load);
     let now_full = compile(&now_world, &inputs);
     let before_full = before_world.as_ref().map(|w| compile(w, &inputs));
     let changes: Option<Changes> = match (&before_world, &before_full) {

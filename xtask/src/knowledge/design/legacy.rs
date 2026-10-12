@@ -1027,6 +1027,13 @@ impl<'a> Hypothesis<'a> {
         text(self.0, "assessment")
     }
 
+    /// 仮説自身が、置き換えられたと名乗っている（`assessment = 'superseded'`）。 仮説には後継を
+    /// 書く欄が無いので、判断（[`Decision::declares_superseded`]）と違い、名乗りは `assessment`
+    /// だけ。 「現在有効か」の判定は [`super::Design::is_current`]。
+    pub(crate) fn declares_superseded(&self) -> bool {
+        self.assessment() == Some("superseded")
+    }
+
     /// 支持する調査の ID。 書かれたまま（ID の形かは確かめない）。
     pub(crate) fn supporting_evidence(&self) -> Vec<String> {
         self.0.strs("supporting_evidence")

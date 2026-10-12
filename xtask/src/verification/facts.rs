@@ -22,6 +22,8 @@ pub(crate) struct Hypothesis {
     pub(crate) contradicting: Vec<String>,
     /// 人が書いた現在の状態（`untested` / `supported` など）。 読むだけで、ここからは書き換えない。
     pub(crate) assessment: Option<String>,
+    /// 仮説自身が、置き換えられたと名乗っている（D00 の [`design::Hypothesis::declares_superseded`]）。
+    pub(crate) declares_superseded: bool,
 }
 
 /// 観測としての調査。 schema `evidence`。
@@ -129,6 +131,7 @@ impl Facts {
                     supporting: typed.supporting_evidence(),
                     contradicting: typed.contradicting_evidence(),
                     assessment: typed.assessment().map(str::to_owned),
+                    declares_superseded: typed.declares_superseded(),
                 })
             })
             .collect();
