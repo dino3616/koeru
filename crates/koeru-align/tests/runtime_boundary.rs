@@ -146,9 +146,9 @@ fn 同梱のリソースが揃っている() {
 
     // 規約プリセットが方式ごとに揃っている（`TR-ALN-23`）。
     for m in [
-        koeru_core::alias::Method::Single,
-        koeru_core::alias::Method::Sequential,
-        koeru_core::alias::Method::Cvvc,
+        koeru_model::alias::Method::Single,
+        koeru_model::alias::Method::Sequential,
+        koeru_model::alias::Method::Cvvc,
     ] {
         assert!(koeru_align::preset::Preset::default_for(m).is_ok());
     }

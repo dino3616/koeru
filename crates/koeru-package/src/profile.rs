@@ -7,10 +7,10 @@
 //! # 改行はどのプロファイルでも CRLF
 //!
 //! `TR-PKG-12` が課しているのは classic 互換だけだが、他でも壊れない。
-//! `oto.ini` は `koeru_align::ini` が既に CRLF で書いており、
+//! `oto.ini` は `koeru_formats::oto_ini` が既に CRLF で書いており、
 //! プロファイルごとに改行を変えると、同じ配布物の中で行末が2種類になる。
 
-use koeru_core::text::{self, TextEncoding};
+use koeru_formats::text::{self, TextEncoding};
 
 /// 生成するテキストの改行。
 pub const NEWLINE: &str = "\r\n";

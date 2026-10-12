@@ -18,8 +18,8 @@
 
 use std::collections::BTreeMap;
 
-use koeru_core::names::{self, AliasProblem};
-use koeru_core::text;
+use koeru_formats::text;
+use koeru_model::names::{self, AliasProblem};
 
 use crate::bank::{Sample, Subbank, VoiceBank, decorate};
 use crate::profile::Profile;
@@ -74,7 +74,7 @@ pub enum Problem {
     MalformedOtoLine,
     /// oto の5値が範囲外（`TR-EDT-43`）。
     OtoValue {
-        violation: koeru_core::oto::Violation,
+        violation: koeru_model::oto::Violation,
     },
     /// 右ブランクの位置が先行発声より手前。
     CutoffBeforePreutterance,
@@ -290,7 +290,7 @@ fn check_names_and_aliases(bank: &VoiceBank, report: &mut Report) {
     for s in &bank.subbanks {
         let prefix = s.path_prefix();
         for m in &s.samples {
-            if text::to_nfc(&m.file) != m.file {
+            if koeru_model::text::to_nfc(&m.file) != m.file {
                 report.findings.push(Finding {
                     file: format!("{prefix}{}", m.file),
                     alias: None,
@@ -387,11 +387,11 @@ fn check_sample(s: &Subbank, m: &Sample, report: &mut Report) {
 
 /// `.frq` の2項目（`TR-PKG-49`）。
 ///
-/// 書式は `koeru_core::frq` が持つ。ここで読むのは検証に要る3つだけ
+/// 書式は `koeru_formats::frq` が持つ。ここで読むのは検証に要る3つだけ
 /// ——フレーム数、hop、f0 の値。
 fn check_frq(bytes: &[u8], wav_frames: usize) -> Vec<Problem> {
     const HEADER: usize = 40;
-    let hop = koeru_core::frq::HOP_SIZE as usize;
+    let hop = koeru_formats::frq::HOP_SIZE as usize;
 
     if bytes.len() < HEADER || &bytes[0..8] != b"FREQ0003" {
         return vec![Problem::FrqMalformed];
@@ -493,7 +493,7 @@ fn unencodable_places(bank: &VoiceBank) -> Vec<Unencodable> {
     // 拾わないと検査は通り、書き出しの的は押せるのに、押すと必ず失敗した。
     add(
         Place::Presamp,
-        &koeru_core::presamp::write(&bank.rules, crate::profile::NEWLINE),
+        &koeru_model::presamp::write(&bank.rules, crate::profile::NEWLINE),
     );
     out
 }
@@ -502,9 +502,9 @@ fn unencodable_places(bank: &VoiceBank) -> Vec<Unencodable> {
 mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample, Subbank};
-    use koeru_align::ini::IniEntry;
-    use koeru_core::alias::Method;
-    use koeru_core::oto::Oto;
+    use koeru_formats::oto_ini::IniEntry;
+    use koeru_model::alias::Method;
+    use koeru_model::oto::Oto;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -570,7 +570,7 @@ mod tests {
             method: Method::Single,
             tones: vec![57],
             subbanks,
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 
@@ -861,11 +861,11 @@ mod tests {
         assert!(kinds(&validate(&b, Profile::Both)).contains(&"package.frq_unvoiced_not_zero"));
     }
 
-    /// `.frq` を組み立てる。書式は `koeru_core::frq` と同じ。
+    /// `.frq` を組み立てる。書式は `koeru_model::frq` と同じ。
     fn frq_bytes(frames: usize, f0: &[f64]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(b"FREQ0003");
-        out.extend_from_slice(&koeru_core::frq::HOP_SIZE.to_le_bytes());
+        out.extend_from_slice(&koeru_formats::frq::HOP_SIZE.to_le_bytes());
         out.extend_from_slice(&440.0_f64.to_le_bytes());
         out.extend_from_slice(&[0_u8; 16]);
         out.extend_from_slice(&u32::try_from(frames).unwrap_or(0).to_le_bytes());

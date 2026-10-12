@@ -15,7 +15,7 @@ pub fn acoustic_score(samples: &[f64]) -> f64 {
     if samples.is_empty() {
         return 0.0;
     }
-    let ceiling = f64::from(koeru_core::analysis::CLIP_THRESHOLD);
+    let ceiling = f64::from(koeru_model::waveform::CLIP_THRESHOLD);
     let clipped = samples.iter().filter(|v| v.abs() >= ceiling).count();
     let peak = samples.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
     // 掛けて比べる。 `clipped > len / 1000` だと整数の切り捨てで境界が抜ける

@@ -29,8 +29,8 @@ pub mod profile;
 pub mod readme;
 /// 音階の名前（`TR-PKG-04`, `TR-PKG-29`）。
 ///
-/// 実体は `koeru-core` にある。 録音側も音高ごとのディレクトリ名に使うので
+/// 実体は `koeru-model` にある。 録音側も音高ごとのディレクトリ名に使うので
 /// （`TR-REC-36`）、配布側だけが持つものではなくなった。
-pub use koeru_core::tone;
+pub use koeru_model::tone;
 pub mod tree;
 pub mod validate;

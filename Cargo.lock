@@ -2283,7 +2283,6 @@ version = "0.0.0"
 dependencies = [
  "cc",
  "koeru-audio",
- "koeru-core",
  "koeru-failure",
  "koeru-formats",
  "koeru-model",
@@ -2389,10 +2388,9 @@ name = "koeru-package"
 version = "0.0.0"
 dependencies = [
  "image",
- "koeru-align",
  "koeru-audio",
- "koeru-core",
  "koeru-failure",
+ "koeru-formats",
  "koeru-model",
  "thiserror 2.0.21",
  "tracing",
@@ -2418,8 +2416,9 @@ version = "0.0.0"
 dependencies = [
  "cc",
  "koeru-audio",
- "koeru-core",
  "koeru-failure",
+ "koeru-formats",
+ "koeru-model",
  "thiserror 2.0.21",
  "tracing",
 ]

@@ -1,6 +1,6 @@
 //! oto の5値を境界から導く（`TR-ALN-13`〜`18`）と、その規約（`TR-ALN-23`）。
 //!
-//! データ型 [`koeru_core::oto::Oto`] は `koeru-core` にある（`DEC-ALN-009`）。
+//! データ型 [`koeru_model::oto::Oto`] は `koeru-model` にある（`DEC-ALN-009`）。
 //! 5値はプロジェクトのデータで DB を正とし（`TR-PKG-40`）、制約（`TR-EDT-43`）は
 //! 原音設定エディタも使う。ここが持つのは導出と規約だけ。
 //!
@@ -13,9 +13,9 @@
 //! アライメントを変えずに規約だけ変えられる形にしてある。 混ぜると、
 //! マージンを 20ms から 25ms にするだけで推論をやり直すことになる。
 
-use koeru_core::inventory::Unit;
-use koeru_core::oto::{Boundary, Oto};
-use koeru_core::reclist::Slot;
+use koeru_model::inventory::Unit;
+use koeru_model::oto::{Boundary, Oto};
+use koeru_model::reclist::Slot;
 
 use crate::preset::{ConsonantClass, Preset};
 
@@ -175,7 +175,7 @@ pub fn derive_ending(vowel_start_ms: f64, file_len_ms: f64, preset: &Preset) -> 
 /// 行のエイリアスごとの5値（`TR-ALN-19`, `TR-RCL-05`, `TR-ALN-34`）。
 ///
 /// 入力はモーラごとの境界と、行が生むエイリアスの表
-/// （`koeru_core::reclist::row_entries`）。 綴りは呼び出し側が決めた表を
+/// （`koeru_model::reclist::row_entries`）。 綴りは呼び出し側が決めた表を
 /// そのまま使い、ここは「どの区間から導くか」だけを見る。
 ///
 /// **CV しか作っていなかった。** CVVC を選んでも `oto.ini` に渡りも語尾も
@@ -244,10 +244,10 @@ pub fn closure_mismatches(
     units: &[Unit],
     samples: &[f64],
     rate_hz: u32,
-    method: koeru_core::alias::Method,
+    method: koeru_model::alias::Method,
     preset: &Preset,
 ) -> std::collections::BTreeSet<String> {
-    if method == koeru_core::alias::Method::Single {
+    if method == koeru_model::alias::Method::Single {
         return std::collections::BTreeSet::new();
     }
     let plosive = |i: usize| {
@@ -323,7 +323,7 @@ fn rms(samples: &[f64], rate_hz: u32, from_ms: f64, to_ms: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koeru_core::alias::Method;
+    use koeru_model::alias::Method;
 
     #[test]
     fn 単独音の五値を導ける() {
@@ -379,7 +379,7 @@ mod tests {
 #[cfg(test)]
 mod vc_tests {
     use super::*;
-    use koeru_core::alias::Method;
+    use koeru_model::alias::Method;
 
     fn cvvc() -> Preset {
         Preset::default_for(Method::Cvvc).expect("既定がある")
@@ -506,7 +506,7 @@ mod vc_tests {
 #[cfg(test)]
 mod rederive_tests {
     use super::*;
-    use koeru_core::alias::Method;
+    use koeru_model::alias::Method;
 
     /// 規約プリセットを変えると値が変わる。境界は変わらない（`TR-ALN-23`）。
     #[test]
@@ -570,7 +570,7 @@ mod rederive_tests {
                 vowel_end_ms: 400.0,
             },
         ];
-        let table = koeru_core::inventory::units(koeru_core::inventory::UnitSet::Core);
+        let table = koeru_model::inventory::units(koeru_model::inventory::UnitSet::Core);
         let line = ["あ", "か"]
             .iter()
             .filter_map(|k| table.iter().find(|u| u.kana == *k).cloned())

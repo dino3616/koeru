@@ -10,9 +10,9 @@
 
 use std::path::PathBuf;
 
-use koeru_align::ini::{self, IniEntry};
-use koeru_core::names::{self, NameProblem};
-use koeru_core::text::{TextEncoding, TextError};
+use koeru_formats::oto_ini::{self as ini, IniEntry};
+use koeru_formats::text::{TextEncoding, TextError};
+use koeru_model::names::{self, NameProblem};
 
 use crate::bank::{Subbank, VoiceBank, decorate, frq_name};
 use crate::character::{self, ICON_FILE, PORTRAIT_FILE};
@@ -152,7 +152,7 @@ pub fn build(bank: &VoiceBank, profile: Profile) -> Result<Vec<PackagedFile>> {
     // ための同梱物で、`character.yaml` の `default_phonemizer` がこれを指す。
     root.push(text_file(
         "presamp.ini",
-        &koeru_core::presamp::write(&bank.rules, crate::profile::NEWLINE),
+        &koeru_model::presamp::write(&bank.rules, crate::profile::NEWLINE),
         profile,
     )?);
     root.push(text_file(
@@ -238,7 +238,7 @@ fn text_file(path: &str, body: &str, profile: Profile) -> Result<PackagedFile> {
 fn encoded_file(path: &str, body: &str, enc: TextEncoding) -> Result<PackagedFile> {
     Ok(PackagedFile {
         path: path.to_owned(),
-        content: Content::Bytes(koeru_core::text::encode(body, enc)?),
+        content: Content::Bytes(koeru_formats::text::encode(body, enc)?),
         compression: Compression::Deflate,
     })
 }
@@ -313,9 +313,9 @@ fn contents_summary(root: &[PackagedFile], samples: &[PackagedFile]) -> Vec<Stri
 mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample};
-    use koeru_core::alias::Method;
-    use koeru_core::oto::Oto;
     use koeru_failure::Failure;
+    use koeru_model::alias::Method;
+    use koeru_model::oto::Oto;
 
     fn oto() -> Oto {
         Oto {
@@ -362,7 +362,7 @@ mod tests {
             method: Method::Single,
             tones: vec![57],
             subbanks,
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 
@@ -448,7 +448,7 @@ mod tests {
     /// 食い違う——受け取った側は1つも引けない。
     #[test]
     fn presamp_は音源の表を書く() {
-        let mut rules = koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core);
+        let mut rules = koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core);
         rules
             .templates
             .insert("BEGINING_CV".to_owned(), "^ %CV%".to_owned());
@@ -468,7 +468,8 @@ mod tests {
         let Content::Bytes(bytes) = &ini.content else {
             panic!("生成したバイト列であること");
         };
-        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        let text =
+            koeru_formats::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
         assert!(text.contains("^ %CV%"), "{text}");
     }
 
@@ -488,7 +489,8 @@ mod tests {
         let Content::Bytes(bytes) = &ini.content else {
             panic!("生成したバイト列であること");
         };
-        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        let text =
+            koeru_formats::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
         assert!(text.starts_with("s001.wav="), "{text}");
         assert!(!text.contains('/') && !text.contains('\\'));
     }
@@ -530,7 +532,7 @@ mod tests {
                 .contains(&format!("text_file_encoding: {}", p.declared_encoding()));
             assert!(declared, "{} の宣言が無い", p.as_str());
             assert!(
-                koeru_core::text::decode(txt_bytes, p.encoding()).is_ok(),
+                koeru_formats::text::decode(txt_bytes, p.encoding()).is_ok(),
                 "宣言どおりに読めること"
             );
         }
@@ -552,7 +554,8 @@ mod tests {
         let Content::Bytes(bytes) = &ini.content else {
             panic!("生成したバイト列であること");
         };
-        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        let text =
+            koeru_formats::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
         assert!(!text.contains("#Charset:"), "{text}");
     }
 
@@ -572,7 +575,8 @@ mod tests {
         let Content::Bytes(bytes) = &ini.content else {
             panic!("生成したバイト列であること");
         };
-        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        let text =
+            koeru_formats::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
         assert!(text.contains("=↑あ,"), "{text}");
     }
 
@@ -646,7 +650,8 @@ mod tests {
         let Content::Bytes(bytes) = &r.content else {
             panic!("生成したバイト列であること");
         };
-        let text = koeru_core::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
+        let text =
+            koeru_formats::text::decode(bytes, Profile::Both.encoding()).expect("読めること");
         assert!(text.contains("音声ファイル（.wav） 2 本"), "{text}");
         assert!(!text.contains("s001.wav"), "個々の名前は並べない");
     }

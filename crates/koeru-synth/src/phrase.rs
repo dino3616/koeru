@@ -16,7 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use crate::resampler::{FrequencyTable, PreviewFlags, RenderError, RenderRequest, render};
-use koeru_core::oto::Oto;
+use koeru_model::oto::Oto;
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
 ///
@@ -169,7 +169,7 @@ pub fn render_phrase(
             // 表はファイル全体・hop=256。 切り出しは合成器がする。
             frequency_table: (!table.is_empty()).then_some(FrequencyTable {
                 f0: &table,
-                hop_samples: koeru_core::frq::HOP_SIZE,
+                hop_samples: koeru_formats::frq::HOP_SIZE,
             }),
         })?;
 

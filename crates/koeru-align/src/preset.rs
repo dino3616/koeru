@@ -26,7 +26,7 @@
 
 use std::collections::BTreeMap;
 
-use koeru_core::alias::Method;
+use koeru_model::alias::Method;
 
 /// 既定プリセット（方式ごとに1つ）。
 const PRESETS_TOML: &str = include_str!("../resources/presets.toml");
@@ -80,7 +80,7 @@ impl ConsonantClass {
 
     /// UTAU 式の子音記号から引く。
     ///
-    /// `unvoiced_plosive` の判定は `koeru_core::inventory::Unit` が正本
+    /// `unvoiced_plosive` の判定は `koeru_model::inventory::Unit` が正本
     /// （`TR-ALN-16` が挙げる k / t / p / ky / ty / py）。ここはそれ以外の
     /// クラス分けを足しているだけ。
     #[must_use]
