@@ -94,6 +94,7 @@ fn kind_label(kind: Kind) -> &'static str {
         Kind::Receipt => "Receipt",
         Kind::UnclassifiedTarget => "目標値（未分類）",
         Kind::ReleaseProfile => "リリース対象",
+        Kind::Capability => "観測方法の資格",
     }
 }
 
