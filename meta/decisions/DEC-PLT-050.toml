@@ -1,0 +1,52 @@
+schema = 'decision'
+id = 'DEC-PLT-050'
+title = '正本の置き場所は meta/ の下の knowledge・specs・verification に分け、移すのは D08'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Design System 提案書 5.4 どおり、`meta/`（判断や要件）と `verification/`（probe・workload）を最上位で分け、`specs/` も最上位に残す',
+  '`meta/` の下に `knowledge/`（判断や要件）・`specs/`（FSL）・`verification/`（probe・workload）を置く',
+  '`probe` / `workload` だけ今の `meta/` の直下に足し、ほかは動かさない',
+]
+selected = '''
+`meta/` の下に3つを置く。
+
+```text
+meta/
+  knowledge/      requirements・decisions・questions・evidence・hypotheses
+  specs/          今の specs/（FSL）
+  verification/   probes・workloads
+```
+
+- 移すのは D08。 ID の付け直しと同じ移行の中で、移動だけのコミットとして入れる。 意味の変更・ID の付け直しと同じコミットに混ぜない
+- `meta/budgets` と `meta/profiles` は D08 まで `meta/` の直下に残す。 budgets は D08 で定量の要件と配分に分解される。 profiles の行き先は D08 で決める
+- `meta/suites` は D08 で probe になり、`meta/verification/probes/` へ移る
+'''
+rationale = '''
+## 1. 正本の3面を1つの根の下に置く
+
+FSL・判断や要件・検証の方法は、どれも xtask が読んで突き合わせる正本。 根を1つにすると、
+読み込みは `meta/` の下を歩いて schema で種類を決めるだけで済み、`verification` のために
+歩く根を足す必要が無い（X08 の未決4）。 提案書 5.4 の形では、根ごとにディレクトリと
+ファイル名の規則を持つことになる。
+
+## 2. 移すのは D08
+
+パスを引いているファイルは 77 件（AGENTS.md、skill、CI、xtask の固定パス、docs のリンク）。
+ID はパスではないので ID の参照は変わらない。 D08 は `meta/**` と `specs/**` を持ち、
+ID の付け直しも D08 で行うので、移行を1回にまとめる。 D01・D02 は今の場所で書き、D08 で
+固定パスを直す。
+
+## 案ごとの見方
+
+1. 提案書どおり: 根が2つになり、読み込みに根を足す
+2. `meta/` の下に3つ: 採用
+3. `meta/` の直下に足すだけ: 判断や要件と検証の方法が同じ階層に混ざる
+'''
+review_triggers = [
+  'D08 より前に、パスの固定が原因で D01・D02 などの作業を二度書くことになったとき。 移動を前倒しする',
+  'xtask 以外の道具（fslc、CI、エディタの拡張）が `specs/` を最上位に置くことを前提にしていて、移すと動かなくなったとき',
+]
+affects_decisions = [
+  'DEC-PLT-048',
+]

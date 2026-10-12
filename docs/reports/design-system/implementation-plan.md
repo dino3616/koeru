@@ -425,7 +425,7 @@ xtask/src/
 
 - **Objective:** reusable Probe が何を証言できるかを HYP / REQ と接続し、false evidence を防ぐ。
 - **Prerequisites:** X04 + D00。graph integration は X05。
-- **Owned:** `verification/**`, `verification/probes/**` schema。
+- **Owned:** `meta/verification/**`, `meta/verification/probes/**` schema（置き場所は `DEC-PLT-050`。実ファイルが移るのは D08）。
 - **Must not change:** HYP truth、REQ acceptance、human judgement。
 - **Work:**
   - Probe target / capability
@@ -502,7 +502,7 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
 
 - **Objective:** read path と derived views が成立した後、一回の controlled migration で repository 正本を target model へ切り替える。
 - **Prerequisites:** X06 + D01 + D02 + D07a/b/c。D06 は blocking ではない。
-- **Owned:** actual `meta/**`, `specs/**`, `verification/**`, reference rewrite、meta/spec README。
+- **Owned:** actual `meta/**`, `specs/**`, reference rewrite、meta/spec README。
 - **Must not change:** semantic statement と ID rename を一つの review 不能な差分へ混ぜる。
 - **Migration:**
   - `TR-* → REQ-<opaque>`
@@ -515,6 +515,7 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
   - SCALE → workload + DEC/EVID + calculation。導出式は入力と係数の構造化した欄で持ち、D07a が再計算する（D07a は文章の式を読まず、由来と導出値の分離だけを置いている）
   - CMP → DEC/EVID; ledger removal（`DEC-PLT-049`）
   - SUITE → reusable PROBE definitions; receipts remain generated
+  - 置き場所: `meta/{requirements,decisions,questions,evidence}` → `meta/knowledge/`、`specs/` → `meta/specs/`、probe・workload → `meta/verification/`。移動だけのコミットにし、意味の変更・ID の付け直しと混ぜない。`meta/budgets` と `meta/profiles` は D08 まで直下に残し、profiles の行き先はここで決める（`DEC-PLT-050`）
 - **Verification:** before/after Context, current check behavior, budget totals, required test/probe coverage、all inbound refs。
 - **Acceptance:**
   - legacy adapter を無効にした target fixture でも全 deterministic checks が成立する
@@ -636,7 +637,7 @@ choice of target    -> DEC
 
 representative workload の選択根拠は DEC。
 測定済み basis は EVID。
-再利用する workload definition は `verification/workloads/`。
+再利用する workload definition は `meta/verification/workloads/`（`DEC-PLT-050`）。
 式で出る値は generated calculation。
 
 ## 9.4 CMP
