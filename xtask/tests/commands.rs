@@ -459,6 +459,31 @@ fn check_meta_は収集ファイル直下の参照切れを落とす() {
     );
 }
 
+/// 観測方法の資格の表（D02）。 表の誤りは `check-meta` が落とす。 表が正しければ通る。
+#[test]
+fn check_meta_は資格の表の誤りを落とす() {
+    const TABLE: &str = "schema = 'evidence-capability'\n\n[[capability]]\n\
+        hypothesis_kind = 'k'\nmethod = 'm'\nsupport = 'can-support'\nsource = 's'\n";
+    let fx = Fixture::valid("check-meta-capability");
+    fx.write("meta/verification/capabilities.toml", TABLE);
+    let ok = fx.run(&["check-meta"]);
+    assert_eq!(ok.code, 0, "{ok:?}");
+    fx.write(
+        "meta/verification/capabilities.toml",
+        &TABLE.replace("'can-support'", "'maybe'"),
+    );
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert!(
+        run.stdout.contains(
+            "資格の表の support `maybe` は can-support / cannot-support / \
+             hypothesis-generation-only / context-dependent のいずれでもない"
+        ),
+        "{run:?}"
+    );
+    assert!(run.stdout.ends_with("check-meta: 1 件\n"), "{run:?}");
+}
+
 /// 読み込みの段の失敗（形を名乗らない・知らない形・置き場所の違い・形と中身の不一致）。
 #[test]
 fn check_meta_は形の崩れた_meta_を落とす() {

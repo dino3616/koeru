@@ -24,6 +24,7 @@
 //! - `checks` — 合否を返す検査（`check-*`）。 登録の表を持ち、`cli` はそこから引く
 //! - `commands` — 合否を主にしないコマンド（ID の払い出し、索引、書き出し、差分の案内）
 //! - `probe` — 試験を走らせて件数を数えるもの
+//! - `verification` — Probe が何を証言できるか（資格の表、Receipt から EVID への境界、Human Verification Debt。 D02）
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -50,3 +51,9 @@ mod migration;
 
 // D07: 呼ぶものは D08・Context・CLI が足す。 許す範囲は `views` の中に閉じる。
 mod views;
+
+// D02: production から呼ぶのは `check-meta` が引く `check_verification` だけ。 Receipt からの
+// canonize と Human Verification Debt は、呼ぶ D07c（`design-debt`、portfolio）が付くまで
+// dead code に見える。 `mod.rs` の再輸出も同じ。
+#[allow(dead_code, unused_imports)]
+mod verification;

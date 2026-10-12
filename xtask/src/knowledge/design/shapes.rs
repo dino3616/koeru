@@ -7,8 +7,12 @@
 //! ここに無い目標の schema:
 //! - `decision` と `evidence` は今の schema 名を引き継ぐ（`DEC-PLT-048`）。 `SHAPES` が名乗って
 //!   いて、目標の欄（`question`・`considers_evidence` など）は足せる任意の欄なので、形を足さない
-//! - `probe` と `workload` は `verification/` の下に置く（提案書 5.4）。 読み込みは `meta/` の下だけを
-//!   歩くので、ここでは載せない。 載せるには、読む根を足す必要がある
+//! - `workload` は載せない。 `runs_with` の edge を張る D08 が、記録の形と locator の規則を決める
+//!   （`DEC-PLT-050`: `meta/verification/workloads/`）
+//!
+//! `probe` は `meta/verification/probes/` に置く（`DEC-PLT-050`）。 読み込みは `meta/` の下を
+//! 歩いて、ファイルの直上のディレクトリの名前（`probes`）だけを `dir` と突き合わせるので、
+//! 読む根は足さない。
 
 use crate::knowledge::model::{SHAPES, Shape};
 
@@ -28,6 +32,16 @@ pub(crate) const TARGET_SHAPES: &[Shape] = &[
         schema: "requirement",
         dir: "requirements",
         entity: Some(("REQ-", &["id", "statement"])),
+        collection: None,
+        entity_arrays: &[],
+    },
+    // 繰り返し使う検証方法（D02）。 `meta/verification/probes/PROBE-<opaque>.toml`。 必須にしたのは、
+    // 何を（`targets`）どの方法で（`method`）観測するかだけ。 資格（`capabilities.toml`）は
+    // この2つから決まる。 実行の契約は任意。
+    Shape {
+        schema: "probe",
+        dir: "probes",
+        entity: Some(("PROBE-", &["id", "targets", "method"])),
         collection: None,
         entity_arrays: &[],
     },

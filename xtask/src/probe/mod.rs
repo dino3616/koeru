@@ -9,4 +9,12 @@
 mod model;
 mod receipt;
 
+// D02（`verification`）が Receipt を EVID の候補にしてよいかを見るのに、型の名前を引く。
+// 型そのものは変えていない。
+pub(crate) use model::{
+    ExecutionContext, NotRunReason, Prerequisites, ProbeDefinition, Receipt, Status,
+};
+// `Receipt` を組み立てるのは試験だけ。
+#[cfg(test)]
+pub(crate) use model::Counts;
 pub(crate) use receipt::{check_portfolio, test_receipt};

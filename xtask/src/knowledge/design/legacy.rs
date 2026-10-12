@@ -233,6 +233,18 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
                 role: Role::Inverse("considers"),
             },
             edge("supports_requirements", "supports_requirements"),
+            // 次の3つは観測として書いた調査の欄（提案書 5.5、10.1.1、10.2。 D02）。 今の調査には無く、
+            // 無いものは判定の対象にならない。 `assesses` は評価する仮説（EVID → HYP）で、
+            // 支持か反証かは言わない。 それは仮説の `supporting_evidence` と
+            // `contradicting_evidence` が言う。
+            edge("assesses", "assesses"),
+            // `verification::capability` が読む語。 `capabilities.toml` の `method` にある語だけ。
+            data("method"),
+            // 同じ起源の調査を束ねる名前と、派生元の locator。 件数を確信度に変えないために
+            // 読む（`verification::origin`）。 派生元は edge にしない: 行き先の種類の書式が
+            // まだ決まっておらず、D08 が locator の規則に載せる。
+            data("origin_group"),
+            data("derived_from"),
             edge("affects_requirements", "affects"),
             edge("affects_decisions", "affects"),
             edge("affects_questions", "affects"),
@@ -453,14 +465,55 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         open: false,
         file_fields: &[],
     },
-    // 欄の名前は決まっていない。 schema 名だけを登録する。
+    // 繰り返し使う検証方法の定義（提案書 10.0、D02）。 `meta/verification/probes/PROBE-<opaque>.toml`。
+    // 実行の契約（runner から fixtures まで）は、今の試験の登録（`test-portfolio`）から写せる
+    // ように任意の欄で持つ。 実行したかは持たない。 それは Receipt が言う。
     SchemaSpec {
         schema: "probe",
         kind: Kind::Probe,
         meaning: Meaning::Direct,
         title: None,
-        fields: &[],
-        open: true,
+        fields: &[
+            data("kind"),
+            // 観測する仮説と要件。 行き先で観測の資格が決まる（`capabilities.toml`）。
+            edge("targets", "targets"),
+            data("method"),
+            data("requires_human"),
+            data("requires_native"),
+            // `workload:<slug>` の一覧。 `runs_with` の edge にするのは、workload の記録の形と
+            // locator の規則が決まる D08。
+            data("workloads"),
+            data("prediction"),
+            data("disconfirm_if"),
+            data("runner"),
+            data("package"),
+            data("target"),
+            data("platforms"),
+            data("backends"),
+            data("min_cases"),
+            data("fixtures"),
+        ],
+        open: false,
+        file_fields: &[],
+    },
+    // 観測方法が、どの種類の仮説について証言できるかの表（提案書 10.1.1、D02）。
+    // `meta/verification/capabilities.toml` の `[[capability]]`。 行は ID を持たない。
+    SchemaSpec {
+        schema: "evidence-capability",
+        kind: Kind::Capability,
+        meaning: Meaning::Direct,
+        title: None,
+        fields: &[
+            data("hypothesis_kind"),
+            data("method"),
+            data("support"),
+            // 人が観察するしかないかを決める材料。 `can-support` の行にだけ要る。
+            data("observer"),
+            // 提案書のどの表のどのセルから写したか。
+            data("source"),
+            data("note"),
+        ],
+        open: false,
         file_fields: &[],
     },
     SchemaSpec {
