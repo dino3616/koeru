@@ -487,7 +487,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 250
+min_cases = 363
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
 
 [[suite]]
@@ -523,7 +523,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'commands'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 43
+min_cases = 46
 contracts = ['DEC-PLT-039']
 
 # `Passed` / `Failed` / `NotApplicable` / `NotRun` の区別が、実際にその区別どおりに
