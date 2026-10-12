@@ -42,7 +42,6 @@ mod compare;
 mod compile;
 mod render;
 mod rules;
-mod target;
 
 #[cfg(test)]
 mod tests;

@@ -23,60 +23,79 @@ use super::rules::{
     ARTIFACT_CLOSURE, BLOCKED_RELEASE, BLOCKS_PROFILES, CONTRADICTION_CLOSURE, Dir,
     EMPIRICAL_SUPPORT, Next, PROVENANCE, ROOT, RULES, Rule, Tier, When,
 };
-use super::target::{self, Hypothesis, TargetRecords};
-use crate::diagnostic::Report;
-use crate::graph::{GraphIssue, NodeKey, NodeProvenance, RelationClass, SemanticGraph};
-use crate::knowledge::design::{
-    Design, DesignIssue, Kind, TARGET_SHAPES, relation as relation_spec,
-};
-use crate::knowledge::{Id, KnowledgeSnapshot, id_tokens, load_view_with};
+use crate::graph::{GraphIssue, NodeKey, NodeProvenance, SemanticGraph};
+use crate::knowledge::design::{Design, DesignIssue, Hypothesis, Kind, relation as relation_spec};
+use crate::knowledge::{Id, id_tokens};
 use crate::repo::{RepoView, RevisionRef};
 
 /// 未解決の問いの状態の語。 legacy の語彙（`check-profile` も同じ値を見る）。
 const OPEN: &str = "open";
+
+/// 仮説の欄の名前。 edge ではなく欄から読む支持と反証を、取得理由と欠けの報告に載せる。
+const SUPPORTING: &str = "supporting_evidence";
+const CONTRADICTING: &str = "contradicting_evidence";
+
+/// ある版での、仮説の状態。 Context が版を越えて持つので、記録を借りずに値で持つ。
+/// 読む口は D00 の [`Hypothesis`]。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HypothesisState {
+    pub(crate) scope: Option<String>,
+    pub(crate) assessment: Option<String>,
+    /// 支持する調査。 ID の形に読めない値は落とす。 昇順で重複なし。
+    pub(crate) supporting: Vec<Id>,
+    /// 反証する調査。 ID の形に読めない値は落とす。 昇順で重複なし。
+    pub(crate) contradicting: Vec<Id>,
+}
+
+impl HypothesisState {
+    fn of(h: Hypothesis<'_>) -> Self {
+        Self {
+            scope: h.scope().map(|s| s.trim().to_owned()),
+            assessment: h.assessment().map(str::to_owned),
+            supporting: evidence_ids(h.supporting_evidence()),
+            contradicting: evidence_ids(h.contradicting_evidence()),
+        }
+    }
+}
+
+fn evidence_ids(raw: Vec<String>) -> Vec<Id> {
+    let mut out: Vec<Id> = raw.iter().filter_map(|s| s.parse().ok()).collect();
+    out.sort();
+    out.dedup();
+    out
+}
 
 /// 1つの版を読んだもの。
 pub(crate) struct World<'v> {
     pub(crate) view: &'v RepoView,
     pub(crate) design: Design,
     pub(crate) graph: SemanticGraph,
-    pub(crate) targets: TargetRecords,
     audit: Vec<DesignIssue>,
     pub(crate) identity: Option<RevisionRef>,
 }
 
 impl<'v> World<'v> {
-    /// 版の meta と FSL を1回だけ読む。 版から読むたびに `git` を1本起動するので、読む回数が
-    /// そのまま待ち時間になる。 `Design::load` と同じ組み立てを、読んだ記録を仮説の欄の読みと
-    /// 分け合うために手で並べている。
+    /// 版の meta と FSL を1回だけ読む。 版から読むたびに読む回数が待ち時間になるので、
+    /// 読むのは `Design::load` の1回だけにする。
     pub(crate) fn load(view: &'v RepoView) -> Self {
-        let mut ignored = Report::default();
-        let entries = load_view_with(view, TARGET_SHAPES, &mut ignored);
-        let (snapshot, _duplicates) = KnowledgeSnapshot::from_entries(&entries);
-        let snapshot = snapshot.with_fsl_view(view);
-        let sites: BTreeMap<String, String> = snapshot
-            .fsl_ids()
-            .filter_map(|id| {
-                snapshot
-                    .fsl_site(id)
-                    .map(|site| (id.as_str().to_owned(), site.to_owned()))
-            })
-            .collect();
-        let identity = view.identity().ok();
-        let mut design = Design::from_entries(view.root(), &entries, &sites);
-        if let Some(revision) = &identity {
-            design = design.with_revision(revision.clone());
-        }
+        let design = Design::load(view);
         let graph = design.graph();
         let audit = design.audit();
         Self {
             view,
             graph,
             audit,
-            targets: TargetRecords::from_snapshot(&snapshot),
-            identity,
+            identity: design.revision().cloned(),
             design,
         }
+    }
+
+    /// 仮説のこの版での状態。 仮説でなければ `None`。
+    pub(crate) fn hypothesis(&self, id: &Id) -> Option<HypothesisState> {
+        self.design
+            .object(id)
+            .and_then(|o| o.as_hypothesis())
+            .map(HypothesisState::of)
     }
 
     pub(crate) fn kind_of(&self, key: &NodeKey) -> Option<Kind> {
@@ -339,7 +358,7 @@ pub(crate) struct Context {
     pub(crate) edges: BTreeMap<EdgeKey, EdgeInfo>,
     pub(crate) broken: BTreeSet<Broken>,
     /// 項目になった仮説の状態。 支持と反証を同じ面で出すために持つ。
-    pub(crate) hypotheses: BTreeMap<Id, Hypothesis>,
+    pub(crate) hypotheses: BTreeMap<Id, HypothesisState>,
     pub(crate) budget: Option<BudgetOutcome>,
 }
 
@@ -396,9 +415,9 @@ pub(crate) fn compile(world: &World<'_>, inputs: &[RootInput]) -> Context {
     };
     for item in ctx.items.values() {
         if let NodeKey::Object(id) = &item.key
-            && let Some(h) = world.targets.hypotheses.get(id)
+            && let Some(h) = world.hypothesis(id)
         {
-            ctx.hypotheses.insert(id.clone(), h.clone());
+            ctx.hypotheses.insert(id.clone(), h);
         }
     }
     attach_broken(world, &mut ctx);
@@ -739,7 +758,7 @@ impl<'w, 'v> Walk<'w, 'v> {
             tier,
             reasons: BTreeSet::from([reason]),
             facts: id.map(|id| facts_of(self.world, id)).unwrap_or_default(),
-            superseded_by: id.map(|id| successors(self.world, id)).unwrap_or_default(),
+            superseded_by: self.world.design.successors(&self.world.graph, key),
             provenance: Vec::new(),
         };
         self.items.insert(key.clone(), item);
@@ -758,7 +777,7 @@ impl<'w, 'v> Walk<'w, 'v> {
             })
             .collect();
         for (id, tier) in hypotheses {
-            let Some(h) = self.world.targets.hypotheses.get(&id) else {
+            let Some(h) = self.world.hypothesis(&id) else {
                 continue;
             };
             let focus = NodeKey::Object(id.clone());
@@ -769,12 +788,8 @@ impl<'w, 'v> Walk<'w, 'v> {
                 Tier::Peripheral(2)
             };
             let groups = [
-                (
-                    target::CONTRADICTING,
-                    &h.contradicting,
-                    CONTRADICTION_CLOSURE,
-                ),
-                (target::SUPPORTING, &h.supporting, EMPIRICAL_SUPPORT),
+                (CONTRADICTING, &h.contradicting, CONTRADICTION_CLOSURE),
+                (SUPPORTING, &h.supporting, EMPIRICAL_SUPPORT),
             ];
             for (field, evidence, (code, label)) in groups {
                 for ev in evidence {
@@ -937,19 +952,12 @@ fn display_title(world: &World<'_>, id: &Id) -> Option<String> {
         .object(id)
         .and_then(|o| o.title().map(str::to_owned));
     typed.or_else(|| {
-        let statement = world
-            .targets
-            .hypotheses
-            .get(id)
-            .and_then(|h| h.statement.as_deref())
-            .or_else(|| {
-                world
-                    .targets
-                    .requirements
-                    .get(id)
-                    .and_then(|r| r.statement.as_deref())
-            })?;
-        statement.lines().next().map(|l| l.trim().to_owned())
+        let object = world.design.object(id)?;
+        let statement = object
+            .as_hypothesis()
+            .and_then(|h| h.statement())
+            .or_else(|| object.as_requirement().and_then(|r| r.statement()))?;
+        statement.trim().lines().next().map(|l| l.trim().to_owned())
     })
 }
 
@@ -970,32 +978,11 @@ fn facts_of(world: &World<'_>, id: &Id) -> Facts {
             facts.confidence = r.confidence().map(str::to_owned);
         } else if let Some(p) = object.as_profile() {
             facts.status = p.status().map(str::to_owned);
+        } else if let Some(h) = object.as_hypothesis() {
+            facts.statement = h.statement().map(|s| s.trim().to_owned());
+            facts.scope = h.scope().map(|s| s.trim().to_owned());
+            facts.assessment = h.assessment().map(str::to_owned);
         }
     }
-    if let Some(h) = world.targets.hypotheses.get(id) {
-        facts.statement = h.statement.clone();
-        facts.scope = h.scope.clone();
-        facts.assessment = h.assessment.clone();
-    }
-    if let Some(r) = world.targets.requirements.get(id) {
-        facts.statement = r.statement.clone();
-    }
     facts
-}
-
-/// `id` を置き換えた記録。 graph の `supersedes`（後継 → 以前）の行き先が `id`。
-fn successors(world: &World<'_>, id: &Id) -> Vec<Id> {
-    let mut out: Vec<Id> = world
-        .graph
-        .incoming(&NodeKey::Object(id.clone()))
-        .iter()
-        .filter(|r| r.class == RelationClass::Supersession)
-        .filter_map(|r| match &r.from {
-            NodeKey::Object(from) => Some(from.clone()),
-            NodeKey::Locator { .. } => None,
-        })
-        .collect();
-    out.sort();
-    out.dedup();
-    out
 }

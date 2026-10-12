@@ -27,7 +27,7 @@ use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, SourceFile, spec};
 use super::ontology::{Kind, relation};
 use super::shapes::{TARGET_SHAPES, is_one_per_file, is_target_only};
 use crate::diagnostic::{Report, Severity};
-use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
+use crate::graph::{GraphIssue, NodeKey, Relation, RelationClass, SemanticGraph};
 use crate::knowledge::fsl::fsl_sites_view;
 use crate::knowledge::model::{Entry, Shape, list_of, str_of};
 use crate::knowledge::{Id, KnowledgeSnapshot, load_view_with};
@@ -190,6 +190,43 @@ impl Design {
         self.snapshot
             .get(id)
             .and_then(|r| Object::in_snapshot(r, &self.snapshot))
+    }
+
+    /// `key` を置き換えた記録（graph の `supersedes`、後継 → 以前、の行き先が `key`）。
+    /// 昇順で重複なし。 `graph` は [`Self::graph`]。
+    pub(crate) fn successors(&self, graph: &SemanticGraph, key: &NodeKey) -> Vec<Id> {
+        let mut out: Vec<Id> = successor_edges(graph, key)
+            .filter_map(|r| match &r.from {
+                NodeKey::Object(id) => Some(id.clone()),
+                NodeKey::Locator { .. } => None,
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// 現在有効か。 後継を持たず、判断なら置き換えられたと名乗っていない。
+    ///
+    /// 次のどれか1つでも当たれば現在有効ではない。
+    ///
+    /// - graph で `supersedes` の行き先になっている（後継を持つ）
+    /// - 判断が `status = 'superseded'` と名乗っている
+    /// - 判断が `superseded_by` を持つ
+    ///
+    /// `check-meta` は3つが揃うことを求めるが、直している途中の版で片方だけが書かれていても、
+    /// 現在有効として数えない。 判断でない記録は、graph の edge だけで決める。 `graph` は
+    /// [`Self::graph`]。
+    pub(crate) fn is_current(&self, graph: &SemanticGraph, key: &NodeKey) -> bool {
+        if successor_edges(graph, key).next().is_some() {
+            return false;
+        }
+        let NodeKey::Object(id) = key else {
+            return true;
+        };
+        self.object(id)
+            .and_then(|o| o.as_decision())
+            .is_none_or(|d| !d.declares_superseded())
     }
 
     /// ファイル直下の欄を持つ収集ファイル（技術要件・目標値）。 領域の名前などを型つきで読む。
@@ -444,6 +481,17 @@ fn references(r: &crate::knowledge::Record, field: &str) -> Vec<String> {
     } else {
         many
     }
+}
+
+/// `key` へ向かう `supersedes` の edge（後継 → 以前）。
+fn successor_edges<'g>(
+    graph: &'g SemanticGraph,
+    key: &NodeKey,
+) -> impl Iterator<Item = &'g Relation> {
+    graph
+        .incoming(key)
+        .iter()
+        .filter(|r| r.class == RelationClass::Supersession)
 }
 
 fn audit_relations(graph: &SemanticGraph, out: &mut Vec<DesignIssue>) {

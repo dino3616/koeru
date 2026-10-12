@@ -6,7 +6,7 @@ use std::path::Path;
 
 use super::*;
 use crate::diagnostic::Report;
-use crate::graph::{Direction, RelationRule};
+use crate::graph::{Direction, RelationClass, RelationRule};
 use crate::knowledge::design::{Standing, TARGET_SHAPES, registry};
 use crate::knowledge::{KnowledgeSnapshot, load_view_with};
 use crate::repo::RepoView;
@@ -61,7 +61,10 @@ impl Fx {
     }
 
     fn hypothesis(mut self, id: &str) -> Self {
-        let body = format!("schema = 'design-hypothesis'\nid = '{id}'\nstatement = '予測'\n");
+        let body = format!(
+            "schema = 'design-hypothesis'\nid = '{id}'\n\
+             hypothesis_kind = 'mechanical-formal-property'\nstatement = '予測'\n"
+        );
         self.files
             .insert(format!("meta/hypotheses/{id}.toml"), body);
         self
@@ -809,7 +812,7 @@ fn 実在する_meta_で_view_が回る() {
                 "{c:?} の source {source} が graph に無い"
             );
             assert!(
-                is_current(&design, &graph, &NodeKey::Object(source.clone())),
+                design.is_current(&graph, &NodeKey::Object(source.clone())),
                 "{c:?} の source {source} が現在有効でない"
             );
         }
