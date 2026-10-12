@@ -419,6 +419,13 @@ fn 意味で引ける_接頭辞を知らなくてよい() {
     assert!(
         matches!(budget.meaning(), Meaning::Decomposed(parts) if parts.contains(&Part::View("budget")))
     );
+    // 台帳は DEC と EVID だけに分かれ、部品の inventory は作らない（`DEC-PLT-049`）。
+    let component = design.object(&id("CMP-fix-001")).expect("在る");
+    assert!(matches!(
+        component.meaning(),
+        Meaning::Decomposed(parts)
+            if parts == &[Part::Object(Kind::Decision), Part::Object(Kind::Evidence)]
+    ));
     let q = budget.as_quantity().expect("定量");
     assert_eq!(
         (q.limit(), q.unit(), q.scope()),
