@@ -59,8 +59,14 @@ cargo xtask check-portfolio            # 登録の漏れだけを見る。組み
 cargo xtask portfolio                                     # target/receipts/ を読む
 cargo xtask portfolio --receipts mac --receipts linux     # CI の artifact を並べる
 cargo xtask portfolio --format json                       # { command, ok, diagnostics, portfolio }
-cargo xtask design-debt --human                           # 人の観察が要る仮説の待ち行列
+cargo xtask design-debt                                   # 未検証の待ち行列を、種類ごとに全部
+cargo xtask design-debt --receipts mac --receipts linux   # 実行の側の不足を数える受領証（portfolio と同じ）
+cargo xtask design-debt --human                           # 人の観察が要る仮説だけ（受領証は読まない）
 ```
+
+`design-debt` の種類は `human`（人の観察が要る仮説）/ `missing` / `skipped` / `false-green` /
+`unplaced`。 優先度の score は付けない。 `--human` に `--receipts` は付けられない。
+`--format json` は両方で使える。 落ちたセルは債務に入れない（足りないのではなく観測が出ている）。
 
 セルは `executed-and-passed` / `executed-and-failed` / `skipped` / `not-applicable` /
 `missing`（受領証が無い）/ `insufficient`。 **`insufficient` は通ったと書いてあるが合格に
