@@ -1070,6 +1070,17 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
     let schema = |s: &str| legacy.by_schema(s).count();
     // `check-meta` の件数の言い方: FSL の要求 / 技術要件 / 部品台帳 / 性能目標。
     assert_eq!(count(Kind::FormalContract), fsl.len());
+    // 不変条件（`INV-*`）も contract として載る。
+    let invariants = design
+        .objects()
+        .filter_map(|o| o.as_contract())
+        .filter(|c| c.kind() == Some(ContractKind::Invariant))
+        .count();
+    assert_eq!(
+        invariants,
+        fsl.iter().filter(|id| id.starts_with("INV-")).count()
+    );
+    assert!(invariants > 0);
     assert_eq!(
         count(Kind::Requirement),
         schema("requirement-set") + schema("budget")

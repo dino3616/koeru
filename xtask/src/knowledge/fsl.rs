@@ -62,3 +62,59 @@ fn collect_ids(text: &str, out: &mut BTreeSet<String>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    use super::*;
+
+    /// `INV-*` は `@requirement("INV-…")` で宣言され、拾われる。 `invariant 名前 { … }` の名前は
+    /// ID ではない（宣言の ID は注釈が持つ）ので、注釈の無い invariant は拾わない。
+    #[test]
+    fn invariant_の_id_は_requirement_の注釈から拾う() {
+        let fsl = "model Fix {
+  @requirement(\"INV-fix-001\", \"不変条件\")
+  invariant NamedByIdentifier {
+    true
+  }
+
+  invariant NoAnnotation {
+    true
+  }
+
+  @requirement(\"INV-6CQ3NA\", \"目標の形\")
+  trans KeepsThings {
+    true
+  }
+}
+";
+        let view = RepoView::in_memory(
+            Path::new("/fixture"),
+            BTreeMap::from([("specs/fix.fsl".to_owned(), fsl.to_owned())]),
+        );
+        let sites = fsl_sites_view(&view);
+        assert_eq!(
+            sites.into_iter().collect::<Vec<_>>(),
+            [
+                ("INV-6CQ3NA".to_owned(), "specs/fix.fsl:11".to_owned()),
+                ("INV-fix-001".to_owned(), "specs/fix.fsl:2".to_owned()),
+            ]
+        );
+    }
+
+    /// 実在する FSL の `INV-*` が拾われている。 README が挙げている不変条件は、すべて FSL の
+    /// 注釈にある。
+    #[test]
+    fn 実在する_fsl_の_invariant_を拾えている() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("リポジトリの根");
+        let ids = fsl_ids(root);
+        for id in ["INV-PKG-001", "INV-PKG-002", "INV-REC-005", "INV-REC-101"] {
+            assert!(ids.contains(id), "{id} を拾えていない");
+        }
+        assert!(ids.iter().filter(|id| id.starts_with("INV-")).count() > 1);
+    }
+}
