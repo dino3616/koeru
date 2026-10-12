@@ -10,7 +10,7 @@
 //! - `probe` と `workload` は `verification/` の下に置く（提案書 5.4）。 読み込みは `meta/` の下だけを
 //!   歩くので、ここでは載せない。 載せるには、読む根を足す必要がある
 
-use crate::knowledge::model::Shape;
+use crate::knowledge::model::{SHAPES, Shape};
 
 /// 目標の schema の形。 `Design::load` が読み込みへ足す。
 pub(crate) const TARGET_SHAPES: &[Shape] = &[
@@ -32,6 +32,14 @@ pub(crate) const TARGET_SHAPES: &[Shape] = &[
         entity_arrays: &[],
     },
 ];
+
+/// この schema の記録は、1件1ファイルで、ファイル名が ID と一致する（収集ファイルではない）。
+pub(crate) fn is_one_per_file(schema: &str) -> bool {
+    SHAPES
+        .iter()
+        .chain(TARGET_SHAPES)
+        .any(|s| s.schema == schema && s.entity.is_some())
+}
 
 /// 目標の形でだけ書かれる schema。 記録の ID は、目標の形（`<接頭辞>-<opaque>`）でなければならない。
 pub(crate) fn is_target_only(schema: &str) -> bool {

@@ -108,8 +108,8 @@ impl FromStr for TargetId {
 /// 内容を見ずに決まる——内容が変わっても ID が変わらないための前提。
 ///
 /// 「内容を直したら ID が変わった」は、この関数では見えない。 2つの版の差分で、git の改名検出
-/// を使い、同じ種類のファイルの改名として出す（`DEC-PLT-048`）。 `RepoView` が改名の情報を出す口
-/// （X02）が要るので、D00 の後の作業で行う。
+/// を使い、同じ種類のファイルの改名として出す（`DEC-PLT-048`）。 `Design::changed_identities` が
+/// `RepoView::renames_from` の結果を受けて出す。
 pub(crate) fn check_identity(
     expected: Kind,
     file_stem: &str,

@@ -1772,3 +1772,105 @@ fn 収集ファイル直下の欄を型つきで読める() {
         }
     }
 }
+
+// ## 「内容を直したら ID が変わった」の検出（X08）
+
+fn rename(from: &str, to: &str) -> crate::repo::Rename {
+    crate::repo::Rename {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        similarity: 100,
+    }
+}
+
+/// 同じ種類のファイルが改名され、ID が変わっていれば出す。 git の改名検出を通す。
+#[test]
+fn 同じ種類のファイルの改名で_id_が変われば出る() {
+    let repo = TempRepo::new("identity-changed");
+    repo.write_all(&target_files());
+    let base = repo.commit("base");
+
+    // 仮説を直したついでに ID を付け直した（ファイル名も ID に合わせた）。
+    repo.remove("meta/hypotheses/HYP-91MTWX.toml");
+    repo.write_all(&BTreeMap::from([(
+        "meta/hypotheses/HYP-91MTWY.toml".to_owned(),
+        HYPOTHESIS.replace("HYP-91MTWX", "HYP-91MTWY"),
+    )]));
+    // 技術要件の収集ファイルは、名前を変えても ID が変わらない。
+    repo.remove("meta/requirements/fix.toml");
+    repo.write_all(&BTreeMap::from([(
+        "meta/requirements/fix-renamed.toml".to_owned(),
+        REQUIREMENTS.to_owned(),
+    )]));
+    let head = repo.commit("rename");
+
+    let old = RepoView::revision(repo.root(), &base).expect("解決できる");
+    let new = RepoView::revision(repo.root(), &head).expect("解決できる");
+    assert_eq!(
+        Design::compare_identities(&old, &new).expect("比べられる"),
+        [DesignIssue::IdentityChanged {
+            from: id("HYP-91MTWX"),
+            to: id("HYP-91MTWY"),
+            schema: "design-hypothesis",
+        }]
+    );
+}
+
+/// 内容を直しただけ・改名していない・ID が同じ・種類が違う改名は出さない。
+#[test]
+fn id_が変わっていない_または種類が違う改名は出ない() {
+    // 内容を直しただけ（改名なし）。
+    let repo = TempRepo::new("identity-unchanged");
+    repo.write_all(&target_files());
+    let base = repo.commit("base");
+    repo.write_all(&BTreeMap::from([(
+        "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+        HYPOTHESIS.replace("untested", "supported"),
+    )]));
+    let head = repo.commit("edit");
+    let old = RepoView::revision(repo.root(), &base).expect("解決できる");
+    let new = RepoView::revision(repo.root(), &head).expect("解決できる");
+    assert_eq!(
+        Design::compare_identities(&old, &new).expect("比べられる"),
+        Vec::new()
+    );
+
+    // 種類が違う（仮説の記録が、判断の記録に作り替わった）。 取り違えとは言わない。
+    let old = design_of(&target_files());
+    let body = TARGET_DECISION.replace("DEC-6CQ3NA", "DEC-6CQ3NB");
+    let new = design_of(&with("meta/decisions/DEC-6CQ3NB.toml", &body));
+    let renames = [rename(
+        "meta/hypotheses/HYP-91MTWX.toml",
+        "meta/decisions/DEC-6CQ3NB.toml",
+    )];
+    assert_eq!(old.changed_identities(&new, &renames), Vec::new());
+    // 同じ種類なら出る。
+    let renames = [rename(
+        "meta/decisions/DEC-6CQ3NA.toml",
+        "meta/decisions/DEC-6CQ3NB.toml",
+    )];
+    assert_eq!(
+        old.changed_identities(&new, &renames),
+        [DesignIssue::IdentityChanged {
+            from: id("DEC-6CQ3NA"),
+            to: id("DEC-6CQ3NB"),
+            schema: "decision",
+        }]
+    );
+    // 収集ファイルの改名は、ファイル名が ID を決めないので出さない。 meta の外のファイルも。
+    let renames = [
+        rename("meta/requirements/fix.toml", "meta/requirements/other.toml"),
+        rename("docs/a.md", "docs/b.md"),
+        rename("specs/fix.fsl", "specs/other.fsl"),
+    ];
+    assert_eq!(old.changed_identities(&old, &renames), Vec::new());
+    // 改名が無ければ何も出ない。
+    assert_eq!(old.changed_identities(&new, &[]), Vec::new());
+}
+
+/// 改名を引けない組（メモリ上の view）は、空ではなく失敗で返す。
+#[test]
+fn 改名を引けない組は失敗する() {
+    let memory = RepoView::in_memory(Path::new("/fixture"), files());
+    assert!(Design::compare_identities(&memory, &memory).is_err());
+}

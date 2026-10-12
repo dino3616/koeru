@@ -25,13 +25,13 @@ use std::path::Path;
 use super::identity::{IdentityError, TargetId};
 use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, SourceFile, spec};
 use super::ontology::{Kind, relation};
-use super::shapes::{TARGET_SHAPES, is_target_only};
+use super::shapes::{TARGET_SHAPES, is_one_per_file, is_target_only};
 use crate::diagnostic::{Report, Severity};
 use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
 use crate::knowledge::fsl::fsl_sites_view;
 use crate::knowledge::model::{Entry, Shape, list_of, str_of};
 use crate::knowledge::{Id, KnowledgeSnapshot, load_view_with};
-use crate::repo::{RepoView, RevisionRef};
+use crate::repo::{Rename, RepoView, RevisionRef, ViewError};
 
 /// 組み立てる contract の形。 meta のファイルではないので、読み込みは通らない。
 static CONTRACT_SHAPE: Shape = Shape {
@@ -75,6 +75,13 @@ pub(crate) enum DesignIssue {
     UnmappedSchema { schema: &'static str },
     /// 部品の採否の語が、知っている語彙に無い。
     UnknownStatus { id: Id, raw: String },
+    /// 同じ種類のファイルが改名され、ID が変わった。 ID は内容を直しても変わらない
+    /// （`DEC-PLT-048`）ので、付け直しか置き換えかを人が確かめる。
+    IdentityChanged {
+        from: Id,
+        to: Id,
+        schema: &'static str,
+    },
     /// 採用済みの判断の `selected` が、同じ ID のまま書き換わった。 意味を変えるときは、
     /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。
     DecisionOverwritten { id: Id },
@@ -231,6 +238,56 @@ impl Design {
             }
         }
         out
+    }
+
+    /// `self` を古い版、`new` を新しい版として、「内容を直したら ID が変わった」を見る
+    /// （`DEC-PLT-048`）。 `renames` は2つの版のあいだの git の改名検出の結果
+    /// （[`RepoView::renames_from`]）。
+    ///
+    /// 同じ種類（同じ schema）の1件1ファイルの記録が改名され、ID が違っていれば
+    /// [`DesignIssue::IdentityChanged`]。 ID は内容から計算せず、直しても変わらない
+    /// （提案書 5.2）ので、これは ID の付け直しか、別の記録への置き換えで、人が確かめる。
+    /// 種類が違う改名（`HYP` を `DEC` へ作り替えた）、ID が同じままの移動、収集ファイルの
+    /// 改名は出さない。
+    pub(crate) fn changed_identities(&self, new: &Design, renames: &[Rename]) -> Vec<DesignIssue> {
+        let mut out = Vec::new();
+        for rename in renames {
+            let (Some(from), Some(to)) = (self.entity_at(&rename.from), new.entity_at(&rename.to))
+            else {
+                continue;
+            };
+            if from.origin().schema == to.origin().schema && from.id() != to.id() {
+                out.push(DesignIssue::IdentityChanged {
+                    from: from.id().clone(),
+                    to: to.id().clone(),
+                    schema: from.origin().schema,
+                });
+            }
+        }
+        out
+    }
+
+    /// 2つの版を読んで、「内容を直したら ID が変わった」を見る。 `new` の `self` から見た改名は
+    /// git が決める（[`RepoView::renames_from`]）。 `old` は git の版でなければならない。
+    ///
+    /// # Errors
+    ///
+    /// 改名を引けなかった（比べられない組、git の失敗）。
+    pub(crate) fn compare_identities(
+        old: &RepoView,
+        new: &RepoView,
+    ) -> Result<Vec<DesignIssue>, ViewError> {
+        let renames = new.renames_from(old)?;
+        Ok(Self::load(old).changed_identities(&Self::load(new), &renames))
+    }
+
+    /// `rel`（リポジトリの根からの相対パス）にある、1件1ファイルの記録。 収集ファイルは含まない
+    /// ——収集ファイルの中の1件は、ファイルの名前が ID を決めない。
+    fn entity_at(&self, rel: &str) -> Option<Object<'_>> {
+        self.objects().find(|o| {
+            let origin = o.origin();
+            origin.path.ends_with(rel) && is_one_per_file(origin.schema)
+        })
     }
 
     fn audit_records(&self, out: &mut Vec<DesignIssue>) {
