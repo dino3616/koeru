@@ -82,8 +82,9 @@ pub(crate) enum DesignIssue {
         to: Id,
         schema: &'static str,
     },
-    /// 採用済みの判断の `selected` が、同じ ID のまま書き換わった。 意味を変えるときは、
-    /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。
+    /// 採用済みの判断の中身が、同じ ID のまま書き換わった。 意味を変えるときは、
+    /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。 意味を変えない修正なら、同じ変更の
+    /// 中でその判断の `meaning_preserving_edits` に1件足す。
     DecisionOverwritten { id: Id },
     /// 目標の形の ID（`<接頭辞>-<opaque>`）が、記録の種類と合わない。 接頭辞が別の種類を言って
     /// いる（質問の記録に `DEC-…`）、または目標の形でだけ書く schema なのに ID が目標の形でない。
@@ -214,10 +215,12 @@ impl Design {
 
     /// `self` を古い版、`new` を新しい版として、採用済みの判断が上書きされていないかを見る。
     ///
-    /// 見るのは `selected` の文字列が変わったかだけで、意味が変わったかは判定できない。
-    /// 誤字の修正も出る。 「意味を変えない修正」と明示した変更を通すには、判断に編集の記録の欄が
-    /// 要る。 欄の追加は X03 の `SHAPES` に触るので、D00 の後の作業で行う（`DEC-PLT-048`）。
-    /// それまでは、出たものを人が新しい判断にするか直すかを決める。
+    /// 見るのは判断の中身（[`Decision::judgement`]。 選んだもの・案・理由・縛る制約・帰結）が
+    /// 変わったかだけで、意味が変わったかは判定できない。 誤字の修正も出る。
+    ///
+    /// **同じ変更の中で**、その判断の `meaning_preserving_edits`（意味を変えない修正の記録）が
+    /// 1件以上増えていれば、上書きとして出さない（`DEC-PLT-048`）。 増えていなければ出す。
+    /// 記録の中身が本当に意味を変えていないかは、人がレビューで確かめる。
     pub(crate) fn overwritten_decisions(&self, new: &Design) -> Vec<DesignIssue> {
         let mut out = Vec::new();
         for old in self
@@ -231,11 +234,15 @@ impl Design {
             let Some(next) = new.object(object.id()).and_then(|o| o.as_decision()) else {
                 continue;
             };
-            if next.selected() != decision.selected() {
-                out.push(DesignIssue::DecisionOverwritten {
-                    id: object.id().clone(),
-                });
+            if next.judgement() == decision.judgement() {
+                continue;
             }
+            if next.meaning_preserving_edits().len() > decision.meaning_preserving_edits().len() {
+                continue;
+            }
+            out.push(DesignIssue::DecisionOverwritten {
+                id: object.id().clone(),
+            });
         }
         out
     }

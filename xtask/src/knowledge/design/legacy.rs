@@ -142,6 +142,10 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("constraint_label"),
             data("consequences"),
             data("source_text"),
+            // 判断の中身を、意味を変えずに直した記録（省略可能）。 採用済みの判断の中身を
+            // 書き換えるとき、同じ変更の中でここに1件足すと、上書きとして落とさない
+            // （[`super::Design::overwritten_decisions`]、`DEC-PLT-048`）。
+            data("meaning_preserving_edits"),
             edge("supersedes", "supersedes"),
             // 置き換えは両側に書かれる。 逆向きの写しは edge にせず、二重にしない。
             Field {
@@ -886,6 +890,39 @@ impl<'a> Decision<'a> {
             text(self.0, "constraint")?,
         ))
     }
+
+    /// 意味を変えずに直した記録。 1件が1つの文字列で、何を直したかを短く書く。 空の文字列は
+    /// 記録として数えない。
+    pub(crate) fn meaning_preserving_edits(&self) -> Vec<String> {
+        self.0
+            .strs("meaning_preserving_edits")
+            .into_iter()
+            .filter(|e| !e.trim().is_empty())
+            .collect()
+    }
+
+    /// 判断の中身。 選んだもの・案・理由・縛る制約・帰結。 採用済みの判断で、これが変わると
+    /// 上書きになる。 状態・置き換えの関係・影響先（`affects_*`）は含めない
+    /// ——判断の意味ではなく、判断の周りの記録だから。
+    pub(crate) fn judgement(&self) -> Judgement<'a> {
+        Judgement {
+            selected: self.selected(),
+            options: self.options(),
+            rationale: self.rationale(),
+            constraint: self.constraint(),
+            consequences: self.consequences(),
+        }
+    }
+}
+
+/// 判断の中身（[`Decision::judgement`]）。 等しいかだけを見る。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Judgement<'a> {
+    selected: Option<&'a str>,
+    options: Vec<String>,
+    rationale: Option<&'a str>,
+    constraint: Option<(&'a str, &'a str)>,
+    consequences: Vec<String>,
 }
 
 /// 未解決の問い。 Q。

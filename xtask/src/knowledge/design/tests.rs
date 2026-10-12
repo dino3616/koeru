@@ -1874,3 +1874,154 @@ fn 改名を引けない組は失敗する() {
     let memory = RepoView::in_memory(Path::new("/fixture"), files());
     assert!(Design::compare_identities(&memory, &memory).is_err());
 }
+
+// ## 採用済みの判断の上書きと、意味を変えない修正の明示（X08）
+
+/// `DEC-fix-002`（採用済み）を書き換えた新しい版。 `edits` は `meaning_preserving_edits` の本文。
+fn decision_2_changed(replacements: &[(&str, &str)], edits: Option<&str>) -> Design {
+    let mut body = DECISION_2.to_owned();
+    for (from, to) in replacements {
+        assert!(body.contains(from), "{from}");
+        body = body.replace(from, to);
+    }
+    if let Some(edits) = edits {
+        body.push_str(&format!("meaning_preserving_edits = {edits}\n"));
+    }
+    design_of(&with("meta/decisions/DEC-fix-002.toml", &body))
+}
+
+fn overwritten(old: &Design, new: &Design) -> Vec<String> {
+    old.overwritten_decisions(new)
+        .into_iter()
+        .map(|i| match i {
+            DesignIssue::DecisionOverwritten { id } => id.to_string(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// 同じ変更の中で「意味を変えない修正」の記録が1件増えていれば通す。 増えていなければ落とす。
+#[test]
+fn 意味を変えない修正の記録が増えていれば上書きとして出ない() {
+    let old = base();
+    let selected = [("selected = 'a'", "selected = 'b'")];
+
+    // 記録なし → 出る。
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, None)),
+        ["DEC-fix-002"]
+    );
+    // 記録が1件増えた → 通る。
+    assert!(overwritten(&old, &decision_2_changed(&selected, Some("['誤字の修正']"))).is_empty());
+    // 中身ごとに同じ（理由・案・制約・帰結）。
+    for change in [
+        [("rationale = '理由'", "rationale = '直した理由'")],
+        [("options = ['a']", "options = ['a', 'c']")],
+    ] {
+        assert_eq!(
+            overwritten(&old, &decision_2_changed(&change, None)),
+            ["DEC-fix-002"],
+            "{change:?}"
+        );
+        assert!(
+            overwritten(&old, &decision_2_changed(&change, Some("['直した']"))).is_empty(),
+            "{change:?}"
+        );
+    }
+    let with_constraint = |c: &str| {
+        design_of(&with(
+            "meta/decisions/DEC-fix-002.toml",
+            &format!("{DECISION_2}constraint_label = '名'\nconstraint = '{c}'\n"),
+        ))
+    };
+    assert_eq!(
+        overwritten(&with_constraint("A"), &with_constraint("B")),
+        ["DEC-fix-002"]
+    );
+    let with_consequences = |c: &str| {
+        design_of(&with(
+            "meta/decisions/DEC-fix-002.toml",
+            &format!("{DECISION_2}consequences = ['{c}']\n"),
+        ))
+    };
+    assert_eq!(
+        overwritten(&with_consequences("A"), &with_consequences("B")),
+        ["DEC-fix-002"]
+    );
+}
+
+/// 増えていない（同じ件数のまま・減った・空の文字列を足した）なら、記録があっても落とす。
+/// 中身を変えていなければ、記録が増えても何も出ない。
+#[test]
+fn 記録が増えていなければ上書きとして出る() {
+    let selected = [("selected = 'a'", "selected = 'b'")];
+    // 古い版にすでに1件ある。
+    let old = decision_2_changed(&[], Some("['前の修正']"));
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, Some("['前の修正']"))),
+        ["DEC-fix-002"],
+        "件数が同じなら、前の記録は今回の修正を言っていない"
+    );
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, None)),
+        ["DEC-fix-002"],
+        "記録を消しながら書き換えても通さない"
+    );
+    assert!(
+        overwritten(
+            &old,
+            &decision_2_changed(&selected, Some("['前の修正', '今回の修正']"))
+        )
+        .is_empty()
+    );
+    // 空の文字列は記録として数えない。
+    assert_eq!(
+        overwritten(&base(), &decision_2_changed(&selected, Some("['', '  ']"))),
+        ["DEC-fix-002"]
+    );
+    // 中身を変えていなければ、記録が増えても出ない（記録だけを足した変更）。
+    assert!(overwritten(&base(), &decision_2_changed(&[], Some("['足しただけ']"))).is_empty());
+}
+
+/// 判断の周りの記録（状態・影響先・置き換え）を変えても、上書きではない。
+#[test]
+fn 判断の周りの記録の変更は上書きではない() {
+    let old = base();
+    let new = decision_2_changed(&[("status = 'accepted'", "status = 'superseded'")], None);
+    assert!(overwritten(&old, &new).is_empty());
+    let body = format!("{DECISION_2}affects_requirements = ['TR-fix-02']\n");
+    let new = design_of(&with("meta/decisions/DEC-fix-002.toml", &body));
+    assert!(overwritten(&old, &new).is_empty());
+}
+
+/// 欄は、判断の schema に省略可能な欄として登録してある。 無くても読み込みの検査は通る。
+#[test]
+fn 意味を変えない修正の欄は省略可能で型つきで読める() {
+    let decision = spec("decision").expect("写し方がある");
+    assert!(decision.knows("meaning_preserving_edits"));
+    assert!(matches!(
+        decision.field("meaning_preserving_edits").map(|f| f.role),
+        Some(Role::Data)
+    ));
+    // 他の schema には持たせない。
+    assert!(
+        !spec("question")
+            .expect("写し方がある")
+            .knows("meaning_preserving_edits")
+    );
+    // 欄が無い既存の判断は、読み込みの検査を通り、記録は0件。
+    let design = base();
+    assert_eq!(design.audit(), Vec::new());
+    let edits = |d: &Design| {
+        d.object(&id("DEC-fix-002"))
+            .and_then(|o| o.as_decision())
+            .map(|d| d.meaning_preserving_edits())
+    };
+    assert_eq!(edits(&design), Some(Vec::new()));
+    let new = decision_2_changed(&[], Some("['一件目', '', '二件目']"));
+    assert_eq!(new.audit(), Vec::new());
+    assert_eq!(
+        edits(&new),
+        Some(vec!["一件目".to_owned(), "二件目".to_owned()])
+    );
+}
