@@ -13,15 +13,11 @@ use crate::frq::{Frq, HOP_SIZE};
 /// 結局 WAV を読み直すことになる。描画側はここから間引くか補間する。
 pub const THUMBNAIL_BUCKETS: usize = 512;
 
-/// クリップとみなす下限。
-///
-/// 1.0 ではなく 0.999 にしてある。16bit で受けた値を f32 へ正規化すると
-/// 天井は 32767/32768 = 0.99997 で、負側にしか 1.0 は現れない。
-/// 1.0 で判定すると、実際に張り付いた録音が「割れていない」と出る。
-///
-/// 画面側にも同じ値がある（`ui/src/lib/levels.ts`）。ずれは
-/// `koeru-app` の `画面のクリップ閾値がrustと一致する` が落とす。
-pub const CLIP_THRESHOLD: f32 = 0.999;
+/// クリップとみなす下限。 値は `koeru-model` へ移した（`DEC-PLT-034`）。
+/// アライメントの音響異常度が `koeru-core` を引かずに同じ値を使えるようにするため。
+/// 再輸出は既存の `koeru_core::analysis::CLIP_THRESHOLD` の経路を通すためだけにある。
+/// **移行中。**
+pub use koeru_model::waveform::CLIP_THRESHOLD;
 
 /// 録音停止時に確定させる値。
 #[derive(Debug, Clone, PartialEq)]

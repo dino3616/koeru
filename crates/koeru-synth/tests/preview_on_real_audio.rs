@@ -29,8 +29,8 @@
 // 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
 
-use koeru_core::analysis::TakeAnalysis;
-use koeru_core::oto::Oto;
+use koeru_formats::frq::{Frq, HOP_SIZE};
+use koeru_model::oto::Oto;
 use koeru_synth::resampler::{FrequencyTable, RenderRequest, midi_to_hz, render};
 use koeru_synth::world;
 
@@ -102,6 +102,9 @@ fn 実音声を指定した音高で歌わせられる() {
     println!("  切り出し {offset_ms:.0}ms から {length_ms:.0}ms");
 
     // アプリと同じ手順で `.frq` を作る——ファイル全体を hop=256 の格子で。
+    // アプリの録音停止時の解析（`koeru_core::analysis::TakeAnalysis::compute`）が
+    // 呼ぶのと同じ `Frq::from_analysis`。 解析の他の値（ピーク・重心・サムネイル）は
+    // ここでは使わないので、`koeru-core` を引かずに直接呼ぶ。
     let frame_ms = world::DEFAULT_FRAME_PERIOD_MS;
     let (f0, _) = world::estimate_f0(
         &s,
@@ -111,8 +114,7 @@ fn 実音声を指定した音高で歌わせられる() {
         1100.0,
         frame_ms,
     );
-    let analysis = TakeAnalysis::compute(&w.samples, w.rate_hz, &f0, frame_ms / 1000.0);
-    let table = analysis.frq.f0;
+    let table = Frq::from_analysis(&w.samples, w.rate_hz, &f0, frame_ms / 1000.0).f0;
 
     let oto = Oto {
         offset_ms,
@@ -137,7 +139,7 @@ fn 実音声を指定した音高で歌わせられる() {
             pitch_bend_cents: &[],
             frequency_table: Some(FrequencyTable {
                 f0: &table,
-                hop_samples: koeru_core::frq::HOP_SIZE,
+                hop_samples: HOP_SIZE,
             }),
         })
         .expect("合成できる");

@@ -12,8 +12,11 @@ description = "KOERU の合成。WORLD を自前 FFI で束ね、UTAU 互換 res
 workspace = true
 
 [dependencies]
-koeru-core = { path = "../koeru-core" }
 koeru-failure = { path = "../koeru-failure" }
+# 周波数表の格子（`koeru_formats::frq::HOP_SIZE`）。
+koeru-formats = { path = "../koeru-formats" }
+# 5値の型（`oto::Oto`）。
+koeru-model = { path = "../koeru-model" }
 thiserror.workspace = true
 tracing.workspace = true
 

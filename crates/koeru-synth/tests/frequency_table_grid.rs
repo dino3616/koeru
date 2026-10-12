@@ -14,7 +14,7 @@
 // 既定のフィルタでは見えず、走らせた意味が無くなる。
 #![allow(clippy::print_stdout)]
 
-use koeru_core::oto::Oto;
+use koeru_model::oto::Oto;
 use koeru_synth::resampler::{FrequencyTable, RenderRequest, midi_to_hz, render};
 
 const FS: u32 = 44_100;

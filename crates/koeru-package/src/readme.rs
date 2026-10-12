@@ -11,7 +11,7 @@
 
 use crate::bank::VoiceBank;
 use crate::profile::NEWLINE;
-use koeru_core::alias::Method;
+use koeru_model::alias::Method;
 
 /// 収録方式の表示名。 作り方だけで、多音階かどうかは含めない（`DEC-PKG-015`）。
 ///
@@ -34,7 +34,7 @@ fn tones_label(tones: &[i32]) -> String {
     sorted.sort_unstable();
     sorted
         .iter()
-        .map(|t| koeru_core::tone::name(*t))
+        .map(|t| koeru_model::tone::name(*t))
         .collect::<Vec<_>>()
         .join(" / ")
 }
@@ -82,7 +82,7 @@ pub fn readme_txt(bank: &VoiceBank, contents: &[String]) -> String {
 /// 保証とは言わない。 確かめた版を並べるだけで、他の版で動くとも
 /// 動かないとも言わない。
 fn verified_note() -> String {
-    let versions: Vec<String> = koeru_core::presamp::verified_openutau()
+    let versions: Vec<String> = koeru_model::presamp::verified_openutau()
         .into_iter()
         .map(|v| format!("  {} {}", v.channel, v.version))
         .collect();
@@ -151,7 +151,7 @@ mod tests {
             method: Method::Single,
             tones: vec![57],
             subbanks: Vec::new(),
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 

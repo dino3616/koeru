@@ -19,7 +19,7 @@
 //! ここを伸ばすと「あー」が「あ゛ー」のように濁る。
 
 use crate::world;
-use koeru_core::oto::Oto;
+use koeru_model::oto::Oto;
 
 /// resampler の入力（`TR-SYN-08` の引数一式）。
 ///
