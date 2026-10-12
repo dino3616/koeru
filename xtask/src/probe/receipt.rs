@@ -18,6 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use super::document;
 use super::model::{Counts, ExecutionContext, NotRunReason, ProbeDefinition, Receipt, Status};
 use crate::diagnostic::Report;
 use crate::knowledge::{Entry, with_schema};
@@ -378,6 +379,8 @@ fn make_receipt(
         actual_work: counts.passed + counts.failed,
         counts,
         problems,
+        environment: None,
+        missing_prerequisites: Vec::new(),
     }
 }
 
@@ -385,7 +388,7 @@ fn make_receipt(
 fn judge(s: &ProbeDefinition, counts: Counts, ctx: &ExecutionContext) -> Receipt {
     let applies = s.applies(ctx);
     let problems = collect_problems(s, &counts, applies);
-    make_receipt(s, counts, applies, problems)
+    make_receipt(s, counts, applies, problems).in_environment(ctx)
 }
 
 /// `cargo xtask test-receipt [--runner cargo|bun]`
@@ -482,7 +485,7 @@ fn cargo_receipts(
                 "{}: {} の {} の試験 binary が組み立たなかった",
                 s.id, s.package, s.target
             ));
-            out.push(Receipt::not_run(s, NotRunReason::BuildFailed));
+            out.push(Receipt::not_run(s, NotRunReason::BuildFailed).in_environment(ctx));
         }
     }
     out
@@ -519,7 +522,7 @@ fn bun_receipts(
                 if !output.status.success() && problems.is_empty() {
                     problems.push("bun が失敗を返した".into());
                 }
-                out.push(make_receipt(s, c, applies, problems));
+                out.push(make_receipt(s, c, applies, problems).in_environment(ctx));
             }
             None => rep.error(format!(
                 "{}: vitest の要約行（`Tests …`）が無い。形が変わったか、途中で落ちた",
@@ -587,37 +590,7 @@ fn write_receipt(
     ctx: &ExecutionContext,
     receipts: &[Receipt],
 ) -> Result<PathBuf, String> {
-    let suites: Vec<serde_json::Value> = receipts
-        .iter()
-        .map(|v| {
-            serde_json::json!({
-                "suite": v.probe,
-                "package": v.package,
-                "target": v.target,
-                "applies": v.applies,
-                "discovered": v.counts.discovered,
-                "passed": v.counts.passed,
-                "failed": v.counts.failed,
-                "ignored": v.counts.ignored,
-                "result": match v.status {
-                    Status::Passed => "passed",
-                    Status::Failed => "failed",
-                    Status::NotApplicable => "not-applicable",
-                    Status::Skipped => "skipped",
-                    Status::NotRun(_) => "not-run",
-                },
-                "problems": v.problems,
-            })
-        })
-        .collect();
-    let receipt = serde_json::json!({
-        "git": ctx.git_sha,
-        "dirty": ctx.dirty,
-        "platform": ctx.platform,
-        "backend": ctx.backend,
-        "runner": runner,
-        "suites": suites,
-    });
+    let receipt = document::render(runner, ctx, receipts);
     let dir = root.join("target/receipts");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{runner}-{}-{}.json", ctx.platform, ctx.backend));
@@ -699,6 +672,7 @@ mod tests {
             target: "lib".into(),
             platforms: vec!["macos".into(), "linux".into()],
             backends: vec!["native".into(), "unsupported".into()],
+            requires_native: false,
             min_cases: min,
             manual,
             prerequisites: Prerequisites::default(),
@@ -716,6 +690,27 @@ mod tests {
             dirty: false,
             runner_version: None,
         }
+    }
+
+    #[test]
+    fn 判定した受領証は走らせた環境を持つ() {
+        let mut ctx = ctx();
+        ctx.git_sha = "abc123".into();
+        let c = Counts {
+            discovered: 1,
+            passed: 1,
+            failed: 0,
+            ignored: 0,
+        };
+        let env = judge(&probe(1, 0), c, &ctx)
+            .environment
+            .expect("版が取れていれば環境を持つ");
+        assert_eq!(
+            (env.platform.as_str(), env.backend.as_str(), env.git_sha.as_str()),
+            ("linux", "unsupported", "abc123")
+        );
+        // git の外で走らせて版が取れなければ、環境不明のまま書く。
+        assert_eq!(judge(&probe(1, 0), c, &self::ctx()).environment, None);
     }
 
     #[test]
