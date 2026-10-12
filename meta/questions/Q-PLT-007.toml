@@ -1,0 +1,36 @@
+schema = 'question'
+id = 'Q-PLT-007'
+title = '書いてあるのに呼ばれていない外部 resampler と持ち出しの口を、繋ぐか削るか'
+status = 'open'
+owner = 'dino3616'
+why_it_matters = '''
+次の2つは実装と試験があるのに、画面からも `Studio` からも呼ばれていない。
+
+- `crates/koeru-app/src/external.rs` —— 本人が指した resampler で試唱する口（`TR-SYN-35`）
+- `crates/koeru-core/src/handoff.rs` —— 録音済み WAV の外部ツール向け書き出しと再取り込み、
+  ライブラリ全体の持ち出しと復元（`TR-PKG-45`、`TR-PKG-47`、`TR-PKG-48`）
+
+呼ばれていないので、要件を満たしているように見えて、本人は使えない。境界の移行（T08）で
+周りの口が変わっても、どこからも呼ばれないので壊れたことに気づけない。
+
+T08 では繋ぎも削りもしない。繋ぐなら、外部 resampler は試唱の素材解決（use-context）と
+指紋の上に、持ち出しは書き出しの staging / publish と同じ規則の上に載せることになる。
+'''
+how_to_close = '''
+それぞれについて、次のどれかを選ぶ。
+
+- 繋ぐ。画面の操作と、`ProjectRuntime` / `JobRuntime` の上の口を決める
+- 要件を先送りする。要件の確信度か属する profile を見直し、コードは消す
+- 削る。要件を取り下げ、コードと試験を消す
+
+決めたら、繋ぐ・削る作業を DAG のどのタスクに載せるかも書く。
+'''
+blocks_profiles = []
+affects_requirements = [
+  'TR-SYN-35',
+  'TR-PKG-45',
+  'TR-PKG-47',
+  'TR-PKG-48',
+]
+affects_questions = []
+affects_decisions = []
