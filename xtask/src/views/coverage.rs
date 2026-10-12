@@ -15,9 +15,6 @@
 //! 関係の規則は D00 の語彙（`knowledge::design`）が持つ。 ここは graph の edge を読んで
 //! 数えるだけで、覆っていない要件の合否は持たない。
 
-// 消費者（D07c・D08・D10）が付くまで、production からは呼ばれない。
-#![allow(dead_code)]
-
 use crate::graph::{NodeKey, SemanticGraph};
 use crate::knowledge::Id;
 use crate::knowledge::design::{Design, Kind, relation};

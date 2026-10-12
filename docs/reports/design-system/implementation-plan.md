@@ -510,9 +510,9 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
   - FSL `INV/FB` domain-free opaque identity
   - DEC/Q/EVID → domain-free opaque identity
   - HYP target files
-  - BUDGET → quantitative REQ + allocation data/view
+  - BUDGET → quantitative REQ + allocation data/view。小計は各 step が属する group を明示した欄から出す。位置で束ねない（D07a は小計を数えずに置いている）
   - TGT → REQ/HYP/EVID/DEC
-  - SCALE → workload + DEC/EVID + calculation
+  - SCALE → workload + DEC/EVID + calculation。導出式は入力と係数の構造化した欄で持ち、D07a が再計算する（D07a は文章の式を読まず、由来と導出値の分離だけを置いている）
   - CMP → DEC/EVID; ledger removal（`DEC-PLT-049`）
   - SUITE → reusable PROBE definitions; receipts remain generated
 - **Verification:** before/after Context, current check behavior, budget totals, required test/probe coverage、all inbound refs。
