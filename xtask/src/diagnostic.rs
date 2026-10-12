@@ -191,6 +191,20 @@ pub fn render_human(command: &str, diagnostics: &[Diagnostic]) -> String {
 /// `ok` は失敗が1件も無いこと。 `location.path` は `root` の下なら根からの相対で、
 /// 区切りは `/` に揃える。 `root` の外のパスはそのまま。
 pub fn render_json(command: &str, diagnostics: &[Diagnostic], root: Option<&Path>) -> String {
+    render_json_with(command, diagnostics, root, None)
+}
+
+/// [`render_json`] に、コマンドごとの payload を1つ添えた形。 `payload` は（欄の名前、値）で、
+/// 封筒の欄（`command`・`ok`・`diagnostics`）と並ぶ。 payload の形はそのコマンドが持つ。
+///
+/// 封筒の欄と同じ名前は載せられない——封筒が先で、payload は黙って捨てる（機械が `ok` を
+/// 読むので、payload が上書きできてはいけない）。
+pub fn render_json_with(
+    command: &str,
+    diagnostics: &[Diagnostic],
+    root: Option<&Path>,
+    payload: Option<(&str, Value)>,
+) -> String {
     let items: Vec<Value> = diagnostics
         .iter()
         .map(|d| {
@@ -209,12 +223,15 @@ pub fn render_json(command: &str, diagnostics: &[Diagnostic], root: Option<&Path
         })
         .collect();
     let ok = !diagnostics.iter().any(|d| d.severity == Severity::Error);
-    json!({
+    let mut envelope = json!({
         "command": command,
         "ok": ok,
         "diagnostics": items,
-    })
-    .to_string()
+    });
+    if let (Some((name, value)), Some(fields)) = (payload, envelope.as_object_mut()) {
+        fields.entry(name).or_insert(value);
+    }
+    envelope.to_string()
 }
 
 fn relative(path: &Path, root: Option<&Path>) -> String {
@@ -315,6 +332,42 @@ mod tests {
         rep.note("数");
         let v: Value =
             serde_json::from_str(&render_json("check-x", rep.diagnostics(), None)).expect("読める");
+        assert_eq!(v["ok"], true);
+    }
+
+    #[test]
+    fn payload_は封筒の欄と並び_封筒の欄は上書きされない() {
+        let mut rep = Report::default();
+        rep.note_code("x.y", "数");
+        let plain = render_json("check-x", rep.diagnostics(), None);
+        assert_eq!(
+            render_json_with("check-x", rep.diagnostics(), None, None),
+            plain,
+            "payload が無ければ render_json と同じ"
+        );
+        let with = render_json_with(
+            "check-x",
+            rep.diagnostics(),
+            None,
+            Some(("context", json!({ "version": 1 }))),
+        );
+        let v: Value = serde_json::from_str(&with).expect("読める");
+        let mut without: Value = serde_json::from_str(&plain).expect("読める");
+        assert_eq!(v["context"], json!({ "version": 1 }));
+        // payload を足した欄のほかは、封筒そのまま。
+        without["context"] = json!({ "version": 1 });
+        assert_eq!(v, without);
+        // 欄の並びは決定的（鍵の順）。 payload の位置で封筒の出力が揺れない。
+        let keys: Vec<&String> = v.as_object().expect("表").keys().collect();
+        assert_eq!(keys, ["command", "context", "diagnostics", "ok"]);
+        // 封筒の欄と同じ名前は、封筒が勝つ。
+        let clobber = render_json_with(
+            "check-x",
+            rep.diagnostics(),
+            None,
+            Some(("ok", json!("payload"))),
+        );
+        let v: Value = serde_json::from_str(&clobber).expect("読める");
         assert_eq!(v["ok"], true);
     }
 

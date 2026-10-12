@@ -28,9 +28,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use serde_json::Value;
-
-use crate::diagnostic::{Diagnostic, Severity, render_json};
+use crate::diagnostic::{Diagnostic, Severity, render_json, render_json_with};
 use crate::repo::{self, RepoView};
 use compare::{Changes, compare};
 use compile::{
@@ -142,7 +140,7 @@ pub(crate) fn execute(
 ) -> Output {
     let inputs: Vec<RootInput> = request.roots.iter().map(|r| RootInput::parse(r)).collect();
 
-    // 版から読むと、ファイル1つにつき `git` を1本起動する。 比べる2つの版は並べて読む。
+    // 比べる2つの版は並べて読む。
     let (now_world, before_world) = std::thread::scope(|scope| {
         let before = from.map(|view| scope.spawn(|| World::load(view)));
         let now = World::load(at);
@@ -187,11 +185,11 @@ pub(crate) fn execute(
         Format::Markdown => render::markdown(&view),
         Format::Json => {
             let diagnostics = diagnostics(&now, &incomplete);
-            let mut envelope: Value =
-                serde_json::from_str(&render_json("context", &diagnostics, Some(root)))
-                    .expect("render_json は JSON を返す");
-            envelope["context"] = render::json_payload(&view);
-            format!("{envelope}\n")
+            let payload = Some(("context", render::json_payload(&view)));
+            format!(
+                "{}\n",
+                render_json_with("context", &diagnostics, Some(root), payload)
+            )
         }
     };
     Output { text, ok }
