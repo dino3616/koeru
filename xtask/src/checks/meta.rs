@@ -395,4 +395,7 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
             .collect::<Vec<_>>()
             .join(" / "),
     );
+
+    // 前の版と比べる。 採用済みの判断の上書きと、ID の付け直し。
+    super::continuity::check_continuity(ctx, rep);
 }

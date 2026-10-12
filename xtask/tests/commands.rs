@@ -417,6 +417,10 @@ fn 下の階層からでも根を見つける() {
 
 // ## check-meta
 
+/// git のリポジトリではない fixture では、前の版と比べる相手が無い。 `check-meta` はそう1行出す。
+/// fixture は別のリポジトリの `target/` の下にあるが、根ではないので親を基準にはしない。
+const NO_BASELINE: &str = "  比較の基準: なし（git のリポジトリの根ではない）";
+
 #[test]
 fn check_meta_は整った_meta_を通す() {
     Fixture::valid("check-meta-ok").run(&["check-meta"]).expect(
@@ -424,6 +428,7 @@ fn check_meta_は整った_meta_を通す() {
         &[
             "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
             "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            NO_BASELINE,
             "check-meta: ok",
         ],
         &[],
@@ -446,6 +451,7 @@ fn check_meta_は収集ファイル直下の参照切れを落とす() {
         &[
             "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
             "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            NO_BASELINE,
             "  NG <root>/meta/requirements/core.toml: affects_requirements の `TR-fix-404` は技術要件に存在しない",
             "check-meta: 1 件",
         ],
@@ -490,6 +496,7 @@ x = 1
         &[
             "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 1 件",
             "  budget 2 / component-ledger 1 / decision 4 / profile 2 / question 1 / requirement-set 1 / target-set 1 / test-portfolio 2",
+            NO_BASELINE,
             "  NG <root>/meta/decisions/nameless.toml: `schema` が無い。ファイルは自分の形を名乗る必要がある",
             "  NG <root>/meta/profiles/misplaced.toml: schema `decision` は meta/decisions/ に置く",
             "  NG <root>/meta/questions/weird.toml: 知らない schema `nonsense`",
@@ -597,6 +604,7 @@ decided_by = 'DEC-fix-404'
         &[
             "  FSL の要求 2 件 / 技術要件 3 件 / 部品台帳 4 件 / 性能目標 0 件",
             "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            NO_BASELINE,
             "  NG <root>/meta/requirements/core.toml: id `TR-fix-01` が重複している",
             "  NG TR-fix-03: 確度 `Maybe` は Fact / Assumption / Unknown のいずれでもない",
             "  NG TR-fix-03: 本文が空",
@@ -1494,6 +1502,7 @@ fn check_meta_は行き先の種類が違う参照も落とす() {
         &[
             "  FSL の要求 2 件 / 技術要件 2 件 / 部品台帳 2 件 / 性能目標 0 件",
             "  budget 1 / component-ledger 1 / decision 3 / profile 2 / question 1 / requirement-set 1 / test-portfolio 1",
+            NO_BASELINE,
             "  NG <root>/meta/decisions/DEC-fix-001.toml: affects_requirements の `DEC-fix-002` は技術要件に存在しない",
             "  NG <root>/meta/decisions/DEC-fix-001.toml: includes_fsl の `TR-fix-01` はFSL の要求に存在しない",
             "  NG <root>/meta/decisions/DEC-fix-001.toml: affects_decisions の `REQ-fix-001` という meta は存在しない",
@@ -1986,4 +1995,303 @@ fn test_receipt_は実行した件数で通過と失敗と未実行を分ける(
         &[],
     );
     assert_eq!(receipt(&fx, "nope")["suites"], serde_json::json!([]));
+}
+
+// ## check-meta: 前の版と比べる（採用済みの判断の上書き、ID の付け直し）
+
+/// main に基準のコミットを置き、`feature` の枝へ移った fixture。 基準は main との merge-base。
+fn compared_fixture(name: &str) -> Fixture {
+    let fx = Fixture::valid(name);
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("base");
+    fx.git(&["checkout", "-q", "-b", "feature"]);
+    fx
+}
+
+const BASELINE_LINE: &str = "  比較の基準: ";
+
+/// `check-meta` の出力から、基準の行を取り出す。
+fn baseline_line(run: &Run) -> &str {
+    run.stdout
+        .lines()
+        .find(|l| l.starts_with(BASELINE_LINE))
+        .unwrap_or_else(|| panic!("基準の行が無い: {run:?}"))
+}
+
+#[track_caller]
+fn assert_has_line(run: &Run, needle: &str) {
+    assert!(
+        run.stdout.lines().any(|l| l.contains(needle)),
+        "`{needle}` を含む行が無い: {run:?}"
+    );
+}
+
+/// 採用済みの判断の `selected` を変えると落ちる。 どの基準と比べたかを1行出す。
+#[test]
+fn check_meta_は採用済みの判断の_selected_を変えると落ちる() {
+    let fx = compared_fixture("check-meta-overwrite");
+    let sha = fx.git(&["rev-parse", "main"]);
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace("selected = 'WAV'", "selected = 'FLAC'"),
+    );
+    fx.commit("overwrite");
+
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(
+        &run,
+        "  NG <root>/meta/decisions/DEC-FIX-001.toml: 採用済みの判断 `DEC-FIX-001` の selected が書き換わった。",
+    );
+    assert_eq!(
+        baseline_line(&run),
+        format!("{BASELINE_LINE}{}（main との merge-base）", &sha[..12])
+    );
+
+    // コミットしていない変更も、作業ツリーとして比べる。
+    let fx = compared_fixture("check-meta-overwrite-uncommitted");
+    fx.write("docs/note.md", "枝の最初のコミット。\n");
+    fx.commit("feature");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace("selected = 'WAV'", "selected = 'FLAC'"),
+    );
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(
+        &run,
+        "採用済みの判断 `DEC-FIX-001` の selected が書き換わった",
+    );
+}
+
+/// 同じ変更で `meaning_preserving_edits` が増えていれば通る。
+#[test]
+fn check_meta_は意味を変えない修正の記録があれば通す() {
+    let fx = compared_fixture("check-meta-edits");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &format!(
+            "{}meaning_preserving_edits = ['表記を直した']\n",
+            DECISION_1.replace("selected = 'WAV'", "selected = 'wav'")
+        ),
+    );
+    fx.commit("fix typo");
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    baseline_line(&run);
+
+    // 記録だけを足して、記録の件数が変わらない次の変更で selected を直すと、また落ちる。
+    fx.git(&["checkout", "-q", "-b", "next"]);
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &format!(
+            "{}meaning_preserving_edits = ['表記を直した']\n",
+            DECISION_1.replace("selected = 'WAV'", "selected = 'Wav'")
+        ),
+    );
+    fx.commit("again without a record");
+    // 基準は main の merge-base なので、main からの変更として見れば記録は1件増えている。
+    // 前の変更の続きとして `--base HEAD~1` で見れば、増えていないので落ちる。
+    assert_eq!(fx.run(&["check-meta"]).code, 0);
+    let run = fx.run(&["check-meta", "--base", "HEAD~1"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(&run, "--base HEAD~1 との merge-base");
+}
+
+/// 新しい判断と、採用済みでない判断の変更、`selected` 以外の変更は通る。
+#[test]
+fn check_meta_は新しい判断と未採用の判断と_selected_以外の変更を通す() {
+    let fx = compared_fixture("check-meta-allowed");
+    // 新しい判断。
+    fx.write(
+        "meta/decisions/DEC-fix-004.toml",
+        &DECISION_1
+            .replace("DEC-fix-001", "DEC-fix-004")
+            .replace("affects_requirements = ['TR-fix-01']\n", ""),
+    );
+    // 置き換えられた（採用済みではない）判断の `selected`。
+    fx.write(
+        "meta/decisions/DEC-fix-002.toml",
+        &DECISION_2.replace("selected = 'NFD'", "selected = 'NFC'"),
+    );
+    // 採用済みの判断の `selected` 以外（理由・案）。
+    fx.write(
+        "meta/decisions/DEC-fix-003.toml",
+        &DECISION_3
+            .replace("配布先が NFC を前提にしている。", "直した理由。")
+            .replace(
+                "options = ['NFD', 'NFC']",
+                "options = ['NFD', 'NFC', 'NFKC']",
+            ),
+    );
+    fx.commit("allowed changes");
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    baseline_line(&run);
+}
+
+/// 同じ種類のファイルの改名で ID が変わると落ちる。 ID が同じままの内容の変更は通る。
+#[test]
+fn check_meta_は_id_の付け直しを落とす() {
+    let fx = compared_fixture("check-meta-identity");
+    fx.remove("meta/questions/Q-fix-001.toml");
+    fx.write(
+        "meta/questions/Q-fix-009.toml",
+        &QUESTION.replace("Q-fix-001", "Q-fix-009"),
+    );
+    fx.commit("rename");
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(
+        &run,
+        "  NG <root>/meta/questions/Q-FIX-009.toml: `Q-FIX-001` のファイルが `Q-FIX-009` に改名された。",
+    );
+
+    // 内容を直しただけ（ID もファイル名もそのまま）なら通る。
+    let fx = compared_fixture("check-meta-identity-edit");
+    fx.write(
+        "meta/questions/Q-fix-001.toml",
+        &QUESTION.replace("利用者に聞く。", "利用者に聞いて決める。"),
+    );
+    fx.commit("edit");
+    assert_eq!(fx.run(&["check-meta"]).code, 0);
+}
+
+/// main に直接積んだ変更は、親コミットと比べる（main への push）。
+#[test]
+fn check_meta_は_main_の先頭では親コミットと比べる() {
+    let fx = Fixture::valid("check-meta-main-parent");
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("base");
+    let parent = fx.git(&["rev-parse", "HEAD"]);
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace("selected = 'WAV'", "selected = 'FLAC'"),
+    );
+    fx.commit("overwrite on main");
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_eq!(
+        baseline_line(&run),
+        format!(
+            "{BASELINE_LINE}{}（main の先頭にいるので親コミット）",
+            &parent[..12]
+        )
+    );
+
+    // 最初のコミットには比べる相手が無い。 そう出して通る。
+    let fx = Fixture::valid("check-meta-first-commit");
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("only");
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_eq!(
+        baseline_line(&run),
+        format!("{BASELINE_LINE}なし（最初のコミット）")
+    );
+}
+
+/// 基準が取れないときは、比べずに通さず落ちる。 浅い clone と、main の無い clone。
+#[test]
+fn check_meta_は基準が取れなければ落ちる() {
+    // 浅い clone（CI の既定の checkout）。 親も分岐点も引けない。
+    let fx = Fixture::valid("check-meta-shallow-source");
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("one");
+    fx.write("docs/note.md", "二つ目。\n");
+    fx.commit("two");
+    fx.write("docs/note.md", "三つ目。\n");
+    fx.commit("three");
+
+    let clone = fx.root.with_file_name("check-meta-shallow-clone");
+    if clone.exists() {
+        fs::remove_dir_all(&clone).expect("前の実行の clone を消せる");
+    }
+    let path = fx.root.display().to_string().replace('\\', "/");
+    let url = if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    };
+    let cloned = Command::new("git")
+        .args(["clone", "-q", "--depth", "1", &url])
+        .arg(&clone)
+        .output()
+        .expect("git を起動できる");
+    assert!(
+        cloned.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cloned.stderr)
+    );
+    let run = run_in(&clone, &["check-meta"], &clone);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(
+        &run,
+        "比較の基準を決められない: 親コミットが無い。 浅い clone",
+    );
+    assert_has_line(&run, "fetch-depth: 0");
+    // 基準の行は出さない（比べていない）。
+    assert!(!run.stdout.contains(BASELINE_LINE), "{run:?}");
+
+    // main も origin/main も無い。
+    let fx = Fixture::valid("check-meta-no-main");
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("one");
+    fx.git(&["checkout", "-q", "-b", "other"]);
+    fx.git(&["branch", "-q", "-D", "main"]);
+    let run = fx.run(&["check-meta"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(
+        &run,
+        "比較の基準を決められない: 基準にする `origin/main` も `main` も無い。",
+    );
+
+    // 渡した版が解決できない。
+    let fx = compared_fixture("check-meta-bad-base");
+    let run = fx.run(&["check-meta", "--base", "no-such-ref"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(&run, "--base `no-such-ref` を版として解決できない");
+    let run = fx.run(&["check-meta", "--base"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_has_line(&run, "使い方: --base <rev>");
+}
+
+/// `--base` で基準を変えられる。 `--format json` では、基準の行も診断として出る。
+#[test]
+fn check_meta_は_base_で基準を変えられる() {
+    let fx = compared_fixture("check-meta-explicit-base");
+    let first = fx.git(&["rev-parse", "HEAD"]);
+    fx.write("docs/note.md", "足した。\n");
+    fx.commit("note");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace("selected = 'WAV'", "selected = 'FLAC'"),
+    );
+    fx.commit("overwrite");
+    // 直前のコミットとだけ比べても、main との merge-base と比べても落ちる。
+    for base in ["HEAD~1", &first, "main"] {
+        let run = fx.run(&["check-meta", "--base", base]);
+        assert_eq!(run.code, 1, "{base}: {run:?}");
+    }
+    // HEAD と比べれば、作業ツリーの未コミット分だけ。 無いので通る。
+    let run = fx.run(&["check-meta", &format!("--base={}", "HEAD")]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_has_line(&run, "--base HEAD との merge-base");
+
+    let run = fx.run(&["check-meta", "--format", "json"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
+    let codes: Vec<&str> = v["diagnostics"]
+        .as_array()
+        .expect("配列")
+        .iter()
+        .filter_map(|d| d["code"].as_str())
+        .collect();
+    assert!(codes.contains(&"meta.baseline"), "{codes:?}");
+    assert!(codes.contains(&"meta.decision-overwritten"), "{codes:?}");
 }

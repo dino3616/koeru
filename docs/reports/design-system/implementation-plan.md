@@ -404,7 +404,7 @@ xtask/src/
 - **Canonical relations:** `resolved_by`, `relies_on_hypotheses`, `targets`, `derived_from`, `assesses`, `considers`, `establishes/revises/removes`, `constrains`, `formalizes`, `provenance`, `implements`, `context_for`。
 - **Legacy read:** TR / FSL REQ / BUDGET / TGT / SCALE / CMP / SUITE を target meaning へ lossless に expose する compatibility adapter。
 - **Acceptance:** downstream consumer は legacy prefix / raw TOML layout を知らない。
-- **写し方の判断:** `DEC-PLT-048`。
+- **写し方の判断:** `DEC-PLT-048`。 その実装（X08）で、採用済みの判断の上書きは `selected` の変更だけを見て、同じ変更で `meaning_preserving_edits` が増えれば通す。 上書きと ID の付け直しは `check-meta` が前の版（PR は `origin/main` との merge-base、main への push は親コミット。 取れなければ失敗）と比べて落とす。
 
 ## D01 — Current / Comparative Context
 
