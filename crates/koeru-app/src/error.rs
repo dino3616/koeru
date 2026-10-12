@@ -362,6 +362,28 @@ mod tests {
         assert!(!json.contains("source"), "{json}");
     }
 
+    /// 背後の仕事の失敗は `jobs.*` の code と分類のまま畳まれ、`AppError` 自身も
+    /// `Failure` として code と分類を返す（`JobRuntime::publish` の `admit` が使う）。
+    #[test]
+    fn 背後の仕事の失敗は_code_と分類を保って畳まれる() {
+        use koeru_runtime::jobs::{JobError, PublishRefused};
+
+        let e = AppError::from(JobError::DeadlineExceeded);
+        assert_eq!(e.code, "jobs.deadline_exceeded");
+        assert_eq!(e.class, FailureClass::EngineFailed);
+        assert_eq!(e.action, FailureAction::Rebuild);
+
+        let stale = AppError::from(PublishRefused::Stale);
+        assert_eq!(stale.code, "jobs.publish_stale");
+        assert_eq!(stale.class, FailureClass::Conflict);
+        // 確定したあとの失敗として返すときは、持ち主が上書きする。
+        let committed = stale.with_outcome(Outcome::Committed);
+        assert_eq!(committed.outcome, FailureOutcome::Committed);
+
+        assert_eq!(Failure::code(&e), "jobs.deadline_exceeded");
+        assert_eq!(Failure::class(&e), Class::EngineFailed);
+    }
+
     #[test]
     fn 確定したあとの失敗は確定済みとして返せる() {
         let e = AppError::from(koeru_core::frq::FrqError::LengthMismatch)

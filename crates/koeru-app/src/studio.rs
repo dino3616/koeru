@@ -497,7 +497,7 @@ impl DerivedTake {
 /// `Failed`——失敗の code と分類は落ちた工程のもの。
 struct Unfinished {
     /// `failure` は空。 取り出して [`Self::failure`] に入れてある。
-    derived: DerivedTake,
+    derived: Box<DerivedTake>,
     failure: AppError,
 }
 
@@ -3038,7 +3038,7 @@ impl Studio {
             // 置けたところまでは置いてある。 仕事は `Failed` で、結果は画面へ返す。
             Err(PublishError::Admit(mut unfinished)) => {
                 unfinished.derived.failure = Some(unfinished.failure);
-                unfinished.derived
+                *unfinished.derived
             }
         }
     }
@@ -3075,14 +3075,17 @@ impl Studio {
         let output = done.into_value();
         if let Err(failure) = alive {
             return Err(Unfinished {
-                derived: DerivedTake::unplaced(&output),
+                derived: Box::new(DerivedTake::unplaced(&output)),
                 failure,
             });
         }
         let mut derived = self.admit_take_analysis(output);
         match derived.failure.take() {
             None => Ok((derived, receipt)),
-            Some(failure) => Err(Unfinished { derived, failure }),
+            Some(failure) => Err(Unfinished {
+                derived: Box::new(derived),
+                failure,
+            }),
         }
     }
 
@@ -4111,23 +4114,28 @@ impl Studio {
         let carried = Arc::clone(&failed);
         // 背景の lane に載る（`TR-SYN-34`）。 同じテイクの再推定は積み重ならない。
         // 期限は解析と同じ仮の値（`Q-PLT-006`）。
-        let spec = JobSpec::new(lease, JobKind::Analysis, Priority::Reestimate, move |probe| {
-            take_analysis::re_estimate(&input, &|| probe.check()).map_err(|stop| match stop {
-                Stop::Cancelled(cancelled) => ComputeError::from(cancelled),
-                Stop::Failed(e) => {
-                    let failure = JobFailure {
-                        code: e.code,
-                        class: e.class.into(),
-                        // 計算は台帳へ書かない。
-                        outcome: koeru_failure::Outcome::NotCommitted,
-                    };
-                    if let Ok(mut slot) = carried.lock() {
-                        *slot = Some(e);
+        let spec = JobSpec::new(
+            lease,
+            JobKind::Analysis,
+            Priority::Reestimate,
+            move |probe| {
+                take_analysis::re_estimate(&input, &|| probe.check()).map_err(|stop| match stop {
+                    Stop::Cancelled(cancelled) => ComputeError::from(cancelled),
+                    Stop::Failed(e) => {
+                        let failure = JobFailure {
+                            code: e.code,
+                            class: e.class.into(),
+                            // 計算は台帳へ書かない。
+                            outcome: koeru_failure::Outcome::NotCommitted,
+                        };
+                        if let Ok(mut slot) = carried.lock() {
+                            *slot = Some(e);
+                        }
+                        ComputeError::Failed(failure)
                     }
-                    ComputeError::Failed(failure)
-                }
-            })
-        })
+                })
+            },
+        )
         .overflow(OverflowPolicy::Coalesce(CoalesceKey::new(format!(
             "re_estimate:{take_id}"
         ))))
@@ -4191,10 +4199,7 @@ impl Studio {
     /// 入力が断る）。
     fn wav_stamp(&self, rel_path: &str) -> String {
         self.open.as_ref().map_or_else(String::new, |open| {
-            format!(
-                "{:016x}",
-                hash_of(Some(&open.dir().root().join(rel_path)))
-            )
+            format!("{:016x}", hash_of(Some(&open.dir().root().join(rel_path))))
         })
     }
 
@@ -6400,10 +6405,17 @@ mod tests {
                 },
             ))
             .expect("受け付けること");
-        started.recv_timeout(Duration::from_secs(60)).expect("走り出す");
+        started
+            .recv_timeout(Duration::from_secs(60))
+            .expect("走り出す");
         let prerender = jobs
             .submit_notify(
-                JobSpec::new(lease, JobKind::PreviewRender, Priority::PostRecording, |_| Ok(())),
+                JobSpec::new(
+                    lease,
+                    JobKind::PreviewRender,
+                    Priority::PostRecording,
+                    |_| Ok(()),
+                ),
                 |_| {},
             )
             .expect("受け付けること");
@@ -6454,7 +6466,8 @@ mod tests {
         let take = 1;
 
         let (purpose, floor) = studio.f0_conditions();
-        let stamped = take_analysis::analysis_based_on(take, purpose, floor, &studio.read_row(&row));
+        let stamped =
+            take_analysis::analysis_based_on(take, purpose, floor, &studio.read_row(&row));
         assert!(
             stamped.is_current_in(&studio.current_analysis_based_on(take, &row)),
             "何も変わっていない"
@@ -6466,7 +6479,9 @@ mod tests {
         // 別のテイクの印とも一致しない。
         assert!(!stamped.is_current_in(&studio.current_analysis_based_on(take + 1, &row)));
         // F0 の下限が決まると外れる。
-        studio.test_observe_f0(vec![220.0; 4], 80.0).expect("埋められる");
+        studio
+            .test_observe_f0(vec![220.0; 4], 80.0)
+            .expect("埋められる");
         assert!(!stamped.is_current_in(&studio.current_analysis_based_on(take, &row)));
 
         // 指紋は中身を出さない。
@@ -6521,5 +6536,51 @@ mod consistency_tests {
         for spelling in ["- か", "a か", "a k", "a -"] {
             assert!(first_phoneme(spelling).is_none(), "{spelling}");
         }
+    }
+}
+
+/// 解析の値が無いときに画面へ返す値と、受理が途中で落ちたときの失敗の持ち方。
+/// 実機も MFA も要らないので、書いていない OS 向けの組み立てでも同じ数だけ通る。
+#[cfg(test)]
+mod derived_take_tests {
+    use super::*;
+
+    /// 計算の出力が無くても、手元の標本から波形の要約・最大値・計測を作れる。
+    /// oto は付かず、失敗が載る。
+    #[test]
+    fn 計算の出力が無いときは手元の標本から作る() {
+        let samples = vec![0.0_f32, 0.5, -0.25, 0.1];
+        let failure = AppError::from(JobError::DeadlineExceeded);
+        let derived = DerivedTake::from_samples(&samples, MASTER_RATE_HZ, failure);
+        assert!((derived.peak - 0.5).abs() < f32::EPSILON);
+        assert_eq!(
+            derived.thumbnail.len(),
+            koeru_core::analysis::THUMBNAIL_BUCKETS
+        );
+        assert!(derived.oto.is_none() && derived.confidence.is_none());
+        assert_eq!(
+            derived.failure.as_ref().map(|e| e.code),
+            Some("jobs.deadline_exceeded")
+        );
+    }
+
+    /// 受理が途中で落ちた失敗は、code と分類を落ちた工程のまま運び、`Debug` に
+    /// 波形や計測を出さない。
+    #[test]
+    fn 受理の途中の失敗は_code_と分類を運び_debug_で値を出さない() {
+        let failure = AppError::from(koeru_core::db::LedgerError::UnknownTake);
+        let unfinished = Unfinished {
+            derived: Box::new(DerivedTake::from_samples(
+                &[0.9_f32],
+                MASTER_RATE_HZ,
+                failure.clone(),
+            )),
+            failure,
+        };
+        assert_eq!(Failure::code(&unfinished), "ledger.unknown_take");
+        assert_eq!(Failure::class(&unfinished), Class::Conflict);
+        let shown = format!("{unfinished:?}");
+        assert!(shown.contains("ledger.unknown_take"), "{shown}");
+        assert!(!shown.contains("0.9"), "{shown}");
     }
 }

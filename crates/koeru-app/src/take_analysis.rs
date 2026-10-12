@@ -276,13 +276,13 @@ impl RowReads {
                     ))
                 }),
             )
-            .with("row.kana", stamp_of(&self.kana, |k| digest(k)))
+            .with("row.kana", stamp_of(&self.kana, digest))
             .with(
                 "row.line",
                 stamp_of(&self.line, |l| digest(&format!("{l:?}"))),
             )
             .with("row.tone", stamp_of(&self.tone, |t| t.to_string()))
-            .with("row.owned", stamp_of(&self.owned, |o| digest(o)))
+            .with("row.owned", stamp_of(&self.owned, digest))
     }
 }
 
@@ -369,7 +369,9 @@ impl TakeAnalysisInput {
 
     /// 入力の大きさ（バイト）。 `JobRuntime` の上限の勘定に申告する。
     pub(crate) fn input_bytes(&self) -> usize {
-        self.samples.len().saturating_mul(std::mem::size_of::<f32>())
+        self.samples
+            .len()
+            .saturating_mul(std::mem::size_of::<f32>())
     }
 }
 
@@ -886,7 +888,9 @@ impl ReEstimateInput {
 
     /// 入力の大きさ（バイト）。 `JobRuntime` の上限の勘定に申告する。
     pub(crate) fn input_bytes(&self) -> usize {
-        self.samples.len().saturating_mul(std::mem::size_of::<f32>())
+        self.samples
+            .len()
+            .saturating_mul(std::mem::size_of::<f32>())
     }
 }
 
@@ -1025,6 +1029,93 @@ pub(crate) mod tests {
         send_sync::<TakeAnalysisOutput>();
         send_sync::<ReEstimateInput>();
         send_sync::<ReEstimation>();
+    }
+
+    /// 行の事実を台帳なしで組む。 アライナは要らない（印だけを見る試験が使う）。
+    fn row_for(kana: &[&str], tone: i32, owned: &[&str]) -> RowReads {
+        let rules = Rules::builtin(UnitSet::Core);
+        let line: Vec<Unit> = kana
+            .iter()
+            .map(|k| {
+                koeru_core::inventory::units(UnitSet::Core)
+                    .into_iter()
+                    .find(|u| u.kana == *k)
+                    .expect("インベントリにある仮名")
+            })
+            .collect();
+        RowReads {
+            setup: Ok(Setup {
+                method: Method::Single,
+                set: UnitSet::Core,
+                rules,
+            }),
+            kana: Ok(kana.iter().map(|k| (*k).to_owned()).collect()),
+            line: Ok(line),
+            populations: Ok(Populations::default()),
+            tone: Ok(tone),
+            owned: Ok(owned.iter().map(|s| (*s).to_owned()).collect()),
+        }
+    }
+
+    fn stamp(row: &RowReads) -> BasedOn {
+        analysis_based_on(1, f0::Purpose::Preview, None, row)
+    }
+
+    /// 同じ入力なら同じ印。 計算が読んだものが変われば外れる。
+    #[test]
+    fn 読んだ入力のどれが変わっても印が外れる() {
+        let base = stamp(&row_for(&["あ", "か"], 57, &["あ", "か"]));
+        assert!(base.is_current_in(&stamp(&row_for(&["あ", "か"], 57, &["あ", "か"]))));
+        assert!(!base.is_current_in(&stamp(&row_for(&["あ", "き"], 57, &["あ", "か"]))));
+        assert!(!base.is_current_in(&stamp(&row_for(&["あ", "か"], 59, &["あ", "か"]))));
+        assert!(
+            !base.is_current_in(&stamp(&row_for(&["あ", "か"], 57, &["あ"]))),
+            "持ち主が変わった"
+        );
+        let row = row_for(&["あ", "か"], 57, &["あ", "か"]);
+        assert!(!base.is_current_in(&analysis_based_on(2, f0::Purpose::Preview, None, &row)));
+        assert!(!base.is_current_in(&analysis_based_on(1, f0::Purpose::Distribution, None, &row)));
+        assert!(!base.is_current_in(&analysis_based_on(
+            1,
+            f0::Purpose::Preview,
+            Some(80.0),
+            &row
+        )));
+    }
+
+    /// 集団は印に入れない（他のテイクの統計。 変わっても置く値の正しさは崩れない）。
+    /// 読めなかったことも入力の一部で、読めた印とは別になる。
+    #[test]
+    fn 集団は印に載せず_読めなかった事実は別の印になる() {
+        let mut row = row_for(&["あ"], 57, &["あ"]);
+        let base = stamp(&row);
+        let mut pops = Populations::default();
+        let oto = Oto {
+            offset_ms: 50.0,
+            consonant_ms: 60.0,
+            cutoff_ms: -300.0,
+            preutterance_ms: 40.0,
+            overlap_ms: 20.0,
+        };
+        pops.push(57, "あ", &oto, 1000.0);
+        row.populations = Ok(pops);
+        assert!(base.is_current_in(&stamp(&row)), "集団が変わっても外れない");
+
+        row.owned = Err(AppError::from_failure(
+            koeru_core::db::LedgerError::UnknownTake,
+        ));
+        assert!(!base.is_current_in(&stamp(&row)));
+    }
+
+    /// 印の `Debug` と指紋は、読みや綴りの中身を出さない（`AGENTS.md` の禁止事項3）。
+    #[test]
+    fn 印は読みの中身を出さない() {
+        let based = stamp(&row_for(&["あ", "か"], 57, &["あ", "か"]));
+        let shown = format!("{based:?}");
+        assert!(!shown.contains('あ'), "{shown}");
+        for (_, fingerprint) in based.iter() {
+            assert!(!fingerprint.contains('あ') && !fingerprint.contains('か'));
+        }
     }
 
     #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]

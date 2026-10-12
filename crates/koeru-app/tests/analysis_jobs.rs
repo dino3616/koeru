@@ -38,7 +38,8 @@ use koeru_runtime::{ProjectLease, RuntimeError};
 const LONG: Duration = Duration::from_secs(60);
 
 fn opened(tag: &str) -> (Studio, PathBuf, String) {
-    let root = std::env::temp_dir().join(format!("koeru-analysis-jobs-{tag}-{}", std::process::id()));
+    let root =
+        std::env::temp_dir().join(format!("koeru-analysis-jobs-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let mut s = Studio::open(root.clone()).expect("ライブラリを開ける");
     let id = s.create_project(tag).expect("作れる");
@@ -156,7 +157,11 @@ fn 確定の解析は_jobruntime_を通り応答の形は変わらない() {
 
     let handle = derive_in_thread(studio, row);
     let job = queued_analysis(&jobs, &lease);
-    assert_eq!(jobs.counts().pending, 1, "解析が1件待っている（待ち数に出る）");
+    assert_eq!(
+        jobs.counts().pending,
+        1,
+        "解析が1件待っている（待ち数に出る）"
+    );
     let _ = release.send(());
     let (_studio, result) = join(handle);
 
@@ -170,7 +175,10 @@ fn 確定の解析は_jobruntime_を通り応答の形は変わらない() {
     let JobStatus::Succeeded { receipt, .. } = jobs.job(job).expect("表にある").status else {
         panic!("成功になること");
     };
-    assert_eq!(receipt.get(), u64::try_from(result.take_id).expect("正の ID"));
+    assert_eq!(
+        receipt.get(),
+        u64::try_from(result.take_id).expect("正の ID")
+    );
     assert_eq!(jobs.counts().pending, 0);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -246,7 +254,10 @@ fn 解析を取り消してもテイクは残り_followup_に_jobs_が載る() {
 
     let followup = result.followup.expect("取り消しが載る");
     assert_eq!(followup.code, "jobs.cancelled");
-    assert_eq!(followup.outcome, koeru_app_lib::error::FailureOutcome::Committed);
+    assert_eq!(
+        followup.outcome,
+        koeru_app_lib::error::FailureOutcome::Committed
+    );
     assert!(result.oto.is_none() && result.confidence.is_none());
     assert!(result.peak > 0.0, "画面へ返す値は手元の標本から作る");
     assert!(!result.thumbnail.is_empty());
@@ -320,7 +331,9 @@ fn project_を移ると旧貸与の仕事が取り消される() {
     let (done_tx, done_rx) = mpsc::channel();
     let waiting = jobs
         .submit_notify(
-            JobSpec::new(lease_a, JobKind::Analysis, Priority::PostRecording, |_| Ok(1_u32)),
+            JobSpec::new(lease_a, JobKind::Analysis, Priority::PostRecording, |_| {
+                Ok(1_u32)
+            }),
             move |r| {
                 let _ = done_tx.send(r.map(|c| c.into_value()));
             },
@@ -349,14 +362,24 @@ fn project_を移ると旧貸与の仕事が取り消される() {
         Err(RuntimeError::LeaseExpired)
     ));
     let late = jobs
-        .submit(JobSpec::new(lease_a, JobKind::Analysis, Priority::PostRecording, |_| Ok(())))
+        .submit(JobSpec::new(
+            lease_a,
+            JobKind::Analysis,
+            Priority::PostRecording,
+            |_| Ok(()),
+        ))
         .expect_err("閉じた貸与では投入できない");
     assert_eq!(late, JobError::LeaseClosed);
     // 開き直した A の貸与は使える。
-    jobs.submit(JobSpec::new(lease_a2, JobKind::Analysis, Priority::PostRecording, |_| Ok(())))
-        .expect("新しい貸与は受ける")
-        .wait()
-        .expect("終わる");
+    jobs.submit(JobSpec::new(
+        lease_a2,
+        JobKind::Analysis,
+        Priority::PostRecording,
+        |_| Ok(()),
+    ))
+    .expect("新しい貸与は受ける")
+    .wait()
+    .expect("終わる");
 
     let _ = std::fs::remove_dir_all(&root);
 }

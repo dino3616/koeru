@@ -292,7 +292,7 @@ runner = 'cargo'
 package = 'koeru-runtime'
 target = 'jobs'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 40
+min_cases = 42
 contracts = ['DEC-PLT-047', 'DEC-PLT-034']
 
 # ## koeru-app
@@ -304,7 +304,7 @@ runner = 'cargo'
 package = 'koeru-app'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 71
+min_cases = 72
 
 [[suite]]
 id = 'SUITE-APP-002'
