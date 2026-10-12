@@ -382,6 +382,8 @@ const USAGE: &[&str] = &[
     "  touched [<base>]",
     "  context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]",
     "  check-portfolio|test-receipt [--runner cargo|bun]",
+    "  portfolio [--receipts <dir>]... [--format human|json]",
+    "  design-debt --human [--format human|json]",
     "  check-schema>",
 ];
 
@@ -1500,7 +1502,7 @@ fn json_は検査ではないコマンドと知らない形式を拒む() {
     run.expect(
         1,
         &[],
-        &["--format json は check-* と check-portfolio だけで使える"],
+        &["--format json は check-*・check-portfolio・portfolio・design-debt だけで使える"],
     );
     let run = fx.run(&["check-meta", "--format", "xml"]);
     run.expect(1, &[], &["使い方: --format <human|json>"]);
@@ -1512,7 +1514,7 @@ fn json_は検査ではないコマンドと知らない形式を拒む() {
     run.expect(
         1,
         &[],
-        &["--format human は check-* と check-portfolio だけで使える"],
+        &["--format human は check-*・check-portfolio・portfolio・design-debt だけで使える"],
     );
 }
 
@@ -2016,6 +2018,10 @@ fn test_receipt_は実行した件数で通過と失敗と未実行を分ける(
     fx.commit("base");
     let sha = fx.git(&["rev-parse", "HEAD"]);
     let receipt_line = format!("  受領証: <root>/target/receipts/cargo-{platform}-{backend}.json");
+    // suite ごとの環境（D07c で足した欄）。 最上位の4欄と同じ。
+    let environment = serde_json::json!({
+        "platform": platform, "backend": backend, "git": sha, "dirty": false,
+    });
     let run = fx.run(&["test-receipt"]);
     assert_eq!(
         report_part(&run.stdout),
@@ -2040,11 +2046,13 @@ fn test_receipt_は実行した件数で通過と失敗と未実行を分ける(
                     "suite": "SUITE-FX-001", "package": "fx", "target": "lib",
                     "applies": true, "discovered": 3, "passed": 2, "failed": 0, "ignored": 1,
                     "result": "passed", "problems": [],
+                    "environment": environment, "missing_prerequisites": [],
                 },
                 {
                     "suite": "SUITE-FX-002", "package": "fx", "target": "extra",
                     "applies": false, "discovered": 1, "passed": 1, "failed": 0, "ignored": 0,
                     "result": "not-applicable", "problems": [],
+                    "environment": environment, "missing_prerequisites": [],
                 },
             ],
         })
@@ -2091,6 +2099,10 @@ fn test_receipt_は実行した件数で通過と失敗と未実行を分ける(
                         "実行したのが 2 件で、登録の下限 5 件に届かない",
                         "1 件を無視した。登録は手動 0 件まで",
                     ],
+                    "environment": {
+                        "platform": platform, "backend": backend, "git": sha, "dirty": true,
+                    },
+                    "missing_prerequisites": [],
                 },
             ],
         })
@@ -2410,4 +2422,185 @@ fn check_meta_は_base_で基準を変えられる() {
         .collect();
     assert!(codes.contains(&"meta.baseline"), "{codes:?}");
     assert!(codes.contains(&"meta.decision-overwritten"), "{codes:?}");
+}
+
+// ## portfolio と design-debt（D07c）
+//
+// 合否ではなく view。 不足があっても終了コードは 0 で、受領証のディレクトリが読めないときだけ落ちる。
+
+/// `SUITE-fix-001`（macOS・Linux・Windows、床は 1 件）の受領証。 `git` が `None` なら、環境の欄が
+/// 無い古い形。
+fn receipt_json(platform: &str, backend: &str, git: Option<&str>, passed: u64) -> String {
+    let mut suite = serde_json::json!({
+        "suite": "SUITE-fix-001",
+        "package": "fx",
+        "target": "lib",
+        "applies": true,
+        "discovered": passed,
+        "passed": passed,
+        "failed": 0,
+        "ignored": 0,
+        "result": "passed",
+        "problems": [],
+    });
+    let mut doc = serde_json::json!({ "runner": "cargo" });
+    if let Some(git) = git {
+        suite["environment"] = serde_json::json!({
+            "platform": platform, "backend": backend, "git": git, "dirty": false,
+        });
+        doc["git"] = git.into();
+    }
+    doc["suites"] = serde_json::json!([suite]);
+    doc.to_string()
+}
+
+fn portfolio_json(run: &Run) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
+    assert_eq!(v["command"], "portfolio", "{run:?}");
+    v
+}
+
+fn cell_states(v: &serde_json::Value) -> Vec<String> {
+    v["portfolio"]["probes"][0]["cells"]
+        .as_array()
+        .expect("セルの配列")
+        .iter()
+        .map(|c| {
+            format!(
+                "{}/{}:{}",
+                c["platform"].as_str().unwrap_or_default(),
+                c["backend"].as_str().unwrap_or_default(),
+                c["state"].as_str().unwrap_or_default()
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn portfolio_は複数のディレクトリの受領証を重ねて_不足があっても_0_で終わる() {
+    let fx = Fixture::valid("portfolio-overlay");
+    // macOS の native は通った。 Linux は 0 件を開いて通った。 Windows の artifact は古い形。
+    fx.write(
+        "artifacts/macos/cargo.json",
+        &receipt_json("macos", "native", Some("abc1234"), 3),
+    );
+    fx.write(
+        "artifacts/linux/cargo.json",
+        &receipt_json("linux", "unsupported", Some("abc1234"), 0),
+    );
+    // 環境の欄が無い古い形は、合格に数えない。
+    fx.write(
+        "artifacts/old/cargo.json",
+        &receipt_json("windows", "unsupported", None, 3),
+    );
+    let run = fx.run(&[
+        "portfolio",
+        "--receipts",
+        "artifacts/macos",
+        "--receipts",
+        "artifacts/linux",
+        "--receipts=artifacts/old",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(run.code, 0, "{run:?}");
+    let v = portfolio_json(&run);
+    assert_eq!(v["ok"], true);
+    assert_eq!(
+        cell_states(&v),
+        [
+            "macos/native:executed-and-passed",
+            "macos/unsupported:missing",
+            "linux/native:not-applicable",
+            "linux/unsupported:insufficient",
+            "windows/native:not-applicable",
+            "windows/unsupported:missing",
+        ]
+    );
+    let s = &v["portfolio"]["summary"];
+    assert_eq!(s["executed-and-passed"], 1);
+    assert_eq!(s["insufficient"], 1);
+    assert_eq!(s["unplaced"], 1);
+    assert_eq!(
+        v["portfolio"]["unplaced"][0]["reason"],
+        "unknown-environment"
+    );
+    assert_eq!(
+        v["portfolio"]["probes"][0]["cells"][3]["insufficiencies"][0]["code"],
+        "no-actual-work"
+    );
+
+    // 人向けの出力。 要約が出て、最後の行は合否。
+    let run = fx.run(&["portfolio", "--receipts", "artifacts/macos"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert!(run.stdout.contains("executed-and-passed 1"), "{run:?}");
+    assert!(run.stdout.ends_with("portfolio: ok\n"), "{run:?}");
+}
+
+#[test]
+fn portfolio_は受領証が無ければ全セルが_missing_か_not_applicable() {
+    let fx = Fixture::valid("portfolio-empty");
+    fx.write("artifacts/empty/.keep", "");
+    let run = fx.run(&[
+        "portfolio",
+        "--receipts",
+        "artifacts/empty",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_eq!(
+        cell_states(&portfolio_json(&run)),
+        [
+            "macos/native:missing",
+            "macos/unsupported:missing",
+            "linux/native:not-applicable",
+            "linux/unsupported:missing",
+            "windows/native:not-applicable",
+            "windows/unsupported:missing",
+        ]
+    );
+    // 省略した `target/receipts/` がまだ無いのは、何も走らせていないだけ。
+    let run = fx.run(&["portfolio", "--format", "json"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_eq!(portfolio_json(&run)["portfolio"]["summary"]["missing"], 4);
+}
+
+#[test]
+fn portfolio_は読めない受領証のディレクトリと壊れた受領証で落ちる() {
+    let fx = Fixture::valid("portfolio-unreadable");
+    let run = fx.run(&["portfolio", "--receipts", "nowhere", "--format", "json"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert_eq!(portfolio_json(&run)["ok"], false);
+    assert!(run.stdout.contains("nowhere"), "{run:?}");
+    // 壊れた受領証を黙って飛ばすと、そのセルが missing に見える。
+    fx.write("artifacts/bad/cargo.json", "{ not json");
+    let run = fx.run(&["portfolio", "--receipts", "artifacts/bad"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert!(run.stdout.contains("artifacts/bad/cargo.json"), "{run:?}");
+    // 知らない引数は使い方の誤り。
+    let run = fx.run(&["portfolio", "--receipt", "x"]);
+    run.expect(
+        1,
+        &[],
+        &["使い方: cargo xtask portfolio [--receipts <dir>]... [--format human|json]"],
+    );
+}
+
+#[test]
+fn design_debt_は_human_を要し_待ち行列が空でも落ちない() {
+    let fx = Fixture::valid("design-debt");
+    fx.run(&["design-debt"]).expect(
+        1,
+        &[],
+        &["使い方: cargo xtask design-debt --human [--format human|json]"],
+    );
+    let run = fx.run(&["design-debt", "--human"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert!(run.stdout.contains("人の観察が要る仮説 0 件"), "{run:?}");
+    let run = fx.run(&["design-debt", "--human", "--format", "json"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
+    assert_eq!(v["command"], "design-debt");
+    assert_eq!(v["design_debt"]["count"], 0);
 }

@@ -706,7 +706,11 @@ mod tests {
             .environment
             .expect("版が取れていれば環境を持つ");
         assert_eq!(
-            (env.platform.as_str(), env.backend.as_str(), env.git_sha.as_str()),
+            (
+                env.platform.as_str(),
+                env.backend.as_str(),
+                env.git_sha.as_str()
+            ),
             ("linux", "unsupported", "abc123")
         );
         // git の外で走らせて版が取れなければ、環境不明のまま書く。

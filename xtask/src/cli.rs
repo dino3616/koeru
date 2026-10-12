@@ -6,6 +6,8 @@
 //!
 //! 機械が読む出力: `--format json` をどこに置いても（コマンドの前でも後ろでも）、
 //! `check-*` と `check-portfolio` は `{ command, ok, diagnostics }` の1行の JSON を出す。
+//! `portfolio` と `design-debt`（view）も同じ封筒に、view の値（`portfolio` / `design_debt`）を
+//! 足して出す。
 //! 終了コードは人向けの出力と同じ。 ほかのコマンドは自分の出力を持つので、指定すると失敗する。
 //! 既定（指定なし、`--format human`）の出力は変わらない。 [`USAGE`] は出力の一部として
 //! 固定されているので、この指定はここに書く。
@@ -24,6 +26,8 @@ const USAGE: &str = "使い方: cargo xtask <check-meta|check-budgets|check-cove
   touched [<base>]
   context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]
   check-portfolio|test-receipt [--runner cargo|bun]
+  portfolio [--receipts <dir>]... [--format human|json]
+  design-debt --human [--format human|json]
   check-schema>";
 
 /// どのコマンドにも渡すもの。
@@ -36,6 +40,9 @@ struct Workspace {
     /// `entries` を型つきで読み、FSL の索引を足したもの。 検査が共有する。
     snapshot: KnowledgeSnapshot,
     report: Report,
+    /// 出す形。 `report` が持つ形と同じで、view を自分で出すコマンド（`portfolio`・
+    /// `design-debt`）が封筒を組むのに読む。
+    format: OutputFormat,
 }
 
 impl Workspace {
@@ -53,6 +60,7 @@ impl Workspace {
             entries,
             snapshot,
             report,
+            format,
         })
     }
 }
@@ -81,7 +89,9 @@ pub fn run(args: &[String]) -> ExitCode {
     if let Some(name) = given
         && !supports_format(args.first().map(String::as_str))
     {
-        eprintln!("--format {name} は check-* と check-portfolio だけで使える");
+        eprintln!(
+            "--format {name} は check-*・check-portfolio・portfolio・design-debt だけで使える"
+        );
         return ExitCode::FAILURE;
     }
     dispatch(ws, &args)
@@ -118,7 +128,9 @@ fn split_format(
 }
 
 fn supports_format(command: Option<&str>) -> bool {
-    command.is_some_and(|c| c == "check-portfolio" || checks::find(c).is_some())
+    command.is_some_and(|c| {
+        matches!(c, "check-portfolio" | "portfolio" | "design-debt") || checks::find(c).is_some()
+    })
 }
 
 fn dispatch(ws: Workspace, args: &[String]) -> ExitCode {
@@ -127,12 +139,20 @@ fn dispatch(ws: Workspace, args: &[String]) -> ExitCode {
         entries,
         snapshot,
         report: rep,
+        format,
     } = ws;
     let command = args.first().map(String::as_str);
     if let Some(check) = command.and_then(checks::find) {
         return run_check(check, &root, &entries, &snapshot, &args[1..], rep);
     }
-    dispatch_other(&root, &entries, args, rep)
+    match command {
+        // 検査ではない view。 自分で出力を組むので、形と読んだ meta を渡す。
+        Some("portfolio") => {
+            commands::portfolio(&root, &entries, &snapshot, &args[1..], format, rep)
+        }
+        Some("design-debt") => commands::design_debt(&root, &snapshot, &args[1..], format, rep),
+        _ => dispatch_other(&root, &entries, args, rep),
+    }
 }
 
 fn run_check(
@@ -237,6 +257,8 @@ mod tests {
         assert!(supports_format(Some("check-meta")));
         assert!(supports_format(Some("check-schema")));
         assert!(supports_format(Some("check-portfolio")));
+        assert!(supports_format(Some("portfolio")));
+        assert!(supports_format(Some("design-debt")));
         assert!(!supports_format(Some("next-id")));
         assert!(!supports_format(Some("touched")));
         assert!(!supports_format(None));

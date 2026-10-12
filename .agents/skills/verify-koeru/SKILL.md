@@ -49,6 +49,25 @@ cargo xtask check-portfolio            # 登録の漏れだけを見る。組み
 件数を求められるどの環境でも下回らない数にする（書いていない OS では cfg で外れる
 ものがある）。
 
+### 受領証を突き合わせる（view）
+
+要る Probe（`meta/suites/` の登録）の `platforms` × `backends` のセルごとに、受領証が届いて
+いるか、信用できるかを出す。 検査ではないので、不足があっても終了コードは 0。 受領証の
+ディレクトリが読めないときだけ落ちる。
+
+```bash
+cargo xtask portfolio                                     # target/receipts/ を読む
+cargo xtask portfolio --receipts mac --receipts linux     # CI の artifact を並べる
+cargo xtask portfolio --format json                       # { command, ok, diagnostics, portfolio }
+cargo xtask design-debt --human                           # 人の観察が要る仮説の待ち行列
+```
+
+セルは `executed-and-passed` / `executed-and-failed` / `skipped` / `not-applicable` /
+`missing`（受領証が無い）/ `insufficient`。 **`insufficient` は通ったと書いてあるが合格に
+数えない**（実際の仕事が 0 件、`discovered` か実行が `min_cases` 未満、native が要る Probe を
+native でない backend で走らせた、要る前提が無かった）。 環境（platform・backend・版）の欄が
+無い古い受領証は、どのセルにも置かずに別に並ぶ。
+
 **手動のハーネスは `#[ignore]`。** マイク・出力・実音声が要るものは既定では走らない。
 手元の実機で `-- --ignored` を付けて走らせ、前提が無ければ落ちる。
 

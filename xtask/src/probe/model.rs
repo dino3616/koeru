@@ -68,8 +68,8 @@ impl ProbeDefinition {
         let backends = list_of(t, "backends");
         // 書いていない OS の席（`unsupported`）を持たず `native` だけを名乗る登録は、
         // native でしか走らない。 `backends` を書かない登録は両方で数えるので該当しない。
-        let requires_native = backends.iter().any(|b| b == "native")
-            && !backends.iter().any(|b| b == "unsupported");
+        let requires_native =
+            backends.iter().any(|b| b == "native") && !backends.iter().any(|b| b == "unsupported");
         Ok(Self {
             runner: need("runner")?,
             package: need("package")?,
@@ -168,12 +168,7 @@ pub(crate) struct Environment {
 
 impl Environment {
     /// 欄がそろっているときだけ作る。
-    pub(crate) fn known(
-        platform: &str,
-        backend: &str,
-        git_sha: &str,
-        dirty: bool,
-    ) -> Option<Self> {
+    pub(crate) fn known(platform: &str, backend: &str, git_sha: &str, dirty: bool) -> Option<Self> {
         if platform.is_empty() || backend.is_empty() || git_sha.is_empty() {
             return None;
         }

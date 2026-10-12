@@ -287,8 +287,8 @@ mod tests {
         r.status = Status::NotRun(NotRunReason::MissingPrerequisite);
         r.counts = Counts::default();
         r.actual_work = 0;
-        let back = parse(&render("cargo", &ctx(), std::slice::from_ref(&r)).to_string())
-            .expect("読める");
+        let back =
+            parse(&render("cargo", &ctx(), std::slice::from_ref(&r)).to_string()).expect("読める");
         assert_eq!(back.receipts, vec![r]);
     }
 

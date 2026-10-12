@@ -776,8 +776,8 @@ fn 環境を持たない_receipt_は断る() {
     );
     // 環境を持てば通る。 候補は Receipt が名乗る環境と版を写す。
     let known = in_context(unknown, "native");
-    let candidate = canonize(&fx.registry(), hypothesis, probe, &definition, &known)
-        .expect("環境があれば通る");
+    let candidate =
+        canonize(&fx.registry(), hypothesis, probe, &definition, &known).expect("環境があれば通る");
     assert_eq!(
         (candidate.platform.as_str(), candidate.tested_sha.as_str()),
         ("macos", "0123abc")
@@ -795,7 +795,12 @@ fn native_が要るかは_probe_の定義から読む() {
     let definition = fx.facts().probes[0].definition().expect("契約");
     assert!(definition.requires_native);
     let plain = canonize_fx("mechanical-formal-property", "executed-test", "");
-    assert!(!plain.facts().probes[0].definition().expect("契約").requires_native);
+    assert!(
+        !plain.facts().probes[0]
+            .definition()
+            .expect("契約")
+            .requires_native
+    );
 }
 
 #[test]
