@@ -52,6 +52,12 @@ use koeru_core::waveform;
 // `koeru_failure::Outcome` と書く。
 use koeru_failure::{Class, Failure};
 use koeru_model::retake::{self, Anchor, Onsets, Pins};
+// 背後の仕事（`DEC-PLT-047`）。 `Receipt` は台帳の受領証（`koeru_core::db::Receipt`）が
+// 名乗っているので、仕事の受領証は `jobs::Receipt` と書く。
+use koeru_runtime::jobs::{
+    self, CoalesceKey, ComputeError, JobConfig, JobError, JobFailure, JobId, JobKind, JobRuntime,
+    JobSpec, OverflowPolicy, Priority, PublishError,
+};
 use koeru_runtime::time::now_rfc3339;
 use koeru_runtime::{ProjectLease, ProjectRuntime, WriterGuard};
 use koeru_synth::f0;
@@ -70,13 +76,15 @@ use crate::pump::{PREROLL_MS, Pump};
 use crate::review::slot_of;
 use crate::storage;
 use crate::take_analysis::{
-    self, Populations, ReEstimateInput, RowReads, Setup, Step, TakeAnalysisInput,
-    TakeAnalysisOutput, TakeFacts, consistency_reading,
+    self, ANALYSIS_DEADLINE, Populations, ReEstimateInput, RowReads, Setup, Step, Stop,
+    TakeAnalysisInput, TakeAnalysisOutput, TakeFacts, consistency_reading,
 };
-use crate::workers::{Priority, Workers};
 
 /// 単独音の収録音高。A3 を既定にする（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
+
+/// 試唱の前処理をまとめる鍵（`OverflowPolicy::Coalesce`）。 待っている前処理は1つだけ。
+const PRERENDER_KEY: &str = "prerender_songs";
 
 /// これだけ測るまで、レイテンシの目標に収まっているかを言わない（`TR-SYN-33`）。
 ///
@@ -444,6 +452,82 @@ struct DerivedTake {
     failure: Option<AppError>,
 }
 
+impl DerivedTake {
+    /// 何も置いていない状態。 画面へ返す値だけは計算の出力から持つ。
+    fn unplaced_from(analysis: &TakeAnalysis, measured: TakeMetrics) -> Self {
+        Self {
+            peak: analysis.peak,
+            thumbnail: analysis.thumbnail.clone(),
+            // 境界が分かる前の測り方。 揃えられれば置くときに測り直した値へ替わる。
+            metrics: measured,
+            oto: None,
+            confidence: None,
+            failure: None,
+        }
+    }
+
+    /// 計算の出力はあるが、受理を始める前に断った（貸与が生きていない）。
+    fn unplaced(output: &TakeAnalysisOutput) -> Self {
+        Self::unplaced_from(&output.analysis, output.measured)
+    }
+
+    /// 計算の出力が無い（取り消し・期限切れ・公開の拒否・上限・計算の panic）。
+    ///
+    /// 画面へ返す値は手元の標本から作る。 波形の要約と最大値は F0 を要らない。 計測は境界が
+    /// 分からないので、境界なしの測り方（アライメントが揃わなかったときと同じ）。
+    fn from_samples(samples: &[f32], rate: u32, failure: AppError) -> Self {
+        Self {
+            peak: koeru_core::analysis::peak(samples),
+            thumbnail: koeru_core::analysis::thumbnail(
+                samples,
+                koeru_core::analysis::THUMBNAIL_BUCKETS,
+            ),
+            metrics: TakeMetrics::measure(samples, rate, None, None),
+            oto: None,
+            confidence: None,
+            failure: Some(failure),
+        }
+    }
+}
+
+/// 受理が途中で落ちたときの失敗（`JobRuntime::publish` の `admit` の `Err`）。
+///
+/// **置けたところまでの結果を一緒に持ち出す。** 公開の `Err` は失敗しか返せないが、画面へ
+/// 返す値（波形の要約・計測）と置けた oto は、失敗しても返す（以前と同じ）。 仕事の状態は
+/// `Failed`——失敗の code と分類は落ちた工程のもの。
+struct Unfinished {
+    /// `failure` は空。 取り出して [`Self::failure`] に入れてある。
+    derived: DerivedTake,
+    failure: AppError,
+}
+
+// 画面へ返す値（波形・計測）は利用者のデータなので、`Debug` には code だけを出す。
+impl std::fmt::Debug for Unfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Unfinished")
+            .field("code", &self.failure.code)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for Unfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.failure, f)
+    }
+}
+
+impl std::error::Error for Unfinished {}
+
+impl Failure for Unfinished {
+    fn code(&self) -> &'static str {
+        self.failure.code
+    }
+
+    fn class(&self) -> Class {
+        self.failure.class.into()
+    }
+}
+
 /// 残量の見積もり（`TR-REC-41`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpaceEstimate {
@@ -619,10 +703,19 @@ pub struct Studio {
     /// 単一の出力枠（`DEC-REC-011`）。 音高提示・基準音・試唱・テイクの再生・
     /// 曲の試唱が、これを取り合う。 新しい出力を始める前に必ず前を止める。
     output: PlaybackLease,
-    /// 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`）。
+    /// 背後で回す仕事（`TR-SYN-04`, `TR-SYN-34`、`DEC-PLT-047`）。
     ///
     /// 録音入力とは別のスレッド。 録音のコールバックを妨げない。
-    workers: Workers,
+    /// **アプリの寿命で1つ。 `ProjectRuntime` の中には置かない**——project を移っても
+    /// 作り直さず、貸与ごとに仕事を取り消す（`Self::release_project`）。
+    /// `AppState` が写しを持ち、状態ロックの外から待ち数を読む（[`Self::jobs`]）。
+    jobs: Arc<JobRuntime>,
+    /// いちばん新しく積んだ試唱の前処理（[`Self::prerender_songs`]）。
+    /// [`Self::stop_preview`] が取り消す（`TR-SYN-27`）。 解析は取り消さない。
+    prerender: Option<JobId>,
+    /// テスト用。 解析の期限を短くして、期限切れを実機の時間なしで作る。
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_analysis_deadline: Option<std::time::Duration>,
     /// 試唱レイテンシの実測（`TR-SYN-33`）。
     ///
     /// 押してから鳴るまでを場面ごとに溜める。 目標と比べられるようにする。
@@ -737,7 +830,11 @@ impl Studio {
             leak: None,
             may_mix: false,
             output: PlaybackLease::new(),
-            workers: Workers::start(),
+            // 作業スレッドを起こせなければ回復できない（`JobRuntime::start`）。
+            jobs: JobRuntime::start(JobConfig::default()),
+            prerender: None,
+            #[cfg(any(test, feature = "test-hooks"))]
+            test_analysis_deadline: None,
             observed: HashMap::new(),
             ever_previewed: false,
             #[cfg(any(test, feature = "test-hooks"))]
@@ -1153,6 +1250,12 @@ impl Studio {
     /// 書き手を取ろうとすれば、`runtime.lease_expired` で断られる。
     /// `Open` を捨てることで、プロジェクトの寿命を持つ写し（[`ProjectCaches`]）も
     /// 一緒に捨てる。
+    ///
+    /// **`JobRuntime` の貸与も、実行時を閉じる前に取り消す**（[`JobRuntime::cancel_lease`]）。
+    /// 前でも後でもよい（台帳への書き込みは貸与が閉じていれば writer が断る）が、前にする——
+    /// 実行時が閉じているのに「公開してよい」と言える間を作らない。 取り消すと、走っている解析には
+    /// 合図が立ち、待っている仕事は外れ、遅れて戻った完了は公開されない。 これで、閉じた
+    /// project へ（開き直した同じ project へも）背後の仕事が書き戻さない（A → B → A）。
     fn release_project(&mut self) -> Result<()> {
         if self.open.is_none() {
             return Ok(());
@@ -1160,9 +1263,20 @@ impl Studio {
         self.stop_preview();
         self.disarm();
         if let Some(open) = self.open.take() {
+            self.jobs.cancel_lease(&open.lease);
             open.runtime.close(&open.lease)?;
         }
         Ok(())
+    }
+
+    /// 背後の仕事の実行域。 アプリの寿命で1つ。
+    ///
+    /// **`Studio` の状態ロックの外から使うための持ち手。** `AppState` が組み立てのときに
+    /// 写しを取り、待ち数（`TR-SYN-33`）をロックの外から読む。 テイクの確定は解析を待つので、
+    /// 待ち数がいちばん動くときに状態ロックが握られている。
+    #[must_use]
+    pub fn jobs(&self) -> Arc<JobRuntime> {
+        Arc::clone(&self.jobs)
     }
 
     /// 開いているプロジェクトの実行時。
@@ -2784,8 +2898,8 @@ impl Studio {
 
         // ## ここから先は派生物。落ちてもテイクは確定している
         //
-        // 入力を集める → 計算する → 受理して書く、の順。 同じスレッドで続けて走らせる
-        // （応答は解析を待つ）。
+        // 入力を集める → 計算する → 受理して書く、の順。 計算は `JobRuntime` の作業スレッドで
+        // 走り、応答は解析を待つ（`DEC-PLT-047`。待たずに応答する形は T09 / T12）。
         let frames = finished.samples.len();
         let duration_ms = frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
         let preroll_ms = finished.preroll_frames as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
@@ -2801,10 +2915,10 @@ impl Studio {
             preroll_frames: finished.preroll_frames,
             duration_ms,
         };
-        let input = self.collect_take_analysis(take_id, &row_id, finished, facts);
-        let output = take_analysis::analyze_take(&input);
-        let derived = self.admit_take_analysis(output);
+        let derived = self.derive_take(take_id, &row_id, finished, facts);
         // 記録は画面へ渡すときに1回だけ（`crate::error::AppError` の直列化）。
+        // `JobRuntime` が仕事の状態の遷移を記録しているが、それは失敗の記録（`record`）とは別の
+        // 行で、ここで重ねて `record` はしない。
         let followup = derived
             .failure
             .map(|e| e.with_outcome(koeru_failure::Outcome::Committed));
@@ -2840,6 +2954,161 @@ impl Studio {
         })
     }
 
+    /// テイクの派生物を作る。 入力を集め、`JobRuntime` で計算し、受理して置く。
+    ///
+    /// 失敗を返さない（テイクは確定している）。 落ちた工程の失敗は [`DerivedTake::failure`]
+    /// に入れ、画面へ返す値（波形の要約・計測）は、手元の標本から作れるぶんを必ず返す。
+    fn derive_take(
+        &mut self,
+        take_id: i32,
+        row_id: &str,
+        finished: crate::pump::Finished,
+        facts: TakeFacts,
+    ) -> DerivedTake {
+        let discontinuities = facts.counts.discontinuities;
+        let input = self.collect_take_analysis(take_id, row_id, finished, facts);
+        let mut derived = self.analyze_through_jobs(input);
+        // 録れた綴りを、もう片方の出どころで二度読ませない（`DEC-RCL-016`）。
+        // 原音設定を作れなくても、解析が取り消されても、録れてはいる。 解析の受理とは
+        // 別に、確定した事実から導く。
+        let reconciled = if discontinuities == 0 {
+            self.reconcile_other_origin(row_id)
+        } else {
+            Ok(())
+        };
+        // 落ちた工程の失敗が先。 組み直しの失敗はその次（以前と同じ並び）。
+        derived.failure = derived.failure.take().or_else(|| reconciled.err());
+        derived
+    }
+
+    /// 解析を `JobRuntime` に積み、結果を待って、受理する（`DEC-PLT-047`）。
+    ///
+    /// テイクの確定の応答は当面、解析を待つ（T09 / T12 で待たない形を決める）。 待つ間も
+    /// 状態ロックは握ったまま——ほかの操作は待たされる。 以前の同期の解析と同じ。
+    ///
+    /// 保存済みのテイクの解析は、上限に当たっても失敗にしない（`OverflowPolicy::Defer`）。
+    /// 期限を過ぎたら失敗として返し、自動でやり直さない。
+    ///
+    /// **失敗は、テイクを取り消さない。** 取り消し・期限切れ・公開の拒否・上限は、
+    /// `DerivedTake::failure` に `jobs.*` の code で載り、`TakeResult::followup` に
+    /// 確定済みとして出る。 解析の値は無いので、画面へ返す値は手元の標本から作る。
+    fn analyze_through_jobs(&mut self, input: TakeAnalysisInput) -> DerivedTake {
+        let (take_id, row_id) = (input.take_id, input.row_id.clone());
+        // 計算の値が無いときの、画面へ返す値の元。 持ち出すのは持ち手だけ。
+        let samples = Arc::clone(&input.samples);
+        let rate = input.rate;
+        let degraded = move |failure: AppError| DerivedTake::from_samples(&samples, rate, failure);
+
+        let lease = match self.opened() {
+            Ok(open) => open.lease,
+            Err(e) => return degraded(e),
+        };
+        let (based_on, bytes, deadline) = (input.based_on(), input.input_bytes(), self.deadline());
+        // 計算の closure が受け取るのは取消の合図だけ。 台帳の書き手も `Studio` も持ち込まない。
+        let spec = JobSpec::new(
+            lease,
+            JobKind::Analysis,
+            Priority::PostRecording,
+            move |probe| {
+                take_analysis::analyze_take(&input, &|| probe.check()).map_err(ComputeError::from)
+            },
+        )
+        .overflow(OverflowPolicy::Defer)
+        .input_bytes(bytes)
+        .deadline(deadline)
+        .based_on(based_on);
+
+        let runtime = Arc::clone(&self.jobs);
+        let completed = match runtime.submit(spec).and_then(jobs::JobTicket::wait) {
+            Ok(completed) => completed,
+            Err(e) => return degraded(AppError::from_failure(e)),
+        };
+
+        // 受理の直前に、計算が読んだ入力の今の値を同じ名前で作り直す。 いまは状態ロックを
+        // 握ったまま待つので変わらないが、待たない形（T09 / T12）にすると効く。
+        let current = self.current_analysis_based_on(take_id, &row_id);
+        let receipt = jobs::Receipt::new(u64::try_from(take_id).unwrap_or_default());
+        // `admit` の中から `JobRuntime` の API を呼ばない（公開中の取消は公開の終わりを待つ）。
+        match runtime.publish(completed, &current, |done| {
+            self.admit_take_analysis_job(done, receipt)
+        }) {
+            Ok(published) => published.value,
+            // 公開しなかった。 エンジンの失敗ではない（古い・取り消された・置き換えられた・貸与が閉じた）。
+            Err(PublishError::Refused(reason)) => degraded(AppError::from_failure(reason)),
+            // 置けたところまでは置いてある。 仕事は `Failed` で、結果は画面へ返す。
+            Err(PublishError::Admit(mut unfinished)) => {
+                unfinished.derived.failure = Some(unfinished.failure);
+                unfinished.derived
+            }
+        }
+    }
+
+    /// 解析の期限。 試験は短くできる。
+    fn deadline(&self) -> std::time::Duration {
+        #[cfg(any(test, feature = "test-hooks"))]
+        if let Some(deadline) = self.test_analysis_deadline {
+            return deadline;
+        }
+        ANALYSIS_DEADLINE
+    }
+
+    /// `JobRuntime::publish` の `admit`。 計算の出力を受理して、台帳とファイルへ置く。
+    ///
+    /// 貸与が生きているかの最終確認は、まず `ProjectRuntime::writer` が担う
+    /// （`RuntimeError::LeaseExpired`）。 通ったら [`Self::admit_take_analysis`] が置く。
+    ///
+    /// **仕事の状態は、置けたかで決める。** 全部置けたら `Succeeded`（受領証はテイクの ID）。
+    /// 途中の工程が落ちたら `Failed`——失敗の code と分類は落ちた工程のもの。 `JobRuntime` が
+    /// 確定の状態を失敗の分類の既定から決めるので、置けた工程があっても `Failed` の確定の
+    /// 状態は分類の既定になる。 画面へ返す `followup` は確定済みで出す。
+    fn admit_take_analysis_job(
+        &mut self,
+        done: jobs::Completed<TakeAnalysisOutput>,
+        receipt: jobs::Receipt,
+    ) -> std::result::Result<(DerivedTake, jobs::Receipt), Unfinished> {
+        let alive = self.opened().and_then(|open| {
+            open.runtime
+                .writer(done.lease())
+                .map(drop)
+                .map_err(AppError::from)
+        });
+        let output = done.into_value();
+        if let Err(failure) = alive {
+            return Err(Unfinished {
+                derived: DerivedTake::unplaced(&output),
+                failure,
+            });
+        }
+        let mut derived = self.admit_take_analysis(output);
+        match derived.failure.take() {
+            None => Ok((derived, receipt)),
+            Some(failure) => Err(Unfinished { derived, failure }),
+        }
+    }
+
+    /// 受理の直前の、計算が読んだ入力の今の値（[`take_analysis::analysis_based_on`]）。
+    fn current_analysis_based_on(&mut self, take_id: i32, row_id: &str) -> jobs::BasedOn {
+        let (purpose, floor) = self.f0_conditions();
+        let row = self.read_row(row_id);
+        take_analysis::analysis_based_on(take_id, purpose, floor, &row)
+    }
+
+    /// F0 の条件。 音域を集めた数から決める（`TR-SYN-22`）。
+    ///
+    /// 音域は開いているプロジェクトのもの（`ProjectCaches`）。 開いていなければ
+    /// 溜めるものが無いので、初めのテイクと同じ DIO の条件で推定する。
+    fn f0_conditions(&self) -> (f0::Purpose, Option<f64>) {
+        let (observed, floor) = self.open.as_ref().map_or((0, None), |o| {
+            (o.caches.observed_f0.len(), o.caches.f0_floor)
+        });
+        let purpose = if observed >= f0::RANGE_SAMPLE_TAKES {
+            f0::Purpose::Distribution
+        } else {
+            f0::Purpose::Preview
+        };
+        (purpose, floor)
+    }
+
     /// 入力を集める。 台帳から読むだけで、何も書かない。
     ///
     /// 読めなかったものは失敗ごと入力に持つ（[`take_analysis`] の冒頭）。 計算は
@@ -2851,16 +3120,7 @@ impl Studio {
         finished: crate::pump::Finished,
         facts: TakeFacts,
     ) -> TakeAnalysisInput {
-        // 音域は開いているプロジェクトのもの（`ProjectCaches`）。 開いていなければ
-        // 溜めるものが無いので、初めのテイクと同じ DIO の条件で推定する。
-        let (observed, floor) = self.open.as_ref().map_or((0, None), |o| {
-            (o.caches.observed_f0.len(), o.caches.f0_floor)
-        });
-        let purpose = if observed >= f0::RANGE_SAMPLE_TAKES {
-            f0::Purpose::Distribution
-        } else {
-            f0::Purpose::Preview
-        };
+        let (purpose, floor) = self.f0_conditions();
         TakeAnalysisInput {
             take_id,
             row_id: row_id.to_owned(),
@@ -2919,12 +3179,13 @@ impl Studio {
     /// 失敗を返さない。 最初に落ちた工程の失敗を [`DerivedTake::failure`] に入れ、
     /// そこまでに置けたものを返す。 計測と波形の要約は台帳に置けなくても画面へ返す
     /// ——測るのは手元の標本だけで済む。
+    ///
+    /// もう片方の出どころの組み直し（`reconcile_other_origin`）はここに含めない。 解析が
+    /// 取り消されても、確定した事実から導けるので、[`Self::derive_take`] が別に呼ぶ。
     fn admit_take_analysis(&mut self, output: TakeAnalysisOutput) -> DerivedTake {
         let TakeAnalysisOutput {
             take_id,
-            row_id,
             wav_path,
-            discontinuities,
             f0,
             analysis,
             measured,
@@ -2934,27 +3195,12 @@ impl Studio {
 
         self.note_f0_range(f0);
 
-        let mut out = DerivedTake {
-            peak: analysis.peak,
-            thumbnail: analysis.thumbnail.clone(),
-            // 境界が分かる前の測り方。 揃えられれば置くときに測り直した値へ替わる。
-            metrics: measured,
-            oto: None,
-            confidence: None,
-            failure: None,
-        };
-        let placed = self
+        let mut out = DerivedTake::unplaced_from(&analysis, measured);
+        out.failure = self
             .place_steps(take_id, &wav_path, &analysis, steps, &mut out)
             // 計算が途中で落ちていたら、置けた分の次がその失敗。
-            .and_then(|()| failure.map_or(Ok(()), Err));
-        // 録れた綴りを、もう片方の出どころで二度読ませない（`DEC-RCL-016`）。
-        // 原音設定を作れなくても、録れてはいる。
-        let reconciled = if discontinuities == 0 {
-            self.reconcile_other_origin(&row_id)
-        } else {
-            Ok(())
-        };
-        out.failure = placed.err().or_else(|| reconciled.err());
+            .and_then(|()| failure.map_or(Ok(()), Err))
+            .err();
         out
     }
 
@@ -3326,25 +3572,59 @@ impl Studio {
             return;
         }
         // 写しは、いま開いているプロジェクトのもの。 仕事が捕まえた `Arc` は、
-        // プロジェクトを移れば（`release_project` が仕事を捨てる）使われない。
-        let Some(cache) = self.open.as_ref().map(|o| Arc::clone(&o.caches.song_cache)) else {
+        // プロジェクトを移れば（`release_project` が貸与の仕事を取り消す）使われない。
+        let Some((cache, lease)) = self
+            .open
+            .as_ref()
+            .map(|o| (Arc::clone(&o.caches.song_cache), o.lease))
+        else {
             return;
         };
-        self.workers.submit(Priority::PostRecording, move || {
-            // 鍵に素材の内容ハッシュが入っているので、古い結果は自然に使われない。
-            // ここでできるのは、次に押されたときに載っている確率を上げることだけ。
-            let held = cache.lock().map_or(0, |c| c.len());
-            tracing::debug!(held, singable, "試唱の前処理を進めた");
+        // **中身は以前のまま。** 実際には何も温めていない（`held` を数えて記録するだけ）。
+        // `Workers` から `JobRuntime` へ移しただけで、温める計算を足してはいない。
+        let spec = JobSpec::new(
+            lease,
+            JobKind::PreviewRender,
+            Priority::PostRecording,
+            move |_probe| {
+                // 鍵に素材の内容ハッシュが入っているので、古い結果は自然に使われない。
+                // ここでできるのは、次に押されたときに載っている確率を上げることだけ。
+                let held = cache.lock().map_or(0, |c| c.len());
+                tracing::debug!(held, singable, "試唱の前処理を進めた");
+                Ok(())
+            },
+        )
+        // 積み重ならない。 前処理は「いまの状態」を温めるだけなので、待っている古い
+        // 前処理は新しいものに置き換えてよい。
+        .overflow(OverflowPolicy::Coalesce(CoalesceKey::new(PRERENDER_KEY)));
+        // 完了の callback は作業スレッドで呼ばれる。 `JobRuntime` を強く持つと、待ちに残った
+        // 仕事の closure が `JobRuntime` を生かし続けて止まらなくなる。 弱く持つ。
+        let weak = Arc::downgrade(&self.jobs);
+        let submitted = self.jobs.submit_notify(spec, move |done| {
+            // 計算が済んだら、何も書かずに公開して仕事を終わらせる。 公開しないと
+            // 「公開待ち」のまま表に残る。 取消・期限・上限の失敗は、記録のほかにやることが無い。
+            if let (Ok(done), Some(runtime)) = (done, weak.upgrade()) {
+                let _ = runtime.publish(done, &jobs::BasedOn::new(), |_| {
+                    Ok::<_, JobError>(((), jobs::Receipt::new(0)))
+                });
+            }
         });
+        match submitted {
+            Ok(handle) => self.prerender = Some(handle.job()),
+            // 前処理が積めなくても、押されたときに合成するだけ。 失敗にしない。
+            Err(e) => tracing::debug!(code = e.code(), "試唱の前処理を積めなかった"),
+        }
     }
 
     /// 背後で待っている仕事の数（`TR-SYN-33`）。
     ///
     /// 「録音終了 → 試唱ボタン活性化」の間に、無言の待ち時間を作らない（`TR-SYN-33`）。
     /// 画面はこれを見て、進んでいることを出す。
+    ///
+    /// 状態ロックの外から読むときは [`Self::jobs`] の写しから [`JobRuntime::counts`] を引く。
     #[must_use]
     pub fn pending_work(&self) -> usize {
-        self.workers.pending()
+        self.jobs.counts().pending
     }
 
     /// 見えている範囲の波形（`TR-PLT-04`）。
@@ -3429,12 +3709,6 @@ impl Studio {
         let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         let w = wav::read(root.join(&take.rel_path))?;
         Ok((w.samples, w.rate_hz))
-    }
-
-    /// 待っている仕事の持ち手（`TR-SYN-33`）。状態ロックの外から読むために出す。
-    #[must_use]
-    pub fn pending_handle(&self) -> crate::workers::PendingHandle {
-        self.workers.pending_handle()
     }
 
     /// 包絡の持ち手（`TR-REC-43`）。状態ロックの外から読むために出す。
@@ -3827,8 +4101,101 @@ impl Studio {
     #[tracing::instrument(skip(self))]
     pub fn re_estimate_take(&mut self, take_id: i32) -> Result<()> {
         let input = self.collect_re_estimate(take_id)?;
-        let estimation = take_analysis::re_estimate(&input)?;
-        self.admit_re_estimate(estimation)
+        let lease = self.opened()?.lease;
+        let (row_id, rel_path) = (input.row_id.clone(), input.rel_path.clone());
+        let (based_on, bytes) = (input.based_on(), input.input_bytes());
+
+        // 計算の失敗（読みを読めない・揃えられない）は、画面へ返す元の失敗をそのまま返す。
+        // 仕事の状態へは code と分類だけが載るので、全体は脇の持ち手で運ぶ。
+        let failed: Arc<Mutex<Option<AppError>>> = Arc::new(Mutex::new(None));
+        let carried = Arc::clone(&failed);
+        // 背景の lane に載る（`TR-SYN-34`）。 同じテイクの再推定は積み重ならない。
+        // 期限は解析と同じ仮の値（`Q-PLT-006`）。
+        let spec = JobSpec::new(lease, JobKind::Analysis, Priority::Reestimate, move |probe| {
+            take_analysis::re_estimate(&input, &|| probe.check()).map_err(|stop| match stop {
+                Stop::Cancelled(cancelled) => ComputeError::from(cancelled),
+                Stop::Failed(e) => {
+                    let failure = JobFailure {
+                        code: e.code,
+                        class: e.class.into(),
+                        // 計算は台帳へ書かない。
+                        outcome: koeru_failure::Outcome::NotCommitted,
+                    };
+                    if let Ok(mut slot) = carried.lock() {
+                        *slot = Some(e);
+                    }
+                    ComputeError::Failed(failure)
+                }
+            })
+        })
+        .overflow(OverflowPolicy::Coalesce(CoalesceKey::new(format!(
+            "re_estimate:{take_id}"
+        ))))
+        .input_bytes(bytes)
+        .deadline(self.deadline())
+        .based_on(based_on);
+
+        // 仕事の失敗は、何も書いていない。
+        let not_committed = |e: AppError| e.with_outcome(koeru_failure::Outcome::NotCommitted);
+        let runtime = Arc::clone(&self.jobs);
+        let completed = match runtime.submit(spec).and_then(jobs::JobTicket::wait) {
+            Ok(completed) => completed,
+            Err(JobError::ComputeFailed(failure)) => {
+                let original = failed.lock().ok().and_then(|mut slot| slot.take());
+                return Err(original.unwrap_or_else(|| {
+                    not_committed(AppError::from_failure(JobError::ComputeFailed(failure)))
+                }));
+            }
+            Err(e) => return Err(not_committed(AppError::from_failure(e))),
+        };
+
+        let current = self.current_re_estimate_based_on(take_id, &row_id, &rel_path);
+        let receipt = jobs::Receipt::new(u64::try_from(take_id).unwrap_or_default());
+        // `admit` の中から `JobRuntime` の API を呼ばない（公開中の取消は公開の終わりを待つ）。
+        match runtime.publish(completed, &current, |done| {
+            self.admit_re_estimate_job(done, receipt)
+        }) {
+            Ok(_) => Ok(()),
+            Err(PublishError::Refused(reason)) => {
+                Err(not_committed(AppError::from_failure(reason)))
+            }
+            Err(PublishError::Admit(e)) => Err(e),
+        }
+    }
+
+    /// `JobRuntime::publish` の `admit`。 貸与が生きているかを `ProjectRuntime::writer` で
+    /// 確かめてから、キューと台帳へ受理する。
+    fn admit_re_estimate_job(
+        &mut self,
+        done: jobs::Completed<take_analysis::ReEstimation>,
+        receipt: jobs::Receipt,
+    ) -> Result<((), jobs::Receipt)> {
+        self.opened()?.runtime.writer(done.lease()).map(drop)?;
+        self.admit_re_estimate(done.into_value())?;
+        Ok(((), receipt))
+    }
+
+    /// 受理の直前の、推定し直しが読んだ入力の今の値（[`take_analysis::re_estimate_based_on`]）。
+    fn current_re_estimate_based_on(
+        &mut self,
+        take_id: i32,
+        row_id: &str,
+        rel_path: &str,
+    ) -> jobs::BasedOn {
+        let wav = self.wav_stamp(rel_path);
+        let row = self.read_row(row_id);
+        take_analysis::re_estimate_based_on(take_id, &wav, &row)
+    }
+
+    /// テイクの WAV の指紋。 開いていなければ空（読んだ標本が無いので、突き合わせは別の
+    /// 入力が断る）。
+    fn wav_stamp(&self, rel_path: &str) -> String {
+        self.open.as_ref().map_or_else(String::new, |open| {
+            format!(
+                "{:016x}",
+                hash_of(Some(&open.dir().root().join(rel_path)))
+            )
+        })
     }
 
     /// 推定し直しの入力を集める。 台帳と WAV を読むだけで、何も書かない。
@@ -3838,9 +4205,12 @@ impl Studio {
         let w = wav::read(root.join(&take.rel_path))?;
         Ok(ReEstimateInput {
             take_id,
+            wav: self.wav_stamp(&take.rel_path),
+            rel_path: take.rel_path.clone(),
             rate: w.rate_hz,
             samples: Arc::new(w.samples),
             row: self.read_row(&take.row_id),
+            row_id: take.row_id.clone(),
             aligner: self.aligner.clone(),
         })
     }
@@ -4283,10 +4653,17 @@ impl Studio {
     /// 待ち合わせの順は `PlaybackLease`（`crate::playback_lease`）が持つ。
     pub fn stop_preview(&mut self) {
         self.output.stop();
-        // 積んである仕事も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
+        // 積んである前処理も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
         // 前の曲のための前処理を回し続ける意味は無い。 これは出力の資源では
-        // なく仕事キューの後始末なので、`PlaybackLease` の外、ここで行う。
-        self.workers.clear();
+        // なく仕事の後始末なので、`PlaybackLease` の外、ここで行う。
+        //
+        // **前処理だけを取り消す**（`JobRuntime::cancel`）。 貸与の仕事を全部取り消す
+        // `cancel_lease` は、テイクの解析まで止める。 試唱を止めても、録ったテイクの
+        // 解析は進める——以前の `workers.clear()` も、積んであった前処理だけを捨てていた。
+        if let Some(job) = self.prerender.take() {
+            // 終わっていれば何も起きない（`AlreadyFinished` など）。 結果は要らない。
+            let _ = self.jobs.cancel(job);
+        }
     }
 
     /// 曲を歌わせる（`TR-SYN-01`〜`04`, `TR-SYN-18`）。
@@ -5100,6 +5477,86 @@ impl Studio {
         Ok((capture, path))
     }
 
+    // ## テスト用（`tests/analysis_jobs.rs`）
+    //
+    // 実機のマイク無しで、確定のあとの派生物（解析・受理）が `JobRuntime` を通ることを確かめる。
+
+    /// テスト用。 解析の期限を差し替える。
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn test_set_analysis_deadline(&mut self, deadline: std::time::Duration) {
+        self.test_analysis_deadline = Some(deadline);
+    }
+
+    /// テスト用。 `samples` を1テイクとして台帳へ確定し、確定のあとの派生物
+    /// （解析・受理・組み直し）を本番と同じ経路で作って、画面へ返す形で返す。
+    ///
+    /// 本番は排出スレッドが WAV を確定して `finish_capture` が台帳へ載せる。 ここは WAV を
+    /// 直接置き、`commit_take` で載せる。 そのあとは `finish_capture` と同じ [`Self::derive_take`]。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、WAV か台帳を書けない。 派生物の失敗は `followup` に載る。
+    pub fn test_derive_take(
+        &mut self,
+        row_id: &str,
+        // その行のモーラ数を受け取って、標本を作る。
+        voice: impl FnOnce(usize) -> Vec<f32>,
+    ) -> Result<TakeResult> {
+        let moras = self.writer()?.units_of(row_id)?.len();
+        let samples = voice(moras);
+        let session_id = self.test_session()?;
+        let root = self.opened()?.dir().root().to_path_buf();
+        let audio_dir = self.opened()?.dir().audio_dir();
+        std::fs::create_dir_all(&audio_dir)?;
+        let path =
+            koeru_core::capture::free_take_path(&mut *self.writer()?, &root, &audio_dir, row_id, 1)
+                .map_err(AppError::from_failure)?;
+        let mut part = koeru_audio::wav::PartialTake::create(&path, MASTER_RATE_HZ)?;
+        part.write(&samples)?;
+        part.finalize()?;
+        let take_id = self.writer()?.commit_take(&FinalizedTake {
+            row_id: row_id.to_owned(),
+            session_id,
+            rel_path: koeru_core::capture::rel_path(&root, &path),
+            frames: i64::try_from(samples.len()).unwrap_or(0),
+            recorded_at: now_rfc3339(),
+        })?;
+        self.writer()?.adopt_take(row_id, take_id)?;
+
+        let duration_ms = samples.len() as f64 * 1000.0 / f64::from(MASTER_RATE_HZ);
+        let facts = TakeFacts {
+            counts: koeru_core::db::TakeGapCounts::default(),
+            gaps: Vec::new(),
+            guide_offset: None,
+            preroll_frames: 0,
+            duration_ms,
+        };
+        let finished = crate::pump::Finished {
+            path,
+            samples,
+            preroll_frames: 0,
+        };
+        let derived = self.derive_take(take_id, row_id, finished, facts);
+        Ok(TakeResult {
+            take_id,
+            row_id: row_id.to_owned(),
+            duration_ms,
+            peak: derived.peak,
+            thumbnail: derived.thumbnail,
+            oto: derived.oto,
+            confidence: derived.confidence,
+            discontinuities: 0,
+            dropped: 0,
+            render_errors: 0,
+            invalidated: false,
+            metrics: derived.metrics,
+            preroll_ms: 0.0,
+            followup: derived
+                .failure
+                .map(|e| e.with_outcome(koeru_failure::Outcome::Committed)),
+        })
+    }
+
     /// テスト用。 予定の状態を読む（`tests/device_loss.rs`）。
     #[cfg(any(test, feature = "test-hooks"))]
     pub fn test_intent_state(&mut self, capture: &CaptureId) -> Result<Option<&'static str>> {
@@ -5392,14 +5849,16 @@ impl Drop for Studio {
         self.lease = None;
         // 開いている音源の貸与も閉じる。 `AppState` の枠や T09 の resolver が
         // `Arc` を握り続けていても、`runtime.lease_expired` で断られる。
-        if let Some(open) = self.open.take()
-            && let Err(e) = open.runtime.close(&open.lease)
-        {
-            koeru_failure::record_failure(
-                &e,
-                koeru_failure::Outcome::NotCommitted,
-                "shutdown.close_project",
-            );
+        if let Some(open) = self.open.take() {
+            // 背後の仕事も、貸与ごと取り消す（`release_project`）。
+            self.jobs.cancel_lease(&open.lease);
+            if let Err(e) = open.runtime.close(&open.lease) {
+                koeru_failure::record_failure(
+                    &e,
+                    koeru_failure::Outcome::NotCommitted,
+                    "shutdown.close_project",
+                );
+            }
         }
         if let Some((device, before)) = self.gain_before.take()
             && let Err(e) = mac::write_gain(&device, before)
@@ -5858,7 +6317,7 @@ mod tests {
         let before = observed(&studio);
 
         let input = studio.collect_take_analysis(take, &row, finished, facts);
-        let output = analyze_take(&input);
+        let output = analyze_take(&input, &|| Ok(())).expect("取り消されない");
 
         // 計算では何も置かない。 音域も動かさない。
         assert!(
@@ -5905,6 +6364,113 @@ mod tests {
                 .collect();
             assert!(stored.contains(&oto), "先頭の oto は台帳にある");
         }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 試唱を止めると、前処理の仕事だけが取り消される。 テイクの解析は止めない
+    /// （`TR-SYN-27`。`cancel_lease` ではなく `cancel` を使う理由）。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 試唱を止めると前処理だけが取り消され解析は止まらない() {
+        use koeru_runtime::jobs::JobStatus;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let root = std::env::temp_dir().join(format!("koeru-stop-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("止める").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let jobs = studio.jobs();
+        let lease = studio.opened().expect("開いている").lease;
+
+        // 前景の作業スレッドを塞ぎ、前処理と解析を並べる。
+        let (started_tx, started) = mpsc::channel();
+        let (release, hold) = mpsc::channel::<()>();
+        let blocker = jobs
+            .submit(JobSpec::new(
+                lease,
+                JobKind::Analysis,
+                Priority::PostRecording,
+                move |_| {
+                    let _ = started_tx.send(());
+                    let _ = hold.recv_timeout(Duration::from_secs(60));
+                    Ok(())
+                },
+            ))
+            .expect("受け付けること");
+        started.recv_timeout(Duration::from_secs(60)).expect("走り出す");
+        let prerender = jobs
+            .submit_notify(
+                JobSpec::new(lease, JobKind::PreviewRender, Priority::PostRecording, |_| Ok(())),
+                |_| {},
+            )
+            .expect("受け付けること");
+        let analysis = jobs
+            .submit(JobSpec::new(
+                lease,
+                JobKind::Analysis,
+                Priority::PostRecording,
+                |_| Ok(()),
+            ))
+            .expect("受け付けること");
+        studio.prerender = Some(prerender.job());
+
+        studio.stop_preview();
+
+        assert!(matches!(
+            jobs.job(prerender.job()).expect("表にある").status,
+            JobStatus::Cancelled { .. }
+        ));
+        assert!(
+            matches!(
+                jobs.job(analysis.job()).expect("表にある").status,
+                JobStatus::Queued { .. }
+            ),
+            "解析は止めない"
+        );
+        assert!(studio.prerender.is_none(), "覚えを捨てる");
+        let _ = release.send(());
+        blocker.wait().expect("終わる");
+        analysis.wait().expect("解析は進む");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 受理の直前に作り直した印は、何も変わっていなければ確定のときの印と一致する。
+    /// 計算が読んだものが変われば（F0 の条件・行の読み）一致しなくなる。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 読んだ入力の印は変わらなければ一致し変われば外れる() {
+        let root = std::env::temp_dir().join(format!("koeru-stamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("印").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let rows = studio.rows_with_takes().expect("行を引ける");
+        let row = rows[0].row_id.clone();
+        let other = rows[1].row_id.clone();
+        let take = 1;
+
+        let (purpose, floor) = studio.f0_conditions();
+        let stamped = take_analysis::analysis_based_on(take, purpose, floor, &studio.read_row(&row));
+        assert!(
+            stamped.is_current_in(&studio.current_analysis_based_on(take, &row)),
+            "何も変わっていない"
+        );
+        assert!(!stamped.is_empty());
+
+        // 別の行を読む印とは一致しない（読みが違う）。
+        assert!(!stamped.is_current_in(&studio.current_analysis_based_on(take, &other)));
+        // 別のテイクの印とも一致しない。
+        assert!(!stamped.is_current_in(&studio.current_analysis_based_on(take + 1, &row)));
+        // F0 の下限が決まると外れる。
+        studio.test_observe_f0(vec![220.0; 4], 80.0).expect("埋められる");
+        assert!(!stamped.is_current_in(&studio.current_analysis_based_on(take, &row)));
+
+        // 指紋は中身を出さない。
+        assert!(!format!("{stamped:?}").contains(&row));
 
         let _ = std::fs::remove_dir_all(&root);
     }

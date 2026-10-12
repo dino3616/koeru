@@ -5,8 +5,18 @@
 //! [`TakeAnalysisInput`] が所有した値で持ち、置くものは [`TakeAnalysisOutput`] が
 //! 置く順に並べて返す。 台帳とファイルへ置くのは `Studio::admit_take_analysis` だけ。
 //!
-//! 同じスレッドで、同じ順序で走らせる。 変えたのは境界だけで、計算の中身も、置く順序も
-//! 以前と同じ（`TR-ALN-29`）。
+//! 計算は `JobRuntime` の作業スレッドで走る（`DEC-PLT-047`、T07b-2）。 計算の中身も、
+//! 置く順序も以前と同じ（`TR-ALN-29`）。 増えたのは、区切りで取消の合図を見る点だけ
+//! ——F0 推定の前後と、アライメントの前後。 合図を見る関数は呼び出し側から受け取り
+//! （[`Checkpoint`]）、`JobRuntime` の型はここへ持ち込まない。
+//!
+//! # 読んだ入力の印
+//!
+//! 計算が読んだ入力は [`analysis_based_on`] / [`re_estimate_based_on`] が名前と指紋に
+//! して返す。 公開のときに `JobRuntime` が今の値と突き合わせ、違えば結果を捨てる
+//! （`PublishRefused::Stale`）。 **印に載せるのは計算が読んだものだけ**——読んでいない
+//! ものを入れると、無関係な編集で結果を無駄に捨てる。 指紋は中身を直接載せない
+//! （音源名・歌詞・パスが記録へ流れ込まないよう、ハッシュにする）。
 //!
 //! # 台帳を読んだ失敗は値で持つ
 //!
@@ -21,8 +31,10 @@
 //! [`TakeAnalysisOutput::failure`] に入れる。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use koeru_align::aligner::{AlignRequest, Alignment};
 use koeru_align::confidence::{Confidence, from_alignment_span};
@@ -38,11 +50,62 @@ use koeru_core::oto::{Boundary, Oto};
 use koeru_core::presamp::Rules;
 use koeru_core::reclist::{self, Slot};
 use koeru_failure::Class;
+use koeru_runtime::jobs::{BasedOn, Cancelled};
 use koeru_synth::f0;
 
 use crate::align::Chosen;
 use crate::capture_lease::{TakeGap, TakeGapKind};
 use crate::error::AppError;
+
+/// 解析の期限（投入から）。 過ぎたら失敗にし、自動でやり直さない（`DEC-PLT-047`）。
+///
+/// **仮の値で、根拠が無い**（`Q-PLT-006`）。 以前は期限が無かった。 短すぎれば、
+/// 正当な解析を失敗にする。 長ければ、固まったエンジンを見つけるのが遅れる。
+/// 待ちの時間も含むので、長い解析の後ろに並んだものも同じ期限で数える。
+pub(crate) const ANALYSIS_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
+/// 区切りで取消の合図を見る関数。 取り消されていれば `Err` で、計算はそこで抜ける。
+///
+/// `JobRuntime` の `CancelProbe::check` を渡す。 試験は `&|| Ok(())` を渡す。
+pub(crate) type Checkpoint<'a> = &'a dyn Fn() -> Result<(), Cancelled>;
+
+/// 計算が最後まで走らずに戻った理由。
+#[derive(Debug)]
+pub(crate) enum Stop {
+    /// 区切りで取消の合図を見て抜けた。
+    Cancelled(Cancelled),
+    /// 計算が落ちた。
+    Failed(AppError),
+}
+
+impl From<Cancelled> for Stop {
+    fn from(c: Cancelled) -> Self {
+        Self::Cancelled(c)
+    }
+}
+
+impl From<AppError> for Stop {
+    fn from(e: AppError) -> Self {
+        Self::Failed(e)
+    }
+}
+
+/// 指紋にする。 中身は記録へ流さず、同じ値かどうかだけが言えればよい。
+///
+/// 同じプロセスの中で突き合わせるだけなので、`DefaultHasher`（固定の鍵）で足りる。
+fn digest<T: Hash + ?Sized>(value: &T) -> String {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+/// 読みが失敗していたら、失敗した code を指紋にする。 失敗を読んだことも入力の一部。
+fn stamp_of<T>(read: &Result<T, AppError>, fingerprint: impl FnOnce(&T) -> String) -> String {
+    match read {
+        Ok(v) => fingerprint(v),
+        Err(e) => format!("unreadable:{}", e.code),
+    }
+}
 
 /// 読みの最初の音素。集団の鍵にする（`TR-ALN-12` (b)）。
 ///
@@ -192,6 +255,78 @@ fn loaded<T>(read: &Result<T, AppError>) -> Result<&T, AppError> {
     read.as_ref().map_err(Clone::clone)
 }
 
+impl RowReads {
+    /// 計算が読んだ行の事実の印。 `based` へ足して返す。
+    ///
+    /// **集団（`populations`）は載せない。** 他のテイクの oto から集めた統計で、
+    /// 確信度の成分 (3) にしか効かない。 変わっても、置く値の正しさ（持ち主の綴り・
+    /// 境界・oto の組）は崩れない。 載せると、無関係なテイクの確定のたびに結果を捨てる。
+    /// 持ち主（`owned`）は載せる——先に録った行が取れば、同じ綴りを二重に置く
+    /// （`DEC-RCL-016`）。
+    fn stamp(&self, based: BasedOn) -> BasedOn {
+        based
+            .with(
+                "row.setup",
+                stamp_of(&self.setup, |s| {
+                    // 規則は綴りの表の写しの文字列にして引く。 順序が決まっている。
+                    digest(&(
+                        format!("{:?}", s.method),
+                        format!("{:?}", s.set),
+                        koeru_core::presamp::write(&s.rules, "\n"),
+                    ))
+                }),
+            )
+            .with("row.kana", stamp_of(&self.kana, |k| digest(k)))
+            .with(
+                "row.line",
+                stamp_of(&self.line, |l| digest(&format!("{l:?}"))),
+            )
+            .with("row.tone", stamp_of(&self.tone, |t| t.to_string()))
+            .with("row.owned", stamp_of(&self.owned, |o| digest(o)))
+    }
+}
+
+/// F0 の条件の印。 計算が読んだのは、集めた数そのものではなく、そこから決めた条件
+/// （[`f0::Purpose`] と下限）。
+fn f0_stamp(based: BasedOn, purpose: f0::Purpose, floor: Option<f64>) -> BasedOn {
+    let purpose = match purpose {
+        f0::Purpose::Preview => "preview",
+        f0::Purpose::Distribution => "distribution",
+    };
+    based.with("f0.purpose", purpose).with(
+        "f0.floor",
+        floor.map_or_else(|| "none".to_owned(), |f| format!("{:016x}", f.to_bits())),
+    )
+}
+
+/// テイクの解析が読んだ入力の印。
+///
+/// 受理の直前に、同じ引数を今の値で作り直して突き合わせる。 引数が同じなら、印は同じ名前を
+/// 同じ作り方で作る——これが1つの関数にあることで、「確定のときの印」と「受理のときの今の値」が
+/// ずれない。
+pub(crate) fn analysis_based_on(
+    take_id: i32,
+    purpose: f0::Purpose,
+    floor: Option<f64>,
+    row: &RowReads,
+) -> BasedOn {
+    row.stamp(f0_stamp(
+        BasedOn::new().with("take", take_id.to_string()),
+        purpose,
+        floor,
+    ))
+}
+
+/// 推定し直しが読んだ入力の印。 `wav` はテイクの WAV の指紋（読み直した標本が
+/// 別のファイルのものになっていないか）。
+pub(crate) fn re_estimate_based_on(take_id: i32, wav: &str, row: &RowReads) -> BasedOn {
+    row.stamp(
+        BasedOn::new()
+            .with("take", take_id.to_string())
+            .with("take.wav", wav),
+    )
+}
+
 /// テイクの派生物を作るのに要る、確定のときに分かっていたこと。
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TakeFacts {
@@ -224,6 +359,18 @@ pub(crate) struct TakeAnalysisInput {
     pub facts: TakeFacts,
     pub row: RowReads,
     pub aligner: Chosen,
+}
+
+impl TakeAnalysisInput {
+    /// 計算が読んだ入力の印（[`analysis_based_on`]）。
+    pub(crate) fn based_on(&self) -> BasedOn {
+        analysis_based_on(self.take_id, self.f0_purpose, self.f0_floor, &self.row)
+    }
+
+    /// 入力の大きさ（バイト）。 `JobRuntime` の上限の勘定に申告する。
+    pub(crate) fn input_bytes(&self) -> usize {
+        self.samples.len().saturating_mul(std::mem::size_of::<f32>())
+    }
 }
 
 /// 計測値（`TR-REC-16`）と、欠落の記録（`TR-REC-07`）。
@@ -284,9 +431,7 @@ pub(crate) enum Step {
 #[derive(Debug)]
 pub(crate) struct TakeAnalysisOutput {
     pub take_id: i32,
-    pub row_id: String,
     pub wav_path: PathBuf,
-    pub discontinuities: usize,
     /// 今回の F0 系列。 受理する側が音域へ足す。
     pub f0: Vec<f64>,
     pub analysis: TakeAnalysis,
@@ -299,11 +444,18 @@ pub(crate) struct TakeAnalysisOutput {
 
 /// テイクの解析を計算する。 `Studio` も台帳の書き手も取らない。
 ///
-/// 失敗を返さない。 最初に落ちた工程の失敗を [`TakeAnalysisOutput::failure`] に入れ、
-/// そこまでに作れたものを返す。
-#[must_use]
-pub(crate) fn analyze_take(input: &TakeAnalysisInput) -> TakeAnalysisOutput {
+/// 計算の失敗は返さない。 最初に落ちた工程の失敗を [`TakeAnalysisOutput::failure`] に入れ、
+/// そこまでに作れたものを返す。 返す `Err` は、区切りで取り消しの合図を見て抜けたときだけ。
+///
+/// # Errors
+///
+/// `checkpoint` が取り消しを返した（F0 推定の前後、アライメントの前後）。
+pub(crate) fn analyze_take(
+    input: &TakeAnalysisInput,
+    checkpoint: Checkpoint<'_>,
+) -> Result<TakeAnalysisOutput, Cancelled> {
     let rate = input.rate;
+    checkpoint()?;
 
     // ## 解析。録音停止時に確定させて、以後 WAV を読み直さない
     let f64s: Vec<f64> = input.samples.iter().map(|s| f64::from(*s)).collect();
@@ -316,6 +468,7 @@ pub(crate) fn analyze_take(input: &TakeAnalysisInput) -> TakeAnalysisOutput {
     // DIO の精度で足りる。待たせないことのほうが効く。
     let cond = f0::conditions(input.f0_purpose, input.f0_floor);
     let (source_f0, _t) = f0::estimate(&f64s, rate, &cond);
+    checkpoint()?;
     let analysis = TakeAnalysis::compute(
         &input.samples,
         rate,
@@ -326,22 +479,29 @@ pub(crate) fn analyze_take(input: &TakeAnalysisInput) -> TakeAnalysisOutput {
     let measured = TakeMetrics::measure(&input.samples, rate, None, None);
 
     let mut steps = Vec::new();
-    let failure = plan(input, &f64s, &mut steps).err();
-    TakeAnalysisOutput {
+    let failure = match plan(input, &f64s, &mut steps, checkpoint) {
+        Ok(()) => None,
+        Err(Stop::Failed(e)) => Some(e),
+        Err(Stop::Cancelled(c)) => return Err(c),
+    };
+    Ok(TakeAnalysisOutput {
         take_id: input.take_id,
-        row_id: input.row_id.clone(),
         wav_path: input.wav_path.clone(),
-        discontinuities: input.facts.counts.discontinuities,
         f0: source_f0,
         analysis,
         measured,
         steps,
         failure,
-    }
+    })
 }
 
 /// [`analyze_take`] のうち、台帳とファイルへ置く工程を並べる。 作れた順に `steps` へ足す。
-fn plan(input: &TakeAnalysisInput, f64s: &[f64], steps: &mut Vec<Step>) -> Result<(), AppError> {
+fn plan(
+    input: &TakeAnalysisInput,
+    f64s: &[f64],
+    steps: &mut Vec<Step>,
+    checkpoint: Checkpoint<'_>,
+) -> Result<(), Stop> {
     let rate = input.rate;
     let facts = &input.facts;
     // この音源の作り方（`TR-RCL-01`）。 原音設定の規約がこれで決まる。
@@ -353,6 +513,7 @@ fn plan(input: &TakeAnalysisInput, f64s: &[f64], steps: &mut Vec<Step>) -> Resul
     //
     // アライナを通す（`TR-ALN-03`）。 揃えられなければ原音設定を作らないだけで、
     // テイクの確定は取り消さない。 なぜ揃わなかったかは code で残す。
+    checkpoint()?;
     let alignment = match loaded(&input.row.kana)
         .and_then(|kana| align_samples(&input.aligner, kana, f64s, rate))
     {
@@ -362,6 +523,7 @@ fn plan(input: &TakeAnalysisInput, f64s: &[f64], steps: &mut Vec<Step>) -> Resul
             None
         }
     };
+    checkpoint()?;
     // 1ファイルに複数モーラが入る（`TR-RCL-03`、`DEC-ALN-013`）。
     // モーラごとに境界を取り出し、oto もモーラごとに作る。
     let kana = loaded(&input.row.kana)?;
@@ -703,11 +865,29 @@ fn span_confidence(
 #[derive(Debug)]
 pub(crate) struct ReEstimateInput {
     pub take_id: i32,
+    /// テイクの行。 受理の直前に、読んだ入力の今の値を作り直すのに要る。
+    pub row_id: String,
+    /// テイクの WAV の、プロジェクトの中での場所。 同上（WAV の指紋を引き直す）。
+    pub rel_path: String,
     /// 台帳が持つテイクの WAV を読み直した標本。 レートは WAV のもの。
     pub samples: Arc<Vec<f32>>,
     pub rate: u32,
     pub row: RowReads,
     pub aligner: Chosen,
+    /// テイクの WAV の指紋。 読んだ標本が別のファイルのものになっていないかを、印で見る。
+    pub wav: String,
+}
+
+impl ReEstimateInput {
+    /// 計算が読んだ入力の印（[`re_estimate_based_on`]）。
+    pub(crate) fn based_on(&self) -> BasedOn {
+        re_estimate_based_on(self.take_id, &self.wav, &self.row)
+    }
+
+    /// 入力の大きさ（バイト）。 `JobRuntime` の上限の勘定に申告する。
+    pub(crate) fn input_bytes(&self) -> usize {
+        self.samples.len().saturating_mul(std::mem::size_of::<f32>())
+    }
 }
 
 /// 推定し直した結果。
@@ -730,8 +910,12 @@ pub(crate) struct ReEstimation {
 /// # Errors
 ///
 /// 読みを読めない、読みを音素へ写せない、アライナが答えられない、発声を見つけられない、
-/// 規約や行の事実を読めなかった。
-pub(crate) fn re_estimate(input: &ReEstimateInput) -> Result<ReEstimation, AppError> {
+/// 規約や行の事実を読めなかった（[`Stop::Failed`]）。 `checkpoint` が取り消しを返した
+/// （アライメントの前後。[`Stop::Cancelled`]）。
+pub(crate) fn re_estimate(
+    input: &ReEstimateInput,
+    checkpoint: Checkpoint<'_>,
+) -> Result<ReEstimation, Stop> {
     let rate = input.rate;
     let f64s: Vec<f64> = input.samples.iter().map(|v| f64::from(*v)).collect();
     #[allow(
@@ -742,7 +926,9 @@ pub(crate) fn re_estimate(input: &ReEstimateInput) -> Result<ReEstimation, AppEr
 
     let kana = loaded(&input.row.kana)?;
     let readings: Vec<&str> = kana.iter().map(String::as_str).collect();
+    checkpoint()?;
     let alignment = align_samples(&input.aligner, kana, &f64s, rate)?;
+    checkpoint()?;
     let per_mora = per_mora(&alignment, &readings).ok_or_else(|| {
         AppError::new(
             "align.no_voice",
@@ -896,8 +1082,8 @@ pub(crate) mod tests {
     #[test]
     fn 同じ入力から同じ出力になる() {
         let input = input_for(&["あ", "か"], synthetic_voice(2, 180.0));
-        let a = analyze_take(&input);
-        let b = analyze_take(&input);
+        let a = analyze_take(&input, &|| Ok(())).expect("取り消されない");
+        let b = analyze_take(&input, &|| Ok(())).expect("取り消されない");
         // `f64` の `Debug` は往復できる最短の表記なので、文字列の一致はビットの一致。
         assert_eq!(format!("{a:?}"), format!("{b:?}"));
 
@@ -916,9 +1102,8 @@ pub(crate) mod tests {
     fn 取りこぼしたテイクはキューへ入れない() {
         let mut input = input_for(&["あ"], synthetic_voice(1, 180.0));
         input.facts.counts.discontinuities = 1;
-        let out = analyze_take(&input);
+        let out = analyze_take(&input, &|| Ok(())).expect("取り消されない");
         assert!(!out.steps.iter().any(|s| matches!(s, Step::Enqueue)));
-        assert_eq!(out.discontinuities, 1);
     }
 
     /// 台帳を読めなかった段で止まり、そこまでに作れたものを返す。
@@ -932,14 +1117,14 @@ pub(crate) mod tests {
 
         let mut input = input_for(&["あ"], synthetic_voice(1, 180.0));
         input.row.setup = Err(unreadable());
-        let out = analyze_take(&input);
+        let out = analyze_take(&input, &|| Ok(())).expect("取り消されない");
         assert!(out.steps.is_empty(), "何も置かない: {:?}", out.steps);
         assert!(out.failure.is_some());
         assert!(out.analysis.peak > 0.0, "画面へ返す値は作れている");
 
         let mut input = input_for(&["あ"], synthetic_voice(1, 180.0));
         input.row.kana = Err(unreadable());
-        let out = analyze_take(&input);
+        let out = analyze_take(&input, &|| Ok(())).expect("取り消されない");
         assert!(
             matches!(
                 out.steps.as_slice(),

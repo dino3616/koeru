@@ -467,6 +467,17 @@ backends = ['native']
 min_cases = 7
 contracts = ['DEC-PLT-034', 'DEC-PLT-044']
 
+[[suite]]
+id = 'SUITE-APP-017'
+title = 'テイクの解析が JobRuntime を通り、取り消し・期限切れ・貸与の失効でもテイクが残り、待ち数が状態ロックの外から読める'
+runner = 'cargo'
+package = 'koeru-app'
+target = 'analysis_jobs'
+platforms = ['macos']
+backends = ['native']
+min_cases = 8
+contracts = ['DEC-PLT-047', 'DEC-PLT-034', 'DEC-PLT-038', 'TR-SYN-33']
+
 # ## xtask
 
 [[suite]]
