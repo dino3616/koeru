@@ -309,6 +309,28 @@ scope = '条件'
     assert_eq!(r.targets.by, ids(&["SUITE-fix-001"]));
 }
 
+/// 試験が FSL の contract を `targets` で指しても、要件の `targets` の数は変わらない。
+/// この軸が数えるのは、要件へ張られた edge だけ（`DEC-PLT-048` の5を D02 で決めたとき）。
+#[test]
+fn contract_への_targets_は要件の_targets_の数を変えない() {
+    let with_contracts = |contracts: &str| {
+        let mut f = files();
+        f.insert(
+            "meta/suites/cargo.toml".to_owned(),
+            SUITES.replace(
+                "contracts = ['TR-fix-01', 'TR-fix-03', 'DEC-fix-001']",
+                &format!("contracts = {contracts}"),
+            ),
+        );
+        coverage_of(&f)
+    };
+    let without = with_contracts("['TR-fix-01']");
+    let with = with_contracts("['TR-fix-01', 'REQ-fix-001', 'FB-fix-001']");
+    assert_eq!(with.summary(), without.summary());
+    assert_eq!(with.requirements, without.requirements);
+    assert_eq!(row(&with, "TR-fix-01").targets.by, ids(&["SUITE-fix-001"]));
+}
+
 /// 実在する meta を読ませる。 全要件が1行ずつ載り、3つの関係の件数は graph の edge と一致する。
 #[test]
 fn 実在する_meta_の全要件が_view_を通る() {

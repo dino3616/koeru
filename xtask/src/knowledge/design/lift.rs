@@ -9,8 +9,8 @@
 //!     提案書 5.2.2）は REQ の `formalized_as` を逆向きに読む規則が作る
 //!   - 部品の `supports_requirements` を、採用なら `implements_requirements`、それ以外なら
 //!     `unadopted_requirements` に振り分ける
-//!   - 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは
-//!     `other_contracts` に振り分ける
+//!   - 試験の `contracts` を、要件を指すものは `targets_requirements`、FSL の contract を指すものは
+//!     `targets_formal_contracts`、残りは `other_contracts` に振り分ける
 //! - 読んだものが target の意味で引けているかを検査する（[`Design::audit`]）
 //!
 //! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 逆向きの規則で読めるものは
@@ -159,7 +159,8 @@ impl Design {
     ) -> Self {
         let mut all: Vec<Entry> = entries.iter().map(duplicate).collect();
         lift_components(&mut all);
-        lift_suites(&mut all);
+        let fsl: BTreeSet<String> = fsl_sites.keys().cloned().collect();
+        lift_suites(&mut all, &fsl);
         all.extend(contract_entries(root, fsl_sites, &mut issues));
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&all);
         issues.extend(dups.into_iter().map(DesignIssue::Load));
@@ -394,9 +395,10 @@ fn lift_components(all: &mut [Entry]) {
     }
 }
 
-/// 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは `other_contracts` に
-/// 振り分ける（`DEC-PLT-048`）。 要件は、技術要件と、定量の要件（上限）の両方。
-fn lift_suites(all: &mut [Entry]) {
+/// 試験の `contracts` を、要件を指すものは `targets_requirements`、FSL の contract を指すものは
+/// `targets_formal_contracts`、残りは `other_contracts` に振り分ける（`DEC-PLT-048` の5。
+/// 契約への `targets` は、その残りを D02 で決めた）。 要件は、技術要件と、定量の要件（上限）の両方。
+fn lift_suites(all: &mut [Entry], fsl: &BTreeSet<String>) {
     let mut requirements: BTreeSet<String> = BTreeSet::new();
     for e in all.iter() {
         match e.shape.schema {
@@ -416,11 +418,16 @@ fn lift_suites(all: &mut [Entry]) {
         .filter(|e| e.shape.schema == "test-portfolio")
     {
         for_each_item(e, |item| {
-            let (targets, others): (Vec<String>, Vec<String>) = list_of(item, "contracts")
+            let (targets, rest): (Vec<String>, Vec<String>) = list_of(item, "contracts")
                 .into_iter()
                 .partition(|c| requirements.contains(c));
+            let (formal, others): (Vec<String>, Vec<String>) =
+                rest.into_iter().partition(|c| fsl.contains(c));
             if !targets.is_empty() {
                 item.insert("targets_requirements".to_owned(), string_array(targets));
+            }
+            if !formal.is_empty() {
+                item.insert("targets_formal_contracts".to_owned(), string_array(formal));
             }
             if !others.is_empty() {
                 item.insert("other_contracts".to_owned(), string_array(others));

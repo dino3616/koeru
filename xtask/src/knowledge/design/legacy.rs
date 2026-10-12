@@ -373,13 +373,15 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("backends"),
             data("min_cases"),
             data("manual"),
-            // 行き先が要件のものだけ `targets`。 残りは仮の名前（`DEC-PLT-048`）。 `lift` が
-            // 次の2つの欄に振り分ける。
+            // 行き先が要件と FSL の contract のものは `targets`。 残り（判断・調査）は仮の名前
+            // （`DEC-PLT-048` の5。 契約への `targets` は、その残りを D02 で決めた）。 `lift` が
+            // 次の3つの欄に振り分ける。
             Field {
                 name: "contracts",
                 role: Role::Lifted("targets"),
             },
             edge("targets_requirements", "targets"),
+            edge("targets_formal_contracts", "targets"),
             edge("other_contracts", "contracts"),
         ],
         open: false,

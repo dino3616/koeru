@@ -20,6 +20,7 @@ const H_FORMAL: &str = "HYP-F00002";
 const H_AUDIO: &str = "HYP-A00003";
 const H_EMOTION: &str = "HYP-E00004";
 const H_WORKFLOW: &str = "HYP-W00005";
+const H_AESTHETIC: &str = "HYP-A00006";
 
 fn arr(items: &[&str]) -> String {
     let quoted: Vec<String> = items.iter().map(|s| format!("'{s}'")).collect();
@@ -506,9 +507,25 @@ fn 観測の欄が無い_legacy_の調査は判定しない() {
 }
 
 #[test]
-fn 仮説に種類が無ければ_観測を書いた支持は決められない() {
+fn 仮説に種類が無ければ_読み込みが落とす() {
+    let body = "schema = 'design-hypothesis'\nid = 'HYP-S00009'\nstatement = '予測'\n";
+    let fx = Fx::new().put("meta/hypotheses/HYP-S00009.toml", body);
+    let mut rep = Report::default();
+    load_view_with(&fx.view(), TARGET_SHAPES, &mut rep);
+    assert!(
+        rep.diagnostics()
+            .iter()
+            .any(|d| d.message.contains("必須項目 `hypothesis_kind` が無い")),
+        "{:?}",
+        rep.diagnostics()
+    );
+}
+
+/// 種類が文字列でなければ、書いてあっても資格を決められない。 観測方法を書いた支持だけが落ちる。
+#[test]
+fn 種類が文字列でない仮説への_観測を書いた支持は決められない() {
     let body = "schema = 'design-hypothesis'\nid = 'HYP-S00009'\nstatement = '予測'\n\
-                supporting_evidence = ['EVID-E00001']\n";
+                hypothesis_kind = 5\nsupporting_evidence = ['EVID-E00001']\n";
     let fx = Fx::new()
         .put("meta/hypotheses/HYP-S00009.toml", body)
         .evid("EVID-E00001", "method = 'executed-test'");
@@ -1155,23 +1172,68 @@ fn 人の観察で足りる種類でなければ_待ち行列に出ない() {
     assert_eq!(debt(&fx), Vec::new());
 }
 
-/// 表が観察者を言っていない方法を含む種類は、人の観察だけとは言えない。
+/// 表が観察者を言っていない3つの方法（検討・比較・支援技術）は、人が行う観察と読む
+/// （メンテナの判断）。 workflow fit と aesthetic identity は、人の観察だけで足りる種類になる。
 #[test]
-fn 観察者を言っていない方法を含む種類は待ち行列に出ない() {
-    let fx = Fx::new().hyp(H_WORKFLOW, "workflow-fit", &[], &[]).dec(
-        "DEC-D00001",
-        "accepted",
-        &[H_WORKFLOW],
-        &[],
-    );
+fn workflow_fit_と_aesthetic_identity_は待ち行列に出る() {
+    let fx = Fx::new()
+        .hyp(H_WORKFLOW, "workflow-fit", &[], &[])
+        .hyp(H_AESTHETIC, "aesthetic-identity", &[], &[])
+        .dec("DEC-D00001", "accepted", &[H_WORKFLOW, H_AESTHETIC], &[]);
     let registry = fx.registry();
-    assert_eq!(registry.human_only("workflow-fit"), None);
+    assert_eq!(
+        registry.human_only("workflow-fit"),
+        Some(vec!["in-workflow-use", "hard-case-review"])
+    );
+    assert_eq!(
+        registry.human_only("aesthetic-identity"),
+        Some(vec![
+            "authorial-choice",
+            "human-observation",
+            "concrete-comparison"
+        ])
+    );
+    let ids: Vec<String> = debt(&fx).into_iter().map(|i| i.hypothesis).collect();
+    assert_eq!(ids, [H_AESTHETIC, H_WORKFLOW]);
+    // 人が行う比較の調査が付けば、aesthetic identity は待ち行列から消える。
+    let fx = fx.evid(
+        "EVID-E00001",
+        &format!("method = 'concrete-comparison'\nassesses = ['{H_AESTHETIC}']"),
+    );
+    let ids: Vec<String> = debt(&fx).into_iter().map(|i| i.hypothesis).collect();
+    assert_eq!(ids, [H_WORKFLOW]);
+}
+
+/// accessibility は `browser-measurement` が automated の `can-support` なので、人の観察
+/// だけとは言えず、待ち行列に出ない。 人の観察だけの種類は、方法の一覧を返す。
+#[test]
+fn 人の観察だけとは言えない種類は待ち行列に出ない() {
+    let fx = Fx::new()
+        .hyp(H_AUDIO, "accessibility-conformance", &[], &[])
+        .dec("DEC-D00001", "accepted", &[H_AUDIO], &[]);
+    let registry = fx.registry();
+    assert_eq!(registry.human_only("accessibility-conformance"), None);
     assert_eq!(debt(&fx), Vec::new());
-    // 人の観察だけの種類は、方法の一覧を返す。
     assert_eq!(
         registry.human_only("long-term-appropriation"),
         Some(vec!["longitudinal-observation"])
     );
+}
+
+/// `observer` を付けていない `can-support` の行を含む種類は、人の観察だけとは言えない。
+/// 表が言っていないことを、推測で人の観察だけにしない。
+#[test]
+fn observer_を付けていない方法を含む種類は待ち行列に出ない() {
+    let table = "schema = 'evidence-capability'\n\n\
+        [[capability]]\nhypothesis_kind = 'k'\nmethod = 'a'\nsupport = 'can-support'\n\
+        observer = 'human'\nsource = 's'\n\n\
+        [[capability]]\nhypothesis_kind = 'k'\nmethod = 'b'\nsupport = 'can-support'\nsource = 's'\n";
+    let fx = Fx::bare()
+        .put("meta/verification/capabilities.toml", table)
+        .hyp(H_WORKFLOW, "k", &[], &[])
+        .dec("DEC-D00001", "accepted", &[H_WORKFLOW], &[]);
+    assert_eq!(fx.registry().human_only("k"), None);
+    assert_eq!(debt(&fx), Vec::new());
 }
 
 /// 人の観察でない調査が付いても、足りないものは残る。 数が多くても同じ起源は1つ。

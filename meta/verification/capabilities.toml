@@ -17,8 +17,9 @@ schema = 'evidence-capability'
 # 書く。 出典の無い行を足さない。
 #
 # `observer` は `can-support` の行にだけ付ける。 人の観察でしか足りないかを決める材料
-# （`design-debt --human`）。 表が観察者を言っていない方法は付けず、付けない方法を含む種類は
-# 「人の観察だけ」とみなさない。 同じ方法は、どの行でも同じ値にする。
+# （`design-debt --human`）。 表が観察者を言っていない方法は、人が行う観察と読んだ（`note` に書いた）。
+# `observer` を付けていない `can-support` の行を含む種類は、「人の観察だけ」とみなさない。
+# 同じ方法は、どの行でも同じ値にする。
 #
 # 出典は `docs/reports/design-system/koeru_design_system_proposal_full.md` の 10.1（表）、10.1.1
 # （例）、10.2（三つ目の規則）、10.3（自己観察）。 `note` は、セルの文言を方法の語に写すときに
@@ -147,8 +148,9 @@ note = '「使用」を、人が実際の作業で使うことと読んだ。'
 hypothesis_kind = 'workflow-fit'
 method = 'hard-case-review'
 support = 'can-support'
+observer = 'human'
 source = '10.1 の表 workflow fit × Evidence になれるもの「困難な例の検討」'
-note = '表は検討する人を言っていないので、observer は付けない。'
+note = '表は検討する人を言っていない。 人が行う検討と読んだ（メンテナの判断）。'
 
 [[capability]]
 hypothesis_kind = 'workflow-fit'
@@ -207,8 +209,9 @@ note = '「複数の人による意味の受け取り」を、人の観察と読
 hypothesis_kind = 'aesthetic-identity'
 method = 'concrete-comparison'
 support = 'can-support'
+observer = 'human'
 source = '10.1 の表 aesthetic identity × Evidence になれるもの「具体的な比較」'
-note = '表は比べる人を言っていないので、observer は付けない。'
+note = '表は比べる人を言っていない。 人が行う比較と読んだ（メンテナの判断）。'
 
 # ## 感情・trust（emotional-response）
 
@@ -252,8 +255,9 @@ source = '10.1.1 の例 accessibility-conformance × browser-measurement、10.1 
 hypothesis_kind = 'accessibility-conformance'
 method = 'assistive-technology-use'
 support = 'can-support'
+observer = 'human'
 source = '10.1 の表 accessibility × Evidence になれるもの「支援技術」'
-note = '表は使う人を言っていないので、observer は付けない。'
+note = '表は使う人を言っていない。 人が支援技術を使って行う確認と読んだ（メンテナの判断）。'
 
 # ## 長期利用・appropriation（long-term-appropriation）
 
