@@ -708,16 +708,17 @@ fn 重複した_id_は読み込みの問題として出る() {
     ));
 }
 
-/// 目標の opaque な ID は今の `Id` に読めず、node が黙って消える。 消えたことを問題として出す。
+/// `Id` に読めない ID の記録は、node が黙って消える。 消えたことを問題として出す。
+/// opaque の小文字は目標の形ではない（今の形としても読めない）。
 #[test]
 fn id_の形に読めない記録は_node_にならず問題として出る() {
-    let body = DECISION_2.replace("DEC-fix-002", "DEC-6CQ3NA");
-    let f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    let body = DECISION_2.replace("DEC-fix-002", "DEC-6cq3na");
+    let f = with("meta/decisions/DEC-6cq3na.toml", &body);
     let design = design_of(&f);
     let issues = design.audit();
     assert!(has(
         &issues,
-        |i| matches!(i, DesignIssue::UnparsedId { raw, .. } if raw == "DEC-6CQ3NA")
+        |i| matches!(i, DesignIssue::UnparsedId { raw, .. } if raw == "DEC-6cq3na")
     ));
     assert_eq!(
         design
@@ -732,13 +733,41 @@ fn id_の形に読めない記録は_node_にならず問題として出る() {
 fn id_の形に読めない参照は_edge_にならず問題として出る() {
     let body = DECISION_2.replace(
         "supersedes = ['DEC-fix-001']",
-        "supersedes = ['DEC-fix-001', 'DEC-6CQ3NA']",
+        "supersedes = ['DEC-fix-001', 'DEC-6cq3na']",
     );
     let issues = design_of(&with("meta/decisions/DEC-fix-002.toml", &body)).audit();
     assert!(has(&issues, |i| matches!(
         i,
-        DesignIssue::UnparsedReference { field: "supersedes", raw, .. } if raw == "DEC-6CQ3NA"
+        DesignIssue::UnparsedReference { field: "supersedes", raw, .. } if raw == "DEC-6cq3na"
     )));
+}
+
+/// 目標の opaque な ID の記録は node になり、今の ID と同じ graph に載る。 参照も edge になる。
+#[test]
+fn 目標の_opaque_id_の記録は_node_になる() {
+    let body = DECISION_2.replace("DEC-fix-002", "DEC-6CQ3NA");
+    let f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    let design = design_of(&f);
+    // 読めない ID は1件も無い。 参照先は今の ID の DEC-fix-001。
+    assert_eq!(design.audit(), Vec::new());
+    let graph = design.graph();
+    assert_eq!(
+        graph.node(&key("DEC-6CQ3NA")).map(|n| n.kind),
+        Some("decision")
+    );
+    // 今の ID と別の node。
+    assert_ne!(key("DEC-6CQ3NA"), key("DEC-ALL-001"));
+    assert!(edges(&graph, "DEC-6CQ3NA").contains(&("supersedes", "DEC-fix-001".to_owned())));
+    assert_eq!(
+        design
+            .objects()
+            .filter(|o| o.kind() == Kind::Decision)
+            .count(),
+        3
+    );
+    let id = id("DEC-6CQ3NA");
+    assert!(id.is_target());
+    assert_eq!(id.opaque(), Some("6CQ3NA"));
 }
 
 #[test]
@@ -1010,6 +1039,21 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
     let (legacy, dups) = KnowledgeSnapshot::from_entries(&entries);
     assert!(dups.is_empty());
     let fsl = fsl_ids(root);
+
+    // 実在する ID は1つも目標の形に読み替わらない（今の読みを変えていない）。
+    assert!(
+        legacy
+            .records()
+            .filter_map(|r| r.id())
+            .all(|id| !id.is_target()),
+        "実在する meta の ID が目標の形に読まれた"
+    );
+    assert!(
+        fsl.iter()
+            .filter_map(|raw| raw.parse::<Id>().ok())
+            .all(|id| !id.is_target()),
+        "実在する FSL の ID が目標の形に読まれた"
+    );
 
     let design = Design::load(&RepoView::working_tree(root));
     assert_eq!(design.audit(), Vec::new());
