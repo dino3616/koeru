@@ -1,0 +1,61 @@
+schema = 'decision'
+id = 'DEC-PLT-049'
+title = 'CMP（部品の台帳）は DEC と EVID だけに分解し、部品の inventory は作らない'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  '実装計画どおり、repository の inventory と DEC / EVID に分解し、Component Inventory View を持つ',
+  'inventory の対象に Nix も入れ、`nix eval` で flake.nix の package まで読む',
+  '判断が要る部品（採否を決めたもの）に絞った inventory を持つ',
+  'DEC と EVID だけに分解する。部品の存在と版は repository から見ない',
+]
+selected = '''
+DEC と EVID だけに分解する。 Component Inventory は作らない。
+
+- 部品の採否と理由は DEC に、license・測定・上流の事実は EVID に置く
+- 「部品があるか、版はいくつか」は repository から引き直さない。 lock ファイルそのものを見る
+- D07b は Requirement Coverage だけを持つ（`views/coverage.rs`）。 実装計画の D07b・D08・9.4 はこの決定に合わせて直した
+- Coverage の `implements` は今、台帳の採用行から来ている。 台帳を消した後、何が要件への
+  `implements` を張るか（採用の DEC が要件を指す形など）は決めていない。 D08 が決める
+'''
+rationale = '''
+## 1. 部品の存在と版は、lock ファイルそのものが正本
+
+Cargo.lock・bun.lock・flake.lock・submodule の宣言が、存在と版の正本。 それを台帳と突き合わせる
+view を持つと、同じ事実を2か所で持つことになる。 正本を読むなら、lock を読めば足りる。
+
+## 2. license の許可は、すでに機械で見ている
+
+license の許可は `cargo deny` と CI の license policy（`deny.toml`）が見ている。 台帳の
+`license` 欄を repository の事実と照合し直す view は、これと重なる。
+
+## 3. Inventory に固有の価値は「依存と判断記録の対応」だけで、保守が見合わない
+
+台帳の行には package の鍵が無く、`name` は自由記述（自前の実装、OS の API、フォントも
+同じ欄に載る）。 照合するには名前の語の一致に頼るしかなく、誤検出が出る。 鍵を足せば
+一意になるが、136 行の人手の対応づけと、X03・D00 の欄の追加が要る。 加えて、どの manifest を
+対象にするか（`talks/` を含めるか、Nix の package を読むか、推移的な依存を出すか）を
+保守し続けることになる。 得られるのは「依存と判断記録の対応」だけで、それに見合わないと判断した。
+
+## 試した実装
+
+D07b で、名前の語による照合の Component Inventory を一度作った。 本物のリポジトリでは、
+採用の部品の 13 件が manifest に見つからず（自前の実装、WebView2、フォントを含む）、
+manifest が宣言する 44 件が台帳のどの行にも引かれなかった。 名前の語で引く限り、この誤検出は
+減らせない。 実装は残さなかった。
+
+## 案ごとの見方
+
+1. 計画どおり: 鍵が無いまま照合するか、鍵を足して136行を人手で対応づける。 どちらも上の 3 に当たる
+2. Nix も読む: nix 式の解釈が要り、保守の範囲がさらに広がる。 得るものは tool（cargo-deny など）の version で、判断記録との対応ではない
+3. 判断が要るものに絞る: 絞る基準が台帳の `status` になり、台帳の記述を正にしないという前提と矛盾する
+4. DEC と EVID だけ: 台帳の分解と、台帳の削除（D08）だけで済む。 採用
+'''
+review_triggers = [
+  '依存の追加・削除が判断記録なしに入る事故が実際に起きたとき。 そのときは inventory ではなく、依存の追加を判断記録へ結ぶ検査を先に考える',
+  'D08 が、台帳を消した後の `implements` の供給元（採用の DEC が要件を指す形など）を決めたとき。 Coverage の `implements` の読み方をそれに合わせる',
+  '`cargo deny` と CI の license policy が、license の許可を見なくなったとき',
+]
+affects_decisions = [
+  'DEC-PLT-048',
+]

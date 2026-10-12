@@ -63,7 +63,7 @@ meta / specs / source / dependency manifests / git revisions
 
 - Design System 専用の第二 `xtask` / validator framework を作らない。
 - `Q/HYP/EVID/DEC/REQ` と `PROBE/WORKLOAD/Receipt` を同じ種類の object として扱わない。
-- Pattern / Budget / Component Inventory / Verification Portfolio を手書きの第二正本にしない。
+- Pattern / Budget / Requirement Coverage / Verification Portfolio を手書きの第二正本にしない。
 - `BUDGET/TGT/SCALE/CMP/SUITE` を既存だからという理由だけで温存しない。
 - architecture refactor T02–T14 を Design System 完成待ちにしない。
 - D03 / D04 / D05 / D09 の後続実施を理由に D08 / D10 core acceptance をブロックしない。
@@ -160,7 +160,7 @@ agent/d09-design-agents
 | Evidence capability vocabulary | D02 |
 | checkpoint shape | D05 |
 | Pattern candidate shape | D06 |
-| Budget / Component / Verification view output | D07 |
+| Budget / Coverage / Verification view output | D07 |
 | old→new ID mapping during cutover | D08 |
 
 interface 変更が必要な下流 Agent は shared file を直接変更しない。
@@ -253,7 +253,6 @@ xtask/src/
   views/
     pattern.rs
     budget.rs
-    components.rs
     portfolio.rs
     coverage.rs
 
@@ -382,7 +381,7 @@ xtask/src/
 - **Work:**
   - check-meta / references / schema
   - architecture import/dependency/SDL checks の integration seam
-  - legacy budget/component/suite checks は cutover まで compatibility view から実行
+  - legacy budget/coverage/suite checks は cutover まで compatibility view から実行。coverage（台帳を読む `check-coverage`）は D08 で台帳が消えるとき、D07b の Requirement Coverage に置き換わる
   - machine-readable diagnostics / receipts
 - **Tests:** X00 parity + negative canary。
 - **Acceptance:** T15 が giant `main.rs` へ新 validator を足さずに gate を追加できる。
@@ -483,15 +482,12 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
 - **Migration source:** BUDGET / quantitative TGT / SCALE。
 - **Acceptance:** quantitative REQ + workload + allocation relation から limit / subtotal / mode peak / margin を再計算できる。
 
-### D07b — Component Inventory / Requirement Coverage
+### D07b — Requirement Coverage
 
-- **Prerequisites:** X02 + D00 + X05。
-- **Owned:** `views/components.rs`, `views/coverage.rs`。
-- **Migration source:** CMP ledger / dependency manifests / lock files。
+- **Prerequisites:** D00 + X05。
+- **Owned:** `views/coverage.rs`。
+- **Migration source:** `needs_component` と CMP の `supports_requirements`（`DEC-PLT-049`: Component Inventory は作らない）。
 - **Acceptance:**
-  - package の存在/version は repository から得る
-  - 採否理由は DEC に戻る
-  - license/measurement は EVID へ戻る
   - Requirement coverage を `needs_component` boolean で表さない
   - `formalizes / implements / Probe targets` の coverage を別々に出す
 
@@ -517,11 +513,15 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
   - BUDGET → quantitative REQ + allocation data/view
   - TGT → REQ/HYP/EVID/DEC
   - SCALE → workload + DEC/EVID + calculation
-  - CMP → repository inventory + DEC/EVID; ledger removal
+  - CMP → DEC/EVID; ledger removal（`DEC-PLT-049`）
   - SUITE → reusable PROBE definitions; receipts remain generated
 - **Verification:** before/after Context, current check behavior, budget totals, required test/probe coverage、all inbound refs。
-- **Acceptance:** legacy adapter を無効にした target fixture でも全 deterministic checks が成立する。
+- **Acceptance:**
+  - legacy adapter を無効にした target fixture でも全 deterministic checks が成立する
+  - CMP の採否理由は DEC に戻る
+  - CMP の license / measurement は EVID に戻る
 - **Human review:** ambiguous TGT/CMP item の type assignment。意味を機械的に推測しない。
+- **未決:** Coverage の `implements` は今、台帳の採用行から来ている。台帳を消した後、何が要件への `implements` を張るか（採用の DEC が要件を指す形など）は D08 で決める（`DEC-PLT-049`）。
 
 ## D09 — Design System C9 Agent capabilities
 
@@ -592,7 +592,6 @@ D09 Agent capability は D01 / D02 / D03 / D05 に依存するため、D03 / D05
 | BUDGET memory peak | D07a | current legacy calculation と target View が同じ peak を出す |
 | TGT item の意味が ambiguous | D08 | auto migration せず blocked |
 | SCALE derived formula | D07a/D08 | workload source と derived value を分離し再計算可能 |
-| CMP adopted dependency absent from manifest | D07b | inventory inconsistency |
 | CMP rejected candidate | D08 | persistent component node を要求せず provenance/DEC へ戻す |
 | Requirement without external component | D07b | `needs_component=false` を要求しない |
 | filename stem != semantic ID | D00/D08 | fail |
@@ -642,7 +641,8 @@ representative workload の選択根拠は DEC。
 
 ## 9.4 CMP
 
-package/version は Cargo/Bun/Nix/submodule/asset manifest から inventory。
+CMP は DEC と EVID だけに分解し、部品の inventory は作らない（`DEC-PLT-049`）。
+package の存在と version は lock ファイルそのものが正本で、repository から引き直す view を持たない。
 採用 / 不採用は DEC。
 license / benchmark / upstream fact は EVID。
 探索途中の候補は Issue/PR。
@@ -667,7 +667,7 @@ T15 は X04 Probe/Receipt と X07 checks を利用する。
 「required suite が登録されているか」ではなく、
 **required Probe が存在し、対象 environment で必要な Receipt / actual work が得られたか**を gate にする。
 
-Budget / component / portfolio の view は Design System 由来でもよいが、T15 hard gate にする値は明示 DEC/REQ で採択されている必要がある。
+Budget / coverage / portfolio の view は Design System 由来でもよいが、T15 hard gate にする値は明示 DEC/REQ で採択されている必要がある。
 
 ## T17
 
@@ -688,7 +688,7 @@ T17 の architecture contributor Skills と統合する必要はない。D09 は
 5. reusable Probe と run Receipt が分離され、false green を機械的に検出できる。
 6. durable EVID は Receipt の全履歴ではなく、再利用価値のある観測だけを保持する。
 7. BUDGET/TGT/SCALE/CMP/SUITE の意味が target model へ分解され、旧 object type が新規知識の追加先になっていない。
-8. Pattern / Budget / Component Inventory / Verification Portfolio は source graph から再生成できる。
+8. Pattern / Budget / Requirement Coverage / Verification Portfolio は source graph から再生成できる。
 9. bulk migration は dry-run / collision / inbound reference / before-after verification を通る。
 10. T15 が同じ xtask substrate で architecture fitness gate を実行できる。
 11. Agent を無効にしても Design System と architecture gate が成立する。
