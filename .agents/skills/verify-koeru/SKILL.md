@@ -266,6 +266,31 @@ bash .github/scripts/update-hashes.sh   # 上流の公開 digest から 6 個す
 CI では `nix-hash-fix` が PR の中で同じものを当てる（`DEC-PLT-033`）。
 FSL 内部の crate を直接 import せず、CLI の JSON 出力だけに依存する。
 
+## 判断の文脈を出す
+
+`touched` が「差分が引く ID」なら、`context` は「その判断を読むのに要るもの」。 root の
+判断・要件・問いから、必須の closure（要件、後継、前提の仮説と反証する調査、未解決の問い、
+読むべき contract・実装）を辿る。 検査ではなく、読む前の準備（`DEC-PLT-048` の語彙で読む）。
+
+```bash
+cargo xtask context --root DEC-PLT-047                  # 作業ツリーの現在の文脈（md）
+cargo xtask context --root DEC-PLT-047 --root xtask/src/cli.rs --format json
+cargo xtask context --root DEC-PLT-047 --from origin/main --at HEAD   # 現在 + 比較元からの変化
+cargo xtask context --root DEC-PLT-047 --budget 30      # 必須の外の周辺を 30 項目までに絞る
+```
+
+- **`--from` があっても現在の状態は省かない。** 比べる範囲は旧・新の closure の和集合で、
+  head で消えた edge や node も「消えた」として残る。 `--base` / `--to` は無い
+- **path の root は、そのファイルが引いている ID を入口にする**（`touched` と同じ拾い方）。
+  引用は満たしている証明ではない。 1つも引いていなければ `UNMAPPED` で、関係する契約が無い
+  という意味ではない
+- **`--budget` は周辺だけを削る。** 必須だけで超えるなら、削らずに不完全として非 0 で終わる。
+  root を狭めるか、分けて呼ぶ
+- 版を開くと、ファイル1つにつき `git` を1本起動する。 `--from` を付けると数十秒かかる
+  ことがある（2つの版は並べて読む）
+- JSON の形は `context` の持ち主が決める（`diagnostic` の封筒に `context` を足した形）。
+  形を変えるときは `context.version` を上げる
+
 ## Nix 側
 
 `flake.nix` も整形と lint の対象。 整形の契約を持たないファイルを作らない。
