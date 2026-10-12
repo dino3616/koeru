@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use super::ontology::{Kind, Layer};
-use crate::knowledge::snapshot::{Fields, Record};
+use crate::knowledge::snapshot::{Fields, Record, SourceRecord};
 use crate::knowledge::{Id, KnowledgeSnapshot};
 
 /// target では何になるか。
@@ -92,8 +92,8 @@ pub(crate) struct SchemaSpec {
     /// 一覧に無い欄も許す。 調査の記録（evidence）は、調べたことごとに欄が違う自由記述で、
     /// 欄を閉じると記録が書けなくなる。
     pub(crate) open: bool,
-    /// 収集ファイルの直下の欄（項目ではなくファイルそのものの欄）。 `SourceRecord` は
-    /// 文字列の配列しか読めないので、型つきの口は持たない。 要件の `domain_risks` が
+    /// 収集ファイルの直下の欄（項目ではなくファイルそのものの欄）。 文字列の欄
+    /// （`domain`・`domain_title`・`prefix`）は [`SourceFile`] が読む。 要件の `domain_risks` は
     /// 配列で、領域全体にかかる [Risk] を持つ。
     pub(crate) file_fields: &'static [&'static str],
 }
@@ -663,6 +663,52 @@ impl<'a> Object<'a> {
             id: self.id,
             snapshot: self.snapshot,
         })
+    }
+}
+
+/// 収集ファイルそのものの欄（項目ではなく、ファイル直下）。 領域の名前・接頭辞のような、
+/// 項目をまとめる欄を、型つきで読む。
+///
+/// 持つのは [`SchemaSpec::file_fields`] が挙げた欄だけ。 その schema が持たない欄は、
+/// 同じ名前がファイルにあっても読まない（`None`）。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SourceFile<'a> {
+    source: &'a SourceRecord,
+    spec: &'static SchemaSpec,
+}
+
+impl<'a> SourceFile<'a> {
+    /// ファイル直下の欄を持つ schema のファイルだけ。 そうでなければ `None`。
+    pub(crate) fn new(source: &'a SourceRecord) -> Option<Self> {
+        let spec = spec(source.schema())?;
+        (!spec.file_fields.is_empty()).then_some(Self { source, spec })
+    }
+
+    pub(crate) fn path(&self) -> &'a Path {
+        self.source.path()
+    }
+
+    fn field(&self, name: &str) -> Option<&'a str> {
+        let source: &'a SourceRecord = self.source;
+        self.spec
+            .knows_file_field(name)
+            .then(|| source.str(name))
+            .flatten()
+    }
+
+    /// 領域の名前（`domain = 'rec'`）。
+    pub(crate) fn domain(&self) -> Option<&'a str> {
+        self.field("domain")
+    }
+
+    /// 領域の表題。
+    pub(crate) fn domain_title(&self) -> Option<&'a str> {
+        self.field("domain_title")
+    }
+
+    /// 項目の ID の接頭辞（`prefix = 'TR-REC'`）。
+    pub(crate) fn prefix(&self) -> Option<&'a str> {
+        self.field("prefix")
     }
 }
 

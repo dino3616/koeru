@@ -32,7 +32,7 @@ pub(crate) use identity::{IdentityError, Locator, LocatorError, TargetId, check_
 pub(crate) use legacy::{
     Adoption, Allocation, Calculation, Component, Contract, ContractKind, Decision, Evidence,
     LegacyOrigin, Meaning, Object, Part, Probe, Quantity, Question, ReleaseProfile, Requirement,
-    SCHEMAS, UnclassifiedTarget, Workload,
+    SCHEMAS, SourceFile, UnclassifiedTarget, Workload,
 };
 pub(crate) use lift::{Design, DesignIssue};
 pub(crate) use ontology::{

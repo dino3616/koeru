@@ -1725,3 +1725,50 @@ fn design_の_graph_は読んだ版を持つ() {
     );
     assert_eq!(a.all_relations().count(), b.all_relations().count());
 }
+
+// ## 収集ファイル直下の欄を型つきで読む（X08）
+
+/// 収集ファイル直下の文字列の欄を、型つきで読める。 持たない schema の欄・文字列でない値は読まない。
+#[test]
+fn 収集ファイル直下の欄を型つきで読める() {
+    let design = base();
+    let mut files: Vec<_> = design
+        .source_files()
+        .map(|f| (f.domain(), f.domain_title(), f.prefix()))
+        .collect();
+    files.sort();
+    // 技術要件は領域と接頭辞を持つ。 目標値は領域だけ。 1件1ファイルの schema は含まれない。
+    assert_eq!(
+        files,
+        [
+            (Some("fix"), None, None),
+            (Some("fix"), None, Some("TR-fix"))
+        ]
+    );
+
+    // 目標値のファイルに `prefix` を書いても、その schema は持たない欄なので読まない。
+    // 文字列でない値も読まない。
+    // 直下の欄は `[[target]]` より前に置く。
+    let targets = TARGETS
+        .replace("domain = 'fix'", "domain = 3")
+        .replace("\n[[target]]", "prefix = 'TGT-fix'\n\n[[target]]");
+    let design = design_of(&with("meta/budgets/fix.toml", &targets));
+    let t = design
+        .source_files()
+        .find(|f| f.path().ends_with("meta/budgets/fix.toml"))
+        .expect("目標値のファイル");
+    assert_eq!(t.domain(), None, "文字列でない値");
+    assert_eq!(t.prefix(), None, "その schema が持たない欄");
+
+    // 欄の一覧と、型つきの口が読む欄が一致する。
+    for schema in ["requirement-set", "target-set"] {
+        let spec = spec(schema).expect("写し方がある");
+        for name in ["domain", "domain_title", "prefix"] {
+            let readable = match schema {
+                "requirement-set" => true,
+                _ => name == "domain",
+            };
+            assert_eq!(spec.knows_file_field(name), readable, "{schema}.{name}");
+        }
+    }
+}

@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::identity::{IdentityError, TargetId};
-use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, spec};
+use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, SourceFile, spec};
 use super::ontology::{Kind, relation};
 use super::shapes::{TARGET_SHAPES, is_target_only};
 use crate::diagnostic::{Report, Severity};
@@ -181,6 +181,11 @@ impl Design {
         self.snapshot
             .get(id)
             .and_then(|r| Object::in_snapshot(r, &self.snapshot))
+    }
+
+    /// ファイル直下の欄を持つ収集ファイル（技術要件・目標値）。 領域の名前などを型つきで読む。
+    pub(crate) fn source_files(&self) -> impl Iterator<Item = SourceFile<'_>> {
+        self.snapshot.sources().filter_map(SourceFile::new)
     }
 
     /// 読み込みと組み立てで出た問題だけ。 graph は作らない。
