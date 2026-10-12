@@ -231,10 +231,12 @@ pub(crate) const RELATIONS: &[RelationSpec] = &[
         Ends::Of(&[Kind::Hypothesis]),
     ),
     // 実行済みを意味しない。 Probe が何を観測するためのものか、だけ。
+    // 契約（FSL の contract）への `targets` は、提案書 7.1 の表（HYP / REQ だけ）に足した。
+    // `DEC-PLT-048` の5が残した、試験が支える契約の行き先を D02 で決めた。
     canon(
         "targets",
         Ends::Of(&[Kind::Probe]),
-        Ends::Of(&[Kind::Hypothesis, Kind::Requirement]),
+        Ends::Of(&[Kind::Hypothesis, Kind::Requirement, Kind::FormalContract]),
     ),
     canon(
         "runs_with",
@@ -342,7 +344,8 @@ pub(crate) const RELATIONS: &[RelationSpec] = &[
     ),
     // 試験が支える契約のうち、要件ではないもの。 判断・調査・FSL の contract が混ざる
     // （`check-meta` も、どの meta でもよいとして実在だけを見ている）ので、行き先の種類は縛らない。
-    // 要件を指すものは `targets` になる。 残りは D02 が決める（`DEC-PLT-048`）。
+    // 要件と FSL の contract を指すものは `targets` になる（`DEC-PLT-048` の5の残りを D02 で決めた）。
+    // ここに残るのは、判断・調査を指すもの。
     transitional("contracts", Ends::Of(&[Kind::Probe]), Ends::Any),
     transitional(
         "blocks_profiles",

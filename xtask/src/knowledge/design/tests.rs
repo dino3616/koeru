@@ -354,10 +354,10 @@ fn legacy_の欄は正規の関係として引ける() {
         [("supports_requirements", "TR-fix-01".to_owned())]
     );
     assert!(edges(&graph, "EVID-fix-002").is_empty());
-    // 要件を指す contracts だけが targets。 判断・FSL の contract は仮の名前のまま。
+    // 要件と FSL の contract を指す contracts は targets。 判断は仮の名前のまま。
     let probe = edges(&graph, "SUITE-fix-001");
     assert!(probe.contains(&("targets", "TR-fix-01".to_owned())));
-    assert!(probe.contains(&("contracts", "REQ-fix-001".to_owned())));
+    assert!(probe.contains(&("targets", "REQ-fix-001".to_owned())));
     assert!(probe.contains(&("contracts", "DEC-fix-001".to_owned())));
     assert_eq!(probe.len(), 3);
     // TR の depends_on は depends_on。
@@ -1186,18 +1186,22 @@ fn 採用でない部品は_implements_にならない() {
     }
 }
 
-/// 要件を指す contracts だけが targets。 定量の要件（上限）も要件。
+/// 要件と FSL の contract を指す contracts は targets。 定量の要件（上限）も要件。
+/// 判断・調査を指すものだけが仮の名前 `contracts` に残る。
 #[test]
-fn 要件を指す_contracts_だけが_targets_になる() {
+fn 要件と_fsl_の_contract_を指す_contracts_が_targets_になる() {
     let body = SUITES.replace(
         "contracts = ['TR-fix-01', 'REQ-fix-001', 'DEC-fix-001']",
         "contracts = ['BUDGET-fix-001', 'EVID-fix-001', 'FB-fix-001']",
     );
-    let graph = design_of(&with("meta/suites/cargo.toml", &body)).graph();
+    let design = design_of(&with("meta/suites/cargo.toml", &body));
+    // 契約への targets は、両端の種類の検査（`Ends`）に通る。
+    assert_eq!(design.audit(), Vec::new());
+    let graph = design.graph();
     let probe = edges(&graph, "SUITE-fix-001");
     assert!(probe.contains(&("targets", "BUDGET-fix-001".to_owned())));
     assert!(probe.contains(&("contracts", "EVID-fix-001".to_owned())));
-    assert!(probe.contains(&("contracts", "FB-fix-001".to_owned())));
+    assert!(probe.contains(&("targets", "FB-fix-001".to_owned())));
     assert_eq!(probe.len(), 3);
     // 型つきの口は、元の並びのまま読める。
     let original = design_of(&files());

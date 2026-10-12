@@ -22,7 +22,9 @@ pub(crate) const TARGET_SHAPES: &[Shape] = &[
     Shape {
         schema: "design-hypothesis",
         dir: "hypotheses",
-        entity: Some(("HYP-", &["id", "statement"])),
+        // 種類（`hypothesis_kind`）が無いと、どの観測方法がこの仮説を支持できるか決められない
+        // （`verification`）。 種類が無い仮説は、判定の抜け道になる。
+        entity: Some(("HYP-", &["id", "statement", "hypothesis_kind"])),
         collection: None,
         entity_arrays: &[],
     },

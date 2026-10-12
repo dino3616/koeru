@@ -523,6 +523,10 @@ D07 は同じ shared graph を読むが、file ownership を分けて並列化�
   - CMP の license / measurement は EVID に戻る
 - **Human review:** ambiguous TGT/CMP item の type assignment。意味を機械的に推測しない。
 - **未決:** Coverage の `implements` は今、台帳の採用行から来ている。台帳を消した後、何が要件への `implements` を張るか（採用の DEC が要件を指す形など）は D08 で決める（`DEC-PLT-049`）。
+- **D02 から引き継ぐもの:**
+  - Human Verification Debt が持たない欄（blast radius、reversibility、同じ session で観察できる仮説）を、HYP / DEC のどちらに置くか決める
+  - 読み込みの `dir` は直上のディレクトリ名だけを突き合わせる。 置き場所を移すとき、パス全体の検査を足す
+  - 調査の `derived_from` を locator の edge にする規則と、Probe の `runs_with`・workload の schema（`workloads/<slug>.toml`）を決める
 
 ## D09 — Design System C9 Agent capabilities
 
