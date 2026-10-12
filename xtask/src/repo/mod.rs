@@ -5,10 +5,12 @@
 
 use std::path::{Path, PathBuf};
 
+mod baseline;
 mod process;
 mod view;
 
-pub(crate) use view::{RepoView, RevisionRef, diff_files};
+pub(crate) use baseline::{Baseline, resolve as resolve_baseline};
+pub(crate) use view::{Rename, RepoView, RevisionRef, ViewError, diff_files};
 
 pub(crate) const META_DIR: &str = "meta";
 pub(crate) const SPEC_DIR: &str = "specs";

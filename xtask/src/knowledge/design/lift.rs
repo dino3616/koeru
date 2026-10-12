@@ -3,34 +3,35 @@
 //! やることは2つ。
 //!
 //! - 記録の欄から、正規の relation の edge を作れる形に組み立てる（`DEC-PLT-048`）。
-//!   graph engine の relation は記録が持つ欄から前向きにしか引けず、値の行き先で relation を
-//!   分けることもできない。 組み立てるのは読んだ記録の写しで、meta のファイルは書き換えない
-//!   - FSL の contract を記録として加え、`formalizes` を持たせる（正規の向きは contract から
-//!     REQ。 提案書 5.2.2。 FSL の ID は記録ではない）
-//!   - 調査の `supports_decisions` を、判断の `considers_evidence` に足す（`considers` の逆向き）
+//!   組み立てるのは読んだ記録の写しで、meta のファイルは書き換えない
+//!   - FSL の contract を記録として加える（id と宣言の場所だけ。 FSL の ID は meta の記録では
+//!     ないが、node と出どころを持たせるため）。 REQ との関係（`formalizes`、contract から REQ。
+//!     提案書 5.2.2）は REQ の `formalized_as` を逆向きに読む規則が作る
 //!   - 部品の `supports_requirements` を、採用なら `implements_requirements`、それ以外なら
 //!     `unadopted_requirements` に振り分ける
 //!   - 試験の `contracts` を、要件を指すものは `targets_requirements`、残りは
 //!     `other_contracts` に振り分ける
 //! - 読んだものが target の意味で引けているかを検査する（[`Design::audit`]）
 //!
-//! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 判断の記録は、足された
-//! 欄の分だけ内容の digest が変わる（調査が支える先を変えると、判断が `changed` に見える）。
+//! 組み立てた欄は、`lift` が加える欄で、meta のファイルには現れない。 逆向きの規則で読めるものは
+//! 欄を足さない——相手の記録の内容の digest が、書かれていない欄で変わらないようにするため。
 //!
-//! engine が逆向きの規則と、値からの振り分けを持てば、組み立ては要らなくなる（X05 への要求。
-//! D00 の後の作業）。
+//! 値からの振り分け（`implements`・`targets`）は、engine が値から relation を決められるように
+//! なるまで、ここで組み立てる（X05 への要求。 D00 の後の作業）。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, spec};
+use super::identity::{IdentityError, TargetId};
+use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, SourceFile, spec};
 use super::ontology::{Kind, relation};
+use super::shapes::{TARGET_SHAPES, is_one_per_file, is_target_only};
 use crate::diagnostic::{Report, Severity};
 use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
 use crate::knowledge::fsl::fsl_sites_view;
 use crate::knowledge::model::{Entry, Shape, list_of, str_of};
-use crate::knowledge::{Id, KnowledgeSnapshot, load_view};
-use crate::repo::RepoView;
+use crate::knowledge::{Id, KnowledgeSnapshot, load_view_with};
+use crate::repo::{Rename, RepoView, RevisionRef, ViewError};
 
 /// 組み立てる contract の形。 meta のファイルではないので、読み込みは通らない。
 static CONTRACT_SHAPE: Shape = Shape {
@@ -57,12 +58,14 @@ pub(crate) enum DesignIssue {
     },
     /// FSL の ID が ID の形に読めない。 contract の node にならない。
     UnparsedContract { raw: String },
-    /// `formalized_as` が指す contract が FSL に無い。 `formalizes` の edge を作れない。
+    /// `formalized_as` が指す contract が FSL に無い。 **今は出さない。** 逆向きの規則で読むように
+    /// なってから、宙に浮いた edge（`Graph(GraphIssue::Dangling)`）として出る。 互換のために残す。
     MissingContract {
         requirement: String,
         contract: String,
     },
-    /// 欄の値が指す記録が無く、組み立てられなかった（`supports_decisions` が指す判断が無い）。
+    /// 欄の値が指す記録が無く、組み立てられなかった。 **今は出さない。** `supports_decisions` が
+    /// 指す判断が無いときは、`Graph(GraphIssue::Dangling)` として出る。 互換のために残す。
     MissingLiftTarget {
         source: String,
         field: &'static str,
@@ -72,9 +75,20 @@ pub(crate) enum DesignIssue {
     UnmappedSchema { schema: &'static str },
     /// 部品の採否の語が、知っている語彙に無い。
     UnknownStatus { id: Id, raw: String },
+    /// 同じ種類のファイルが改名され、ID が変わった。 ID は内容を直しても変わらない
+    /// （`DEC-PLT-048`）ので、付け直しか置き換えかを人が確かめる。
+    IdentityChanged {
+        from: Id,
+        to: Id,
+        schema: &'static str,
+    },
     /// 採用済みの判断の `selected` が、同じ ID のまま書き換わった。 意味を変えるときは、
-    /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。
+    /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。 意味を変えない修正なら、同じ変更の
+    /// 中でその判断の `meaning_preserving_edits` に1件足す。
     DecisionOverwritten { id: Id },
+    /// 目標の形の ID（`<接頭辞>-<opaque>`）が、記録の種類と合わない。 接頭辞が別の種類を言って
+    /// いる（質問の記録に `DEC-…`）、または目標の形でだけ書く schema なのに ID が目標の形でない。
+    TargetIdentity { id: Id, error: IdentityError },
     /// 登録していない relation が graph にある。
     UnregisteredRelation { relation: &'static str },
     /// relation の両端の種類が、登録した組に入らない。
@@ -94,20 +108,37 @@ pub(crate) enum DesignIssue {
 pub(crate) struct Design {
     snapshot: KnowledgeSnapshot,
     issues: Vec<DesignIssue>,
+    /// 読んだ版。 [`Self::load`] が view から取る。 版を持たない view（メモリ上）や
+    /// [`Self::from_entries`] では無く、[`Self::with_revision`] で足せる。
+    revision: Option<RevisionRef>,
 }
 
 impl Design {
     /// `view` の版を読む。 作業ツリーも、任意の版も同じ。
     pub(crate) fn load(view: &RepoView) -> Self {
         let mut rep = Report::default();
-        let entries = load_view(view, &mut rep);
+        // 目標の schema（`TARGET_SHAPES`）も読む。 今の meta には無いので、読む結果は変わらない。
+        let entries = load_view_with(view, TARGET_SHAPES, &mut rep);
         let issues = rep
             .diagnostics()
             .iter()
             .filter(|d| d.severity == Severity::Error)
             .map(|d| DesignIssue::Load(d.message.clone()))
             .collect();
-        Self::assemble(view.root(), &entries, &fsl_sites_view(view), issues)
+        let mut design = Self::assemble(view.root(), &entries, &fsl_sites_view(view), issues);
+        // 版が分からなくても致命的ではない（`SemanticGraph::build` と同じ扱い）。
+        design.revision = view.identity().ok();
+        design
+    }
+
+    /// 読んだ版を持たせる。 版を持たない view から読んだものに、呼び出し側が分かっている版を足す。
+    pub(crate) fn with_revision(mut self, revision: RevisionRef) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+
+    pub(crate) fn revision(&self) -> Option<&RevisionRef> {
+        self.revision.as_ref()
     }
 
     /// すでに読んだ記録と FSL の索引から作る。 読み込みの診断は呼び側が持っているので、
@@ -127,30 +158,42 @@ impl Design {
         mut issues: Vec<DesignIssue>,
     ) -> Self {
         let mut all: Vec<Entry> = entries.iter().map(duplicate).collect();
-        lift_evidence_to_decisions(&mut all, &mut issues);
         lift_components(&mut all);
         lift_suites(&mut all);
-        all.extend(contract_entries(root, entries, fsl_sites, &mut issues));
+        all.extend(contract_entries(root, fsl_sites, &mut issues));
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&all);
         issues.extend(dups.into_iter().map(DesignIssue::Load));
-        Self { snapshot, issues }
+        Self {
+            snapshot,
+            issues,
+            revision: None,
+        }
     }
 
     /// target の語彙の graph。 node は [`Kind`] の名前、edge は [`super::RELATIONS`] の名前を持つ。
     ///
-    /// 版の識別は持たない（`SemanticGraph::from_snapshot` が `revision` を埋めない）。
+    /// 版（[`Self::revision`]）を持つ。 版を持たない view から読んだものは `None`。
     pub(crate) fn graph(&self) -> SemanticGraph {
-        SemanticGraph::from_snapshot(&self.snapshot, &super::registry())
+        SemanticGraph::from_snapshot_at(&self.snapshot, &super::registry(), self.revision.clone())
     }
 
     /// target の意味で見た全件。 知らない schema・ID の形に読めない記録は含まない
     /// ——それは [`Self::audit`] が出す。
     pub(crate) fn objects(&self) -> impl Iterator<Item = Object<'_>> {
-        self.snapshot.records().filter_map(Object::new)
+        self.snapshot
+            .records()
+            .filter_map(|r| Object::in_snapshot(r, &self.snapshot))
     }
 
     pub(crate) fn object(&self, id: &Id) -> Option<Object<'_>> {
-        self.snapshot.get(id).and_then(Object::new)
+        self.snapshot
+            .get(id)
+            .and_then(|r| Object::in_snapshot(r, &self.snapshot))
+    }
+
+    /// ファイル直下の欄を持つ収集ファイル（技術要件・目標値）。 領域の名前などを型つきで読む。
+    pub(crate) fn source_files(&self) -> impl Iterator<Item = SourceFile<'_>> {
+        self.snapshot.sources().filter_map(SourceFile::new)
     }
 
     /// 読み込みと組み立てで出た問題だけ。 graph は作らない。
@@ -172,10 +215,13 @@ impl Design {
 
     /// `self` を古い版、`new` を新しい版として、採用済みの判断が上書きされていないかを見る。
     ///
-    /// 見るのは `selected` の文字列が変わったかだけで、意味が変わったかは判定できない。
-    /// 誤字の修正も出る。 「意味を変えない修正」と明示した変更を通すには、判断に編集の記録の欄が
-    /// 要る。 欄の追加は X03 の `SHAPES` に触るので、D00 の後の作業で行う（`DEC-PLT-048`）。
-    /// それまでは、出たものを人が新しい判断にするか直すかを決める。
+    /// 見るのは判断の中身（[`Decision::judgement`]。 選んだもの `selected`）が変わったかだけで、
+    /// 意味が変わったかは判定できない。 `selected` の誤字の修正も出る。 案・理由・制約・帰結の
+    /// 変更は上書きとして扱わない（保守者の決定）。
+    ///
+    /// **同じ変更の中で**、その判断の `meaning_preserving_edits`（意味を変えない修正の記録）が
+    /// 1件以上増えていれば、上書きとして出さない（`DEC-PLT-048`）。 増えていなければ出す。
+    /// 記録の中身が本当に意味を変えていないかは、人がレビューで確かめる。
     pub(crate) fn overwritten_decisions(&self, new: &Design) -> Vec<DesignIssue> {
         let mut out = Vec::new();
         for old in self
@@ -189,13 +235,67 @@ impl Design {
             let Some(next) = new.object(object.id()).and_then(|o| o.as_decision()) else {
                 continue;
             };
-            if next.selected() != decision.selected() {
-                out.push(DesignIssue::DecisionOverwritten {
-                    id: object.id().clone(),
+            if next.judgement() == decision.judgement() {
+                continue;
+            }
+            if next.meaning_preserving_edits().len() > decision.meaning_preserving_edits().len() {
+                continue;
+            }
+            out.push(DesignIssue::DecisionOverwritten {
+                id: object.id().clone(),
+            });
+        }
+        out
+    }
+
+    /// `self` を古い版、`new` を新しい版として、「内容を直したら ID が変わった」を見る
+    /// （`DEC-PLT-048`）。 `renames` は2つの版のあいだの git の改名検出の結果
+    /// （[`RepoView::renames_from`]）。
+    ///
+    /// 同じ種類（同じ schema）の1件1ファイルの記録が改名され、ID が違っていれば
+    /// [`DesignIssue::IdentityChanged`]。 ID は内容から計算せず、直しても変わらない
+    /// （提案書 5.2）ので、これは ID の付け直しか、別の記録への置き換えで、人が確かめる。
+    /// 種類が違う改名（`HYP` を `DEC` へ作り替えた）、ID が同じままの移動、収集ファイルの
+    /// 改名は出さない。
+    pub(crate) fn changed_identities(&self, new: &Design, renames: &[Rename]) -> Vec<DesignIssue> {
+        let mut out = Vec::new();
+        for rename in renames {
+            let (Some(from), Some(to)) = (self.entity_at(&rename.from), new.entity_at(&rename.to))
+            else {
+                continue;
+            };
+            if from.origin().schema == to.origin().schema && from.id() != to.id() {
+                out.push(DesignIssue::IdentityChanged {
+                    from: from.id().clone(),
+                    to: to.id().clone(),
+                    schema: from.origin().schema,
                 });
             }
         }
         out
+    }
+
+    /// 2つの版を読んで、「内容を直したら ID が変わった」を見る。 `new` の `self` から見た改名は
+    /// git が決める（[`RepoView::renames_from`]）。 `old` は git の版でなければならない。
+    ///
+    /// # Errors
+    ///
+    /// 改名を引けなかった（比べられない組、git の失敗）。
+    pub(crate) fn compare_identities(
+        old: &RepoView,
+        new: &RepoView,
+    ) -> Result<Vec<DesignIssue>, ViewError> {
+        let renames = new.renames_from(old)?;
+        Ok(Self::load(old).changed_identities(&Self::load(new), &renames))
+    }
+
+    /// `rel`（リポジトリの根からの相対パス）にある、1件1ファイルの記録。 収集ファイルは含まない
+    /// ——収集ファイルの中の1件は、ファイルの名前が ID を決めない。
+    fn entity_at(&self, rel: &str) -> Option<Object<'_>> {
+        self.objects().find(|o| {
+            let origin = o.origin();
+            origin.path.ends_with(rel) && is_one_per_file(origin.schema)
+        })
     }
 
     fn audit_records(&self, out: &mut Vec<DesignIssue>) {
@@ -212,9 +312,22 @@ impl Design {
                 continue;
             }
             let Some(id) = r.id() else { continue };
+            if id.is_target() || is_target_only(r.schema()) {
+                match id.as_str().parse::<TargetId>() {
+                    Ok(t) if t.kind() == spec.kind => {}
+                    Ok(_) => out.push(DesignIssue::TargetIdentity {
+                        id: id.clone(),
+                        error: IdentityError::PrefixMismatch,
+                    }),
+                    Err(error) => out.push(DesignIssue::TargetIdentity {
+                        id: id.clone(),
+                        error,
+                    }),
+                }
+            }
             for f in spec.fields {
-                // 組み立てる欄も、行き先が ID の形に読めないと edge にならない。
-                if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
+                // 組み立てる欄と逆向きに読む欄も、値が ID の形に読めないと edge にならない。
+                if !matches!(f.role, Role::Edge(_) | Role::Lifted(_) | Role::Inverse(_)) {
                     continue;
                 }
                 for raw in references(r, f.name) {
@@ -237,57 +350,6 @@ impl Design {
                 });
             }
         }
-    }
-}
-
-/// 調査の `supports_decisions` を、判断の `considers_evidence` に足す。
-///
-/// 判断が `evidence` や `considers_evidence` で同じ調査を挙げていれば足さない（edge が二重になる）。
-/// 指す判断が無ければ、足せないことを問題として出す。
-fn lift_evidence_to_decisions(all: &mut [Entry], issues: &mut Vec<DesignIssue>) {
-    let decisions: BTreeSet<String> = all
-        .iter()
-        .filter(|e| e.shape.schema == "decision")
-        .filter_map(|e| str_of(&e.table, "id").map(str::to_owned))
-        .collect();
-    let mut supports: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for e in all.iter().filter(|e| e.shape.schema == "evidence") {
-        let Some(evid) = str_of(&e.table, "id") else {
-            continue;
-        };
-        for decision in list_of(&e.table, "supports_decisions") {
-            if decisions.contains(&decision) {
-                supports.entry(decision).or_default().push(evid.to_owned());
-            } else {
-                issues.push(DesignIssue::MissingLiftTarget {
-                    source: evid.to_owned(),
-                    field: "supports_decisions",
-                    target: decision,
-                });
-            }
-        }
-    }
-    for e in all.iter_mut().filter(|e| e.shape.schema == "decision") {
-        let Some(id) = str_of(&e.table, "id").map(str::to_owned) else {
-            continue;
-        };
-        let Some(evidence) = supports.get(&id) else {
-            continue;
-        };
-        let mut known: BTreeSet<String> = list_of(&e.table, "evidence")
-            .into_iter()
-            .chain(list_of(&e.table, "considers_evidence"))
-            .collect();
-        let mut merged = list_of(&e.table, "considers_evidence");
-        for evid in evidence {
-            if known.insert(evid.clone()) {
-                merged.push(evid.clone());
-            }
-        }
-        e.table.insert(
-            "considers_evidence".to_owned(),
-            toml::Value::Array(merged.into_iter().map(toml::Value::String).collect()),
-        );
     }
 }
 
@@ -410,36 +472,14 @@ fn duplicate(e: &Entry) -> Entry {
     }
 }
 
-/// FSL の ID ごとに contract の記録を作る。
+/// FSL の ID ごとに contract の記録を作る。 持つのは id と宣言の場所だけ。
 ///
-/// `formalizes` は、その contract を `formalized_as` で指している REQ の ID の一覧。
+/// REQ との関係（`formalizes`）は記録に持たせない。 REQ の `formalized_as` を逆向きの規則で読む。
 fn contract_entries(
     root: &Path,
-    entries: &[Entry],
     fsl_sites: &BTreeMap<String, String>,
     issues: &mut Vec<DesignIssue>,
 ) -> Vec<Entry> {
-    let mut formalized: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for e in entries
-        .iter()
-        .filter(|e| e.shape.schema == "requirement-set")
-    {
-        for item in e.items() {
-            let Some(req) = str_of(&item, "id") else {
-                continue;
-            };
-            for contract in list_of(&item, "formalized_as") {
-                if !fsl_sites.contains_key(&contract) {
-                    issues.push(DesignIssue::MissingContract {
-                        requirement: req.to_owned(),
-                        contract: contract.clone(),
-                    });
-                }
-                formalized.entry(contract).or_default().push(req.to_owned());
-            }
-        }
-    }
-
     let mut out = Vec::new();
     for (id, site) in fsl_sites {
         if id.parse::<Id>().is_err() {
@@ -453,11 +493,6 @@ fn contract_entries(
         let mut table = toml::Table::new();
         table.insert("id".to_owned(), toml::Value::String(id.clone()));
         table.insert("site".to_owned(), toml::Value::String(site.clone()));
-        let reqs = formalized.remove(id).unwrap_or_default();
-        table.insert(
-            "formalizes".to_owned(),
-            toml::Value::Array(reqs.into_iter().map(toml::Value::String).collect()),
-        );
         // `id = '…'` の行番号を、FSL の宣言の行にそろえる。 記録の出どころが行まで引けるように。
         let pad = "\n".repeat(line.unwrap_or(1).saturating_sub(1));
         out.push(Entry {

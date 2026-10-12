@@ -107,13 +107,25 @@ impl Record {
 /// keyed read と文字列配列の重複検出だけを提供する。
 #[derive(Debug, Clone)]
 pub(crate) struct SourceRecord {
+    schema: &'static str,
     path: PathBuf,
     fields: toml::Table,
 }
 
 impl SourceRecord {
+    /// このファイルが名乗っている schema。
+    pub(crate) fn schema(&self) -> &'static str {
+        self.schema
+    }
+
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// ファイル直下の文字列の欄（`domain`・`domain_title`・`prefix` など）。 欄が無い、
+    /// または文字列でなければ `None`。 配列は [`Self::strs`]。
+    pub(crate) fn str(&self, key: &str) -> Option<&str> {
+        str_of(&self.fields, key)
     }
 
     pub(crate) fn strs(&self, key: &str) -> Vec<String> {
@@ -223,6 +235,7 @@ impl KnowledgeSnapshot {
         for e in entries {
             *source_counts.entry(e.shape.schema).or_default() += 1;
             sources.push(SourceRecord {
+                schema: e.shape.schema,
                 path: e.path.clone(),
                 fields: e.table.clone(),
             });

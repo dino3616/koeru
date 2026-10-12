@@ -3,16 +3,17 @@
 //! 出典は提案書 5.2（ID は分類ではなく identity だけを持つ）と、5.1.5 / 7.1 に
 //! 例として書かれている locator。 書かれていない形は読まず、読めないと言う。
 //!
-//! 今の `Id`（`knowledge::Id`）は `PREFIX-AREA-NUMBER` の形しか読めないので、目標の ID
-//! （`REQ-5H8NQ2`）はそちらでは読めない。 graph の node はまだ `Id` で持つ
-//! （X03 への要求。 D00 の後の作業）。 ここはその前に、形だけを検査する。
+//! `knowledge::Id` も目標の形（`REQ-5H8NQ2`）を読めるので、graph の node になる。 ここは
+//! それに加えて、記録の種類との一致とファイル名との一致を検査する。
 
 use std::fmt;
 use std::str::FromStr;
 
 use super::ontology::Kind;
+use crate::knowledge::ids::{OPAQUE_LEN, is_crockford};
 
-/// 目標の ID の接頭辞と、その種類。 提案書 5.2 と 5.2.1。
+/// 目標の ID の接頭辞と、その種類。 提案書 5.2 と 5.2.1。 字面は `knowledge::Id` が読む
+/// `TARGET_PREFIXES` と同じ（試験で揃えている）。
 const PREFIXES: &[(&str, Kind)] = &[
     ("Q", Kind::Question),
     ("HYP", Kind::Hypothesis),
@@ -26,9 +27,6 @@ const PREFIXES: &[(&str, Kind)] = &[
     // FSL の `acceptance`（`DEC-PLT-048`）。
     ("ACC", Kind::FormalContract),
 ];
-
-/// opaque の長さ。 `DEC-PLT-048`。
-const OPAQUE_LEN: usize = 6;
 
 /// 目標の ID。 `<接頭辞>-<opaque>`。
 ///
@@ -104,19 +102,14 @@ impl FromStr for TargetId {
     }
 }
 
-/// Crockford Base32 の字。 小文字と、紛らわしい I・L・O・U は含まない。
-fn is_crockford(b: u8) -> bool {
-    b.is_ascii_digit() || (b.is_ascii_uppercase() && !matches!(b, b'I' | b'L' | b'O' | b'U'))
-}
-
 /// 目標の形で書かれた1件1ファイルの記録の、ID を検査する。
 ///
 /// ID の形、接頭辞と記録の種類の一致、ファイル名と ID の一致の3つ。 どれも
 /// 内容を見ずに決まる——内容が変わっても ID が変わらないための前提。
 ///
 /// 「内容を直したら ID が変わった」は、この関数では見えない。 2つの版の差分で、git の改名検出
-/// を使い、同じ種類のファイルの改名として出す（`DEC-PLT-048`）。 `RepoView` が改名の情報を出す口
-/// （X02）が要るので、D00 の後の作業で行う。
+/// を使い、同じ種類のファイルの改名として出す（`DEC-PLT-048`）。 `Design::changed_identities` が
+/// `RepoView::renames_from` の結果を受けて出す。
 pub(crate) fn check_identity(
     expected: Kind,
     file_stem: &str,
@@ -224,6 +217,31 @@ fn slug_of(slug: &str) -> Result<String, LocatorError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `TargetId` と `knowledge::Id` が、同じ接頭辞・同じ opaque の形を読む。
+    #[test]
+    fn target_id_と_knowledge_id_は同じ形を読む() {
+        use crate::knowledge::Id;
+        use crate::knowledge::ids::TARGET_PREFIXES;
+
+        let a: Vec<&str> = PREFIXES.iter().map(|(p, _)| *p).collect();
+        assert_eq!(a, TARGET_PREFIXES);
+        for raw in [
+            "DEC-6CQ3NA",
+            "DEC-6cq3na",
+            "DEC-6CQ3NI",
+            "DEC-6CQ3N",
+            "DEC-ALL-001",
+            "TR-4K7DP2",
+            "ACC-123456",
+        ] {
+            assert_eq!(
+                raw.parse::<TargetId>().is_ok(),
+                raw.parse::<Id>().is_ok_and(|id| id.is_target()),
+                "{raw}"
+            );
+        }
+    }
 
     #[test]
     fn 提案書の例の_id_を目標の形として読める() {

@@ -14,7 +14,7 @@ mod snapshot;
 
 pub(crate) use fsl::{fsl_ids, fsl_sites};
 pub(crate) use ids::Id;
-pub(crate) use load::{load, load_view};
+pub(crate) use load::{load, load_view, load_view_with};
 pub(crate) use model::{Entry, id_index, list_of, requirements, str_of, with_schema};
 pub(crate) use refs::{citations, find_tr, id_tokens, squash};
 // `Fields` と `Provenance` はまだここでは要らない。 `Record::tables` /

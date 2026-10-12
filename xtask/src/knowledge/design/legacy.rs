@@ -11,8 +11,8 @@
 use std::path::Path;
 
 use super::ontology::{Kind, Layer};
-use crate::knowledge::Id;
-use crate::knowledge::snapshot::{Fields, Record};
+use crate::knowledge::snapshot::{Fields, Record, SourceRecord};
+use crate::knowledge::{Id, KnowledgeSnapshot};
 
 /// target では何になるか。
 #[derive(Debug, Clone, Copy)]
@@ -46,10 +46,17 @@ pub(crate) enum Role {
     Data,
     /// ほかの欄が決める関係の、逆向きの写し。 edge にしない（二重になる）。
     Mirror(&'static str),
-    /// 欄の値から、この名前の relation を [`super::lift`] が組み立てる。 向きを逆にして相手側の
-    /// 記録に持たせるもの（`formalizes`・`considers`）と、値の行き先で relation を分けるもの
-    /// （`implements`・`targets`）。 欄そのものは edge の規則を持たない。
+    /// 欄の値から、この名前の relation を [`super::lift`] が組み立てる。 値の行き先で relation を
+    /// 分けるもの（`implements`・`targets`）。 欄そのものは edge の規則を持たない。
     Lifted(&'static str),
+    /// 値の記録から、欄を持つ記録へ向かう、この名前の relation の edge になる（`formalizes`・
+    /// `considers`）。 欄は関係の行き先の側に書かれていて、engine が逆向きに読む
+    /// （`graph::Direction::Reverse`）。 起点の記録は書き換えない。
+    Inverse(&'static str),
+    /// 値が操作上の locator（`github:pr/123@<rev>` など）の一覧で、この名前の relation の edge に
+    /// なる。 行き先の node の種類は、値の書式から [`super::Locator::parse`] が決める。 書式が
+    /// 決まっていない値は node にならず、graph が読めないと言う。
+    Locator(&'static str),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -85,8 +92,8 @@ pub(crate) struct SchemaSpec {
     /// 一覧に無い欄も許す。 調査の記録（evidence）は、調べたことごとに欄が違う自由記述で、
     /// 欄を閉じると記録が書けなくなる。
     pub(crate) open: bool,
-    /// 収集ファイルの直下の欄（項目ではなくファイルそのものの欄）。 `SourceRecord` は
-    /// 文字列の配列しか読めないので、型つきの口は持たない。 要件の `domain_risks` が
+    /// 収集ファイルの直下の欄（項目ではなくファイルそのものの欄）。 文字列の欄
+    /// （`domain`・`domain_title`・`prefix`）は [`SourceFile`] が読む。 要件の `domain_risks` は
     /// 配列で、領域全体にかかる [Risk] を持つ。
     pub(crate) file_fields: &'static [&'static str],
 }
@@ -96,8 +103,8 @@ pub(crate) const STRUCTURAL: &[&str] = &["schema", "id"];
 
 /// legacy の schema と、target で加わる schema の表。
 pub(crate) const SCHEMAS: &[SchemaSpec] = &[
-    // 技術要件。 REQ になる。 FSL への `formalized_as` は、FSL 側から見た `formalizes` として
-    // 持たせる（正規の向きが contract から REQ だから。 提案書 5.2.2）。
+    // 技術要件。 REQ になる。 FSL への `formalized_as` は、正規の向き（contract から REQ。
+    // 提案書 5.2.2）の `formalizes` の逆向きの規則で読む。
     SchemaSpec {
         schema: "requirement-set",
         kind: Kind::Requirement,
@@ -112,7 +119,7 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             edge("depends_on", "depends_on"),
             Field {
                 name: "formalized_as",
-                role: Role::Lifted("formalizes"),
+                role: Role::Inverse("formalizes"),
             },
         ],
         open: false,
@@ -135,6 +142,10 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("constraint_label"),
             data("consequences"),
             data("source_text"),
+            // `selected` を、意味を変えずに直した記録（省略可能）。 採用済みの判断の `selected` を
+            // 書き換えるとき、同じ変更の中でここに1件足すと、上書きとして落とさない
+            // （[`super::Design::overwritten_decisions`]、`DEC-PLT-048`）。
+            data("meaning_preserving_edits"),
             edge("supersedes", "supersedes"),
             // 置き換えは両側に書かれる。 逆向きの写しは edge にせず、二重にしない。
             Field {
@@ -155,8 +166,11 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
                 name: "question",
                 role: Role::Mirror("resolved_by"),
             },
-            // locator の一覧。 engine が値から種類を決められるまで edge にしない。
-            data("provenance"),
+            // 元の議論・実装 event への locator の一覧。 値の書式から node の種類を決める。
+            Field {
+                name: "provenance",
+                role: Role::Locator("provenance"),
+            },
             edge("affects_requirements", "affects"),
             edge("affects_decisions", "affects"),
             edge("affects_questions", "affects"),
@@ -212,11 +226,11 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             // 同じ名前の別物なので、locator として読まない。
             data("provenance"),
             data("confidence"),
-            // `considers` の逆向き。 DEC の側に欄を足して、正規の向きの edge にする
-            // （`DEC-PLT-048`）。
+            // `considers`（DEC → EVID）の逆向きの規則で読む（`DEC-PLT-048`）。 判断の記録は
+            // 書き換えない。
             Field {
                 name: "supports_decisions",
-                role: Role::Lifted("considers"),
+                role: Role::Inverse("considers"),
             },
             edge("supports_requirements", "supports_requirements"),
             edge("affects_requirements", "affects"),
@@ -381,14 +395,15 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         open: false,
         file_fields: &[],
     },
-    // FSL の contract。 meta のファイルではなく、`super::lift` が FSL の索引と
-    // `formalized_as` から組み立てる。
+    // FSL の contract。 meta のファイルではなく、`super::lift` が FSL の索引から記録として
+    // 組み立てる（id と宣言の場所だけ）。 REQ との関係は、REQ の `formalized_as` を逆向きに
+    // 読む規則が作る。
     SchemaSpec {
         schema: CONTRACT_SCHEMA,
         kind: Kind::FormalContract,
         meaning: Meaning::Direct,
         title: None,
-        fields: &[data("site"), edge("formalizes", "formalizes")],
+        fields: &[data("site")],
         open: false,
         file_fields: &[],
     },
@@ -533,16 +548,30 @@ pub(crate) struct Object<'a> {
     record: &'a Record,
     id: &'a Id,
     spec: &'static SchemaSpec,
+    /// 記録を含む snapshot。 他の記録から引く値（[`Contract::formalizes`]）を読むのに要る。
+    snapshot: Option<&'a KnowledgeSnapshot>,
 }
 
 impl<'a> Object<'a> {
     /// 知らない schema・ID の形に読めない記録は `None`。 黙って落とさず、
     /// [`super::Design::audit`] が出す。
+    ///
+    /// snapshot を持たないので、他の記録から引く値（[`Contract::formalizes`]）は空になる。
+    /// 記録の全体から読むときは [`Self::in_snapshot`]。
     pub(crate) fn new(record: &'a Record) -> Option<Self> {
         Some(Self {
             id: record.id()?,
             spec: spec(record.schema())?,
             record,
+            snapshot: None,
+        })
+    }
+
+    /// [`Self::new`] に、記録を含む snapshot を持たせる。
+    pub(crate) fn in_snapshot(record: &'a Record, snapshot: &'a KnowledgeSnapshot) -> Option<Self> {
+        Self::new(record).map(|o| Self {
+            snapshot: Some(snapshot),
+            ..o
         })
     }
 
@@ -636,7 +665,54 @@ impl<'a> Object<'a> {
         (self.spec.schema == CONTRACT_SCHEMA).then_some(Contract {
             record: self.record,
             id: self.id,
+            snapshot: self.snapshot,
         })
+    }
+}
+
+/// 収集ファイルそのものの欄（項目ではなく、ファイル直下）。 領域の名前・接頭辞のような、
+/// 項目をまとめる欄を、型つきで読む。
+///
+/// 持つのは [`SchemaSpec::file_fields`] が挙げた欄だけ。 その schema が持たない欄は、
+/// 同じ名前がファイルにあっても読まない（`None`）。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SourceFile<'a> {
+    source: &'a SourceRecord,
+    spec: &'static SchemaSpec,
+}
+
+impl<'a> SourceFile<'a> {
+    /// ファイル直下の欄を持つ schema のファイルだけ。 そうでなければ `None`。
+    pub(crate) fn new(source: &'a SourceRecord) -> Option<Self> {
+        let spec = spec(source.schema())?;
+        (!spec.file_fields.is_empty()).then_some(Self { source, spec })
+    }
+
+    pub(crate) fn path(&self) -> &'a Path {
+        self.source.path()
+    }
+
+    fn field(&self, name: &str) -> Option<&'a str> {
+        let source: &'a SourceRecord = self.source;
+        self.spec
+            .knows_file_field(name)
+            .then(|| source.str(name))
+            .flatten()
+    }
+
+    /// 領域の名前（`domain = 'rec'`）。
+    pub(crate) fn domain(&self) -> Option<&'a str> {
+        self.field("domain")
+    }
+
+    /// 領域の表題。
+    pub(crate) fn domain_title(&self) -> Option<&'a str> {
+        self.field("domain_title")
+    }
+
+    /// 項目の ID の接頭辞（`prefix = 'TR-REC'`）。
+    pub(crate) fn prefix(&self) -> Option<&'a str> {
+        self.field("prefix")
     }
 }
 
@@ -814,6 +890,31 @@ impl<'a> Decision<'a> {
             text(self.0, "constraint")?,
         ))
     }
+
+    /// 意味を変えずに直した記録。 1件が1つの文字列で、何を直したかを短く書く。 空の文字列は
+    /// 記録として数えない。
+    pub(crate) fn meaning_preserving_edits(&self) -> Vec<String> {
+        self.0
+            .strs("meaning_preserving_edits")
+            .into_iter()
+            .filter(|e| !e.trim().is_empty())
+            .collect()
+    }
+
+    /// 判断の中身。 選んだもの（`selected`）だけ。 採用済みの判断で、これが変わると上書きになる
+    /// （保守者の決定）。 案・理由・制約・帰結・状態・置き換えの関係・影響先（`affects_*`）は
+    /// 含めない——直しても、判断が何を選んだかは変わらないから。
+    pub(crate) fn judgement(&self) -> Judgement<'a> {
+        Judgement {
+            selected: self.selected(),
+        }
+    }
+}
+
+/// 判断の中身（[`Decision::judgement`]）。 等しいかだけを見る。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Judgement<'a> {
+    selected: Option<&'a str>,
 }
 
 /// 未解決の問い。 Q。
@@ -1148,6 +1249,7 @@ impl<'a> ReleaseProfile<'a> {
 pub(crate) struct Contract<'a> {
     record: &'a Record,
     id: &'a Id,
+    snapshot: Option<&'a KnowledgeSnapshot>,
 }
 
 impl<'a> Contract<'a> {
@@ -1163,7 +1265,22 @@ impl<'a> Contract<'a> {
 
     /// この contract が一部を形式にしている REQ。 一部であって、完全な表現ではない
     /// （提案書 5.2.2）。 初版は被覆の度合いを持たない。
+    ///
+    /// REQ が `formalized_as` で挙げているものを、記録の並びのまま引く。 contract の記録には
+    /// 持たせない——REQ の欄を書き写すと、REQ を直すたびに contract の内容の digest が変わる。
+    /// snapshot を持たない [`Object::new`] で作った object では空。
     pub(crate) fn formalizes(&self) -> Vec<String> {
-        self.record.strs("formalizes")
+        let Some(snapshot) = self.snapshot else {
+            return Vec::new();
+        };
+        snapshot
+            .by_schema("requirement-set")
+            .filter(|r| {
+                r.strs("formalized_as")
+                    .iter()
+                    .any(|c| c == self.id.as_str())
+            })
+            .filter_map(|r| r.id().map(ToString::to_string))
+            .collect()
     }
 }

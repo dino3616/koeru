@@ -7,10 +7,10 @@ use std::path::Path;
 use super::legacy::{CONTRACT_SCHEMA, Role, spec};
 use super::*;
 use crate::diagnostic::Report;
-use crate::graph::{GraphIssue, NodeKey, RelationClass};
+use crate::graph::{Direction, GraphIssue, NodeKey, RelationClass};
 use crate::knowledge::model::{Entry, SHAPES, Shape};
 use crate::knowledge::{Id, KnowledgeSnapshot, fsl_ids, load};
-use crate::repo::RepoView;
+use crate::repo::{RepoView, RevisionRef};
 
 const REQUIREMENTS: &str = "schema = 'requirement-set'
 domain = 'fix'
@@ -585,7 +585,7 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     for s in SCHEMAS {
         for f in s.fields {
             match f.role {
-                Role::Edge(name) => {
+                Role::Edge(name) | Role::Inverse(name) => {
                     assert!(
                         relation(name).is_some(),
                         "{}.{} の {name}",
@@ -594,7 +594,7 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
                     );
                     expected += 1;
                 }
-                Role::Lifted(name) | Role::Mirror(name) => {
+                Role::Lifted(name) | Role::Mirror(name) | Role::Locator(name) => {
                     assert!(
                         relation(name).is_some(),
                         "{}.{} の {name}",
@@ -608,14 +608,19 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
     }
     let reg = registry();
     assert_eq!(reg.relations.len(), expected);
-    assert!(reg.locators.is_empty());
+    // locator の欄は、判断の `provenance` だけ。 値から node の種類を決める。
+    assert_eq!(reg.locators.len(), 1);
+    assert_eq!(
+        (reg.locators[0].from_schema, reg.locators[0].field),
+        ("decision", "provenance")
+    );
+    assert!(reg.locators[0].kind_of.is_some());
     for rule in &reg.relations {
         let spec = relation(rule.relation).expect("語彙にある");
         assert_eq!(rule.class, spec.class);
     }
-    // 組み立てる欄は、組み立てた欄にだけ rule がある。 元の欄から edge を作らない。
+    // 値の行き先で relation を分ける欄は、組み立てた欄にだけ rule がある。 元の欄から edge を作らない。
     for (schema, field) in [
-        ("evidence", "supports_decisions"),
         ("component-ledger", "supports_requirements"),
         ("test-portfolio", "contracts"),
     ] {
@@ -626,10 +631,27 @@ fn 欄の関係は全て語彙にあり_registry_に載る() {
             "{schema}.{field}"
         );
     }
-    // `formalized_as` は欄の向きを逆にして contract に持たせる。 rule は contract 側だけ。
-    assert!(
-        !reg.relations.iter().any(|r| r.field == "formalized_as"),
-        "REQ 側の欄から edge を作らない"
+    // 関係の行き先の側に書かれた欄は、逆向きの規則で読む。 欄を持たない記録は組み立てない。
+    for (schema, field, relation) in [
+        ("requirement-set", "formalized_as", "formalizes"),
+        ("evidence", "supports_decisions", "considers"),
+    ] {
+        let rules: Vec<_> = reg
+            .relations
+            .iter()
+            .filter(|r| r.from_schema == schema && r.field == field)
+            .collect();
+        assert_eq!(rules.len(), 1, "{schema}.{field}");
+        assert_eq!(rules[0].relation, relation);
+        assert_eq!(rules[0].direction, Direction::Reverse, "{schema}.{field}");
+    }
+    // 逆向きの規則は、この2つだけ。
+    assert_eq!(
+        reg.relations
+            .iter()
+            .filter(|r| r.direction == Direction::Reverse)
+            .count(),
+        2
     );
 }
 
@@ -692,16 +714,17 @@ fn 重複した_id_は読み込みの問題として出る() {
     ));
 }
 
-/// 目標の opaque な ID は今の `Id` に読めず、node が黙って消える。 消えたことを問題として出す。
+/// `Id` に読めない ID の記録は、node が黙って消える。 消えたことを問題として出す。
+/// opaque の小文字は目標の形ではない（今の形としても読めない）。
 #[test]
 fn id_の形に読めない記録は_node_にならず問題として出る() {
-    let body = DECISION_2.replace("DEC-fix-002", "DEC-6CQ3NA");
-    let f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    let body = DECISION_2.replace("DEC-fix-002", "DEC-6cq3na");
+    let f = with("meta/decisions/DEC-6cq3na.toml", &body);
     let design = design_of(&f);
     let issues = design.audit();
     assert!(has(
         &issues,
-        |i| matches!(i, DesignIssue::UnparsedId { raw, .. } if raw == "DEC-6CQ3NA")
+        |i| matches!(i, DesignIssue::UnparsedId { raw, .. } if raw == "DEC-6cq3na")
     ));
     assert_eq!(
         design
@@ -716,13 +739,41 @@ fn id_の形に読めない記録は_node_にならず問題として出る() {
 fn id_の形に読めない参照は_edge_にならず問題として出る() {
     let body = DECISION_2.replace(
         "supersedes = ['DEC-fix-001']",
-        "supersedes = ['DEC-fix-001', 'DEC-6CQ3NA']",
+        "supersedes = ['DEC-fix-001', 'DEC-6cq3na']",
     );
     let issues = design_of(&with("meta/decisions/DEC-fix-002.toml", &body)).audit();
     assert!(has(&issues, |i| matches!(
         i,
-        DesignIssue::UnparsedReference { field: "supersedes", raw, .. } if raw == "DEC-6CQ3NA"
+        DesignIssue::UnparsedReference { field: "supersedes", raw, .. } if raw == "DEC-6cq3na"
     )));
+}
+
+/// 目標の opaque な ID の記録は node になり、今の ID と同じ graph に載る。 参照も edge になる。
+#[test]
+fn 目標の_opaque_id_の記録は_node_になる() {
+    let body = DECISION_2.replace("DEC-fix-002", "DEC-6CQ3NA");
+    let f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    let design = design_of(&f);
+    // 読めない ID は1件も無い。 参照先は今の ID の DEC-fix-001。
+    assert_eq!(design.audit(), Vec::new());
+    let graph = design.graph();
+    assert_eq!(
+        graph.node(&key("DEC-6CQ3NA")).map(|n| n.kind),
+        Some("decision")
+    );
+    // 今の ID と別の node。
+    assert_ne!(key("DEC-6CQ3NA"), key("DEC-ALL-001"));
+    assert!(edges(&graph, "DEC-6CQ3NA").contains(&("supersedes", "DEC-fix-001".to_owned())));
+    assert_eq!(
+        design
+            .objects()
+            .filter(|o| o.kind() == Kind::Decision)
+            .count(),
+        3
+    );
+    let id = id("DEC-6CQ3NA");
+    assert!(id.is_target());
+    assert_eq!(id.opaque(), Some("6CQ3NA"));
 }
 
 #[test]
@@ -758,6 +809,38 @@ fn 関係の両端の種類が合わなければ問題として出る() {
     )));
 }
 
+/// 逆向きに読む欄も、両端の種類を見る。 `formalizes` の起点は形式 contract だけ。
+#[test]
+fn 逆向きの欄が指す相手の種類が合わなければ問題として出る() {
+    // `formalized_as` が、contract ではなく判断を指している。
+    let body = REQUIREMENTS.replace("['REQ-fix-001', 'FB-fix-001']", "['DEC-fix-001']");
+    let issues = design_of(&with("meta/requirements/fix.toml", &body)).audit();
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "formalizes",
+            from_kind: Kind::Decision,
+            to_kind: Kind::Requirement,
+            ..
+        }
+    )));
+    // 調査が `supports_decisions` で、判断ではなく技術要件を指している。
+    let body = EVIDENCE_2.replace(
+        "['DEC-fix-002', 'DEC-fix-001']",
+        "['DEC-fix-002', 'TR-fix-01']",
+    );
+    let issues = design_of(&with("meta/evidence/EVID-fix-002.toml", &body)).audit();
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "considers",
+            from_kind: Kind::Requirement,
+            to_kind: Kind::Evidence,
+            ..
+        }
+    )));
+}
+
 #[test]
 fn 存在しない_contract_を指す_formalized_as_は_edge_を作らず問題として出る() {
     let body = REQUIREMENTS.replace(
@@ -766,10 +849,11 @@ fn 存在しない_contract_を指す_formalized_as_は_edge_を作らず問題�
     );
     let design = design_of(&with("meta/requirements/fix.toml", &body));
     let issues = design.audit();
+    // contract の node が無いので、起点の無い edge として出る。
     assert!(has(&issues, |i| matches!(
         i,
-        DesignIssue::MissingContract { requirement, contract }
-            if requirement == "TR-fix-01" && contract == "REQ-fix-404"
+        DesignIssue::Graph(GraphIssue::Dangling { from, relation: "formalizes", to })
+            if *from == key("REQ-fix-404") && *to == key("TR-fix-01")
     )));
     assert!(edges(&design.graph(), "FB-fix-001").is_empty());
 }
@@ -885,8 +969,9 @@ fn assert_every_field_is_accounted(entries: &[Entry]) {
     }
 }
 
-/// 欄に書かれた参照の数だけ edge ができている。 組み立てる欄（`Role::Lifted`）の値も1つにつき
-/// 1本。 ただし調査の `supports_decisions` は、判断が同じ調査を挙げていれば二重にしない。
+/// 欄に書かれた参照の数だけ edge ができている。 組み立てる欄（`Role::Lifted`）と逆向きに読む欄
+/// （`Role::Inverse`）の値も1つにつき1本。 ただし調査の `supports_decisions` は、判断が同じ
+/// 調査を挙げていれば二重にしない。
 fn expected_edges(entries: &[Entry]) -> usize {
     let mut n = 0;
     let mut considered: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -910,7 +995,7 @@ fn expected_edges(entries: &[Entry]) -> usize {
     for (schema, t) in tables {
         let s = spec(schema).expect("写し方がある");
         for f in s.fields {
-            if !matches!(f.role, Role::Edge(_) | Role::Lifted(_)) {
+            if !matches!(f.role, Role::Edge(_) | Role::Lifted(_) | Role::Inverse(_)) {
                 continue;
             }
             if f.name == "supports_decisions" {
@@ -961,6 +1046,21 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
     assert!(dups.is_empty());
     let fsl = fsl_ids(root);
 
+    // 実在する ID は1つも目標の形に読み替わらない（今の読みを変えていない）。
+    assert!(
+        legacy
+            .records()
+            .filter_map(|r| r.id())
+            .all(|id| !id.is_target()),
+        "実在する meta の ID が目標の形に読まれた"
+    );
+    assert!(
+        fsl.iter()
+            .filter_map(|raw| raw.parse::<Id>().ok())
+            .all(|id| !id.is_target()),
+        "実在する FSL の ID が目標の形に読まれた"
+    );
+
     let design = Design::load(&RepoView::working_tree(root));
     assert_eq!(design.audit(), Vec::new());
     assert_every_field_is_accounted(&entries);
@@ -970,6 +1070,17 @@ fn 実在する_meta_の全_object_が_adapter_を通って_graph_に載る() {
     let schema = |s: &str| legacy.by_schema(s).count();
     // `check-meta` の件数の言い方: FSL の要求 / 技術要件 / 部品台帳 / 性能目標。
     assert_eq!(count(Kind::FormalContract), fsl.len());
+    // 不変条件（`INV-*`）も contract として載る。
+    let invariants = design
+        .objects()
+        .filter_map(|o| o.as_contract())
+        .filter(|c| c.kind() == Some(ContractKind::Invariant))
+        .count();
+    assert_eq!(
+        invariants,
+        fsl.iter().filter(|id| id.starts_with("INV-")).count()
+    );
+    assert!(invariants > 0);
     assert_eq!(
         count(Kind::Requirement),
         schema("requirement-set") + schema("budget")
@@ -1039,6 +1150,7 @@ fn 目標の_schema_と欄が登録される() {
     }
     // 逆向きに持つ欄は edge にしない。
     assert_eq!(rule("question"), None);
+    // `provenance` は locator の欄で、relation の規則ではなく locator の規則。
     assert_eq!(rule("provenance"), None);
 }
 
@@ -1087,9 +1199,9 @@ fn 要件を指す_contracts_だけが_targets_になる() {
     );
 }
 
-/// 指す判断が無い `supports_decisions` は、足せないことを問題として出す。
+/// 指す判断が無い `supports_decisions` は、起点の無い edge として出る。
 #[test]
-fn 存在しない判断を指す_supports_decisions_は問題として出る() {
+fn 存在しない判断を指す_supports_decisions_は宙に浮いた_edge_として出る() {
     let body = EVIDENCE_2.replace(
         "['DEC-fix-002', 'DEC-fix-001']",
         "['DEC-fix-002', 'DEC-fix-404']",
@@ -1097,12 +1209,65 @@ fn 存在しない判断を指す_supports_decisions_は問題として出る() 
     let design = design_of(&with("meta/evidence/EVID-fix-002.toml", &body));
     assert!(has(&design.audit(), |i| matches!(
         i,
-        DesignIssue::MissingLiftTarget { source, field: "supports_decisions", target }
-            if source == "EVID-fix-002" && target == "DEC-fix-404"
+        DesignIssue::Graph(GraphIssue::Dangling { from, relation: "considers", to })
+            if *from == key("DEC-fix-404") && *to == key("EVID-fix-002")
     )));
     assert!(
         edges(&design.graph(), "DEC-fix-002").contains(&("considers", "EVID-fix-002".to_owned()))
     );
+}
+
+/// 調査が支える先を変えても、判断の記録そのものは変わらない。 以前は判断の記録に
+/// `considers_evidence` を足していたので、調査の側を直すと判断の digest が変わり、判断が
+/// 変わったように見えた。
+#[test]
+fn 調査の支える先を変えても判断の_digest_は変わらない() {
+    let before = base().graph();
+    let body = EVIDENCE_2.replace(
+        "['DEC-fix-002', 'DEC-fix-001']",
+        "['DEC-fix-002']", // DEC-fix-001 を外す
+    );
+    let after = design_of(&with("meta/evidence/EVID-fix-002.toml", &body)).graph();
+    for raw in ["DEC-fix-001", "DEC-fix-002"] {
+        assert_eq!(
+            before.node(&key(raw)).map(|n| n.fingerprint),
+            after.node(&key(raw)).map(|n| n.fingerprint),
+            "{raw} の digest が変わった"
+        );
+    }
+    // 書き換えた調査自身は、内容が変わったと出る。
+    assert_ne!(
+        before.node(&key("EVID-fix-002")).map(|n| n.fingerprint),
+        after.node(&key("EVID-fix-002")).map(|n| n.fingerprint)
+    );
+    // 変わったのは edge だけ。 判断は内容ではなく edge が変わったと出る。
+    let d = crate::graph::diff(&before, &after);
+    assert_eq!(
+        d.changed.get(&key("DEC-fix-001")),
+        Some(&crate::graph::ChangeKind::Edges)
+    );
+    assert_eq!(
+        d.changed.get(&key("EVID-fix-002")),
+        Some(&crate::graph::ChangeKind::Content)
+    );
+    assert!(!d.changed.contains_key(&key("DEC-fix-002")));
+    assert!(d.added.is_empty() && d.removed.is_empty());
+}
+
+/// REQ の `formalized_as` を直しても、contract の記録そのものは変わらない。
+#[test]
+fn 要件の_formalized_as_を直しても_contract_の_digest_は変わらない() {
+    let before = base().graph();
+    let body = REQUIREMENTS.replace("['REQ-fix-001', 'FB-fix-001']", "['REQ-fix-001']");
+    let after = design_of(&with("meta/requirements/fix.toml", &body)).graph();
+    for raw in ["REQ-fix-001", "FB-fix-001"] {
+        assert_eq!(
+            before.node(&key(raw)).map(|n| n.fingerprint),
+            after.node(&key(raw)).map(|n| n.fingerprint),
+            "{raw}"
+        );
+    }
+    assert!(edges(&after, "FB-fix-001").is_empty());
 }
 
 /// 受入は形式 contract の1種類で、目標の接頭辞は `ACC`。
@@ -1125,4 +1290,742 @@ fn 受入の目標の接頭辞は_acc() {
             "{id}"
         );
     }
+}
+
+// ## 目標の schema を読み込みへ流し込む（X08）
+
+const HYPOTHESIS: &str = "schema = 'design-hypothesis'
+id = 'HYP-91MTWX'
+question = 'Q-fix-001'
+hypothesis_kind = 'semantic-comprehension'
+statement = '初めて使う人が説明できる'
+scope = '音源一覧'
+assessment = 'untested'
+supporting_evidence = []
+contradicting_evidence = []
+";
+
+const TARGET_DECISION: &str = "schema = 'decision'
+id = 'DEC-6CQ3NA'
+title = '目標の形の判断'
+status = 'accepted'
+owner = 'x'
+options = ['a']
+selected = 'a'
+rationale = '理由'
+review_triggers = ['t']
+question = 'Q-fix-001'
+relies_on_hypotheses = ['HYP-91MTWX']
+considers_evidence = ['EVID-fix-001']
+establishes_requirements = ['REQ-5H8NQ2']
+";
+
+const TARGET_REQUIREMENT: &str = "schema = 'requirement'
+id = 'REQ-5H8NQ2'
+statement = '現在可能な創作行為を利用者が認識できなければならない'
+established_by = 'DEC-6CQ3NA'
+";
+
+fn target_files() -> BTreeMap<String, String> {
+    let mut f = files();
+    for (path, body) in [
+        ("meta/hypotheses/HYP-91MTWX.toml", HYPOTHESIS),
+        ("meta/decisions/DEC-6CQ3NA.toml", TARGET_DECISION),
+        ("meta/requirements/REQ-5H8NQ2.toml", TARGET_REQUIREMENT),
+    ] {
+        f.insert(path.to_owned(), body.to_owned());
+    }
+    f
+}
+
+/// 目標の形の fixture（`meta/hypotheses/HYP-<opaque>.toml` など）が読まれ、graph に載る。
+#[test]
+fn 目標の形の_fixture_が読まれ_graph_に載る() {
+    let design = design_of(&target_files());
+    assert_eq!(design.audit(), Vec::new());
+    let graph = design.graph();
+    for (raw, kind) in [
+        ("HYP-91MTWX", "hypothesis"),
+        ("DEC-6CQ3NA", "decision"),
+        ("REQ-5H8NQ2", "requirement"),
+    ] {
+        assert_eq!(graph.node(&key(raw)).map(|n| n.kind), Some(kind), "{raw}");
+        assert!(id(raw).is_target(), "{raw}");
+    }
+    let dec = edges(&graph, "DEC-6CQ3NA");
+    for (relation, to) in [
+        ("relies_on_hypotheses", "HYP-91MTWX"),
+        ("considers", "EVID-fix-001"),
+        ("establishes", "REQ-5H8NQ2"),
+    ] {
+        assert!(dec.contains(&(relation, to.to_owned())), "{relation}");
+    }
+    // 目標の記録は、型つきの口からも種類で引ける。
+    let kinds: Vec<Kind> = design
+        .objects()
+        .filter(|o| o.id().is_target())
+        .map(|o| o.kind())
+        .collect();
+    assert_eq!(kinds.len(), 3);
+    assert!(kinds.contains(&Kind::Hypothesis));
+    assert_eq!(
+        design
+            .objects()
+            .filter(|o| o.kind() == Kind::Requirement)
+            .count(),
+        3 + 1,
+        "技術要件2 + 上限1 + 目標の REQ 1"
+    );
+}
+
+/// 目標の schema を渡さずに読むと、今までどおり「知らない schema」になる。
+#[test]
+fn 目標の_schema_を渡さない読み込みは今のまま知らない_schema_で落ちる() {
+    let view = RepoView::in_memory(Path::new("/fixture"), target_files());
+    let mut rep = Report::default();
+    let entries = crate::knowledge::load_view(&view, &mut rep);
+    assert!(rep.has_errors());
+    assert!(
+        rep.diagnostics()
+            .iter()
+            .any(|d| d.message.contains("知らない schema `design-hypothesis`"))
+    );
+    assert!(
+        entries
+            .iter()
+            .all(|e| !matches!(e.shape.schema, "design-hypothesis" | "requirement"))
+    );
+}
+
+/// 置き場所が schema と合わなければ落ちる。 node にもならない。
+#[test]
+fn 目標の_schema_は置き場所が違えば落ちる() {
+    let mut f = target_files();
+    let body = f.remove("meta/hypotheses/HYP-91MTWX.toml").expect("在る");
+    f.insert("meta/decisions/HYP-91MTWX.toml".to_owned(), body);
+    let design = design_of(&f);
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::Load(m) if m.contains("meta/hypotheses/")
+    )));
+    assert!(design.object(&id("HYP-91MTWX")).is_none());
+}
+
+/// ファイル名と ID の一致、必須項目、接頭辞は、目標の形にも同じように掛かる。
+#[test]
+fn 目標の_schema_にも読み込みの検査が掛かる() {
+    // ファイル名が ID と違う。
+    let mut f = target_files();
+    let body = f.remove("meta/hypotheses/HYP-91MTWX.toml").expect("在る");
+    f.insert("meta/hypotheses/HYP-91MTWY.toml".to_owned(), body);
+    assert!(has(&design_of(&f).audit(), |i| matches!(
+        i,
+        DesignIssue::Load(m) if m.contains("ファイル名")
+    )));
+    // 必須の `statement` が無い。
+    let body = HYPOTHESIS.replace("statement = '初めて使う人が説明できる'\n", "");
+    assert!(has(
+        &design_of(&with("meta/hypotheses/HYP-91MTWX.toml", &body)).audit(),
+        |i| matches!(i, DesignIssue::Load(m) if m.contains("`statement`"))
+    ));
+    // 接頭辞が schema と違う。
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "DEC-91MTWX");
+    assert!(has(
+        &design_of(&with("meta/hypotheses/DEC-91MTWX.toml", &body)).audit(),
+        |i| matches!(i, DesignIssue::Load(m) if m.contains("`HYP-` で始まる"))
+    ));
+}
+
+/// 目標の形でだけ書く schema に、今の形の ID は置けない。
+#[test]
+fn 目標の_schema_の_id_は目標の形でなければならない() {
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "HYP-fix-001");
+    let design = design_of(&with("meta/hypotheses/HYP-fix-001.toml", &body));
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::TargetIdentity { error: IdentityError::NotTargetForm, id }
+            if id.as_str() == "HYP-fix-001"
+    )));
+    // 小文字の opaque は ID の形に読めず、node にならない。
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "HYP-91mtwx");
+    let design = design_of(&with("meta/hypotheses/HYP-91mtwx.toml", &body));
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::UnparsedId { raw, .. } if raw == "HYP-91mtwx"
+    )));
+    // 記録の種類と接頭辞が合わない（読み込みの検査を通らない経路。 組み立て済みの記録で試す）。
+    let mut table = toml::Table::new();
+    for (k, v) in [
+        ("id", "REQ-91MTWX"),
+        ("statement", "本文"),
+        ("schema", "design-hypothesis"),
+    ] {
+        table.insert(k.to_owned(), toml::Value::String(v.to_owned()));
+    }
+    let entry = Entry {
+        path: "/fixture/meta/hypotheses/REQ-91MTWX.toml".into(),
+        shape: &TARGET_SHAPES[0],
+        table,
+        text: "id = 'REQ-91MTWX'\n".to_owned(),
+    };
+    let design = Design::from_entries(Path::new("/fixture"), &[entry], &BTreeMap::new());
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::TargetIdentity {
+            error: IdentityError::PrefixMismatch,
+            ..
+        }
+    )));
+}
+
+/// 追加の形は足すだけ。 今の schema の必須項目を、追加の形で緩められない。
+#[test]
+fn 追加の形は今の_schema_を置き換えない() {
+    static LOOSE: [Shape; 1] = [Shape {
+        schema: "decision",
+        dir: "decisions",
+        entity: Some(("DEC-", &["id"])),
+        collection: None,
+        entity_arrays: &[],
+    }];
+    let body = "schema = 'decision'\nid = 'DEC-fix-009'\n";
+    let view = RepoView::in_memory(
+        Path::new("/fixture"),
+        with("meta/decisions/DEC-fix-009.toml", body),
+    );
+    let mut rep = Report::default();
+    let _ = crate::knowledge::load_view_with(&view, &LOOSE, &mut rep);
+    assert!(
+        rep.diagnostics()
+            .iter()
+            .any(|d| d.message.contains("必須項目 `title` が無い")),
+        "今の schema の必須項目が緩んだ"
+    );
+    // 追加が空なら、`load_view` と同じ。
+    let mut a = Report::default();
+    let mut b = Report::default();
+    let ea = crate::knowledge::load_view_with(&view, &[], &mut a);
+    let eb = crate::knowledge::load_view(&view, &mut b);
+    assert_eq!(a.diagnostics(), b.diagnostics());
+    assert_eq!(ea.len(), eb.len());
+}
+
+/// 目標の schema の形は、写し方の表（`SCHEMAS`）にあり、今の schema と名前が重ならず、
+/// 接頭辞が語彙の種類と一致する。
+#[test]
+fn 目標の形は写し方の表と読み込みの形に矛盾しない() {
+    for shape in TARGET_SHAPES {
+        assert!(is_target_only(shape.schema));
+        assert!(
+            SHAPES.iter().all(|s| s.schema != shape.schema),
+            "{} は今の schema と名前が重なる",
+            shape.schema
+        );
+        let kind = spec(shape.schema).expect("写し方がある").kind;
+        let (prefix, required) = shape.entity.expect("1件1ファイル");
+        assert!(required.contains(&"id"));
+        let sample = format!("{prefix}4K7DP2");
+        assert_eq!(
+            sample.parse::<TargetId>().map(|t| t.kind()),
+            Ok(kind),
+            "{sample}"
+        );
+    }
+}
+
+// ## locator の種類を値から決める（X08）
+
+/// 判断の `provenance` の locator は、値の書式から node の種類が決まる。 書式が決まっていない値
+/// （commit・issue・artifact の書式は提案書に無い）と崩れた値は、node にならず読めないと言う。
+#[test]
+fn provenance_の_locator_は値の書式で_node_の種類が決まる() {
+    let body = TARGET_DECISION.replace(
+        "question = 'Q-fix-001'\n",
+        "question = 'Q-fix-001'\nprovenance = ['github:pr/123@abc123', 'github:commit/abc', 'github:pr/x', 'crates/a/src/lib.rs']\n",
+    );
+    let design = design_of(&with("meta/decisions/DEC-6CQ3NA.toml", &body));
+    let graph = design.graph();
+    let node = |kind: &'static str, value: &str| {
+        graph.node(&NodeKey::Locator {
+            kind,
+            value: value.to_owned(),
+        })
+    };
+    assert_eq!(
+        node("pull-request", "github:pr/123@abc123").map(|n| n.kind),
+        Some("pull-request")
+    );
+    assert_eq!(
+        node("source", "crates/a/src/lib.rs").map(|n| n.kind),
+        Some("source")
+    );
+    // 書式が決まっていない・崩れた値は node にならない。
+    assert_eq!(
+        graph
+            .nodes()
+            .filter(|n| matches!(n.key, NodeKey::Locator { .. }))
+            .count(),
+        2
+    );
+    let issues = design.audit();
+    for value in ["github:commit/abc", "github:pr/x"] {
+        assert!(
+            has(&issues, |i| matches!(
+                i,
+                DesignIssue::Graph(GraphIssue::UnreadableLocator { value: v, .. }) if v == value
+            )),
+            "{value}"
+        );
+    }
+    // provenance の行き先に取れるのは Issue / PR / commit / artifact。 ソースのパスは取れない。
+    assert!(has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            relation: "provenance",
+            to_kind: Kind::Source,
+            ..
+        }
+    )));
+    // PR への edge は問題にならない。
+    assert!(!has(&issues, |i| matches!(
+        i,
+        DesignIssue::EndpointKind {
+            to_kind: Kind::PullRequest,
+            ..
+        }
+    )));
+    // 同じ PR を2つの判断が挙げれば、1つの node に edge が2本。
+    let other = body.replace("DEC-6CQ3NA", "DEC-6CQ3NB");
+    let mut f = with("meta/decisions/DEC-6CQ3NA.toml", &body);
+    f.insert("meta/decisions/DEC-6CQ3NB.toml".to_owned(), other);
+    let graph = design_of(&f).graph();
+    let pr = NodeKey::Locator {
+        kind: "pull-request",
+        value: "github:pr/123@abc123".to_owned(),
+    };
+    assert_eq!(graph.incoming(&pr).len(), 2);
+}
+
+// ## 版を持つ graph / 2つの版の比較（X08）
+
+/// 試験ごとに使い捨てる git リポジトリ。 `tempfile` は引かない（`repo::view` の試験と同じ形）。
+struct TempRepo(std::path::PathBuf);
+
+impl Drop for TempRepo {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+impl TempRepo {
+    fn new(name: &str) -> Self {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "koeru-xtask-design-{name}-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("作れる");
+        let repo = Self(dir);
+        repo.git(&["init", "-q"]);
+        for (k, v) in [
+            ("user.name", "design-test"),
+            ("user.email", "design-test@example.invalid"),
+            ("commit.gpgsign", "false"),
+            ("core.autocrlf", "false"),
+        ] {
+            repo.git(&["config", k, v]);
+        }
+        repo
+    }
+
+    fn root(&self) -> &Path {
+        &self.0
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .current_dir(&self.0)
+            .args(args)
+            .output()
+            .expect("git を起動できる");
+        assert!(
+            out.status.success(),
+            "git {args:?} が失敗した: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout)
+            .expect("UTF-8")
+            .trim()
+            .to_owned()
+    }
+
+    fn write_all(&self, files: &BTreeMap<String, String>) {
+        for (rel, body) in files {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().expect("親がある")).expect("作れる");
+            std::fs::write(p, body).expect("書ける");
+        }
+    }
+
+    fn remove(&self, rel: &str) {
+        std::fs::remove_file(self.0.join(rel)).expect("消せる");
+    }
+
+    fn commit(&self, message: &str) -> String {
+        self.git(&["add", "-A"]);
+        self.git(&["commit", "-q", "-m", message]);
+        self.git(&["rev-parse", "HEAD"])
+    }
+}
+
+/// `Design` の graph が、読んだ版を持つ。 版を持たない view は `None` のままで、呼び出し側が
+/// 分かっている版を足せる。
+#[test]
+fn design_の_graph_は読んだ版を持つ() {
+    let repo = TempRepo::new("revision");
+    repo.write_all(&files());
+    let sha = repo.commit("base");
+
+    let working = Design::load(&RepoView::working_tree(repo.root()));
+    assert_eq!(
+        working.graph().revision(),
+        Some(&RevisionRef::WorkingTree {
+            head: sha.clone(),
+            dirty: false
+        })
+    );
+    let at = Design::load(&RepoView::revision(repo.root(), &sha).expect("解決できる"));
+    assert_eq!(
+        at.graph().revision(),
+        Some(&RevisionRef::Revision { sha: sha.clone() })
+    );
+    // 未コミットの変更は dirty。
+    repo.write_all(&with(
+        "meta/decisions/DEC-fix-002.toml",
+        &format!("{DECISION_2}\n"),
+    ));
+    let dirty = Design::load(&RepoView::working_tree(repo.root()));
+    assert!(matches!(
+        dirty.graph().revision(),
+        Some(RevisionRef::WorkingTree { dirty: true, .. })
+    ));
+
+    // メモリ上の view は版を持たない。 足せば持つ。
+    let memory = base();
+    assert_eq!(memory.revision(), None);
+    assert_eq!(memory.graph().revision(), None);
+    let rev = RevisionRef::Revision {
+        sha: "0123abc".to_owned(),
+    };
+    assert_eq!(
+        base().with_revision(rev.clone()).graph().revision(),
+        Some(&rev)
+    );
+    // 版を足しても、graph の中身（node・edge）は変わらない。
+    let a = base().graph();
+    let b = base().with_revision(rev).graph();
+    assert_eq!(
+        a.nodes()
+            .map(|n| (n.key.clone(), n.fingerprint))
+            .collect::<Vec<_>>(),
+        b.nodes()
+            .map(|n| (n.key.clone(), n.fingerprint))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(a.all_relations().count(), b.all_relations().count());
+}
+
+// ## 収集ファイル直下の欄を型つきで読む（X08）
+
+/// 収集ファイル直下の文字列の欄を、型つきで読める。 持たない schema の欄・文字列でない値は読まない。
+#[test]
+fn 収集ファイル直下の欄を型つきで読める() {
+    let design = base();
+    let mut files: Vec<_> = design
+        .source_files()
+        .map(|f| (f.domain(), f.domain_title(), f.prefix()))
+        .collect();
+    files.sort();
+    // 技術要件は領域と接頭辞を持つ。 目標値は領域だけ。 1件1ファイルの schema は含まれない。
+    assert_eq!(
+        files,
+        [
+            (Some("fix"), None, None),
+            (Some("fix"), None, Some("TR-fix"))
+        ]
+    );
+
+    // 目標値のファイルに `prefix` を書いても、その schema は持たない欄なので読まない。
+    // 文字列でない値も読まない。
+    // 直下の欄は `[[target]]` より前に置く。
+    let targets = TARGETS
+        .replace("domain = 'fix'", "domain = 3")
+        .replace("\n[[target]]", "prefix = 'TGT-fix'\n\n[[target]]");
+    let design = design_of(&with("meta/budgets/fix.toml", &targets));
+    let t = design
+        .source_files()
+        .find(|f| f.path().ends_with("meta/budgets/fix.toml"))
+        .expect("目標値のファイル");
+    assert_eq!(t.domain(), None, "文字列でない値");
+    assert_eq!(t.prefix(), None, "その schema が持たない欄");
+
+    // 欄の一覧と、型つきの口が読む欄が一致する。
+    for schema in ["requirement-set", "target-set"] {
+        let spec = spec(schema).expect("写し方がある");
+        for name in ["domain", "domain_title", "prefix"] {
+            let readable = match schema {
+                "requirement-set" => true,
+                _ => name == "domain",
+            };
+            assert_eq!(spec.knows_file_field(name), readable, "{schema}.{name}");
+        }
+    }
+}
+
+// ## 「内容を直したら ID が変わった」の検出（X08）
+
+fn rename(from: &str, to: &str) -> crate::repo::Rename {
+    crate::repo::Rename {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        similarity: 100,
+    }
+}
+
+/// 同じ種類のファイルが改名され、ID が変わっていれば出す。 git の改名検出を通す。
+#[test]
+fn 同じ種類のファイルの改名で_id_が変われば出る() {
+    let repo = TempRepo::new("identity-changed");
+    repo.write_all(&target_files());
+    let base = repo.commit("base");
+
+    // 仮説を直したついでに ID を付け直した（ファイル名も ID に合わせた）。
+    repo.remove("meta/hypotheses/HYP-91MTWX.toml");
+    repo.write_all(&BTreeMap::from([(
+        "meta/hypotheses/HYP-91MTWY.toml".to_owned(),
+        HYPOTHESIS.replace("HYP-91MTWX", "HYP-91MTWY"),
+    )]));
+    // 技術要件の収集ファイルは、名前を変えても ID が変わらない。
+    repo.remove("meta/requirements/fix.toml");
+    repo.write_all(&BTreeMap::from([(
+        "meta/requirements/fix-renamed.toml".to_owned(),
+        REQUIREMENTS.to_owned(),
+    )]));
+    let head = repo.commit("rename");
+
+    let old = RepoView::revision(repo.root(), &base).expect("解決できる");
+    let new = RepoView::revision(repo.root(), &head).expect("解決できる");
+    assert_eq!(
+        Design::compare_identities(&old, &new).expect("比べられる"),
+        [DesignIssue::IdentityChanged {
+            from: id("HYP-91MTWX"),
+            to: id("HYP-91MTWY"),
+            schema: "design-hypothesis",
+        }]
+    );
+}
+
+/// 内容を直しただけ・改名していない・ID が同じ・種類が違う改名は出さない。
+#[test]
+fn id_が変わっていない_または種類が違う改名は出ない() {
+    // 内容を直しただけ（改名なし）。
+    let repo = TempRepo::new("identity-unchanged");
+    repo.write_all(&target_files());
+    let base = repo.commit("base");
+    repo.write_all(&BTreeMap::from([(
+        "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+        HYPOTHESIS.replace("untested", "supported"),
+    )]));
+    let head = repo.commit("edit");
+    let old = RepoView::revision(repo.root(), &base).expect("解決できる");
+    let new = RepoView::revision(repo.root(), &head).expect("解決できる");
+    assert_eq!(
+        Design::compare_identities(&old, &new).expect("比べられる"),
+        Vec::new()
+    );
+
+    // 種類が違う（仮説の記録が、判断の記録に作り替わった）。 取り違えとは言わない。
+    let old = design_of(&target_files());
+    let body = TARGET_DECISION.replace("DEC-6CQ3NA", "DEC-6CQ3NB");
+    let new = design_of(&with("meta/decisions/DEC-6CQ3NB.toml", &body));
+    let renames = [rename(
+        "meta/hypotheses/HYP-91MTWX.toml",
+        "meta/decisions/DEC-6CQ3NB.toml",
+    )];
+    assert_eq!(old.changed_identities(&new, &renames), Vec::new());
+    // 同じ種類なら出る。
+    let renames = [rename(
+        "meta/decisions/DEC-6CQ3NA.toml",
+        "meta/decisions/DEC-6CQ3NB.toml",
+    )];
+    assert_eq!(
+        old.changed_identities(&new, &renames),
+        [DesignIssue::IdentityChanged {
+            from: id("DEC-6CQ3NA"),
+            to: id("DEC-6CQ3NB"),
+            schema: "decision",
+        }]
+    );
+    // 収集ファイルの改名は、ファイル名が ID を決めないので出さない。 meta の外のファイルも。
+    let renames = [
+        rename("meta/requirements/fix.toml", "meta/requirements/other.toml"),
+        rename("docs/a.md", "docs/b.md"),
+        rename("specs/fix.fsl", "specs/other.fsl"),
+    ];
+    assert_eq!(old.changed_identities(&old, &renames), Vec::new());
+    // 改名が無ければ何も出ない。
+    assert_eq!(old.changed_identities(&new, &[]), Vec::new());
+}
+
+/// 改名を引けない組（メモリ上の view）は、空ではなく失敗で返す。
+#[test]
+fn 改名を引けない組は失敗する() {
+    let memory = RepoView::in_memory(Path::new("/fixture"), files());
+    assert!(Design::compare_identities(&memory, &memory).is_err());
+}
+
+// ## 採用済みの判断の上書きと、意味を変えない修正の明示（X08）
+
+/// `DEC-fix-002`（採用済み）を書き換えた新しい版。 `edits` は `meaning_preserving_edits` の本文。
+fn decision_2_changed(replacements: &[(&str, &str)], edits: Option<&str>) -> Design {
+    let mut body = DECISION_2.to_owned();
+    for (from, to) in replacements {
+        assert!(body.contains(from), "{from}");
+        body = body.replace(from, to);
+    }
+    if let Some(edits) = edits {
+        body.push_str(&format!("meaning_preserving_edits = {edits}\n"));
+    }
+    design_of(&with("meta/decisions/DEC-fix-002.toml", &body))
+}
+
+fn overwritten(old: &Design, new: &Design) -> Vec<String> {
+    old.overwritten_decisions(new)
+        .into_iter()
+        .map(|i| match i {
+            DesignIssue::DecisionOverwritten { id } => id.to_string(),
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// 同じ変更の中で「意味を変えない修正」の記録が1件増えていれば通す。 増えていなければ落とす。
+#[test]
+fn 意味を変えない修正の記録が増えていれば上書きとして出ない() {
+    let old = base();
+    let selected = [("selected = 'a'", "selected = 'b'")];
+
+    // 記録なし → 出る。
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, None)),
+        ["DEC-fix-002"]
+    );
+    // 記録が1件増えた → 通る。
+    assert!(overwritten(&old, &decision_2_changed(&selected, Some("['誤字の修正']"))).is_empty());
+}
+
+/// 見るのは `selected` だけ（保守者の決定）。 案・理由・制約・帰結を直しても上書きではない。
+#[test]
+fn selected_以外の中身の変更は上書きとして出ない() {
+    let old = base();
+    for change in [
+        [("rationale = '理由'", "rationale = '直した理由'")],
+        [("options = ['a']", "options = ['a', 'c']")],
+    ] {
+        assert!(
+            overwritten(&old, &decision_2_changed(&change, None)).is_empty(),
+            "{change:?}"
+        );
+    }
+    let with_extra = |extra: &str| {
+        design_of(&with(
+            "meta/decisions/DEC-fix-002.toml",
+            &format!("{DECISION_2}{extra}"),
+        ))
+    };
+    assert!(
+        overwritten(
+            &with_extra("constraint_label = '名'\nconstraint = 'A'\nconsequences = ['x']\n"),
+            &with_extra("constraint_label = '名'\nconstraint = 'B'\nconsequences = ['y']\n"),
+        )
+        .is_empty()
+    );
+}
+
+/// 増えていない（同じ件数のまま・減った・空の文字列を足した）なら、記録があっても落とす。
+/// 中身を変えていなければ、記録が増えても何も出ない。
+#[test]
+fn 記録が増えていなければ上書きとして出る() {
+    let selected = [("selected = 'a'", "selected = 'b'")];
+    // 古い版にすでに1件ある。
+    let old = decision_2_changed(&[], Some("['前の修正']"));
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, Some("['前の修正']"))),
+        ["DEC-fix-002"],
+        "件数が同じなら、前の記録は今回の修正を言っていない"
+    );
+    assert_eq!(
+        overwritten(&old, &decision_2_changed(&selected, None)),
+        ["DEC-fix-002"],
+        "記録を消しながら書き換えても通さない"
+    );
+    assert!(
+        overwritten(
+            &old,
+            &decision_2_changed(&selected, Some("['前の修正', '今回の修正']"))
+        )
+        .is_empty()
+    );
+    // 空の文字列は記録として数えない。
+    assert_eq!(
+        overwritten(&base(), &decision_2_changed(&selected, Some("['', '  ']"))),
+        ["DEC-fix-002"]
+    );
+    // 中身を変えていなければ、記録が増えても出ない（記録だけを足した変更）。
+    assert!(overwritten(&base(), &decision_2_changed(&[], Some("['足しただけ']"))).is_empty());
+}
+
+/// 判断の周りの記録（状態・影響先・置き換え）を変えても、上書きではない。
+#[test]
+fn 判断の周りの記録の変更は上書きではない() {
+    let old = base();
+    let new = decision_2_changed(&[("status = 'accepted'", "status = 'superseded'")], None);
+    assert!(overwritten(&old, &new).is_empty());
+    let body = format!("{DECISION_2}affects_requirements = ['TR-fix-02']\n");
+    let new = design_of(&with("meta/decisions/DEC-fix-002.toml", &body));
+    assert!(overwritten(&old, &new).is_empty());
+}
+
+/// 欄は、判断の schema に省略可能な欄として登録してある。 無くても読み込みの検査は通る。
+#[test]
+fn 意味を変えない修正の欄は省略可能で型つきで読める() {
+    let decision = spec("decision").expect("写し方がある");
+    assert!(decision.knows("meaning_preserving_edits"));
+    assert!(matches!(
+        decision.field("meaning_preserving_edits").map(|f| f.role),
+        Some(Role::Data)
+    ));
+    // 他の schema には持たせない。
+    assert!(
+        !spec("question")
+            .expect("写し方がある")
+            .knows("meaning_preserving_edits")
+    );
+    // 欄が無い既存の判断は、読み込みの検査を通り、記録は0件。
+    let design = base();
+    assert_eq!(design.audit(), Vec::new());
+    let edits = |d: &Design| {
+        d.object(&id("DEC-fix-002"))
+            .and_then(|o| o.as_decision())
+            .map(|d| d.meaning_preserving_edits())
+    };
+    assert_eq!(edits(&design), Some(Vec::new()));
+    let new = decision_2_changed(&[], Some("['一件目', '', '二件目']"));
+    assert_eq!(new.audit(), Vec::new());
+    assert_eq!(
+        edits(&new),
+        Some(vec!["一件目".to_owned(), "二件目".to_owned()])
+    );
 }

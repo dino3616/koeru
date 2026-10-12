@@ -26,27 +26,32 @@ mod identity;
 mod legacy;
 mod lift;
 mod ontology;
+mod shapes;
 
 pub(crate) use identity::{IdentityError, Locator, LocatorError, TargetId, check_identity};
 pub(crate) use legacy::{
     Adoption, Allocation, Calculation, Component, Contract, ContractKind, Decision, Evidence,
-    LegacyOrigin, Meaning, Object, Part, Probe, Quantity, Question, ReleaseProfile, Requirement,
-    SCHEMAS, UnclassifiedTarget, Workload,
+    Judgement, LegacyOrigin, Meaning, Object, Part, Probe, Quantity, Question, ReleaseProfile,
+    Requirement, SCHEMAS, SourceFile, UnclassifiedTarget, Workload,
 };
 pub(crate) use lift::{Design, DesignIssue};
 pub(crate) use ontology::{
     Ends, Kind, Layer, RELATIONS, RelationSpec, SEMANTIC, Standing, relation,
 };
+pub(crate) use shapes::{TARGET_SHAPES, is_target_only};
 
-use crate::graph::{NodeKind, Registry, RelationRule};
+use crate::graph::{Direction, LocatorRule, NodeKind, Registry, RelationRule};
 use legacy::Role;
 
 /// graph engine に渡す語彙。
 ///
 /// 今の meta の schema と、目標の schema の両方を node の種類にし、欄を [`RELATIONS`] の名前の
 /// edge にする。 `affects_*` の族は `affects` に、`closed_by` は `resolved_by` にまとまる。
+/// `formalized_as` と `supports_decisions` は、関係の行き先の側に書かれた欄なので
+/// 逆向きの規則（`Direction::Reverse`）で読む。
 /// FSL の ID は記録としては持たない（`Design` が contract の記録を加える）ので
-/// `fsl_node_kind` は使わない。 locator の欄を持つ schema がまだ無いので、`locators` は空。
+/// `fsl_node_kind` は使わない。 判断の `provenance`（locator の一覧）は、値の書式から node の
+/// 種類を決める（`LocatorRule::kind_of`）。
 pub(crate) fn registry() -> Registry {
     let node_kinds = SCHEMAS
         .iter()
@@ -56,10 +61,26 @@ pub(crate) fn registry() -> Registry {
         })
         .collect();
     let mut relations = Vec::new();
+    let mut locators = Vec::new();
     for schema in SCHEMAS {
         for field in schema.fields {
-            let Role::Edge(name) = field.role else {
+            if let Role::Locator(name) = field.role {
+                if let Some(rule) = relation(name) {
+                    locators.push(LocatorRule {
+                        from_schema: schema.schema,
+                        field: field.name,
+                        relation: rule.name,
+                        // 値から決めるので使わない。
+                        locator_kind: Kind::Source.name(),
+                        kind_of: Some(locator_kind_of),
+                    });
+                }
                 continue;
+            }
+            let (name, direction) = match field.role {
+                Role::Edge(name) => (name, Direction::Forward),
+                Role::Inverse(name) => (name, Direction::Reverse),
+                _ => continue,
             };
             let Some(rule) = relation(name) else {
                 continue;
@@ -69,15 +90,22 @@ pub(crate) fn registry() -> Registry {
                 field: field.name,
                 relation: rule.name,
                 class: rule.class,
+                direction,
             });
         }
     }
     Registry {
         node_kinds,
         relations,
-        locators: Vec::new(),
+        locators,
         fsl_node_kind: None,
     }
+}
+
+/// locator の値から、node の種類を決める。 書式が決まっていない値（[`Locator::parse`] が読めない）は
+/// `None`。
+fn locator_kind_of(value: &str) -> Option<&'static str> {
+    Locator::parse(value).ok().map(|l| l.kind().name())
 }
 
 #[cfg(test)]

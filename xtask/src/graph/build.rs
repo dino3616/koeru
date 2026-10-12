@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use super::model::{GraphNode, NodeKey, NodeProvenance, Relation, RelationClass, fnv1a_64};
-use super::registry::Registry;
+use super::registry::{Direction, Registry};
 use crate::diagnostic::{Report, Severity};
 use crate::knowledge::{self, Id, KnowledgeSnapshot, Record};
 use crate::repo::{RepoView, RevisionRef};
@@ -32,6 +32,13 @@ pub(crate) enum GraphIssue {
         relation: &'static str,
         to: NodeKey,
     },
+    /// locator の欄の値から、種類を決められなかった（`LocatorRule::kind_of` が `None`）。
+    /// node にも edge にもならない。
+    UnreadableLocator {
+        from: NodeKey,
+        field: &'static str,
+        value: String,
+    },
     /// `Supersession` class の edge が循環していた。 先頭から辿った経路を持つ
     /// ——最後の要素が、どこかで既に列に入っていた node。
     SupersessionCycle(Vec<NodeKey>),
@@ -44,6 +51,8 @@ pub(crate) struct SemanticGraph {
     outgoing: BTreeMap<NodeKey, Vec<Relation>>,
     incoming: BTreeMap<NodeKey, Vec<Relation>>,
     revision: Option<RevisionRef>,
+    /// 組み立てのときに見つかった、読めない locator。 `validate` が返す。
+    unreadable_locators: Vec<GraphIssue>,
 }
 
 impl SemanticGraph {
@@ -80,6 +89,20 @@ impl SemanticGraph {
     /// 単体試験が、一時ディレクトリや git を用意せずに graph を作れるようにする口。
     pub(crate) fn from_snapshot(snapshot: &KnowledgeSnapshot, registry: &Registry) -> Self {
         Self::from_snapshot_inner(snapshot, registry)
+    }
+
+    /// [`Self::from_snapshot`] に、graph を作った版を持たせる。
+    ///
+    /// `build` を通れない呼び出し側（記録を組み立て直してから graph にするもの）が、
+    /// 読んだ view の `identity()` を渡して、[`Self::revision`] を `None` にしないための口。
+    pub(crate) fn from_snapshot_at(
+        snapshot: &KnowledgeSnapshot,
+        registry: &Registry,
+        revision: Option<RevisionRef>,
+    ) -> Self {
+        let mut graph = Self::from_snapshot_inner(snapshot, registry);
+        graph.revision = revision;
+        graph
     }
 
     fn from_snapshot_inner(snapshot: &KnowledgeSnapshot, registry: &Registry) -> Self {
@@ -123,6 +146,9 @@ impl SemanticGraph {
 
         let mut outgoing: BTreeMap<NodeKey, Vec<Relation>> = BTreeMap::new();
         let mut incoming: BTreeMap<NodeKey, Vec<Relation>> = BTreeMap::new();
+        // 逆向きの規則が作った edge。 前向きの edge を全部積んでから入れる。
+        let mut reversed: Vec<Relation> = Vec::new();
+        let mut unreadable_locators: Vec<GraphIssue> = Vec::new();
 
         for record in snapshot.records() {
             let Some(id) = record.id() else { continue };
@@ -143,17 +169,24 @@ impl SemanticGraph {
                     let Ok(target_id) = target.parse::<Id>() else {
                         continue;
                     };
-                    push_edge(
-                        &mut outgoing,
-                        &mut incoming,
-                        Relation {
-                            from: from_key.clone(),
-                            to: NodeKey::Object(target_id),
-                            name: rule.relation,
-                            class: rule.class,
-                            source: source.clone(),
-                        },
-                    );
+                    let other = NodeKey::Object(target_id);
+                    // 逆向きは、欄の値の記録が起点。 欄を持つ記録は、行き先として必ず node にある
+                    // （上で確かめた）。 起点が無いものは `validate` が宙に浮いた edge として出す。
+                    let (from, to) = match rule.direction {
+                        Direction::Forward => (from_key.clone(), other),
+                        Direction::Reverse => (other, from_key.clone()),
+                    };
+                    let edge = Relation {
+                        from,
+                        to,
+                        name: rule.relation,
+                        class: rule.class,
+                        source: source.clone(),
+                    };
+                    match rule.direction {
+                        Direction::Forward => push_edge(&mut outgoing, &mut incoming, edge),
+                        Direction::Reverse => reversed.push(edge),
+                    }
                 }
             }
 
@@ -162,13 +195,27 @@ impl SemanticGraph {
                     continue;
                 }
                 for value in field_targets(record, rule.field) {
+                    let kind = match rule.kind_of {
+                        None => rule.locator_kind,
+                        Some(kind_of) => {
+                            let Some(kind) = kind_of(&value) else {
+                                unreadable_locators.push(GraphIssue::UnreadableLocator {
+                                    from: from_key.clone(),
+                                    field: rule.field,
+                                    value,
+                                });
+                                continue;
+                            };
+                            kind
+                        }
+                    };
                     let to_key = NodeKey::Locator {
-                        kind: rule.locator_kind,
+                        kind,
                         value: value.clone(),
                     };
                     nodes.entry(to_key.clone()).or_insert_with(|| GraphNode {
                         key: to_key.clone(),
-                        kind: rule.locator_kind,
+                        kind,
                         provenance: NodeProvenance::default(),
                         fingerprint: fnv1a_64(&value),
                     });
@@ -187,6 +234,18 @@ impl SemanticGraph {
             }
         }
 
+        // 向きの違う2つの欄が同じ関係を言っているとき（判断の `evidence` と、調査の
+        // `supports_decisions`）、edge を二重にしない。 前向きの edge が先にあるので、
+        // 並びに依らず出どころは前向きのほうが残る。
+        for edge in reversed {
+            let already = outgoing
+                .get(&edge.from)
+                .is_some_and(|rels| rels.iter().any(|r| r.to == edge.to && r.name == edge.name));
+            if !already {
+                push_edge(&mut outgoing, &mut incoming, edge);
+            }
+        }
+
         for rels in outgoing.values_mut() {
             rels.sort();
         }
@@ -199,6 +258,7 @@ impl SemanticGraph {
             outgoing,
             incoming,
             revision: None,
+            unreadable_locators,
         }
     }
 
@@ -295,9 +355,11 @@ impl SemanticGraph {
     /// build 自体はこれらの理由で止まらない（edge は残したまま、値として返す）。
     /// 呼びたいときに呼ぶ、独立した検査。
     pub(crate) fn validate(&self) -> Vec<GraphIssue> {
-        let mut issues = Vec::new();
+        let mut issues = self.unreadable_locators.clone();
         for rel in self.all_relations() {
-            if !self.nodes.contains_key(&rel.to) {
+            // 前向きの edge は起点が必ず node にあるので、見るのは行き先だけだった。
+            // 逆向きの edge は、起点（欄の値の記録）が無いことがある。
+            if !self.nodes.contains_key(&rel.to) || !self.nodes.contains_key(&rel.from) {
                 issues.push(GraphIssue::Dangling {
                     from: rel.from.clone(),
                     relation: rel.name,
@@ -383,7 +445,7 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
-    use crate::graph::registry::{LocatorRule, NodeKind, RelationRule};
+    use crate::graph::registry::{Direction, LocatorRule, NodeKind, RelationRule};
 
     /// 試験ごとに使い捨てる一時ディレクトリ。 `tempfile` は引かない
     /// ——`repo::view` の試験と同じ形（`std::env::temp_dir()` の下）にする。
@@ -435,18 +497,21 @@ mod tests {
                     field: "uses",
                     relation: "uses",
                     class: RelationClass::Reference,
+                    direction: Direction::Forward,
                 },
                 RelationRule {
                     from_schema: "question",
                     field: "replaces",
                     relation: "replaces",
                     class: RelationClass::Supersession,
+                    direction: Direction::Forward,
                 },
                 RelationRule {
                     from_schema: "question",
                     field: "replaced_by",
                     relation: "replaces",
                     class: RelationClass::Supersession,
+                    direction: Direction::Forward,
                 },
             ],
             locators: vec![LocatorRule {
@@ -454,6 +519,7 @@ mod tests {
                 field: "story",
                 relation: "context_for",
                 locator_kind: "story",
+                kind_of: None,
             }],
             fsl_node_kind: Some("fsl-requirement"),
         }
@@ -526,6 +592,118 @@ mod tests {
             relation: "uses",
             to: missing,
         }));
+    }
+
+    /// 逆向きの規則を足した registry。 `used_by` は「自分を使う相手」の欄で、`uses` と同じ関係の
+    /// 逆向き（相手 → 自分）。
+    fn reverse_registry() -> Registry {
+        let mut reg = fixture_registry();
+        reg.relations.push(RelationRule {
+            from_schema: "question",
+            field: "used_by",
+            relation: "uses",
+            class: RelationClass::Reference,
+            direction: Direction::Reverse,
+        });
+        reg
+    }
+
+    /// 逆向きの規則は、欄の値の記録が起点で、欄を持つ記録が行き先の edge を作る。
+    /// 起点の記録には何も足さないので、起点の内容の digest は変わらない。
+    #[test]
+    fn 逆向きの規則は値の記録を起点にした_edge_を作る() {
+        let root = temp_root("reverse-edge");
+        write_widget(&root, "Q-fix-01", "");
+        write_widget(&root, "Q-fix-02", "used_by = ['Q-fix-01']");
+        let view = RepoView::working_tree(&root.0);
+        let (graph, issues) = SemanticGraph::build(&view, &reverse_registry());
+        assert!(issues.is_empty(), "{issues:?}");
+
+        let a = key("Q-fix-01");
+        let b = key("Q-fix-02");
+        let out = graph.outgoing(&a);
+        assert_eq!(out.len(), 1);
+        assert_eq!((&out[0].from, &out[0].to, out[0].name), (&a, &b, "uses"));
+        // この edge を引いているのは、欄を持つ記録。
+        assert_eq!(
+            out[0].source.path.as_deref(),
+            Some(root.0.join("meta/questions/Q-fix-02.toml").as_path())
+        );
+        assert!(graph.outgoing(&b).is_empty());
+        assert_eq!(graph.incoming(&b).len(), 1);
+        assert!(graph.validate().is_empty());
+
+        // 起点の記録は、欄が無いときと同じ digest。
+        write_widget(&root, "Q-fix-02", "");
+        let (without, _) = SemanticGraph::build(&view, &reverse_registry());
+        assert_eq!(
+            graph.node(&a).map(|n| n.fingerprint),
+            without.node(&a).map(|n| n.fingerprint)
+        );
+        assert!(without.outgoing(&a).is_empty());
+    }
+
+    /// 逆向きの edge の起点が無ければ、前向きの行き先が無いときと同じ診断になる。
+    /// 起点の側が `Dangling` の `from` に入る。
+    #[test]
+    fn 逆向きの規則の起点が無ければ_dangling_になる() {
+        let root = temp_root("reverse-dangling");
+        write_widget(&root, "Q-fix-02", "used_by = ['Q-fix-99']");
+        let view = RepoView::working_tree(&root.0);
+        let (graph, _) = SemanticGraph::build(&view, &reverse_registry());
+
+        let missing = key("Q-fix-99");
+        assert!(graph.node(&missing).is_none());
+        // 消さずに残る。
+        assert_eq!(graph.outgoing(&missing).len(), 1);
+        assert_eq!(
+            graph.validate(),
+            [GraphIssue::Dangling {
+                from: missing,
+                relation: "uses",
+                to: key("Q-fix-02"),
+            }]
+        );
+    }
+
+    /// 向きの違う2つの欄が同じ関係を言っているときは、edge を二重にしない。
+    /// 並びに依らず、残るのは前向きの欄を持つ記録の出どころ。
+    #[test]
+    fn 前向きと逆向きが同じ関係を言えば_edge_は1本() {
+        for (a_extra, b_extra) in [("uses = ['Q-fix-02']", "used_by = ['Q-fix-01']"), ("", "")] {
+            let root = temp_root("reverse-dedupe");
+            write_widget(&root, "Q-fix-01", a_extra);
+            write_widget(&root, "Q-fix-02", b_extra);
+            let view = RepoView::working_tree(&root.0);
+            let (graph, _) = SemanticGraph::build(&view, &reverse_registry());
+            let a = key("Q-fix-01");
+            let want = usize::from(!a_extra.is_empty());
+            assert_eq!(graph.outgoing(&a).len(), want);
+            if want == 1 {
+                assert_eq!(
+                    graph.outgoing(&a)[0].source.path.as_deref(),
+                    Some(root.0.join("meta/questions/Q-fix-01.toml").as_path()),
+                    "前向きの欄を持つ記録の出どころが残る"
+                );
+            }
+        }
+        // 逆向きの欄どうしが同じ値を重ねても1本。
+        let root = temp_root("reverse-dedupe-twice");
+        write_widget(&root, "Q-fix-01", "");
+        write_widget(&root, "Q-fix-02", "used_by = ['Q-fix-01', 'Q-fix-01']");
+        let (graph, _) =
+            SemanticGraph::build(&RepoView::working_tree(&root.0), &reverse_registry());
+        assert_eq!(graph.outgoing(&key("Q-fix-01")).len(), 1);
+    }
+
+    /// 逆向きの欄の値が ID の形に読めなければ、前向きと同じく edge にならない。
+    #[test]
+    fn 逆向きの欄の値が_id_の形でなければ_edge_にならない() {
+        let root = temp_root("reverse-unparsed");
+        write_widget(&root, "Q-fix-02", "used_by = ['not an id']");
+        let (graph, _) =
+            SemanticGraph::build(&RepoView::working_tree(&root.0), &reverse_registry());
+        assert_eq!(graph.all_relations().count(), 0);
     }
 
     /// `Reference` class の循環は `neighborhood` が `visited` で止めて終わる。
@@ -709,6 +887,67 @@ mod tests {
         assert!(
             out.iter()
                 .any(|r| r.to == locator && r.name == "context_for")
+        );
+    }
+
+    /// 値から種類を決める fixture の関数。 `pr:` と `commit:` だけ書式が決まっている。
+    fn fixture_kind_of(value: &str) -> Option<&'static str> {
+        if value.starts_with("pr:") {
+            Some("pull-request")
+        } else if value.starts_with("commit:") {
+            Some("commit")
+        } else {
+            None
+        }
+    }
+
+    /// locator の種類を値から決められる。 同じ欄の値でも、種類の別の node になる。
+    /// 書式が決まっていない値は node にならず、読めないと言う。
+    #[test]
+    fn locator_の種類を値から決められ_決められない値は_node_にならない() {
+        let root = temp_root("locator-kind-of");
+        write_widget(
+            &root,
+            "Q-fix-01",
+            "refs = ['pr:123@abc', 'commit:abc', 'issue:5']",
+        );
+        let mut reg = fixture_registry();
+        reg.locators = vec![LocatorRule {
+            from_schema: "question",
+            field: "refs",
+            relation: "provenance",
+            locator_kind: "unused",
+            kind_of: Some(fixture_kind_of),
+        }];
+        let (graph, issues) = SemanticGraph::build(&RepoView::working_tree(&root.0), &reg);
+        assert!(issues.is_empty(), "{issues:?}");
+
+        let locator = |kind: &'static str, value: &str| NodeKey::Locator {
+            kind,
+            value: value.to_owned(),
+        };
+        assert_eq!(
+            graph
+                .node(&locator("pull-request", "pr:123@abc"))
+                .map(|n| n.kind),
+            Some("pull-request")
+        );
+        assert_eq!(
+            graph.node(&locator("commit", "commit:abc")).map(|n| n.kind),
+            Some("commit")
+        );
+        // 種類を決められない値は、node にも edge にもならない。 固定の種類を当てて救わない。
+        assert!(graph.node(&locator("unused", "issue:5")).is_none());
+        assert_eq!(graph.nodes().count(), 3, "Q と locator 2 件");
+        let out = graph.outgoing(&key("Q-fix-01"));
+        assert_eq!(out.len(), 2, "読めた値の分だけ edge がある");
+        assert_eq!(
+            graph.validate(),
+            [GraphIssue::UnreadableLocator {
+                from: key("Q-fix-01"),
+                field: "refs",
+                value: "issue:5".to_owned(),
+            }]
         );
     }
 

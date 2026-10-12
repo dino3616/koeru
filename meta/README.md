@@ -110,6 +110,13 @@ cargo xtask test-receipt     # 試験を走らせ、件数を suite と突き合
 
 `check-meta` は、要件が参照する `TR-*` が登録簿に実在すること、`formalized_as` が FSL に実在すること、`depends_on` が解決することを検査する。本文の無い ID を参照する状態には戻れない。 suite の `contracts` も同じく実在を見る。
 
+`check-meta` は前の版とも比べる（`DEC-PLT-048`）。 落とすのは次の2つ。
+
+- 採用済みの判断の `selected` が、同じ ID のまま書き換わった。 意味を変えるなら新しい判断を作って `supersedes` で繋ぐ。 意味を変えない修正なら、同じ変更で、その判断の `meaning_preserving_edits`（文字列の配列、省略可能）に1件足す
+- 同じ種類のファイルが改名され、ID が変わった。 ID は内容を直しても変わらない
+
+基準は、PR では `origin/main` との merge-base、main の先頭では親コミット。 `--base <rev>` で変えられる（`<rev>` と HEAD の merge-base）。 どの基準と比べたかを `比較の基準:` の1行で出す。 **基準が取れないとき（浅い clone など）は、飛ばさずに落ちる**。 CI の checkout は `fetch-depth: 0` で全履歴を取る。
+
 ## 試験の登録
 
 **試験 binary はどれも、ちょうど1件の suite に属する**（`DEC-PLT-039`）。 crate の lib、`tests/*.rs`、bin のそれぞれが1つの試験 binary になる。 登録の無いものは `check-portfolio` が落とすので、試験ファイルを足したら `suites/` にも足す。

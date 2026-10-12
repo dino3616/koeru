@@ -15,18 +15,37 @@ pub(crate) struct NodeKind {
     pub(crate) kind: &'static str,
 }
 
+/// edge の向き。 欄を持つ記録から見た向きで言う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Direction {
+    /// 欄を持つ記録から、欄の値の記録へ向かう edge。
+    #[default]
+    Forward,
+    /// 欄の値の記録から、欄を持つ記録へ向かう edge。
+    ///
+    /// 関係の起点側が欄を持たず、行き先の側にだけ書かれているときに使う。 起点の記録へ欄を
+    /// 足し直す必要がなく、起点の記録の内容の digest も変わらない。
+    Reverse,
+}
+
 /// 1つの欄が edge を生む規則。
 ///
 /// `from_schema` の記録が持つ `field`（文字列、または文字列の配列）の値を ID
-/// として解決し、`relation` という名前の edge にする。 行き先が node として
-/// 実在するかどうかはここでは見ない——[`super::build::SemanticGraph::validate`] の仕事。
+/// として解決し、`relation` という名前の edge にする。 向きは [`Direction`] が決める
+/// ——[`Direction::Reverse`] なら、値の記録が edge の起点で、欄を持つ記録が行き先。
+/// 相手の記録が node として実在するかどうかはここでは見ない——
+/// [`super::build::SemanticGraph::validate`] の仕事で、起点と行き先の両方を見る。
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RelationRule {
     pub(crate) from_schema: &'static str,
     pub(crate) field: &'static str,
     pub(crate) relation: &'static str,
     pub(crate) class: RelationClass,
+    pub(crate) direction: Direction,
 }
+
+/// 欄の値から、locator node の種類を決める関数。 書式が決まっていない値は `None`。
+pub(crate) type LocatorKindOf = fn(&str) -> Option<&'static str>;
 
 /// 欄の値が ID ではなく操作上の locator（path・URL）を持つときの規則。
 ///
@@ -37,8 +56,13 @@ pub(crate) struct LocatorRule {
     pub(crate) from_schema: &'static str,
     pub(crate) field: &'static str,
     pub(crate) relation: &'static str,
-    /// locator node の種類（`NodeKey::Locator` の `kind`）。
+    /// locator node の種類（`NodeKey::Locator` の `kind`）。 `kind_of` が無いときの、欄ごとに
+    /// 固定の種類。
     pub(crate) locator_kind: &'static str,
+    /// 値から種類を決める。 あれば `locator_kind` の代わりにこちらを使う。 `None` を返した値は
+    /// node にも edge にもせず、graph の問題（`GraphIssue::UnreadableLocator`）として持つ
+    /// ——種類を推測して node にしない。
+    pub(crate) kind_of: Option<LocatorKindOf>,
 }
 
 /// graph engine が読む、呼び出し側の語彙。

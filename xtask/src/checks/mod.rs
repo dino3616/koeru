@@ -26,6 +26,7 @@ use crate::diagnostic::Report;
 use crate::knowledge::{Entry, KnowledgeSnapshot};
 
 mod budgets;
+mod continuity;
 mod coverage;
 mod legacy_registry;
 mod meta;

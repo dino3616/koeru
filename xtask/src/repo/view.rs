@@ -38,7 +38,7 @@ impl std::fmt::Display for ViewError {
 /// この view が指しているものそのもの。
 ///
 /// `SemanticGraph::build`（X05）が、graph を作った版を記録するのに持つ。
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RevisionRef {
     /// 作業ツリー。 `head` は直近のコミット、`dirty` は未コミットの変更
     /// （未追跡のファイルも含む）があるか。
@@ -273,6 +273,85 @@ fn walk_revision(root: &Path, sha: &str, dir: &str) -> Vec<String> {
     result
 }
 
+/// 2つの版のあいだで、名前が変わったファイル。 git の改名検出（`-M`）が決める。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Rename {
+    /// 古い版でのパス。
+    pub(crate) from: String,
+    /// 新しい版でのパス。
+    pub(crate) to: String,
+    /// git が見た中身の類似度（百分率）。 完全に同じなら 100。
+    pub(crate) similarity: u8,
+}
+
+impl RepoView {
+    /// `old` から `self` までのあいだに、名前が変わったファイル（`git diff -M`）。
+    ///
+    /// 内容を直したうえで名前も変えたものは、類似度が閾値（git の既定で 50%）を下回ると
+    /// 改名ではなく削除と追加になる。 拾えるのは、git が改名と見たものだけ。
+    ///
+    /// - `old` は版（[`RepoView::Revision`]）。 作業ツリーやメモリ上は、比べる起点にならない
+    /// - `self` は版か作業ツリー。 作業ツリーは追跡しているファイル（index に載ったもの）だけ
+    ///   比べる——未追跡のファイルは git が改名の相手にしない
+    ///
+    /// # Errors
+    ///
+    /// 比べられない組（メモリ上・起点が作業ツリー）、または git の失敗。
+    pub(crate) fn renames_from(&self, old: &RepoView) -> Result<Vec<Rename>, ViewError> {
+        let RepoView::Revision { sha: old_sha, .. } = old else {
+            return Err(ViewError::Failed(
+                "改名の起点は git の版でなければならない".to_owned(),
+            ));
+        };
+        let out = match self {
+            RepoView::Revision { root, sha } => {
+                super::git(root, &["diff", "-M", "--name-status", "-z", old_sha, sha])
+            }
+            RepoView::WorkingTree { root } => {
+                super::git(root, &["diff", "-M", "--name-status", "-z", old_sha])
+            }
+            RepoView::InMemory { .. } => {
+                return Err(ViewError::Failed(
+                    "メモリ上の view は git の版を持たない".to_owned(),
+                ));
+            }
+        }
+        .map_err(ViewError::Failed)?;
+        Ok(parse_renames(&out))
+    }
+}
+
+/// `git diff --name-status -z` の出力から、改名だけを取り出す。
+///
+/// 並びは `<状態>\0<パス>\0`。 改名（`R<類似度>`）と複製（`C<類似度>`）だけパスが2つ続く。
+/// 複製は改名ではないので返さない。
+fn parse_renames(out: &str) -> Vec<Rename> {
+    let mut renames = Vec::new();
+    let mut tokens = out.split('\0').filter(|t| !t.is_empty());
+    while let Some(status) = tokens.next() {
+        match status.chars().next() {
+            Some('R') => {
+                let (Some(from), Some(to)) = (tokens.next(), tokens.next()) else {
+                    break;
+                };
+                renames.push(Rename {
+                    from: from.to_owned(),
+                    to: to.to_owned(),
+                    similarity: status[1..].parse().unwrap_or(0),
+                });
+            }
+            Some('C') => {
+                tokens.next();
+                tokens.next();
+            }
+            _ => {
+                tokens.next();
+            }
+        }
+    }
+    renames
+}
+
 /// `git diff --name-only` の結果。 変更されたファイルの一覧で、内容は返さない。
 ///
 /// `touched` が「何が変わったか」を出すたびに呼ぶ、いちばん軽い問い合わせ。
@@ -502,6 +581,136 @@ mod tests {
         assert_eq!(view.walk("meta"), ["meta/a.toml", "meta/sub/b.toml"]);
         assert_eq!(view.walk("").len(), 3);
         assert!(view.identity().is_err());
+    }
+
+    /// 名前を変えたファイルを、2つの版のあいだの差分から拾う。 内容を直しただけ・足した・
+    /// 消したものは改名ではない。
+    #[test]
+    fn 改名は_git_の改名検出で拾い_直しただけのファイルは拾わない() {
+        let repo = Repo::new("renames");
+        let body = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\n";
+        repo.write("meta/old name.toml", body);
+        repo.write("meta/日本語.toml", &format!("{body}x\n"));
+        repo.write("meta/edited.toml", "a\n");
+        repo.write("meta/gone.toml", "ほぼ同じではない別の中身\n");
+        let base = repo.commit("base");
+
+        // 名前を変える（中身は同じ）。 別のファイルは内容だけ直し、1つは足し、1つは消す。
+        repo.remove("meta/old name.toml");
+        repo.write("meta/new name.toml", body);
+        repo.remove("meta/日本語.toml");
+        repo.write("meta/にほんご.toml", &format!("{body}x\n"));
+        repo.write("meta/edited.toml", "b\n");
+        repo.write("meta/added.toml", "新しい別の中身\n");
+        repo.remove("meta/gone.toml");
+        let head = repo.commit("rename");
+
+        let old = RepoView::revision(repo.root(), &base).unwrap();
+        let new = RepoView::revision(repo.root(), &head).unwrap();
+        let mut renames = new.renames_from(&old).unwrap();
+        renames.sort_by(|a, b| a.from.cmp(&b.from));
+        assert_eq!(
+            renames,
+            [
+                Rename {
+                    from: "meta/old name.toml".to_owned(),
+                    to: "meta/new name.toml".to_owned(),
+                    similarity: 100,
+                },
+                Rename {
+                    from: "meta/日本語.toml".to_owned(),
+                    to: "meta/にほんご.toml".to_owned(),
+                    similarity: 100,
+                },
+            ]
+        );
+    }
+
+    /// 中身を大きく直して名前も変えたものは、git が改名と見ない（削除と追加）。
+    #[test]
+    fn 中身が大きく変わった改名は拾わない() {
+        let repo = Repo::new("renames-rewritten");
+        repo.write("a.toml", "a\nb\nc\nd\n");
+        let base = repo.commit("base");
+        repo.remove("a.toml");
+        repo.write("b.toml", "w\nx\ny\nz\n");
+        let head = repo.commit("rewrite");
+        let old = RepoView::revision(repo.root(), &base).unwrap();
+        let new = RepoView::revision(repo.root(), &head).unwrap();
+        assert_eq!(new.renames_from(&old).unwrap(), Vec::new());
+    }
+
+    /// 作業ツリーは、追跡している（index に載った）ファイルだけ改名の相手にできる。
+    #[test]
+    fn 作業ツリーの改名は_index_に載せたものだけ拾う() {
+        let repo = Repo::new("renames-working-tree");
+        let body = "line 1\nline 2\nline 3\nline 4\n";
+        repo.write("a.toml", body);
+        let base = repo.commit("base");
+        let old = RepoView::revision(repo.root(), &base).unwrap();
+        let now = RepoView::working_tree(repo.root());
+
+        repo.remove("a.toml");
+        repo.write("b.toml", body);
+        // 未追跡の b.toml は相手にならない。
+        assert_eq!(now.renames_from(&old).unwrap(), Vec::new());
+        repo.git(&["add", "-A"]);
+        assert_eq!(
+            now.renames_from(&old).unwrap(),
+            [Rename {
+                from: "a.toml".to_owned(),
+                to: "b.toml".to_owned(),
+                similarity: 100,
+            }]
+        );
+    }
+
+    /// 比べられない組は、失敗として返す。
+    #[test]
+    fn 改名を比べられない組は失敗する() {
+        let repo = Repo::new("renames-unsupported");
+        repo.write("a.toml", "a\n");
+        let sha = repo.commit("base");
+        let rev = RepoView::revision(repo.root(), &sha).unwrap();
+        let memory = RepoView::in_memory(repo.root(), BTreeMap::new());
+        let working = RepoView::working_tree(repo.root());
+        assert!(matches!(
+            memory.renames_from(&rev),
+            Err(ViewError::Failed(_))
+        ));
+        assert!(matches!(
+            rev.renames_from(&working),
+            Err(ViewError::Failed(_))
+        ));
+        assert!(matches!(
+            rev.renames_from(&memory),
+            Err(ViewError::Failed(_))
+        ));
+    }
+
+    /// `--name-status -z` の読み。 複製は改名ではない。 追加・削除・変更は飛ばす。
+    #[test]
+    fn name_status_の出力から改名だけを取り出す() {
+        let out =
+            "M\0m.toml\0A\0a.toml\0D\0d.toml\0R087\0x y.toml\0z.toml\0C100\0c1\0c2\0R100\0p\0q\0";
+        assert_eq!(
+            parse_renames(out),
+            [
+                Rename {
+                    from: "x y.toml".to_owned(),
+                    to: "z.toml".to_owned(),
+                    similarity: 87,
+                },
+                Rename {
+                    from: "p".to_owned(),
+                    to: "q".to_owned(),
+                    similarity: 100,
+                },
+            ]
+        );
+        assert_eq!(parse_renames(""), Vec::new());
+        // 途中で切れていても落ちない。
+        assert_eq!(parse_renames("R100\0only-one\0"), Vec::new());
     }
 
     /// 変更されたファイルの一覧。 内容までは持たない、いちばん軽い問い合わせ。
