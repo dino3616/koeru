@@ -11,7 +11,7 @@ use std::fmt;
 
 use super::capability::{Capability, CapabilityRegistry};
 use super::facts::{Hypothesis, ProbeSpec};
-use crate::probe::{ExecutionContext, NotRunReason, ProbeDefinition, Receipt, Status};
+use crate::probe::{NotRunReason, ProbeDefinition, Receipt, Status};
 
 /// 候補が仮説をどちら向きに評価するか。 Receipt の結果から決まる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +55,9 @@ pub(crate) enum Refusal {
     /// native が要る Probe を、native ではない backend で走らせた。 その結果は、
     /// native が要る主張について何も言わない。
     NativeRequired,
+    /// Receipt が走らせた環境を持たない（古い形の受領証、版が取れなかった受領証）。
+    /// どの環境の観測かも、どの版の観測かも言えない。
+    UnknownEnvironment,
     /// 人の観察が要る Probe。 機械の Receipt は、人の観察の代わりにならない。
     HumanObservationRequired,
     /// この Probe は、その仮説を対象にしていない。
@@ -77,6 +80,7 @@ impl fmt::Display for Refusal {
             Self::NotCounted => "数えない Receipt は、観測にならない",
             Self::NoActualWork => "実際に仕事をしていない。 0 件を開いて通ったものは観測にならない",
             Self::NativeRequired => "native が要る Probe を、native ではない backend で走らせた",
+            Self::UnknownEnvironment => "Receipt が走らせた環境を持たず、観測の条件を言えない",
             Self::HumanObservationRequired => {
                 "人の観察が要る Probe は、機械の Receipt から EVID にしない"
             }
@@ -123,7 +127,6 @@ pub(crate) fn canonize(
     probe: &ProbeSpec,
     definition: &ProbeDefinition,
     receipt: &Receipt,
-    context: &ExecutionContext,
 ) -> Result<EvidenceCandidate, Refusal> {
     if receipt.probe != probe.id || definition.id != probe.id {
         return Err(Refusal::ReceiptOfAnotherProbe);
@@ -144,7 +147,11 @@ pub(crate) fn canonize(
     if receipt.actual_work == 0 {
         return Err(Refusal::NoActualWork);
     }
-    if probe.requires_native && context.backend != "native" {
+    let environment = receipt
+        .environment
+        .as_ref()
+        .ok_or(Refusal::UnknownEnvironment)?;
+    if definition.requires_native && !environment.is_native() {
         return Err(Refusal::NativeRequired);
     }
     if probe.requires_human {
@@ -174,10 +181,10 @@ pub(crate) fn canonize(
         probe: probe.id.clone(),
         method: method.to_owned(),
         stance,
-        tested_sha: context.git_sha.clone(),
-        dirty: context.dirty,
-        platform: context.platform.to_owned(),
-        backend: context.backend.to_owned(),
+        tested_sha: environment.git_sha.clone(),
+        dirty: environment.dirty,
+        platform: environment.platform.clone(),
+        backend: environment.backend.clone(),
         actual_work: receipt.actual_work,
     })
 }

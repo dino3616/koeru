@@ -72,6 +72,7 @@ impl ProbeSpec {
             } else {
                 self.backends.clone()
             },
+            requires_native: self.requires_native,
             min_cases: self.min_cases?,
             manual: 0,
             prerequisites: Prerequisites {
