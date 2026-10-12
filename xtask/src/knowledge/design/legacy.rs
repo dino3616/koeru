@@ -317,17 +317,14 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
         open: false,
         file_fields: &[],
     },
-    // 部品の台帳。 部品の存在と版は manifest から引き、採否は DEC、license と計測は EVID。
+    // 部品の台帳。 採否と理由は DEC、license と計測は EVID に分かれる。 部品があるか・版は
+    // いくつかは lock ファイルが正本で、ここからは引き直さない（`DEC-PLT-049`）。
+    // `kind` が dependency なのは、台帳を消す D08 まで行を graph の node として読むため。
     // `CMP-*` を dependency の identity として残さない（実装計画 9.4）。
     SchemaSpec {
         schema: "component-ledger",
         kind: Kind::Dependency,
-        meaning: Meaning::Decomposed(&[
-            Part::Object(Kind::Dependency),
-            Part::Object(Kind::Decision),
-            Part::Object(Kind::Evidence),
-            Part::View("component-inventory"),
-        ]),
+        meaning: Meaning::Decomposed(&[Part::Object(Kind::Decision), Part::Object(Kind::Evidence)]),
         title: Some("name"),
         fields: &[
             data("name"),
