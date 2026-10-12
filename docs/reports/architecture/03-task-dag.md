@@ -245,7 +245,7 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Adversarial:** event gap、out-of-order reconnect、rapid mount/unmount、consumer stall、project switch、job completes after unsubscribe。
 - **Verification:** deterministic stream model + WebView integration + real meter/job selected tests。
 - **Evidence outputs:** stream policy table、queue budgets、channel-removal report。
-- **Human review / decision:** transient frame rate/coalescing UX、binary payload threshold。
+- **Human review / decision:** transient frame rate/coalescing UX、binary payload threshold。job の受理が途中で失敗したとき（一部の段だけ置けた）の確定状態の表し方。T07b-2 の時点では `publish` に確定状態を上書きする口が無く、`Failed` は分類の既定の確定状態を持つ（置けた段は `followup` が持つ）。job の current-state を consumer へ出すここで、読む側に合わせて口を決める。
 
 ## T13 — Existing edit/review contract migration / architecture verification
 
