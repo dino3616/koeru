@@ -49,10 +49,14 @@ pub(crate) enum Kind {
     /// legacy の `PROFILE`。 リリース対象の定義で、運用の定義（operational resource）として残す
     /// （`DEC-PLT-048`）。 semantic object ではない。
     ReleaseProfile,
+    /// 観測方法が、どの種類の仮説について証言できるかの表の1行（D02）。 行は ID を持たず、
+    /// 鍵は（仮説の種類、観測方法）の組なので、node にならない。 `SchemaSpec` が種類を要求する
+    /// ので名前を持つ。 運用の定義（operational resource）。
+    Capability,
 }
 
 impl Kind {
-    pub(crate) const ALL: [Kind; 18] = [
+    pub(crate) const ALL: [Kind; 19] = [
         Kind::Question,
         Kind::Hypothesis,
         Kind::Evidence,
@@ -71,6 +75,7 @@ impl Kind {
         Kind::Receipt,
         Kind::UnclassifiedTarget,
         Kind::ReleaseProfile,
+        Kind::Capability,
     ];
 
     /// graph の node が持つ種類の文字列。
@@ -94,6 +99,7 @@ impl Kind {
             Kind::Receipt => "receipt",
             Kind::UnclassifiedTarget => "unclassified-target",
             Kind::ReleaseProfile => "release-profile",
+            Kind::Capability => "capability",
         }
     }
 
@@ -124,7 +130,8 @@ impl Kind {
             | Kind::PullRequest
             | Kind::Commit
             | Kind::Receipt
-            | Kind::ReleaseProfile => Layer::Operational,
+            | Kind::ReleaseProfile
+            | Kind::Capability => Layer::Operational,
             Kind::UnclassifiedTarget => Layer::Transitional,
         }
     }

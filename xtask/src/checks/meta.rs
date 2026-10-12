@@ -201,6 +201,8 @@ pub(crate) fn check_meta(ctx: &CheckContext<'_>, rep: &mut Report) {
     let fsl = fsl_ids(ctx.root);
     let tr = check_requirements(snapshot, &fsl, rep);
     check_supersession(snapshot, rep);
+    // 観測方法が、その仮説を支持する資格を持つか。 欄を書いた調査にだけ掛かる。
+    crate::verification::check_verification(snapshot, rep);
 
     // 要件はちょうど1つのマイルストーンに属する。どこにも属さない要件は、
     // 誰も作らないまま残る。 二重に属すると、二度作るか、どちらもやらない。

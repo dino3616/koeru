@@ -27,6 +27,7 @@
 //! - `context` — 判断の文脈を作って出す（D01）。 `knowledge::design`・`graph`・`repo` を引き、
 //!   検査やほかのコマンドは引かない。 自分の出力と終了コードを持つ
 //! - `probe` — 試験を走らせて件数を数えるもの
+//! - `verification` — Probe が何を証言できるか（資格の表、Receipt から EVID への境界、Human Verification Debt。 D02）
 
 // ここは CLI なので、結果を標準出力へ出す。tracing に寄せる対象ではない。
 #![allow(clippy::print_stdout, clippy::print_stderr)]
@@ -54,3 +55,9 @@ mod migration;
 
 // D07: 呼ぶものは D08・Context・CLI が足す。 許す範囲は `views` の中に閉じる。
 mod views;
+
+// D02: production から呼ぶのは `check-meta` が引く `check_verification` だけ。 Receipt からの
+// canonize と Human Verification Debt は、呼ぶ D07c（`design-debt`、portfolio）が付くまで
+// dead code に見える。 `mod.rs` の再輸出も同じ。
+#[allow(dead_code, unused_imports)]
+mod verification;

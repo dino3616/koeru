@@ -1,0 +1,273 @@
+schema = 'evidence-capability'
+
+# 観測方法（`method`）が、どの種類の仮説（`hypothesis_kind`）について証言できるかの表。
+# 検査するのは「その方法に、その仮説を支持する資格があるか」だけで、観察の内容の真偽は
+# 認定しない。 正しい method の札を付けた誤観察は、誤観察のまま残る。
+#
+# 行は ID を持たない。 鍵は（`hypothesis_kind`, `method`）の組。 ほかの記録から引かれない。
+#
+# `support`:
+#   can-support                 証言できる
+#   cannot-support              それだけでは Evidence にならない
+#   hypothesis-generation-only  仮説を作る材料にはなるが、支持にはならない
+#   context-dependent           必要条件を明示できない限り、自動では昇格させない
+#
+# **この表に無い組は、`context-dependent` と同じに扱う（自動では支持にならない）。** 登録しないことが
+# 「だめ」の意味ではなく、「まだ誰も決めていない」の意味。 足すときは、提案書の出典を `source` に
+# 書く。 出典の無い行を足さない。
+#
+# `observer` は `can-support` の行にだけ付ける。 人の観察でしか足りないかを決める材料
+# （`design-debt --human`）。 表が観察者を言っていない方法は付けず、付けない方法を含む種類は
+# 「人の観察だけ」とみなさない。 同じ方法は、どの行でも同じ値にする。
+#
+# 出典は `docs/reports/design-system/koeru_design_system_proposal_full.md` の 10.1（表）、10.1.1
+# （例）、10.2（三つ目の規則）、10.3（自己観察）。 `note` は、セルの文言を方法の語に写すときに
+# 解釈を挟んだ行にだけ書いた。 そこは人が確かめる。
+
+# ## 機械的・形式的性質（mechanical-formal-property）
+
+[[capability]]
+hypothesis_kind = 'mechanical-formal-property'
+method = 'executed-test'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 機械的・形式的性質 × Evidence になれるもの「実行された test」'
+
+[[capability]]
+hypothesis_kind = 'mechanical-formal-property'
+method = 'fsl-check'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 機械的・形式的性質 × Evidence になれるもの「FSL 検査」'
+
+[[capability]]
+hypothesis_kind = 'mechanical-formal-property'
+method = 'type-check'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 機械的・形式的性質 × Evidence になれるもの「型検査」'
+
+[[capability]]
+hypothesis_kind = 'mechanical-formal-property'
+method = 'reproducible-measurement'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 機械的・形式的性質 × Evidence になれるもの「再現可能な計測」'
+
+[[capability]]
+hypothesis_kind = 'mechanical-formal-property'
+method = 'agent-review'
+support = 'cannot-support'
+source = '10.1 の表 機械的・形式的性質 × それだけでは Evidence にならないもの「Agent の「問題ありません」」'
+
+# ## 視認性・知覚的区別（visibility-perception）
+
+[[capability]]
+hypothesis_kind = 'visibility-perception'
+method = 'browser-measurement'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 視認性・知覚的区別 × Evidence になれるもの「実際の描画」'
+note = '「実際の描画」を、実ブラウザで描いたものの計測と読んだ。'
+
+[[capability]]
+hypothesis_kind = 'visibility-perception'
+method = 'reproducible-measurement'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 視認性・知覚的区別 × Evidence になれるもの「contrast 計測」'
+
+[[capability]]
+hypothesis_kind = 'visibility-perception'
+method = 'human-observation'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 視認性・知覚的区別 × Evidence になれるもの「サイズ・距離を含む人間の確認」'
+
+[[capability]]
+hypothesis_kind = 'visibility-perception'
+method = 'static-code-review'
+support = 'cannot-support'
+source = '10.1 の表 視認性・知覚的区別 × それだけでは Evidence にならないもの「静的コードの印象だけ」'
+
+# ## 意味理解・learnability（semantic-comprehension）
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'first-contact-comprehension'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 意味理解・learnability × Evidence になれるもの「説明前の初回接触」'
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'human-observation'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 意味理解・learnability × Evidence になれるもの「操作・言い換え・誤解の観察」'
+note = '「初回接触」と並ぶ観察を、初回接触に限らない人の観察と読んだ。'
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'self-observation'
+support = 'cannot-support'
+source = '10.1 の表 意味理解・learnability × それだけでは Evidence にならないもの「maintainer の慣れた操作」、10.3（自己観察）'
+note = '「maintainer の慣れた操作」を、10.3 が自己観察と呼ぶ札と読んだ。'
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'synthetic-novice'
+support = 'cannot-support'
+source = '10.1 の表 意味理解・learnability × それだけでは Evidence にならないもの「synthetic novice」'
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'usage-metric'
+support = 'cannot-support'
+source = '10.1 の表 意味理解・learnability × それだけでは Evidence にならないもの「クリック数だけ」'
+note = '「クリック数」を、利用の数え上げ（滞在時間・完了率を含む）の1語に束ねた。'
+
+[[capability]]
+hypothesis_kind = 'semantic-comprehension'
+method = 'agent-review'
+support = 'cannot-support'
+source = '10.1.1 の例 semantic-comprehension × agent-review'
+
+# ## workflow fit（workflow-fit）
+
+[[capability]]
+hypothesis_kind = 'workflow-fit'
+method = 'in-workflow-use'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 workflow fit × Evidence になれるもの「実際の素材・機材・作業の中での使用」'
+note = '「使用」を、人が実際の作業で使うことと読んだ。'
+
+[[capability]]
+hypothesis_kind = 'workflow-fit'
+method = 'hard-case-review'
+support = 'can-support'
+source = '10.1 の表 workflow fit × Evidence になれるもの「困難な例の検討」'
+note = '表は検討する人を言っていないので、observer は付けない。'
+
+[[capability]]
+hypothesis_kind = 'workflow-fit'
+method = 'competitive-corpus'
+support = 'cannot-support'
+source = '10.1 の表 workflow fit × それだけでは Evidence にならないもの「競合に機能があること」'
+note = '「競合に機能があること」を、競合の事例の収集と読んだ。'
+
+# ## 音声処理の妥当性（audio-processing-validity）
+
+[[capability]]
+hypothesis_kind = 'audio-processing-validity'
+method = 'real-audio-measurement'
+support = 'can-support'
+observer = 'automated'
+source = '10.1 の表 音声処理の妥当性 × Evidence になれるもの「実音声を通した測定」'
+
+[[capability]]
+hypothesis_kind = 'audio-processing-validity'
+method = 'real-audio-listening'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 音声処理の妥当性 × Evidence になれるもの「試聴」'
+
+[[capability]]
+hypothesis_kind = 'audio-processing-validity'
+method = 'expert-review'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 音声処理の妥当性 × Evidence になれるもの「条件の分かる専門確認」'
+
+[[capability]]
+hypothesis_kind = 'audio-processing-validity'
+method = 'mock'
+support = 'cannot-support'
+source = '10.1 の表 音声処理の妥当性 × それだけでは Evidence にならないもの「mock」'
+
+# ## aesthetic identity（aesthetic-identity）
+
+[[capability]]
+hypothesis_kind = 'aesthetic-identity'
+method = 'authorial-choice'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 aesthetic identity × Evidence になれるもの「作者としての選択」'
+
+[[capability]]
+hypothesis_kind = 'aesthetic-identity'
+method = 'human-observation'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 aesthetic identity × Evidence になれるもの「複数の人による意味の受け取り」'
+note = '「複数の人による意味の受け取り」を、人の観察と読んだ。'
+
+[[capability]]
+hypothesis_kind = 'aesthetic-identity'
+method = 'concrete-comparison'
+support = 'can-support'
+source = '10.1 の表 aesthetic identity × Evidence になれるもの「具体的な比較」'
+note = '表は比べる人を言っていないので、observer は付けない。'
+
+# ## 感情・trust（emotional-response）
+
+[[capability]]
+hypothesis_kind = 'emotional-response'
+method = 'human-observation'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 感情・trust × Evidence になれるもの「本人の報告と行動を、その状況・関係・時間の中で観察」'
+note = '「本人の報告と行動の観察」を、人の観察と読んだ。'
+
+[[capability]]
+hypothesis_kind = 'emotional-response'
+method = 'usage-metric'
+support = 'cannot-support'
+source = '10.1 の表 感情・trust × それだけでは Evidence にならないもの「滞在時間、完了率」'
+note = '「滞在時間、完了率」を、利用の数え上げの1語に束ねた。'
+
+[[capability]]
+hypothesis_kind = 'emotional-response'
+method = 'agent-review'
+support = 'cannot-support'
+source = '10.2 の三つ目の規則 emotional-response × agent-review、10.1 の表 感情・trust × それだけでは Evidence にならないもの「Agent の感情推定」'
+
+[[capability]]
+hypothesis_kind = 'emotional-response'
+method = 'competitive-corpus'
+support = 'hypothesis-generation-only'
+source = '10.1.1 の例 emotional-response × competitive-corpus'
+
+# ## accessibility（accessibility-conformance）
+
+[[capability]]
+hypothesis_kind = 'accessibility-conformance'
+method = 'browser-measurement'
+support = 'can-support'
+observer = 'automated'
+source = '10.1.1 の例 accessibility-conformance × browser-measurement、10.1 の表 accessibility × Evidence になれるもの「自動検査」'
+
+[[capability]]
+hypothesis_kind = 'accessibility-conformance'
+method = 'assistive-technology-use'
+support = 'can-support'
+source = '10.1 の表 accessibility × Evidence になれるもの「支援技術」'
+note = '表は使う人を言っていないので、observer は付けない。'
+
+# ## 長期利用・appropriation（long-term-appropriation）
+
+[[capability]]
+hypothesis_kind = 'long-term-appropriation'
+method = 'longitudinal-observation'
+support = 'can-support'
+observer = 'human'
+source = '10.1 の表 長期利用・appropriation × Evidence になれるもの「再訪、作業の変化、独自の使い方、継続的な観察」'
+note = '4つのセルを、期間をまたぐ観察の1語に束ねた。'
+
+[[capability]]
+hypothesis_kind = 'long-term-appropriation'
+method = 'first-contact-comprehension'
+support = 'cannot-support'
+source = '10.1 の表 長期利用・appropriation × それだけでは Evidence にならないもの「初回テスト」'
+note = '「初回テスト」を、初回接触での観察と読んだ。'
