@@ -26,6 +26,7 @@ mod identity;
 mod legacy;
 mod lift;
 mod ontology;
+mod shapes;
 
 pub(crate) use identity::{IdentityError, Locator, LocatorError, TargetId, check_identity};
 pub(crate) use legacy::{
@@ -37,6 +38,7 @@ pub(crate) use lift::{Design, DesignIssue};
 pub(crate) use ontology::{
     Ends, Kind, Layer, RELATIONS, RelationSpec, SEMANTIC, Standing, relation,
 };
+pub(crate) use shapes::{TARGET_SHAPES, is_target_only};
 
 use crate::graph::{Direction, NodeKind, Registry, RelationRule};
 use legacy::Role;

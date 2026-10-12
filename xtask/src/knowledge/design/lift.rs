@@ -22,13 +22,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use super::identity::{IdentityError, TargetId};
 use super::legacy::{Adoption, CONTRACT_SCHEMA, Object, Role, spec};
 use super::ontology::{Kind, relation};
+use super::shapes::{TARGET_SHAPES, is_target_only};
 use crate::diagnostic::{Report, Severity};
 use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
 use crate::knowledge::fsl::fsl_sites_view;
 use crate::knowledge::model::{Entry, Shape, list_of, str_of};
-use crate::knowledge::{Id, KnowledgeSnapshot, load_view};
+use crate::knowledge::{Id, KnowledgeSnapshot, load_view_with};
 use crate::repo::RepoView;
 
 /// 組み立てる contract の形。 meta のファイルではないので、読み込みは通らない。
@@ -76,6 +78,9 @@ pub(crate) enum DesignIssue {
     /// 採用済みの判断の `selected` が、同じ ID のまま書き換わった。 意味を変えるときは、
     /// 上書きせず新しい判断を作って `supersedes` で繋ぐ。
     DecisionOverwritten { id: Id },
+    /// 目標の形の ID（`<接頭辞>-<opaque>`）が、記録の種類と合わない。 接頭辞が別の種類を言って
+    /// いる（質問の記録に `DEC-…`）、または目標の形でだけ書く schema なのに ID が目標の形でない。
+    TargetIdentity { id: Id, error: IdentityError },
     /// 登録していない relation が graph にある。
     UnregisteredRelation { relation: &'static str },
     /// relation の両端の種類が、登録した組に入らない。
@@ -101,7 +106,8 @@ impl Design {
     /// `view` の版を読む。 作業ツリーも、任意の版も同じ。
     pub(crate) fn load(view: &RepoView) -> Self {
         let mut rep = Report::default();
-        let entries = load_view(view, &mut rep);
+        // 目標の schema（`TARGET_SHAPES`）も読む。 今の meta には無いので、読む結果は変わらない。
+        let entries = load_view_with(view, TARGET_SHAPES, &mut rep);
         let issues = rep
             .diagnostics()
             .iter()
@@ -216,6 +222,19 @@ impl Design {
                 continue;
             }
             let Some(id) = r.id() else { continue };
+            if id.is_target() || is_target_only(r.schema()) {
+                match id.as_str().parse::<TargetId>() {
+                    Ok(t) if t.kind() == spec.kind => {}
+                    Ok(_) => out.push(DesignIssue::TargetIdentity {
+                        id: id.clone(),
+                        error: IdentityError::PrefixMismatch,
+                    }),
+                    Err(error) => out.push(DesignIssue::TargetIdentity {
+                        id: id.clone(),
+                        error,
+                    }),
+                }
+            }
             for f in spec.fields {
                 // 組み立てる欄と逆向きに読む欄も、値が ID の形に読めないと edge にならない。
                 if !matches!(f.role, Role::Edge(_) | Role::Lifted(_) | Role::Inverse(_)) {

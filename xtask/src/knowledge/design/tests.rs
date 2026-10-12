@@ -1273,3 +1273,244 @@ fn 受入の目標の接頭辞は_acc() {
         );
     }
 }
+
+// ## 目標の schema を読み込みへ流し込む（X08）
+
+const HYPOTHESIS: &str = "schema = 'design-hypothesis'
+id = 'HYP-91MTWX'
+question = 'Q-fix-001'
+hypothesis_kind = 'semantic-comprehension'
+statement = '初めて使う人が説明できる'
+scope = '音源一覧'
+assessment = 'untested'
+supporting_evidence = []
+contradicting_evidence = []
+";
+
+const TARGET_DECISION: &str = "schema = 'decision'
+id = 'DEC-6CQ3NA'
+title = '目標の形の判断'
+status = 'accepted'
+owner = 'x'
+options = ['a']
+selected = 'a'
+rationale = '理由'
+review_triggers = ['t']
+question = 'Q-fix-001'
+relies_on_hypotheses = ['HYP-91MTWX']
+considers_evidence = ['EVID-fix-001']
+establishes_requirements = ['REQ-5H8NQ2']
+";
+
+const TARGET_REQUIREMENT: &str = "schema = 'requirement'
+id = 'REQ-5H8NQ2'
+statement = '現在可能な創作行為を利用者が認識できなければならない'
+established_by = 'DEC-6CQ3NA'
+";
+
+fn target_files() -> BTreeMap<String, String> {
+    let mut f = files();
+    for (path, body) in [
+        ("meta/hypotheses/HYP-91MTWX.toml", HYPOTHESIS),
+        ("meta/decisions/DEC-6CQ3NA.toml", TARGET_DECISION),
+        ("meta/requirements/REQ-5H8NQ2.toml", TARGET_REQUIREMENT),
+    ] {
+        f.insert(path.to_owned(), body.to_owned());
+    }
+    f
+}
+
+/// 目標の形の fixture（`meta/hypotheses/HYP-<opaque>.toml` など）が読まれ、graph に載る。
+#[test]
+fn 目標の形の_fixture_が読まれ_graph_に載る() {
+    let design = design_of(&target_files());
+    assert_eq!(design.audit(), Vec::new());
+    let graph = design.graph();
+    for (raw, kind) in [
+        ("HYP-91MTWX", "hypothesis"),
+        ("DEC-6CQ3NA", "decision"),
+        ("REQ-5H8NQ2", "requirement"),
+    ] {
+        assert_eq!(graph.node(&key(raw)).map(|n| n.kind), Some(kind), "{raw}");
+        assert!(id(raw).is_target(), "{raw}");
+    }
+    let dec = edges(&graph, "DEC-6CQ3NA");
+    for (relation, to) in [
+        ("relies_on_hypotheses", "HYP-91MTWX"),
+        ("considers", "EVID-fix-001"),
+        ("establishes", "REQ-5H8NQ2"),
+    ] {
+        assert!(dec.contains(&(relation, to.to_owned())), "{relation}");
+    }
+    // 目標の記録は、型つきの口からも種類で引ける。
+    let kinds: Vec<Kind> = design
+        .objects()
+        .filter(|o| o.id().is_target())
+        .map(|o| o.kind())
+        .collect();
+    assert_eq!(kinds.len(), 3);
+    assert!(kinds.contains(&Kind::Hypothesis));
+    assert_eq!(
+        design
+            .objects()
+            .filter(|o| o.kind() == Kind::Requirement)
+            .count(),
+        3 + 1,
+        "技術要件2 + 上限1 + 目標の REQ 1"
+    );
+}
+
+/// 目標の schema を渡さずに読むと、今までどおり「知らない schema」になる。
+#[test]
+fn 目標の_schema_を渡さない読み込みは今のまま知らない_schema_で落ちる() {
+    let view = RepoView::in_memory(Path::new("/fixture"), target_files());
+    let mut rep = Report::default();
+    let entries = crate::knowledge::load_view(&view, &mut rep);
+    assert!(rep.has_errors());
+    assert!(
+        rep.diagnostics()
+            .iter()
+            .any(|d| d.message.contains("知らない schema `design-hypothesis`"))
+    );
+    assert!(
+        entries
+            .iter()
+            .all(|e| !matches!(e.shape.schema, "design-hypothesis" | "requirement"))
+    );
+}
+
+/// 置き場所が schema と合わなければ落ちる。 node にもならない。
+#[test]
+fn 目標の_schema_は置き場所が違えば落ちる() {
+    let mut f = target_files();
+    let body = f.remove("meta/hypotheses/HYP-91MTWX.toml").expect("在る");
+    f.insert("meta/decisions/HYP-91MTWX.toml".to_owned(), body);
+    let design = design_of(&f);
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::Load(m) if m.contains("meta/hypotheses/")
+    )));
+    assert!(design.object(&id("HYP-91MTWX")).is_none());
+}
+
+/// ファイル名と ID の一致、必須項目、接頭辞は、目標の形にも同じように掛かる。
+#[test]
+fn 目標の_schema_にも読み込みの検査が掛かる() {
+    // ファイル名が ID と違う。
+    let mut f = target_files();
+    let body = f.remove("meta/hypotheses/HYP-91MTWX.toml").expect("在る");
+    f.insert("meta/hypotheses/HYP-91MTWY.toml".to_owned(), body);
+    assert!(has(&design_of(&f).audit(), |i| matches!(
+        i,
+        DesignIssue::Load(m) if m.contains("ファイル名")
+    )));
+    // 必須の `statement` が無い。
+    let body = HYPOTHESIS.replace("statement = '初めて使う人が説明できる'\n", "");
+    assert!(has(
+        &design_of(&with("meta/hypotheses/HYP-91MTWX.toml", &body)).audit(),
+        |i| matches!(i, DesignIssue::Load(m) if m.contains("`statement`"))
+    ));
+    // 接頭辞が schema と違う。
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "DEC-91MTWX");
+    assert!(has(
+        &design_of(&with("meta/hypotheses/DEC-91MTWX.toml", &body)).audit(),
+        |i| matches!(i, DesignIssue::Load(m) if m.contains("`HYP-` で始まる"))
+    ));
+}
+
+/// 目標の形でだけ書く schema に、今の形の ID は置けない。
+#[test]
+fn 目標の_schema_の_id_は目標の形でなければならない() {
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "HYP-fix-001");
+    let design = design_of(&with("meta/hypotheses/HYP-fix-001.toml", &body));
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::TargetIdentity { error: IdentityError::NotTargetForm, id }
+            if id.as_str() == "HYP-fix-001"
+    )));
+    // 小文字の opaque は ID の形に読めず、node にならない。
+    let body = HYPOTHESIS.replace("HYP-91MTWX", "HYP-91mtwx");
+    let design = design_of(&with("meta/hypotheses/HYP-91mtwx.toml", &body));
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::UnparsedId { raw, .. } if raw == "HYP-91mtwx"
+    )));
+    // 記録の種類と接頭辞が合わない（読み込みの検査を通らない経路。 組み立て済みの記録で試す）。
+    let mut table = toml::Table::new();
+    for (k, v) in [
+        ("id", "REQ-91MTWX"),
+        ("statement", "本文"),
+        ("schema", "design-hypothesis"),
+    ] {
+        table.insert(k.to_owned(), toml::Value::String(v.to_owned()));
+    }
+    let entry = Entry {
+        path: "/fixture/meta/hypotheses/REQ-91MTWX.toml".into(),
+        shape: &TARGET_SHAPES[0],
+        table,
+        text: "id = 'REQ-91MTWX'\n".to_owned(),
+    };
+    let design = Design::from_entries(Path::new("/fixture"), &[entry], &BTreeMap::new());
+    assert!(has(&design.audit(), |i| matches!(
+        i,
+        DesignIssue::TargetIdentity {
+            error: IdentityError::PrefixMismatch,
+            ..
+        }
+    )));
+}
+
+/// 追加の形は足すだけ。 今の schema の必須項目を、追加の形で緩められない。
+#[test]
+fn 追加の形は今の_schema_を置き換えない() {
+    static LOOSE: [Shape; 1] = [Shape {
+        schema: "decision",
+        dir: "decisions",
+        entity: Some(("DEC-", &["id"])),
+        collection: None,
+        entity_arrays: &[],
+    }];
+    let body = "schema = 'decision'\nid = 'DEC-fix-009'\n";
+    let view = RepoView::in_memory(
+        Path::new("/fixture"),
+        with("meta/decisions/DEC-fix-009.toml", body),
+    );
+    let mut rep = Report::default();
+    let _ = crate::knowledge::load_view_with(&view, &LOOSE, &mut rep);
+    assert!(
+        rep.diagnostics()
+            .iter()
+            .any(|d| d.message.contains("必須項目 `title` が無い")),
+        "今の schema の必須項目が緩んだ"
+    );
+    // 追加が空なら、`load_view` と同じ。
+    let mut a = Report::default();
+    let mut b = Report::default();
+    let ea = crate::knowledge::load_view_with(&view, &[], &mut a);
+    let eb = crate::knowledge::load_view(&view, &mut b);
+    assert_eq!(a.diagnostics(), b.diagnostics());
+    assert_eq!(ea.len(), eb.len());
+}
+
+/// 目標の schema の形は、写し方の表（`SCHEMAS`）にあり、今の schema と名前が重ならず、
+/// 接頭辞が語彙の種類と一致する。
+#[test]
+fn 目標の形は写し方の表と読み込みの形に矛盾しない() {
+    for shape in TARGET_SHAPES {
+        assert!(is_target_only(shape.schema));
+        assert!(
+            SHAPES.iter().all(|s| s.schema != shape.schema),
+            "{} は今の schema と名前が重なる",
+            shape.schema
+        );
+        let kind = spec(shape.schema).expect("写し方がある").kind;
+        let (prefix, required) = shape.entity.expect("1件1ファイル");
+        assert!(required.contains(&"id"));
+        let sample = format!("{prefix}4K7DP2");
+        assert_eq!(
+            sample.parse::<TargetId>().map(|t| t.kind()),
+            Ok(kind),
+            "{sample}"
+        );
+    }
+}

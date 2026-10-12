@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::model::{Entry, SHAPES, str_of};
+use super::model::{Entry, SHAPES, Shape, str_of};
 use crate::diagnostic::Report;
 use crate::repo::{META_DIR, RepoView};
 
@@ -25,6 +25,20 @@ pub(crate) fn load(root: &Path, rep: &mut Report) -> Vec<Entry> {
 /// 読み込み全体は止めない——`SemanticGraph::build`（X05）が旧い版を graph に
 /// することを諦めずに済むように。
 pub(crate) fn load_view(view: &RepoView, rep: &mut Report) -> Vec<Entry> {
+    load_view_with(view, &[], rep)
+}
+
+/// [`load_view`] に、追加の形（`extra`）を渡す。
+///
+/// 読むときの形は `SHAPES` に `extra` を続けたもの。 **足すだけで、置き換えない**——同じ schema を
+/// `SHAPES` が名乗っていれば、そちらが勝つ（`extra` で今の schema の必須項目を緩められない）。
+/// `extra` を空にすれば [`load_view`] と1バイトも変わらない。 置き場所（`dir`）・必須項目・
+/// ファイル名と ID の一致の検査は、`extra` の形にも同じように掛かる。
+pub(crate) fn load_view_with(
+    view: &RepoView,
+    extra: &'static [Shape],
+    rep: &mut Report,
+) -> Vec<Entry> {
     let root = view.root();
     let mut rels: Vec<String> = view
         .walk(META_DIR)
@@ -59,7 +73,7 @@ pub(crate) fn load_view(view: &RepoView, rep: &mut Report) -> Vec<Entry> {
             ));
             continue;
         };
-        let Some(shape) = SHAPES.iter().find(|s| s.schema == schema) else {
+        let Some(shape) = SHAPES.iter().chain(extra).find(|s| s.schema == schema) else {
             rep.error(format!("{file}: 知らない schema `{schema}`"));
             continue;
         };
