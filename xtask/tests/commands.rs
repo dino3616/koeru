@@ -2021,8 +2021,10 @@ fn baseline_line(run: &Run) -> &str {
 
 #[track_caller]
 fn assert_has_line(run: &Run, needle: &str) {
+    // fixture の ID は小文字の領域で書く（このファイルの冒頭）。 出力は大文字なので直す。
+    let needle = ids(needle);
     assert!(
-        run.stdout.lines().any(|l| l.contains(needle)),
+        run.stdout.lines().any(|l| l.contains(&needle)),
         "`{needle}` を含む行が無い: {run:?}"
     );
 }
@@ -2042,7 +2044,7 @@ fn check_meta_は採用済みの判断の_selected_を変えると落ちる() {
     assert_eq!(run.code, 1, "{run:?}");
     assert_has_line(
         &run,
-        "  NG <root>/meta/decisions/DEC-FIX-001.toml: 採用済みの判断 `DEC-FIX-001` の selected が書き換わった。",
+        "  NG <root>/meta/decisions/DEC-fix-001.toml: 採用済みの判断 `DEC-fix-001` の selected が書き換わった。",
     );
     assert_eq!(
         baseline_line(&run),
@@ -2061,7 +2063,7 @@ fn check_meta_は採用済みの判断の_selected_を変えると落ちる() {
     assert_eq!(run.code, 1, "{run:?}");
     assert_has_line(
         &run,
-        "採用済みの判断 `DEC-FIX-001` の selected が書き換わった",
+        "採用済みの判断 `DEC-fix-001` の selected が書き換わった",
     );
 }
 
@@ -2145,7 +2147,7 @@ fn check_meta_は_id_の付け直しを落とす() {
     assert_eq!(run.code, 1, "{run:?}");
     assert_has_line(
         &run,
-        "  NG <root>/meta/questions/Q-FIX-009.toml: `Q-FIX-001` のファイルが `Q-FIX-009` に改名された。",
+        "  NG <root>/meta/questions/Q-fix-009.toml: `Q-fix-001` のファイルが `Q-fix-009` に改名された。",
     );
 
     // 内容を直しただけ（ID もファイル名もそのまま）なら通る。
