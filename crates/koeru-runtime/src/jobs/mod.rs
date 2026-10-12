@@ -18,7 +18,7 @@
 //! 上限・期限・保持の値はすべて仮で、実測していない（`Q-PLT-006`、
 //! [`config`] の定数）。 待ち数をどう画面へ流すか（`jobEvents`）と、解析の非同期の
 //! 見せ方（`AnalysisPending`）はここでは決めない（T09 / T12）。 `crates/koeru-app` の
-//! `workers.rs` からの置き換えと `Studio` への接続は T07b-2。
+//! `Studio` への接続（解析・再推定・試唱の前処理）は T07b-2 で済み、`workers.rs` は消した。
 
 pub mod config;
 mod error;

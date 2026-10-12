@@ -36,6 +36,7 @@ use tauri::ipc::Channel;
 use koeru_audio::backend::current as mac;
 use koeru_failure::Class;
 use koeru_runtime::ProjectRuntime;
+use koeru_runtime::jobs::JobRuntime;
 
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
@@ -66,11 +67,13 @@ pub struct AppState {
     /// テイクの確定はアライメントを含めて数秒かかる。同じロックを通すと、
     /// その間ずっと波形が止まる。
     envelope: Arc<Mutex<Option<Arc<Mutex<crate::pump::Envelope>>>>>,
-    /// 待っている仕事（`TR-SYN-33`）。これも `studio` の外。
+    /// 背後の仕事の実行域（`TR-SYN-33`、`DEC-PLT-047`）。これも `studio` の外。
     ///
     /// 待ち数がいちばん動くのはテイクの確定中で、そこが `studio` を握っている。
-    /// 同じロックを通すと、出したい時間だけ止まる。
-    pending: Arc<Mutex<Option<crate::workers::PendingHandle>>>,
+    /// 同じロックを通すと、出したい時間だけ止まる。 `JobRuntime` はアプリの寿命で1つ
+    /// （`Studio` が作ったものの写し）なので、project を開く・移るたびに入れ替えない。
+    /// 読む口は表のロックだけを短く握る（計算も受理も握らない）。
+    jobs: Arc<JobRuntime>,
     /// 送っている流れの世代。新しく始めると、古いものが自分で止まる。
     stream: Arc<AtomicU32>,
     /// デバイス一覧が変わった回数を読むための持ち手（`TR-REC-04`）。これも `studio` の外。
@@ -98,10 +101,12 @@ impl AppState {
     /// 状態を作る。
     #[must_use]
     pub fn new(studio: Studio) -> Self {
+        // 組み立てのときに1回だけ写しを取る。 `Studio` が持つものと同じ実体。
+        let jobs = studio.jobs();
         Self {
             studio: Mutex::new(studio),
             envelope: Arc::new(Mutex::new(None)),
-            pending: Arc::new(Mutex::new(None)),
+            jobs,
             stream: Arc::new(AtomicU32::new(0)),
             device_watch: Arc::new(Mutex::new(None)),
             runtime: Arc::new(Mutex::new(None)),
@@ -132,7 +137,7 @@ impl AppState {
     ///
     /// [`Studio::open_project`] と [`Studio::progress`] の失敗。
     pub fn open_project(&self, id: uuid::Uuid) -> Result<ProgressView> {
-        let (progress, runtime, pending) = {
+        let (progress, runtime) = {
             let mut s = lock(self)?;
             let opened = s.open_project(id);
             // 失敗しても枠は `Studio` の実際の状態から取る。 別の音源へ移るのに
@@ -142,13 +147,10 @@ impl AppState {
                 s.progress()
                     .map_err(|e| e.with_outcome(koeru_failure::Outcome::Committed))
             });
-            (progress, s.runtime(), s.pending_handle())
+            (progress, s.runtime())
         };
-        // 実行時の枠と待ち数の持ち手を、状態ロックの外へ出しておく（`TR-SYN-33`）。
+        // 実行時の枠を、状態ロックの外へ出しておく。
         self.set_project_runtime(runtime);
-        if let Ok(mut g) = self.pending.lock() {
-            *g = Some(pending);
-        }
         Ok(ProgressView::from(progress?))
     }
 
@@ -185,6 +187,27 @@ impl AppState {
     /// `Mutex` が毒されている（どこかのコマンドが panic した）。
     pub(crate) fn lock_studio(&self) -> Result<std::sync::MutexGuard<'_, Studio>> {
         lock(self)
+    }
+
+    /// 背後で待っている仕事の数（`TR-SYN-33`）。 `pending_work` コマンドの本体。
+    ///
+    /// **`studio` のロックを取らない。** 待ち数がいちばん動くのはテイクの確定中で、そこが
+    /// `studio` を握っている。 読むのは `JobRuntime` の表のロックだけ（短い）。
+    /// 数えるのは待っている仕事で、走っているものは含めない（以前の `Workers::pending` と同じ）。
+    #[must_use]
+    pub fn pending_count(&self) -> u32 {
+        count(self.jobs.counts().pending)
+    }
+
+    /// テスト用。 状態ロックを握って `studio` を貸す。 ロックの外から待ち数が読めることを
+    /// 見る試験が、ロックを握ったまま `pending_count` を呼ぶのに使う。
+    ///
+    /// # Panics
+    ///
+    /// `Mutex` が毒されているとき。
+    #[cfg(feature = "test-hooks")]
+    pub fn test_lock_studio(&self) -> std::sync::MutexGuard<'_, Studio> {
+        lock(self).expect("毒されていない")
     }
 }
 
@@ -1151,10 +1174,7 @@ impl From<Preflight> for PreflightView {
 #[tauri::command]
 #[specta::specta]
 pub fn pending_work(state: State<'_, AppState>) -> Result<u32> {
-    // `studio` のロックを取らない（`TR-SYN-33`）。
-    // 待ち数がいちばん動くのはテイクの確定中で、そこが `studio` を握っている。
-    let handle = state.pending.lock().map_err(|_| poisoned())?.clone();
-    Ok(count(handle.map_or(0, |q| crate::workers::pending_of(&q))))
+    Ok(state.pending_count())
 }
 
 /// 試唱の待ち時間の実測（`TR-SYN-33`）。

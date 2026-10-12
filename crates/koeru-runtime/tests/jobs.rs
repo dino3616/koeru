@@ -1225,6 +1225,61 @@ fn 計算が_panic_しても作業スレッドは次の仕事を回す() {
     assert_eq!(next.into_value(), 1);
 }
 
+/// 計算が panic しても `wait` は返る（永遠に待たない）。 仕事は `Failed` で残り、
+/// code は `jobs.compute_panicked`。 **回復できるのは Rust の panic だけ**——C++ の
+/// segfault などは `catch_unwind` では止められず、プロセスごと落ちる
+/// （`DEC-PLT-047` の見直しの条件。 別プロセスへ移す根拠になる）。
+#[test]
+fn 計算が_panic_しても_wait_は返り仕事は失敗で残る() {
+    let rt = JobRuntime::start(roomy());
+    let ticket = rt
+        .submit(spec::<()>(lease(1), Priority::PostRecording, |_| {
+            panic!("計算の panic")
+        }))
+        .expect("受け付けること");
+    let job = ticket.job();
+    let (tx, rx) = mpsc::channel();
+    // 待つ側を別のスレッドに置き、返らなければ試験が止まらずに落ちるようにする。
+    std::thread::spawn(move || {
+        let _ = tx.send(ticket.wait().map(|_| ()));
+    });
+    let waited = rx.recv_timeout(LONG).expect("wait が返ること");
+    assert_eq!(waited, Err(JobError::ComputePanicked));
+    let JobStatus::Failed { failure, .. } = status_of(&rt, job) else {
+        panic!("失敗になること");
+    };
+    assert_eq!(failure.code, "jobs.compute_panicked");
+    assert_eq!(failure.class, Class::Internal);
+    assert_eq!(rt.counts().running, 0, "走っている勘定が戻る");
+    assert_eq!(rt.lanes()[0].threads, 1, "作業スレッドは生きている");
+}
+
+/// 公開の途中で `admit` が panic しても、仕事を公開中のまま残さない。
+#[test]
+fn admit_が_panic_しても仕事は公開中のまま残らない() {
+    let rt = JobRuntime::start(roomy());
+    let completed = rt
+        .submit(quick(lease(1), Priority::PostRecording, 1))
+        .expect("受け付けること")
+        .wait()
+        .expect("終わる");
+    let job = completed.job();
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = rt.publish(completed, &BasedOn::new(), |_| {
+            panic!("admit の panic");
+            #[allow(unreachable_code)]
+            Ok::<_, JobError>(((), Receipt::new(1)))
+        });
+    }));
+    assert!(caught.is_err(), "panic は呼び出し側へ伝わる");
+    let JobStatus::Failed { failure, .. } = status_of(&rt, job) else {
+        panic!("失敗になること");
+    };
+    assert_eq!(failure.code, "jobs.publish_aborted");
+    assert_eq!(failure.outcome, Outcome::Unknown, "書いたかは分からない");
+    assert_eq!(rt.cancel(job), CancelOutcome::AlreadyFinished);
+}
+
 // ## 停止
 
 #[test]

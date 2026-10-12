@@ -75,6 +75,18 @@ impl std::error::Error for AppError {
     }
 }
 
+/// `JobRuntime::publish` の `admit` が `AppError` で失敗できるようにする
+/// （`PublishError<E>` は `E: Failure`）。 code・分類・次の手は持っているものをそのまま返す。
+impl Failure for AppError {
+    fn code(&self) -> &'static str {
+        self.code
+    }
+
+    fn class(&self) -> Class {
+        self.class.into()
+    }
+}
+
 impl AppError {
     /// 境界で初めて分かる失敗を作る。下の層のエラーを包むなら [`AppError::from_failure`]。
     ///
@@ -161,6 +173,10 @@ from_failure!(
     koeru_package::tree::BuildError,
     koeru_package::archive::ArchiveError,
     koeru_runtime::RuntimeError,
+    // 背後の仕事の失敗（`DEC-PLT-038`、`DEC-PLT-047`）。 投入・待ち・公開の断りが
+    // `jobs.*` の code のまま画面へ出る。
+    koeru_runtime::jobs::JobError,
+    koeru_runtime::jobs::PublishRefused,
     crate::pump::PumpError,
 );
 
@@ -344,6 +360,28 @@ mod tests {
         let json = serde_json::to_string(&e).expect("書ける");
         assert!(!json.contains("someone"), "{json}");
         assert!(!json.contains("source"), "{json}");
+    }
+
+    /// 背後の仕事の失敗は `jobs.*` の code と分類のまま畳まれ、`AppError` 自身も
+    /// `Failure` として code と分類を返す（`JobRuntime::publish` の `admit` が使う）。
+    #[test]
+    fn 背後の仕事の失敗は_code_と分類を保って畳まれる() {
+        use koeru_runtime::jobs::{JobError, PublishRefused};
+
+        let e = AppError::from(JobError::DeadlineExceeded);
+        assert_eq!(e.code, "jobs.deadline_exceeded");
+        assert_eq!(e.class, FailureClass::EngineFailed);
+        assert_eq!(e.action, FailureAction::Rebuild);
+
+        let stale = AppError::from(PublishRefused::Stale);
+        assert_eq!(stale.code, "jobs.publish_stale");
+        assert_eq!(stale.class, FailureClass::Conflict);
+        // 確定したあとの失敗として返すときは、持ち主が上書きする。
+        let committed = stale.with_outcome(Outcome::Committed);
+        assert_eq!(committed.outcome, FailureOutcome::Committed);
+
+        assert_eq!(Failure::code(&e), "jobs.deadline_exceeded");
+        assert_eq!(Failure::class(&e), Class::EngineFailed);
     }
 
     #[test]
