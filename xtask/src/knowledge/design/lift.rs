@@ -31,7 +31,7 @@ use crate::graph::{GraphIssue, NodeKey, SemanticGraph};
 use crate::knowledge::fsl::fsl_sites_view;
 use crate::knowledge::model::{Entry, Shape, list_of, str_of};
 use crate::knowledge::{Id, KnowledgeSnapshot, load_view_with};
-use crate::repo::RepoView;
+use crate::repo::{RepoView, RevisionRef};
 
 /// 組み立てる contract の形。 meta のファイルではないので、読み込みは通らない。
 static CONTRACT_SHAPE: Shape = Shape {
@@ -100,6 +100,9 @@ pub(crate) enum DesignIssue {
 pub(crate) struct Design {
     snapshot: KnowledgeSnapshot,
     issues: Vec<DesignIssue>,
+    /// 読んだ版。 [`Self::load`] が view から取る。 版を持たない view（メモリ上）や
+    /// [`Self::from_entries`] では無く、[`Self::with_revision`] で足せる。
+    revision: Option<RevisionRef>,
 }
 
 impl Design {
@@ -114,7 +117,20 @@ impl Design {
             .filter(|d| d.severity == Severity::Error)
             .map(|d| DesignIssue::Load(d.message.clone()))
             .collect();
-        Self::assemble(view.root(), &entries, &fsl_sites_view(view), issues)
+        let mut design = Self::assemble(view.root(), &entries, &fsl_sites_view(view), issues);
+        // 版が分からなくても致命的ではない（`SemanticGraph::build` と同じ扱い）。
+        design.revision = view.identity().ok();
+        design
+    }
+
+    /// 読んだ版を持たせる。 版を持たない view から読んだものに、呼び出し側が分かっている版を足す。
+    pub(crate) fn with_revision(mut self, revision: RevisionRef) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+
+    pub(crate) fn revision(&self) -> Option<&RevisionRef> {
+        self.revision.as_ref()
     }
 
     /// すでに読んだ記録と FSL の索引から作る。 読み込みの診断は呼び側が持っているので、
@@ -139,14 +155,18 @@ impl Design {
         all.extend(contract_entries(root, fsl_sites, &mut issues));
         let (snapshot, dups) = KnowledgeSnapshot::from_entries(&all);
         issues.extend(dups.into_iter().map(DesignIssue::Load));
-        Self { snapshot, issues }
+        Self {
+            snapshot,
+            issues,
+            revision: None,
+        }
     }
 
     /// target の語彙の graph。 node は [`Kind`] の名前、edge は [`super::RELATIONS`] の名前を持つ。
     ///
-    /// 版の識別は持たない（`SemanticGraph::from_snapshot` が `revision` を埋めない）。
+    /// 版（[`Self::revision`]）を持つ。 版を持たない view から読んだものは `None`。
     pub(crate) fn graph(&self) -> SemanticGraph {
-        SemanticGraph::from_snapshot(&self.snapshot, &super::registry())
+        SemanticGraph::from_snapshot_at(&self.snapshot, &super::registry(), self.revision.clone())
     }
 
     /// target の意味で見た全件。 知らない schema・ID の形に読めない記録は含まない

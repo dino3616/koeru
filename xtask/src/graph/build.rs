@@ -91,6 +91,20 @@ impl SemanticGraph {
         Self::from_snapshot_inner(snapshot, registry)
     }
 
+    /// [`Self::from_snapshot`] に、graph を作った版を持たせる。
+    ///
+    /// `build` を通れない呼び出し側（記録を組み立て直してから graph にするもの）が、
+    /// 読んだ view の `identity()` を渡して、[`Self::revision`] を `None` にしないための口。
+    pub(crate) fn from_snapshot_at(
+        snapshot: &KnowledgeSnapshot,
+        registry: &Registry,
+        revision: Option<RevisionRef>,
+    ) -> Self {
+        let mut graph = Self::from_snapshot_inner(snapshot, registry);
+        graph.revision = revision;
+        graph
+    }
+
     fn from_snapshot_inner(snapshot: &KnowledgeSnapshot, registry: &Registry) -> Self {
         let mut nodes: BTreeMap<NodeKey, GraphNode> = BTreeMap::new();
 

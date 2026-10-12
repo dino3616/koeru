@@ -38,7 +38,7 @@ impl std::fmt::Display for ViewError {
 /// この view が指しているものそのもの。
 ///
 /// `SemanticGraph::build`（X05）が、graph を作った版を記録するのに持つ。
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RevisionRef {
     /// 作業ツリー。 `head` は直近のコミット、`dirty` は未コミットの変更
     /// （未追跡のファイルも含む）があるか。

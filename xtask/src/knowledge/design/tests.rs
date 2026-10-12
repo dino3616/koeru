@@ -10,7 +10,7 @@ use crate::diagnostic::Report;
 use crate::graph::{Direction, GraphIssue, NodeKey, RelationClass};
 use crate::knowledge::model::{Entry, SHAPES, Shape};
 use crate::knowledge::{Id, KnowledgeSnapshot, fsl_ids, load};
-use crate::repo::RepoView;
+use crate::repo::{RepoView, RevisionRef};
 
 const REQUIREMENTS: &str = "schema = 'requirement-set'
 domain = 'fix'
@@ -1593,4 +1593,135 @@ fn provenance_の_locator_は値の書式で_node_の種類が決まる() {
         value: "github:pr/123@abc123".to_owned(),
     };
     assert_eq!(graph.incoming(&pr).len(), 2);
+}
+
+// ## 版を持つ graph / 2つの版の比較（X08）
+
+/// 試験ごとに使い捨てる git リポジトリ。 `tempfile` は引かない（`repo::view` の試験と同じ形）。
+struct TempRepo(std::path::PathBuf);
+
+impl Drop for TempRepo {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+impl TempRepo {
+    fn new(name: &str) -> Self {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "koeru-xtask-design-{name}-{}-{n}",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("作れる");
+        let repo = Self(dir);
+        repo.git(&["init", "-q"]);
+        for (k, v) in [
+            ("user.name", "design-test"),
+            ("user.email", "design-test@example.invalid"),
+            ("commit.gpgsign", "false"),
+            ("core.autocrlf", "false"),
+        ] {
+            repo.git(&["config", k, v]);
+        }
+        repo
+    }
+
+    fn root(&self) -> &Path {
+        &self.0
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .current_dir(&self.0)
+            .args(args)
+            .output()
+            .expect("git を起動できる");
+        assert!(
+            out.status.success(),
+            "git {args:?} が失敗した: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout)
+            .expect("UTF-8")
+            .trim()
+            .to_owned()
+    }
+
+    fn write_all(&self, files: &BTreeMap<String, String>) {
+        for (rel, body) in files {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().expect("親がある")).expect("作れる");
+            std::fs::write(p, body).expect("書ける");
+        }
+    }
+
+    fn remove(&self, rel: &str) {
+        std::fs::remove_file(self.0.join(rel)).expect("消せる");
+    }
+
+    fn commit(&self, message: &str) -> String {
+        self.git(&["add", "-A"]);
+        self.git(&["commit", "-q", "-m", message]);
+        self.git(&["rev-parse", "HEAD"])
+    }
+}
+
+/// `Design` の graph が、読んだ版を持つ。 版を持たない view は `None` のままで、呼び出し側が
+/// 分かっている版を足せる。
+#[test]
+fn design_の_graph_は読んだ版を持つ() {
+    let repo = TempRepo::new("revision");
+    repo.write_all(&files());
+    let sha = repo.commit("base");
+
+    let working = Design::load(&RepoView::working_tree(repo.root()));
+    assert_eq!(
+        working.graph().revision(),
+        Some(&RevisionRef::WorkingTree {
+            head: sha.clone(),
+            dirty: false
+        })
+    );
+    let at = Design::load(&RepoView::revision(repo.root(), &sha).expect("解決できる"));
+    assert_eq!(
+        at.graph().revision(),
+        Some(&RevisionRef::Revision { sha: sha.clone() })
+    );
+    // 未コミットの変更は dirty。
+    repo.write_all(&with(
+        "meta/decisions/DEC-fix-002.toml",
+        &format!("{DECISION_2}\n"),
+    ));
+    let dirty = Design::load(&RepoView::working_tree(repo.root()));
+    assert!(matches!(
+        dirty.graph().revision(),
+        Some(RevisionRef::WorkingTree { dirty: true, .. })
+    ));
+
+    // メモリ上の view は版を持たない。 足せば持つ。
+    let memory = base();
+    assert_eq!(memory.revision(), None);
+    assert_eq!(memory.graph().revision(), None);
+    let rev = RevisionRef::Revision {
+        sha: "0123abc".to_owned(),
+    };
+    assert_eq!(
+        base().with_revision(rev.clone()).graph().revision(),
+        Some(&rev)
+    );
+    // 版を足しても、graph の中身（node・edge）は変わらない。
+    let a = base().graph();
+    let b = base().with_revision(rev).graph();
+    assert_eq!(
+        a.nodes()
+            .map(|n| (n.key.clone(), n.fingerprint))
+            .collect::<Vec<_>>(),
+        b.nodes()
+            .map(|n| (n.key.clone(), n.fingerprint))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(a.all_relations().count(), b.all_relations().count());
 }
