@@ -203,8 +203,8 @@ fn 再推定は背景の_lane_に載り応答の形は変わらない() {
     });
     let job = queued_analysis(&jobs, &lease);
     let lanes = jobs.lanes();
-    assert_eq!(lanes[1].name, "background");
-    assert_eq!(lanes[1].queued, 1, "再推定は背景の待ちに並ぶ");
+    assert_eq!(lanes[2].name, "background");
+    assert_eq!(lanes[2].queued, 1, "再推定は背景の待ちに並ぶ");
     assert_eq!(lanes[0].queued, 0, "前景には並ばない");
     let _ = release.send(());
     let (_studio, result) = handle.join().expect("panic しない");

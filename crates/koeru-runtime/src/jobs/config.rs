@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use super::model::Priority;
 
-/// 前景の lane（録音直後の前処理と試唱の要求）が待たせてよい仕事の数。
+/// 前景の lane（録音直後の前処理）が待たせてよい仕事の数。
 ///
 /// **仮の値**（`Q-PLT-006`）。 確定の応答が解析を待つので、待ちが溜まるのは
 /// 録音が解析より速く進んだときだけ。 そうなったら増やすのではなく、
@@ -19,6 +19,19 @@ pub const FOREGROUND_MAX_PENDING: usize = 8;
 ///
 /// **仮の値**（`Q-PLT-006`）。 数テイク分のマスターを同時に抱えられる程度。
 pub const FOREGROUND_MAX_INFLIGHT_BYTES: usize = 256 * 1024 * 1024;
+
+/// 試唱の lane が待たせてよい仕事の数。
+///
+/// **仮の値**（`Q-PLT-006`）。 新しい試唱は古い試唱を取り消してから積むので、
+/// 待つのは古い試唱の作業スレッドが戻るまでの新しい1本だけ。 それに余裕を1本足してある。
+pub const PREVIEW_MAX_PENDING: usize = 2;
+
+/// 試唱の lane の、待ち＋走っている仕事の申告バイト数の上限。
+///
+/// **仮の値**（`Q-PLT-006`）。 試唱の仕事が申告するのは、先頭フレーズの合成結果
+/// （仕事が抱えて流す最初の塊）の大きさ。 戻りかけの古い試唱と新しい試唱が
+/// 並んでも、数十秒の先頭フレーズなら収まる程度。
+pub const PREVIEW_MAX_INFLIGHT_BYTES: usize = 64 * 1024 * 1024;
 
 /// 背景の lane（全件再推定とチャート事前計算）が待たせてよい仕事の数。
 ///
@@ -200,16 +213,19 @@ impl JobConfig {
 }
 
 impl Default for JobConfig {
-    /// 前景（録音直後の前処理・試唱の要求）と背景（全件再推定・チャート事前計算）の
-    /// 2本。 確定の応答が解析を待つので、長い背景の仕事の後ろに解析を並ばせない
+    /// 前景（録音直後の前処理）・試唱（試唱の要求）・背景（全件再推定・チャート事前計算）の
+    /// 3本（`DEC-PLT-051`）。 確定の応答が解析を待つので、長い背景の仕事の後ろにも、
+    /// 曲の長さの間ずっと走る試唱の後ろにも、解析を並ばせない
     /// （`00-architecture-report.md` §7 の「重要 control は別 lane」）。
+    ///
+    /// 優先度の順（`TR-SYN-34`）が意味を持つのは同じ lane の中だけで、lane どうしは並んで走る。
     fn default() -> Self {
-        let foreground = LaneConfig::new(
-            "foreground",
-            [Priority::PostRecording, Priority::PreviewRequest],
-        )
-        .max_pending(FOREGROUND_MAX_PENDING)
-        .max_inflight_bytes(FOREGROUND_MAX_INFLIGHT_BYTES);
+        let foreground = LaneConfig::new("foreground", [Priority::PostRecording])
+            .max_pending(FOREGROUND_MAX_PENDING)
+            .max_inflight_bytes(FOREGROUND_MAX_INFLIGHT_BYTES);
+        let preview = LaneConfig::new("preview", [Priority::PreviewRequest])
+            .max_pending(PREVIEW_MAX_PENDING)
+            .max_inflight_bytes(PREVIEW_MAX_INFLIGHT_BYTES);
         let background = LaneConfig::new(
             "background",
             [Priority::Reestimate, Priority::ChartPrecompute],
@@ -218,7 +234,7 @@ impl Default for JobConfig {
         .max_inflight_bytes(BACKGROUND_MAX_INFLIGHT_BYTES);
         // 既定の分け方は全部の優先度を1度ずつ配っているので、必ず成り立つ。
         Self {
-            lanes: vec![foreground, background],
+            lanes: vec![foreground, preview, background],
             max_hung_per_lane: MAX_HUNG_PER_LANE,
             retain_finished_max: RETAIN_FINISHED_MAX,
             retain_finished_for: RETAIN_FINISHED_FOR,
@@ -235,16 +251,36 @@ mod tests {
     }
 
     #[test]
-    fn 既定の設定は成り立つ分け方を2本の_lane_で配る() {
+    fn 既定の設定は成り立つ分け方を3本の_lane_で配る() {
         let d = JobConfig::default();
         let again = JobConfig::new(d.lanes.clone()).expect("既定は成り立つ");
         assert_eq!(again.lanes, d.lanes);
-        assert_eq!(d.lanes.len(), 2);
-        assert_eq!(d.lanes[0].name, "foreground");
-        assert!(d.lanes[0].priorities.contains(&Priority::PostRecording));
-        assert!(d.lanes[0].priorities.contains(&Priority::PreviewRequest));
-        assert!(d.lanes[1].priorities.contains(&Priority::Reestimate));
-        assert!(d.lanes[1].priorities.contains(&Priority::ChartPrecompute));
+        let shape: Vec<(&str, Vec<Priority>)> = d
+            .lanes
+            .iter()
+            .map(|l| (l.name, l.priorities.clone()))
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("foreground", vec![Priority::PostRecording]),
+                ("preview", vec![Priority::PreviewRequest]),
+                (
+                    "background",
+                    vec![Priority::Reestimate, Priority::ChartPrecompute]
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn 既定の試唱の_lane_は仮の上限を持ち作業スレッドは1本() {
+        let d = JobConfig::default();
+        let preview = &d.lanes[1];
+        assert_eq!(preview.name, "preview");
+        assert_eq!(preview.max_pending, PREVIEW_MAX_PENDING);
+        assert_eq!(preview.max_inflight_bytes, PREVIEW_MAX_INFLIGHT_BYTES);
+        assert_eq!(preview.threads, 1, "重いエンジンの状態を複製しない");
     }
 
     #[test]
