@@ -116,6 +116,10 @@ fn status_of(rt: &JobRuntime, job: JobId) -> JobStatus {
     rt.job(job).expect("表にあること").status
 }
 
+fn is_cancelled(rt: &JobRuntime, job: JobId) -> bool {
+    matches!(status_of(rt, job), JobStatus::Cancelled { .. })
+}
+
 fn commit<T: Send + 'static>(
     rt: &JobRuntime,
     completed: Completed<T>,
@@ -242,10 +246,177 @@ fn 背景の長い仕事が前景を塞がない() {
         .expect("背景を待たずに終わる");
     assert_eq!(preview.into_value(), 8);
     let lanes = rt.lanes();
-    assert_eq!(lanes[1].name, "background");
-    assert_eq!(lanes[1].running, 1, "背景はまだ走っている");
+    assert_eq!(lanes[2].name, "background");
+    assert_eq!(lanes[2].running, 1, "背景はまだ走っている");
     blocker.release();
     long_chart.wait().expect("終わる");
+}
+
+/// 既定の lane の分け方（`DEC-PLT-051`）。 どの優先度も、ちょうど1本の lane が回す。
+#[test]
+fn 既定の_lane_は前景_試唱_背景の3本で優先度が正しい_lane_に属する() {
+    let rt = JobRuntime::start(JobConfig::default());
+    let names: Vec<&str> = rt.lanes().iter().map(|l| l.name).collect();
+    assert_eq!(names, ["foreground", "preview", "background"]);
+
+    // 優先度ごとに、塞いだ lane の名前を見る。 塞いだ仕事は走っていて、
+    // 他の lane は空のまま。
+    for (priority, lane) in [
+        (Priority::PostRecording, "foreground"),
+        (Priority::PreviewRequest, "preview"),
+        (Priority::Reestimate, "background"),
+        (Priority::ChartPrecompute, "background"),
+    ] {
+        let (blocker, ticket) = occupy(&rt, lease(1), priority);
+        let running: Vec<(&str, usize)> = rt.lanes().iter().map(|l| (l.name, l.running)).collect();
+        for (name, n) in running {
+            assert_eq!(
+                n,
+                usize::from(name == lane),
+                "{priority:?} は {lane} で走る"
+            );
+        }
+        blocker.release();
+        ticket.wait().expect("終わる");
+    }
+}
+
+/// 試唱は曲の長さの間ずっと走る。 その間も、前景の解析は待たずに走って終わる（`TR-SYN-34`
+/// の並びが意味を持つのは同じ lane の中だけ。 lane どうしは並んで走る）。
+#[test]
+fn 試唱の長い仕事が前景の解析を塞がない() {
+    let rt = JobRuntime::start(JobConfig::default());
+    let (blocker, long_preview) = occupy(&rt, lease(1), Priority::PreviewRequest);
+    // 試唱の lane は塞がっている。 前景の解析は待たずに終わる。
+    let analysis = rt
+        .submit(quick(lease(1), Priority::PostRecording, 7))
+        .expect("受け付けること")
+        .wait()
+        .expect("試唱を待たずに終わる");
+    assert_eq!(analysis.into_value(), 7);
+    // 背景も同じ。
+    let chart = rt
+        .submit(quick(lease(1), Priority::ChartPrecompute, 9))
+        .expect("受け付けること")
+        .wait()
+        .expect("試唱を待たずに終わる");
+    assert_eq!(chart.into_value(), 9);
+    let lanes = rt.lanes();
+    assert_eq!(lanes[1].name, "preview");
+    assert_eq!(lanes[1].running, 1, "試唱はまだ走っている");
+    assert_eq!(lanes[0].running, 0);
+    blocker.release();
+    long_preview.wait().expect("終わる");
+}
+
+/// 逆も言える。 前景の長い仕事は、試唱を塞がない。
+#[test]
+fn 前景の長い仕事が試唱を塞がない() {
+    let rt = JobRuntime::start(JobConfig::default());
+    let (blocker, long_analysis) = occupy(&rt, lease(1), Priority::PostRecording);
+    let preview = rt
+        .submit(quick(lease(1), Priority::PreviewRequest, 8))
+        .expect("受け付けること")
+        .wait()
+        .expect("解析を待たずに終わる");
+    assert_eq!(preview.into_value(), 8);
+    blocker.release();
+    long_analysis.wait().expect("終わる");
+}
+
+/// 区切りで合図を見る長い試唱は、取り消すと 200 ms 以内に抜ける（`TR-SYN-27`）。
+/// 抜けられたので、状態は `computation_stopped: true` で、結果は公開されない。
+#[test]
+fn 試唱の仕事を取り消すと_200ms_以内に合図で抜ける() {
+    let rt = JobRuntime::start(JobConfig::default());
+    let (started_tx, started) = mpsc::channel();
+    let ticket = rt
+        .submit(spec::<()>(
+            lease(1),
+            Priority::PreviewRequest,
+            move |probe| {
+                let _ = started_tx.send(());
+                // フレーズの区切りを、1ms の仕事に見立てる。
+                loop {
+                    probe.check()?;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            },
+        ))
+        .expect("受け付けること");
+    let job = ticket.job();
+    started.recv_timeout(LONG).expect("走り出す");
+
+    let asked = Instant::now();
+    assert_eq!(rt.cancel(job), CancelOutcome::Requested);
+    eventually("計算が合図で抜ける", || is_cancelled(&rt, job));
+    assert!(
+        asked.elapsed() < Duration::from_millis(200),
+        "取り消してから抜けるまで {:?}",
+        asked.elapsed()
+    );
+    assert!(matches!(
+        status_of(&rt, job),
+        JobStatus::Cancelled {
+            computation_stopped: true,
+            ..
+        }
+    ));
+    assert_eq!(
+        ticket.wait().expect_err("待つ側は解放される"),
+        JobError::Cancelled
+    );
+}
+
+/// 新しい試唱は、古い試唱を取り消してから積む。 古いのが待ちにいれば、まとめられて消え
+/// （`OverflowPolicy::Coalesce`）、走っていれば合図で抜けて、新しいのがその後に走る。
+#[test]
+fn 新しい試唱で古い試唱が取り消される() {
+    let rt = JobRuntime::start(JobConfig::default());
+    let key = || OverflowPolicy::Coalesce(CoalesceKey::new("preview_stream"));
+
+    // 走っている古い試唱。 取り消すと合図で抜ける。
+    let (started_tx, started) = mpsc::channel();
+    let old = rt
+        .submit(
+            spec::<()>(lease(1), Priority::PreviewRequest, move |probe| {
+                let _ = started_tx.send(());
+                loop {
+                    probe.check()?;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            })
+            .overflow(key()),
+        )
+        .expect("受け付けること");
+    started.recv_timeout(LONG).expect("古い試唱が走り出す");
+
+    // 待ちにいる、もう1つ古い試唱は、新しい試唱にまとめられる。
+    let waiting = rt
+        .submit(quick(lease(1), Priority::PreviewRequest, 1).overflow(key()))
+        .expect("受け付けること");
+    let newest = rt
+        .submit(quick(lease(1), Priority::PreviewRequest, 2).overflow(key()))
+        .expect("まとめて受ける");
+    assert_eq!(
+        waiting.wait().expect_err("待ちの古い試唱は置き換えられる"),
+        JobError::Cancelled
+    );
+
+    // 走っている古い試唱を取り消す。 新しい試唱は、その後で走る。
+    let old_job = old.job();
+    assert_eq!(rt.cancel(old_job), CancelOutcome::Requested);
+    assert_eq!(newest.wait().expect("新しい試唱は走る").into_value(), 2);
+    eventually("古い試唱は取り消しで終わる", || {
+        is_cancelled(&rt, old_job)
+    });
+    assert!(matches!(
+        status_of(&rt, old_job),
+        JobStatus::Cancelled {
+            computation_stopped: true,
+            ..
+        }
+    ));
 }
 
 // ## 試行

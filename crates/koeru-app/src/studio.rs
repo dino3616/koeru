@@ -3600,18 +3600,11 @@ impl Studio {
         // 積み重ならない。 前処理は「いまの状態」を温めるだけなので、待っている古い
         // 前処理は新しいものに置き換えてよい。
         .overflow(OverflowPolicy::Coalesce(CoalesceKey::new(PRERENDER_KEY)));
-        // 完了の callback は作業スレッドで呼ばれる。 `JobRuntime` を強く持つと、待ちに残った
-        // 仕事の closure が `JobRuntime` を生かし続けて止まらなくなる。 弱く持つ。
-        let weak = Arc::downgrade(&self.jobs);
-        let submitted = self.jobs.submit_notify(spec, move |done| {
-            // 計算が済んだら、何も書かずに公開して仕事を終わらせる。 公開しないと
-            // 「公開待ち」のまま表に残る。 取消・期限・上限の失敗は、記録のほかにやることが無い。
-            if let (Ok(done), Some(runtime)) = (done, weak.upgrade()) {
-                let _ = runtime.publish(done, &jobs::BasedOn::new(), |_| {
-                    Ok::<_, JobError>(((), jobs::Receipt::new(0)))
-                });
-            }
-        });
+        // 完了の callback は何も書かずに公開して仕事を終わらせ、`JobRuntime` を弱く持つ
+        // （試唱の仕事と同じもの。 理由は `preview::publish_nothing`）。
+        let submitted = self
+            .jobs
+            .submit_notify(spec, preview::publish_nothing(&self.jobs));
         match submitted {
             Ok(handle) => self.prerender = Some(handle.job()),
             // 前処理が積めなくても、押されたときに合成するだけ。 失敗にしない。
@@ -4656,13 +4649,16 @@ impl Studio {
     ///
     /// 進行中の合成も止める。 200ms 以内に抜ける。 合図 → 再生 → 合成の
     /// 待ち合わせの順は `PlaybackLease`（`crate::playback_lease`）が持つ。
+    /// 合成は `JobRuntime` の試唱 lane の仕事で、出力を落とすときに取り消される
+    /// （`preview::Running`）。 新しい試唱の前にも呼ぶので、古い試唱は新しい試唱が
+    /// 積まれる前に取り消される。
     pub fn stop_preview(&mut self) {
         self.output.stop();
         // 積んである前処理も捨てる（`TR-SYN-27`）。曲を切り替えたときに、
-        // 前の曲のための前処理を回し続ける意味は無い。 これは出力の資源では
-        // なく仕事の後始末なので、`PlaybackLease` の外、ここで行う。
+        // 前の曲のための前処理を回し続ける意味は無い。 これは出力の資源ではなく
+        // 前景の仕事の後始末なので、`PlaybackLease` の外、ここで行う。
         //
-        // **前処理だけを取り消す**（`JobRuntime::cancel`）。 貸与の仕事を全部取り消す
+        // **試唱の仕事と前処理だけを取り消す**（`JobRuntime::cancel`）。 貸与の仕事を全部取り消す
         // `cancel_lease` は、テイクの解析まで止める。 試唱を止めても、録ったテイクの
         // 解析は進める——以前の `workers.clear()` も、積んであった前処理だけを捨てていた。
         if let Some(job) = self.prerender.take() {
@@ -4965,17 +4961,28 @@ impl Studio {
         let samples: Arc<dyn koeru_synth::phrase::Samples + Send + Sync> =
             Arc::new(WavSamples { tables });
 
-        // 合成の写しは、いま開いているプロジェクトのもの。 背後のスレッドへ渡した
+        // 合成の写しは、いま開いているプロジェクトのもの。 背後の仕事へ渡した
         // `Arc` は、プロジェクトを移るときに `stop_preview` が止めて待つ。
-        let song_cache = Arc::clone(&self.opened()?.caches.song_cache);
+        let (song_cache, lease) = {
+            let open = self.opened()?;
+            (Arc::clone(&open.caches.song_cache), open.lease)
+        };
         let stream = mac::play_streaming(Vec::new(), rate)?;
         let sink = StreamSink {
             feed: stream.feed(),
         };
-        // 先頭フレーズも背後のスレッドが流す。 ここで流すと、リングが満杯のあいだ
+        // 先頭フレーズも背後の仕事（試唱 lane）が流す。 ここで流すと、リングが満杯のあいだ
         // 状態のロックを握ったまま待つ（`preview::start`）。
-        let running = preview::start(owned, samples, song_cache, Box::new(sink), rate)
-            .map_err(AppError::from_failure)?;
+        let running = preview::start(
+            &self.jobs,
+            lease,
+            owned,
+            samples,
+            song_cache,
+            Box::new(sink),
+            rate,
+        )
+        .map_err(AppError::from_failure)?;
 
         self.output.set_song(stream, running);
 
