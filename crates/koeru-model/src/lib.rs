@@ -20,6 +20,7 @@ pub mod guide;
 pub mod id;
 pub mod inventory;
 pub mod leak;
+pub mod materials;
 pub mod mora;
 pub mod names;
 pub mod order;

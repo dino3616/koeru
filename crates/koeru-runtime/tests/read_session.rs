@@ -389,3 +389,173 @@ fn review_facet_は書き手から組んだキューと一致する() {
     assert!(via_snapshot.queue.get(&key).is_some());
     assert!(via_writer.get(&key).is_some());
 }
+
+// ## 素材 facet（`DEC-PLT-052`）
+
+/// 同じ音高で同じ綴り（`- い`）を生む2つの行（並びが前, 並びが後ろ）を持つ連続音の
+/// 録音リストを入れる。 返るのは `(並びが前の行, 並びが後ろの行, セッション ID)`。
+fn seed_overlapping_rows(rt: &ProjectRuntime) -> (String, String, i32) {
+    use koeru_core::alias::Method as AliasMethod;
+    use koeru_core::reclist::generate_sequential;
+
+    let rules = koeru_core::presamp::Rules::builtin(UnitSet::Core);
+    let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
+    let mut w = rt.writer(rt.lease()).expect("書ける");
+    w.install_reclist_for_tones(&list, &rules, AliasMethod::Sequential, &[60])
+        .expect("書き込める");
+    let sid = w
+        .start_session(&SessionSnapshot {
+            started_at: "2026-09-28T00:00:00Z".into(),
+            device_id: "test".into(),
+            sample_rate_hz: 48_000,
+            channels: 1,
+            effects_state: "clean".into(),
+            route: "test".into(),
+            source_channel: 0,
+            master_rate_hz: 44_100,
+            resampler: "test".into(),
+            upstream_conversion: "unknown".into(),
+        })
+        .expect("始められる");
+    // `rows_with_takes` は行の並びで返る。
+    let all: Vec<String> = w
+        .rows_with_takes()
+        .expect("引ける")
+        .into_iter()
+        .map(|r| r.row_id)
+        .collect();
+    let mut producers = Vec::new();
+    for id in all {
+        if w.aliases_of_row(&id).expect("引ける").contains("- い") {
+            producers.push(id);
+        }
+    }
+    assert!(producers.len() > 1, "第2段が語頭 CV を重ねて生む前提");
+    (
+        producers[0].clone(),
+        producers[producers.len() - 1].clone(),
+        sid,
+    )
+}
+
+/// 行を録り、持ち主になる綴りにだけ5値を置く（本番の解析と同じ）。
+fn record_owned(rt: &ProjectRuntime, row: &str, sid: i32) -> i32 {
+    let take = commit(rt, row, sid, &format!("audio/{row}.wav"));
+    adopt(rt, row, take);
+    let owned = {
+        let mut w = rt.writer(rt.lease()).expect("書ける");
+        w.owned_aliases_of_row(row).expect("引ける")
+    };
+    for a in owned {
+        put_oto(rt, take, &a);
+    }
+    take
+}
+
+/// 台帳の版を固定した読みが、書き手と同じ事実から同じ候補を解く。
+/// 持ち主は先に録った行（並びの後ろ）で、その5値と素材のパスが引ける。
+#[test]
+fn materials_facet_は書き手の事実と同じ候補を解く() {
+    use koeru_model::materials::{self, Disposition, Reason, Role, UseContext};
+
+    let rt = open_runtime(new_project("materials-parity"));
+    let (lo, hi, sid) = seed_overlapping_rows(&rt);
+    let take_hi = record_owned(&rt, &hi, sid);
+    record_owned(&rt, &lo, sid);
+
+    let lease = *rt.lease();
+    let session = rt.read(&lease).expect("読める");
+    let facet = session.materials().expect("読める");
+    let via_facet = facet.resolve(UseContext::Preview, |_| Role::Cv);
+    let via_writer = {
+        let mut w = rt.writer(&lease).expect("書ける");
+        let m = w.material_facts().expect("引ける");
+        materials::resolve(&m.facts, UseContext::Preview, |_| Role::Cv)
+    };
+    assert_eq!(via_facet, via_writer);
+
+    let key = (60, "- い".to_owned());
+    let of = |row: &str| {
+        via_facet
+            .candidates()
+            .iter()
+            .find(|c| c.key == key && c.row.as_str() == row)
+            .expect("名乗っている行は候補に出る")
+    };
+    assert_eq!(of(&hi).disposition, Disposition::Use);
+    assert_eq!(of(&hi).take.get(), take_hi);
+    assert_eq!(
+        of(&lo).disposition,
+        Disposition::Skip(Reason::NotOwner),
+        "あとから録った行は持ち主を奪わない"
+    );
+    assert!(facet.oto(of(&hi)).is_some(), "持ち主のテイクの5値");
+    assert_eq!(
+        facet.rel_path(of(&hi).take),
+        Some(format!("audio/{hi}.wav").as_str())
+    );
+    assert_eq!(facet.tones(), [60]);
+}
+
+/// 素材 facet も版を固定する。 開いたあとの書き込みは映らず、新しいセッションは見る。
+/// 持ち主の採用が無効になれば、次に録った行へ移る。
+#[test]
+fn materials_facet_は版を固定し_無効になれば次の行へ移る() {
+    use koeru_model::materials::{Disposition, Reason, Role, UseContext};
+
+    let rt = open_runtime(new_project("materials-pinned"));
+    let (lo, hi, sid) = seed_overlapping_rows(&rt);
+    let take_hi = record_owned(&rt, &hi, sid);
+    let lease = *rt.lease();
+
+    // 開いたあとに、並びの前の行も録る。 古いセッションは見ない。
+    let before = rt.read(&lease).expect("読める");
+    record_owned(&rt, &lo, sid);
+    let stale = before.materials().expect("読める");
+    assert!(
+        stale
+            .resolve(UseContext::Preview, |_| Role::Cv)
+            .candidates()
+            .iter()
+            .all(|c| c.row.as_str() != lo),
+        "開いたあとの採用は映らない"
+    );
+
+    let key = (60, "- い".to_owned());
+    let fresh = rt.read(&lease).expect("読める");
+    let r = fresh
+        .materials()
+        .expect("読める")
+        .resolve(UseContext::Preview, |_| Role::Cv);
+    let used: Vec<&str> = r
+        .used()
+        .filter(|c| c.key == key)
+        .map(|c| c.row.as_str())
+        .collect();
+    assert_eq!(used, [hi.as_str()]);
+
+    // 持ち主のテイクが無効になる。 次に録った行が持つが、5値はまだ無い（解析のやり直し待ち）。
+    rt.writer(&lease)
+        .expect("書ける")
+        .invalidate_take(take_hi)
+        .expect("無効にできる");
+    let after = rt.read(&lease).expect("読める");
+    let r = after
+        .materials()
+        .expect("読める")
+        .resolve(UseContext::Preview, |_| Role::Cv);
+    let next = r
+        .candidates()
+        .iter()
+        .find(|c| c.key == key && c.row.as_str() == lo)
+        .expect("次に録った行が候補");
+    assert_ne!(
+        next.disposition,
+        Disposition::Skip(Reason::NotOwner),
+        "持ち主が移る"
+    );
+    assert!(
+        r.candidates().iter().all(|c| c.row.as_str() != hi),
+        "採用が無効な行は候補にならない"
+    );
+}
