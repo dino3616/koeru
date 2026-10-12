@@ -36,6 +36,7 @@ mod commands;
 mod knowledge;
 mod probe;
 mod repo;
+pub mod views;
 
 // X05: 語彙の登録は D00、消費は D01・X06 が担う。 production から呼ぶのは
 // `check-meta`（`checks::legacy_registry`）だけで、`diff` や locator・近傍の
