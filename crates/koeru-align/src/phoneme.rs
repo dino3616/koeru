@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn 辞書は収録単位を全て覆う() {
         assert_eq!(reading_count(), 144);
-        for u in koeru_core::inventory::units(koeru_core::inventory::UnitSet::Extended) {
+        for u in koeru_model::inventory::units(koeru_model::inventory::UnitSet::Extended) {
             assert!(phonemes_for(u.kana).is_ok(), "{} が辞書に無い", u.kana);
         }
     }

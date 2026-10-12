@@ -726,7 +726,15 @@ fn receipt(probe: &str, status: Status, actual_work: u64) -> Receipt {
         counts: Counts::default(),
         actual_work,
         problems: Vec::new(),
+        environment: None,
+        missing_prerequisites: Vec::new(),
     }
+}
+
+/// `ctx` の環境で走らせた受領証にする。
+fn in_context(mut receipt: Receipt, backend: &'static str) -> Receipt {
+    receipt.environment = context(backend).environment();
+    receipt
 }
 
 /// 契約つきの Probe 1件と、それが対象にする仮説を持つ記録。
@@ -747,7 +755,52 @@ fn run(fx: &Fx, receipt: &Receipt, ctx: &ExecutionContext) -> Result<EvidenceCan
     let hypothesis = facts.hypothesis(H_FORMAL).expect("仮説");
     let probe = &facts.probes[0];
     let definition = probe.definition().expect("契約");
-    canonize(&fx.registry(), hypothesis, probe, &definition, receipt, ctx)
+    let mut receipt = receipt.clone();
+    receipt.environment = ctx.environment();
+    canonize(&fx.registry(), hypothesis, probe, &definition, &receipt)
+}
+
+/// 環境の欄が無い受領証（古い形、版が取れなかった）は、どの環境の観測とも言えない。
+#[test]
+fn 環境を持たない_receipt_は断る() {
+    let fx = canonize_fx("mechanical-formal-property", "executed-test", "");
+    let facts = fx.facts();
+    let probe = &facts.probes[0];
+    let definition = probe.definition().expect("契約");
+    let hypothesis = facts.hypothesis(H_FORMAL).expect("仮説");
+    let unknown = receipt("PROBE-P00001", Status::Passed, 5);
+    assert_eq!(unknown.environment, None);
+    assert_eq!(
+        canonize(&fx.registry(), hypothesis, probe, &definition, &unknown),
+        Err(Refusal::UnknownEnvironment)
+    );
+    // 環境を持てば通る。 候補は Receipt が名乗る環境と版を写す。
+    let known = in_context(unknown, "native");
+    let candidate =
+        canonize(&fx.registry(), hypothesis, probe, &definition, &known).expect("環境があれば通る");
+    assert_eq!(
+        (candidate.platform.as_str(), candidate.tested_sha.as_str()),
+        ("macos", "0123abc")
+    );
+}
+
+/// native が要るかは、Probe の定義（`ProbeDefinition::requires_native`）が持つ。
+#[test]
+fn native_が要るかは_probe_の定義から読む() {
+    let fx = canonize_fx(
+        "mechanical-formal-property",
+        "executed-test",
+        "requires_native = true",
+    );
+    let definition = fx.facts().probes[0].definition().expect("契約");
+    assert!(definition.requires_native);
+    let plain = canonize_fx("mechanical-formal-property", "executed-test", "");
+    assert!(
+        !plain.facts().probes[0]
+            .definition()
+            .expect("契約")
+            .requires_native
+    );
 }
 
 #[test]
@@ -978,8 +1031,7 @@ fn 別の_probe_の_receipt_と対象外の仮説は断る() {
             &other,
             probe,
             &definition,
-            &receipt("PROBE-P00001", Status::Passed, 5),
-            &context("native"),
+            &in_context(receipt("PROBE-P00001", Status::Passed, 5), "native"),
         ),
         Err(Refusal::NotTargeted)
     );
@@ -992,17 +1044,10 @@ fn 資格を決める欄が無ければ断る() {
     let mut hypothesis = facts.hypothesis(H_FORMAL).expect("仮説").clone();
     let mut probe = facts.probes[0].clone();
     let definition = probe.definition().expect("契約");
-    let passed = receipt("PROBE-P00001", Status::Passed, 5);
+    let passed = in_context(receipt("PROBE-P00001", Status::Passed, 5), "native");
     hypothesis.kind = None;
     assert_eq!(
-        canonize(
-            &fx.registry(),
-            &hypothesis,
-            &probe,
-            &definition,
-            &passed,
-            &context("native")
-        ),
+        canonize(&fx.registry(), &hypothesis, &probe, &definition, &passed),
         Err(Refusal::HypothesisWithoutKind)
     );
     probe.method = None;
@@ -1012,8 +1057,7 @@ fn 資格を決める欄が無ければ断る() {
             &facts.hypotheses[0],
             &probe,
             &definition,
-            &passed,
-            &context("native")
+            &passed
         ),
         Err(Refusal::ProbeWithoutMethod)
     );

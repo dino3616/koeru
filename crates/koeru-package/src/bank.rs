@@ -8,8 +8,8 @@
 
 use std::path::PathBuf;
 
-use koeru_align::ini::IniEntry;
-use koeru_core::alias::Method;
+use koeru_formats::oto_ini::IniEntry;
+use koeru_model::alias::Method;
 
 /// 配布する音源1本（`TR-PKG-01`）。
 #[derive(Debug, Clone)]
@@ -39,7 +39,7 @@ pub struct VoiceBank {
     ///
     /// 受け取った側が同じ規則で解決するための表（`DEC-SYN-010`）。
     /// インベントリとフォールバック規則から作り、別定義を持たない。
-    pub rules: koeru_core::presamp::Rules,
+    pub rules: koeru_model::presamp::Rules,
 }
 
 /// `character.txt` / `character.yaml` に出る値（`TR-PKG-02`, `TR-PKG-03`）。
@@ -236,7 +236,7 @@ pub fn decorate(subbank: &Subbank, alias: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koeru_core::oto::Oto;
+    use koeru_model::oto::Oto;
 
     fn oto() -> Oto {
         Oto {
@@ -283,7 +283,7 @@ mod tests {
             method: Method::Single,
             tones: vec![57],
             subbanks,
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 

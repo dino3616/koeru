@@ -24,6 +24,11 @@ pub(crate) struct ProbeDefinition {
     pub(crate) target: String,
     pub(crate) platforms: Vec<String>,
     pub(crate) backends: Vec<String>,
+    /// native の backend でしか意味を持たない Probe か。 そうでない backend で走らせた
+    /// 結果は、その Probe の主張について何も言わない（提案書 10.2）。
+    ///
+    /// SUITE の登録からは `backends` から決める（[`ProbeDefinition::from_suite`]）。
+    pub(crate) requires_native: bool,
     pub(crate) min_cases: u64,
     pub(crate) manual: u64,
     /// 実行前に要るもの。 今の SUITE の登録にはここへ足す欄が無いので、
@@ -61,6 +66,10 @@ impl ProbeDefinition {
         };
         let int = |k: &str| t.get(k).and_then(toml::Value::as_integer);
         let backends = list_of(t, "backends");
+        // 書いていない OS の席（`unsupported`）を持たず `native` だけを名乗る登録は、
+        // native でしか走らない。 `backends` を書かない登録は両方で数えるので該当しない。
+        let requires_native =
+            backends.iter().any(|b| b == "native") && !backends.iter().any(|b| b == "unsupported");
         Ok(Self {
             runner: need("runner")?,
             package: need("package")?,
@@ -71,6 +80,7 @@ impl ProbeDefinition {
             } else {
                 backends
             },
+            requires_native,
             min_cases: int("min_cases")
                 .and_then(|n| u64::try_from(n).ok())
                 .ok_or_else(|| format!("{id}: `min_cases` が無い、または負"))?,
@@ -128,6 +138,57 @@ impl ExecutionContext {
             dirty,
             runner_version: None,
         }
+    }
+}
+
+impl ExecutionContext {
+    /// その platform と backend の組を、どこかの環境が作りうるか。
+    ///
+    /// [`ExecutionContext::detect`] の規則の写し。 native は macOS にしか無いので、
+    /// Linux・Windows の native は、どの環境も作らない（受領証が永遠に届かない席）。
+    pub(crate) fn is_reachable(platform: &str, backend: &str) -> bool {
+        backend == "unsupported" || (backend == "native" && platform == "macos")
+    }
+}
+
+/// 受領証が名乗る、走らせた環境。 [`ExecutionContext`] の所有する写しで、JSON から
+/// 読み戻せる（`ExecutionContext` の `platform` と `backend` は `&'static str`）。
+///
+/// 3つの文字列のどれかが空なら、環境は不明（受領証は [`Receipt::environment`] を `None`
+/// として持つ）。 空の版は、再現できない受領証と区別が付かない。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Environment {
+    pub(crate) platform: String,
+    pub(crate) backend: String,
+    /// 走らせた版。
+    pub(crate) git_sha: String,
+    /// 作業ツリーが汚れていたか。 汚れていれば、その版は再現できない。
+    pub(crate) dirty: bool,
+}
+
+impl Environment {
+    /// 欄がそろっているときだけ作る。
+    pub(crate) fn known(platform: &str, backend: &str, git_sha: &str, dirty: bool) -> Option<Self> {
+        if platform.is_empty() || backend.is_empty() || git_sha.is_empty() {
+            return None;
+        }
+        Some(Self {
+            platform: platform.to_owned(),
+            backend: backend.to_owned(),
+            git_sha: git_sha.to_owned(),
+            dirty,
+        })
+    }
+
+    pub(crate) fn is_native(&self) -> bool {
+        self.backend == "native"
+    }
+}
+
+impl ExecutionContext {
+    /// 受領証に持たせる写し。 版が取れていない（git の外で走らせた）ときは `None`。
+    pub(crate) fn environment(&self) -> Option<Environment> {
+        Environment::known(self.platform, self.backend, &self.git_sha, self.dirty)
     }
 }
 
@@ -192,9 +253,41 @@ pub(crate) struct Receipt {
     /// 実際に仕事をした数。 今は `passed + failed` を最低限持つ。
     pub(crate) actual_work: u64,
     pub(crate) problems: Vec<String>,
+    /// 走らせた環境。 `None` は環境不明——古い形の受領証（欄が無い）と、版が取れなかった
+    /// 受領証。 環境が分からない受領証は、どの環境の結果としても数えない。
+    pub(crate) environment: Option<Environment>,
+    /// 走らせたときに無かった前提（fixture・LFS の実体・モデル・環境変数）。
+    /// 空でない `Passed` は、前提を欠いたまま通ったことになる。
+    pub(crate) missing_prerequisites: Vec<String>,
+}
+
+impl NotRunReason {
+    /// 受領証の JSON での書き方。
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::BuildFailed => "build-failed",
+            Self::MissingPrerequisite => "missing-prerequisite",
+            Self::UnknownRunner => "unknown-runner",
+        }
+    }
+
+    pub(crate) fn parse(raw: &str) -> Option<Self> {
+        Some(match raw {
+            "build-failed" => Self::BuildFailed,
+            "missing-prerequisite" => Self::MissingPrerequisite,
+            "unknown-runner" => Self::UnknownRunner,
+            _ => return None,
+        })
+    }
 }
 
 impl Receipt {
+    /// 走らせた環境を持たせる。
+    pub(crate) fn in_environment(mut self, ctx: &ExecutionContext) -> Self {
+        self.environment = ctx.environment();
+        self
+    }
+
     /// 試験 binary が組み立たなかった Probe。
     ///
     /// 受領証（JSON）には積まない——`NotRun` は今のところ Report の誤りとして
@@ -210,6 +303,8 @@ impl Receipt {
             counts: Counts::default(),
             actual_work: 0,
             problems: Vec::new(),
+            environment: None,
+            missing_prerequisites: Vec::new(),
         }
     }
 
@@ -231,10 +326,52 @@ mod tests {
             target: "lib".into(),
             platforms: vec!["linux".into()],
             backends: vec!["native".into()],
+            requires_native: true,
             min_cases: 1,
             manual: 0,
             prerequisites: Prerequisites::default(),
         }
+    }
+
+    fn suite(backends: &str) -> toml::Table {
+        format!(
+            "id = 'SUITE-X-001'\nrunner = 'cargo'\npackage = 'p'\ntarget = 'lib'\n\
+             platforms = ['macos']\nmin_cases = 1\n{backends}"
+        )
+        .parse()
+        .expect("TOML")
+    }
+
+    #[test]
+    fn native_だけを名乗る_suite_は_native_が要る() {
+        let only = ProbeDefinition::from_suite(&suite("backends = ['native']")).expect("読める");
+        assert!(only.requires_native);
+        let both = ProbeDefinition::from_suite(&suite("backends = ['native', 'unsupported']"))
+            .expect("読める");
+        assert!(!both.requires_native);
+        // 書かなければ両方で数える。
+        let unset = ProbeDefinition::from_suite(&suite("")).expect("読める");
+        assert!(!unset.requires_native);
+        let unsupported =
+            ProbeDefinition::from_suite(&suite("backends = ['unsupported']")).expect("読める");
+        assert!(!unsupported.requires_native);
+    }
+
+    #[test]
+    fn 作れる環境は_native_が_macos_にしか無い規則と同じ() {
+        assert!(ExecutionContext::is_reachable("macos", "native"));
+        assert!(ExecutionContext::is_reachable("macos", "unsupported"));
+        assert!(ExecutionContext::is_reachable("linux", "unsupported"));
+        assert!(!ExecutionContext::is_reachable("linux", "native"));
+        assert!(!ExecutionContext::is_reachable("windows", "native"));
+    }
+
+    #[test]
+    fn 版か_platform_が空なら環境は不明() {
+        assert!(Environment::known("macos", "native", "abc", false).is_some());
+        assert!(Environment::known("macos", "native", "", false).is_none());
+        assert!(Environment::known("", "native", "abc", false).is_none());
+        assert!(Environment::known("macos", "", "abc", false).is_none());
     }
 
     #[test]
@@ -261,6 +398,8 @@ mod tests {
                 counts: Counts::default(),
                 actual_work: 0,
                 problems: Vec::new(),
+                environment: None,
+                missing_prerequisites: Vec::new(),
             };
             assert!(r.countable(), "{status:?} を数え損ねた");
         }

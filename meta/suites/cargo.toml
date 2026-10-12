@@ -198,6 +198,16 @@ platforms = ['macos', 'linux', 'windows']
 min_cases = 5
 contracts = ['TR-ALN-01', 'TR-ALN-05', 'DEC-ALN-008']
 
+[[suite]]
+id = 'SUITE-ALIGN-006'
+title = 'koeru-align が旧ドメイン層・DB・他のエンジンを引かず、外へ出る口と時計に触らない（モデルの探索は除く）'
+runner = 'cargo'
+package = 'koeru-align'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['DEC-PLT-034']
+
 # ## koeru-synth
 
 [[suite]]
@@ -230,6 +240,16 @@ min_cases = 0
 manual = 1
 contracts = ['TR-SYN-02', 'DEC-SYN-008']
 
+[[suite]]
+id = 'SUITE-SYNTH-004'
+title = 'koeru-synth が旧ドメイン層・DB・他のエンジンを引かず、ファイルと時計に触らない'
+runner = 'cargo'
+package = 'koeru-synth'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['DEC-PLT-034']
+
 # ## koeru-package
 
 [[suite]]
@@ -240,6 +260,16 @@ package = 'koeru-package'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 73
+
+[[suite]]
+id = 'SUITE-PKG-002'
+title = 'koeru-package が旧ドメイン層・DB・エンジンを引かず、ZIP を書く所以外でファイルと時計に触らない'
+runner = 'cargo'
+package = 'koeru-package'
+target = 'purity'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 4
+contracts = ['DEC-PLT-034']
 
 # ## koeru-failure
 
@@ -487,7 +517,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 250
+min_cases = 363
 contracts = ['DEC-PLT-039', 'DEC-PLT-035', 'DEC-PLT-040']
 
 [[suite]]
@@ -523,7 +553,7 @@ runner = 'cargo'
 package = 'xtask'
 target = 'commands'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 43
+min_cases = 46
 contracts = ['DEC-PLT-039']
 
 # `Passed` / `Failed` / `NotApplicable` / `NotRun` の区別が、実際にその区別どおりに

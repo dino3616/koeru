@@ -13,6 +13,8 @@
 //! - `test-receipt`   試験を走らせて件数を登録と突き合わせ、受領証を書く（`probe::receipt`）
 //! - `check-schema`   canonical SDL と operation と能力の表を検査する（`checks::schema`）
 //! - `context`        現在の判断の文脈と、比較元からの意味の変化を出す（`context`、D01）
+//! - `portfolio`      要る Probe と受領証を突き合わせ、不足を false green にせず出す（`views::portfolio`、D07c）
+//! - `design-debt`    人の観察が要る仮説の待ち行列を出す（`views::debt`、D07c）
 //!
 //! 置き場所は層で分ける。 下の層は上の層を引かない。
 //!
@@ -56,8 +58,8 @@ mod migration;
 // D07: 呼ぶものは D08・Context・CLI が足す。 許す範囲は `views` の中に閉じる。
 mod views;
 
-// D02: production から呼ぶのは `check-meta` が引く `check_verification` だけ。 Receipt からの
-// canonize と Human Verification Debt は、呼ぶ D07c（`design-debt`、portfolio）が付くまで
-// dead code に見える。 `mod.rs` の再輸出も同じ。
+// D02: production から呼ぶのは `check-meta` が引く `check_verification` と、D07c の
+// `design-debt` が引く Human Verification Debt。 Receipt からの canonize は、呼ぶ側
+// （D08 以降）が付くまで dead code に見える。 `mod.rs` の再輸出も同じ。
 #[allow(dead_code, unused_imports)]
 mod verification;

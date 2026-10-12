@@ -139,7 +139,7 @@ pub fn character_yaml(bank: &VoiceBank, profile: Profile, has_icon: bool) -> Str
 /// C1 から B7 の 84 半音すべてに1行を持つ。 1行は「音階名 TAB prefix TAB suffix」で、
 /// 接尾辞はその半音を担う収録音高の音名。単一音階では `None`。
 ///
-/// 割り当ては収録音高から導く（`koeru_core::tone::prefix_map_body`）。 区画が
+/// 割り当ては収録音高から導く（`koeru_model::tone::prefix_map_body`）。 区画が
 /// 宣言している範囲を書き写さない——`character.yaml` の `tone_ranges` と
 /// 同じ割り当てを2箇所で作ることになる。
 #[must_use]
@@ -255,7 +255,7 @@ fn format_opacity(v: f64) -> String {
 mod tests {
     use super::*;
     use crate::bank::{Portrait, Readme, Sample, Subbank};
-    use koeru_core::alias::Method;
+    use koeru_model::alias::Method;
     use std::path::PathBuf;
 
     fn character() -> Character {
@@ -291,7 +291,7 @@ mod tests {
             method: Method::Single,
             tones: vec![57],
             subbanks,
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 

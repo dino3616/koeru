@@ -20,7 +20,7 @@ use std::fs;
 use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
-use koeru_core::text::{self, TextEncoding};
+use koeru_formats::text::{self, TextEncoding};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
@@ -529,10 +529,10 @@ mod tests {
     use super::*;
     use crate::bank::{Character, Readme, Sample, Subbank};
     use crate::tree;
-    use koeru_align::ini::IniEntry;
-    use koeru_core::alias::Method;
-    use koeru_core::oto::Oto;
     use koeru_failure::Failure;
+    use koeru_formats::oto_ini::IniEntry;
+    use koeru_model::alias::Method;
+    use koeru_model::oto::Oto;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     fn tmp(tag: &str) -> PathBuf {
@@ -585,7 +585,7 @@ mod tests {
                     }],
                 }],
             }],
-            rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),
+            rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
         }
     }
 

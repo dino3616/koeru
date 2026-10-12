@@ -15,8 +15,8 @@
 
 use koeru_align::phoneme;
 use koeru_align::segment::per_mora;
-use koeru_core::inventory::UnitSet;
-use koeru_core::reclist;
+use koeru_model::inventory::UnitSet;
+use koeru_model::reclist;
 
 /// 生成した行の読みから、区間の数を数える。
 fn slots_for(readings: &[&str]) -> usize {

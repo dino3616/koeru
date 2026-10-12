@@ -140,7 +140,7 @@ fn hash_samples(samples: &[f64]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koeru_core::alias::Method;
+    use koeru_model::alias::Method;
 
     fn preset() -> Preset {
         Preset::default_for(Method::Single).expect("既定がある")

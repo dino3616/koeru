@@ -25,10 +25,10 @@ use crate::confidence::{Confidence, acoustic_score};
 
 /// 検出した境界（ミリ秒）。
 ///
-/// 実体は [`koeru_core::oto::Boundary`]。 プロジェクトのデータで DB に載るので、
-/// 型は `koeru-core` が持つ（`DEC-ALN-009` が [`koeru_core::oto::Oto`] で同じことをしている）。
+/// 実体は [`koeru_model::oto::Boundary`]。 プロジェクトのデータで DB に載るので、
+/// 型は `koeru-model` が持つ（`DEC-ALN-009` が [`koeru_model::oto::Oto`] で同じことをしている）。
 /// ここが持つのは取り出し方だけ。
-pub use koeru_core::oto::Boundary as Boundaries;
+pub use koeru_model::oto::Boundary as Boundaries;
 
 /// アライメントの結果から、モーラごとの3境界を取り出す（`TR-ALN-11`, `DEC-ALN-013`）。
 ///
