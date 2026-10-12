@@ -155,7 +155,7 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 
 - **Objective:** queue/attempt/cancel/publication/backpressureを一つのprotocolへ集約する。
 - **Prerequisites:** T02,T03,T05。
-- **Architecture contract:** bounded items+bytes、immutable input stamp、per-attempt cancellation、ProjectRuntime admission、running FFIの強制停止を約束しない。
+- **Architecture contract:** bounded items+bytes、immutable input stamp、per-attempt cancellation、ProjectRuntime admission、running FFIの強制停止を約束しない。lane は前景・試唱・背景の3本（`DEC-PLT-051`）。
 - **Owned / affected:** jobs、completion routing、derived cache publication。
 - **Must not change:** current priority semanticsを根拠なく変更、saved takeをqueue fullで失敗扱い、cancelled result publish。
 - **Tests:** deterministic schedule、old attempt、A→B→A、cancel before/after commit、coalesce、saturation。
