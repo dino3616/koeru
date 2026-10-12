@@ -16,12 +16,13 @@ use std::process::ExitCode;
 use crate::checks::{self, CheckContext};
 use crate::diagnostic::{OutputFormat, Report};
 use crate::knowledge::{self, Entry, KnowledgeSnapshot};
-use crate::{commands, probe, repo};
+use crate::{commands, context, probe, repo};
 
 const USAGE: &str = "使い方: cargo xtask <check-meta|check-budgets|check-coverage
   check-references|check-profile <ID>
   index-decisions|next-id <接頭辞>|dump-requirements
   touched [<base>]
+  context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]
   check-portfolio|test-receipt [--runner cargo|bun]
   check-schema>";
 
@@ -58,6 +59,11 @@ impl Workspace {
 
 /// `cargo xtask` の引数（プログラム名を除く）を受けて、終了コードを返す。
 pub fn run(args: &[String]) -> ExitCode {
+    // `context` は自分で版を開き、自分の `--format md|json` を持つ。 meta を作業ツリーから読む
+    // `Workspace` も、`check-*` の形式の指定（`split_format`）も通らない。
+    if args.first().map(String::as_str) == Some("context") {
+        return context::run(&args[1..]);
+    }
     let (format, given, args) = match split_format(args) {
         Ok(v) => v,
         Err(e) => {

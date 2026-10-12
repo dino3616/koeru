@@ -12,6 +12,7 @@
 //! - `check-portfolio` 試験の target がどれも `meta/suites/` に登録されているか（`probe::receipt`）
 //! - `test-receipt`   試験を走らせて件数を登録と突き合わせ、受領証を書く（`probe::receipt`）
 //! - `check-schema`   canonical SDL と operation と能力の表を検査する（`checks::schema`）
+//! - `context`        現在の判断の文脈と、比較元からの意味の変化を出す（`context`、D01）
 //!
 //! 置き場所は層で分ける。 下の層は上の層を引かない。
 //!
@@ -23,6 +24,8 @@
 //! - `graph` — `KnowledgeSnapshot` から作る typed graph、diff（X05）
 //! - `checks` — 合否を返す検査（`check-*`）。 登録の表を持ち、`cli` はそこから引く
 //! - `commands` — 合否を主にしないコマンド（ID の払い出し、索引、書き出し、差分の案内）
+//! - `context` — 判断の文脈を作って出す（D01）。 `knowledge::design`・`graph`・`repo` を引き、
+//!   検査やほかのコマンドは引かない。 自分の出力と終了コードを持つ
 //! - `probe` — 試験を走らせて件数を数えるもの
 //! - `verification` — Probe が何を証言できるか（資格の表、Receipt から EVID への境界、Human Verification Debt。 D02）
 
@@ -34,6 +37,7 @@ pub mod diagnostic;
 
 mod checks;
 mod commands;
+mod context;
 mod knowledge;
 mod probe;
 mod repo;

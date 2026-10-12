@@ -380,6 +380,7 @@ const USAGE: &[&str] = &[
     "  check-references|check-profile <ID>",
     "  index-decisions|next-id <接頭辞>|dump-requirements",
     "  touched [<base>]",
+    "  context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]",
     "  check-portfolio|test-receipt [--runner cargo|bun]",
     "  check-schema>",
 ];
@@ -1180,6 +1181,94 @@ fn touched_は引けない_base_で失敗する() {
         "{run:?}"
     );
     assert!(run.stdout.ends_with("touched: 1 件\n"), "{run:?}");
+}
+
+// ## context
+
+#[test]
+fn context_は版を開いて現在の_context_と比較元からの変化を出す() {
+    let fx = Fixture::valid("context");
+    fx.git_init();
+    fx.write(".gitignore", "target/\n");
+    fx.commit("base");
+    fx.write(
+        "meta/decisions/DEC-fix-001.toml",
+        &DECISION_1.replace("WAV で保存する", "WAV で保存する（改題）"),
+    );
+    fx.commit("retitle");
+
+    let run = fx.run(&[
+        "context",
+        "--root",
+        "DEC-fix-001",
+        "--from",
+        "HEAD~1",
+        "--at",
+        "HEAD",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert_eq!(run.stderr, "", "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(&run.stdout).expect("JSON");
+    assert_eq!(v["command"], "context");
+    assert_eq!(v["ok"], true);
+    let context = &v["context"];
+    assert_eq!(context["at"]["kind"], "revision");
+    assert_eq!(context["from"]["rev"], "HEAD~1");
+    // 比較しても、current の項目は省かれない。
+    let items = context["items"].as_array().expect("配列");
+    assert!(items.iter().any(|i| i["id"] == ids("DEC-fix-001")));
+    // 内容が変わったことが、変更として出る。
+    let changed = context["changes"]["changed"].as_array().expect("配列");
+    assert!(
+        changed
+            .iter()
+            .any(|c| c["id"] == ids("DEC-fix-001") && c["how"] == "content"),
+        "{run:?}"
+    );
+
+    // 既定は Markdown。 作業ツリーを読むと言う。
+    let md = fx.run(&["context", "--root", "DEC-fix-001"]);
+    assert_eq!(md.code, 0, "{md:?}");
+    assert!(md.stdout.starts_with("# Context\n"), "{md:?}");
+    assert!(md.stdout.contains("作業ツリー"), "{md:?}");
+    assert!(md.stdout.contains("### 1. 今回決めること"), "{md:?}");
+}
+
+#[test]
+fn context_は解決できない版と無い引数で失敗する() {
+    let fx = Fixture::valid("context-bad");
+    fx.git_init();
+    fx.commit("base");
+    let run = fx.run(&["context", "--root", "DEC-fix-001", "--at", "no-such-rev"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    assert!(run.stdout.starts_with("context: "), "{run:?}");
+    let run = fx.run(&[
+        "context",
+        "--root",
+        "DEC-fix-001",
+        "--from",
+        "no-such-rev",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(&run.stdout).expect("JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["diagnostics"][0]["code"], "context.revision-unresolved");
+
+    // 比較の起点は `--from`、読む地点は `--at`。 `--base` と `--to` は無い。
+    for flag in ["--base", "--to"] {
+        let run = fx.run(&["context", "--root", "DEC-fix-001", flag, "HEAD"]);
+        assert_eq!(run.code, 1, "{run:?}");
+        assert!(run.stderr.contains("--from"), "{run:?}");
+    }
+    // 存在しない root は不完全で終わる。
+    let run = fx.run(&["context", "--root", "DEC-fix-099", "--format", "json"]);
+    assert_eq!(run.code, 1, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(&run.stdout).expect("JSON");
+    assert_eq!(v["context"]["complete"], false);
 }
 
 // ## check-schema
