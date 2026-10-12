@@ -1924,40 +1924,33 @@ fn 意味を変えない修正の記録が増えていれば上書きとして�
     );
     // 記録が1件増えた → 通る。
     assert!(overwritten(&old, &decision_2_changed(&selected, Some("['誤字の修正']"))).is_empty());
-    // 中身ごとに同じ（理由・案・制約・帰結）。
+}
+
+/// 見るのは `selected` だけ（保守者の決定）。 案・理由・制約・帰結を直しても上書きではない。
+#[test]
+fn selected_以外の中身の変更は上書きとして出ない() {
+    let old = base();
     for change in [
         [("rationale = '理由'", "rationale = '直した理由'")],
         [("options = ['a']", "options = ['a', 'c']")],
     ] {
-        assert_eq!(
-            overwritten(&old, &decision_2_changed(&change, None)),
-            ["DEC-fix-002"],
-            "{change:?}"
-        );
         assert!(
-            overwritten(&old, &decision_2_changed(&change, Some("['直した']"))).is_empty(),
+            overwritten(&old, &decision_2_changed(&change, None)).is_empty(),
             "{change:?}"
         );
     }
-    let with_constraint = |c: &str| {
+    let with_extra = |extra: &str| {
         design_of(&with(
             "meta/decisions/DEC-fix-002.toml",
-            &format!("{DECISION_2}constraint_label = '名'\nconstraint = '{c}'\n"),
+            &format!("{DECISION_2}{extra}"),
         ))
     };
-    assert_eq!(
-        overwritten(&with_constraint("A"), &with_constraint("B")),
-        ["DEC-fix-002"]
-    );
-    let with_consequences = |c: &str| {
-        design_of(&with(
-            "meta/decisions/DEC-fix-002.toml",
-            &format!("{DECISION_2}consequences = ['{c}']\n"),
-        ))
-    };
-    assert_eq!(
-        overwritten(&with_consequences("A"), &with_consequences("B")),
-        ["DEC-fix-002"]
+    assert!(
+        overwritten(
+            &with_extra("constraint_label = '名'\nconstraint = 'A'\nconsequences = ['x']\n"),
+            &with_extra("constraint_label = '名'\nconstraint = 'B'\nconsequences = ['y']\n"),
+        )
+        .is_empty()
     );
 }
 

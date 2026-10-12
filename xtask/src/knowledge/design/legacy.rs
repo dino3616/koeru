@@ -142,7 +142,7 @@ pub(crate) const SCHEMAS: &[SchemaSpec] = &[
             data("constraint_label"),
             data("consequences"),
             data("source_text"),
-            // 判断の中身を、意味を変えずに直した記録（省略可能）。 採用済みの判断の中身を
+            // `selected` を、意味を変えずに直した記録（省略可能）。 採用済みの判断の `selected` を
             // 書き換えるとき、同じ変更の中でここに1件足すと、上書きとして落とさない
             // （[`super::Design::overwritten_decisions`]、`DEC-PLT-048`）。
             data("meaning_preserving_edits"),
@@ -901,16 +901,12 @@ impl<'a> Decision<'a> {
             .collect()
     }
 
-    /// 判断の中身。 選んだもの・案・理由・縛る制約・帰結。 採用済みの判断で、これが変わると
-    /// 上書きになる。 状態・置き換えの関係・影響先（`affects_*`）は含めない
-    /// ——判断の意味ではなく、判断の周りの記録だから。
+    /// 判断の中身。 選んだもの（`selected`）だけ。 採用済みの判断で、これが変わると上書きになる
+    /// （保守者の決定）。 案・理由・制約・帰結・状態・置き換えの関係・影響先（`affects_*`）は
+    /// 含めない——直しても、判断が何を選んだかは変わらないから。
     pub(crate) fn judgement(&self) -> Judgement<'a> {
         Judgement {
             selected: self.selected(),
-            options: self.options(),
-            rationale: self.rationale(),
-            constraint: self.constraint(),
-            consequences: self.consequences(),
         }
     }
 }
@@ -919,10 +915,6 @@ impl<'a> Decision<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Judgement<'a> {
     selected: Option<&'a str>,
-    options: Vec<String>,
-    rationale: Option<&'a str>,
-    constraint: Option<(&'a str, &'a str)>,
-    consequences: Vec<String>,
 }
 
 /// 未解決の問い。 Q。
