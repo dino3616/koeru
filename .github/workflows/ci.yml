@@ -38,7 +38,8 @@ jobs:
       run:
         # 開発環境は flake が持つ（`DEC-PLT-033`）。 Rust も Linux の
         # WebKitGTK 一式も devShell から出るので、apt は要らない。
-        shell: nix develop --command bash -eo pipefail {0}
+        # `ci` はブラウザと編集機の道具を持たない devShell で、取りに行く量が 1 GiB 余り減る。
+        shell: nix develop .#ci --command bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,7 +58,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
-          cmd-format: nix develop -c {0}
+          cmd-format: nix develop .#ci -c {0}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Show toolchain
         run: rustc --version && cargo --version
@@ -168,7 +169,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        shell: nix develop --command bash -eo pipefail {0}
+        shell: nix develop .#ci --command bash -eo pipefail {0}
     steps:
       # xtask の依存は toml と serde_json と apollo-compiler で、koeru-* を引かない。
       # submodule も LFS も要らない。
@@ -185,7 +186,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: xtask
-          cmd-format: nix develop -c {0}
+          cmd-format: nix develop .#ci -c {0}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # fslc は版と SHA-256 の両方で `flake.nix` が固定している。
       # Renovate が追うのは版だけで、hash は `nix-hash-fix` が PR の中で当てる
