@@ -1316,6 +1316,162 @@ fn adopted_otos(conn: &mut SqliteConnection) -> Result<Vec<OtoEntry>> {
         .map(|v| v.into_iter().map(OtoEntry::from).collect())
 }
 
+/// 行ごとの、最初に確定した有効なテイク（`DEC-RCL-016`）。
+///
+/// [`TakeId`] は確定した順に増えるので、小さいほうが先に録ったもの。
+fn first_valid_takes(conn: &mut SqliteConnection) -> Result<BTreeMap<RowId, TakeId>> {
+    let mut first: BTreeMap<RowId, TakeId> = BTreeMap::new();
+    for (row, id) in takes::table
+        .filter(takes::invalid.eq(0))
+        .select((takes::row_id, takes::id))
+        .load::<(String, i32)>(conn)
+        .map_err(db("first_valid_takes"))?
+    {
+        let id = TakeId::new(id);
+        let e = first.entry(RowId::new(row)).or_insert(id);
+        *e = (*e).min(id);
+    }
+    Ok(first)
+}
+
+/// 素材の解決に要る事実（`DEC-PLT-052`）。 台帳の1つの版から読む。
+///
+/// 解くのは [`koeru_model::materials::resolve`]。 ここは事実を読んで渡すだけで、
+/// 誰が選ばれるかは決めない。
+#[derive(Debug, Clone)]
+pub struct MaterialFacts {
+    /// 行・採用・5値。 鍵は移行中の（収録音高, 綴り）（`DEC-RCL-017`）。
+    ///
+    /// 台帳は行の中の深さを持たないので、`produced` の深さは 0。 深さを読むのは
+    /// 下位方式の選びだけで、そちらの事実は行の単位から作り直す
+    /// （`koeru-app` の `packaging`）。
+    pub facts: koeru_model::materials::Facts<(i32, String), koeru_oto::Oto>,
+    /// 採用テイクのマスターの、プロジェクト直下からの相対パス。
+    pub rel_paths: BTreeMap<TakeId, String>,
+    /// 収録音高（昇順）。
+    pub tones: Vec<i32>,
+}
+
+/// 素材の解決に要る事実を読む。
+///
+/// 採用が有効な行（採用テイクが無効でない）だけを読む。 録っていない行の綴りと、
+/// 非採用のテイクの5値は要らない——使わないものを持ち回ると、別の経路が拾う。
+fn material_facts(conn: &mut SqliteConnection) -> Result<MaterialFacts> {
+    use koeru_model::materials::{Adoption, Facts, Production};
+
+    let adopted: Vec<(String, i32, String, String)> = adopted_takes::table
+        .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+        .inner_join(rows::table.on(rows::id.eq(adopted_takes::row_id)))
+        .filter(takes::invalid.eq(0))
+        .select((
+            adopted_takes::row_id,
+            adopted_takes::take_id,
+            rows::file_stem,
+            takes::rel_path,
+        ))
+        .load(conn)
+        .map_err(db("material_facts.adopted"))?;
+    let produced: Vec<(String, i32, String)> = row_aliases::table
+        .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(row_aliases::row_id)))
+        .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
+        .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+        .filter(takes::invalid.eq(0))
+        .select((row_aliases::row_id, rows::tone, row_aliases::alias))
+        .load(conn)
+        .map_err(db("material_facts.produced"))?;
+    // 5値は採用テイクのものだけ。 キーの音高は、そのテイクの行の音高。
+    #[allow(
+        clippy::type_complexity,
+        reason = "oto_values の列を並べたもの。 名前を付けても読みやすくならない"
+    )]
+    let otos: Vec<(i32, String, i32, f64, f64, f64, f64, f64)> = oto_values::table
+        .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
+        .inner_join(takes::table.on(takes::id.eq(oto_values::take_id)))
+        .inner_join(rows::table.on(rows::id.eq(takes::row_id)))
+        .filter(takes::invalid.eq(0))
+        .select((
+            oto_values::take_id,
+            oto_values::alias,
+            rows::tone,
+            oto_values::offset_ms,
+            oto_values::consonant_ms,
+            oto_values::cutoff_ms,
+            oto_values::preutterance_ms,
+            oto_values::overlap_ms,
+        ))
+        .load(conn)
+        .map_err(db("material_facts.otos"))?;
+
+    let mut facts = Facts::empty();
+    let mut rel_paths = BTreeMap::new();
+    for (row, take, name, rel_path) in adopted {
+        let take = TakeId::new(take);
+        facts
+            .adopted
+            .insert(RowId::new(row), Adoption { take, name });
+        rel_paths.insert(take, rel_path);
+    }
+    facts.first_valid = first_valid_takes(conn)?;
+    facts.produced = produced
+        .into_iter()
+        .map(|(row, tone, alias)| Production {
+            key: (tone, alias),
+            row: RowId::new(row),
+            depth: 0,
+        })
+        .collect();
+    for (take, alias, tone, offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms) in otos
+    {
+        facts.otos.insert(
+            (TakeId::new(take), (tone, alias)),
+            koeru_oto::Oto {
+                offset_ms,
+                consonant_ms,
+                cutoff_ms,
+                preutterance_ms,
+                overlap_ms,
+            },
+        );
+    }
+    Ok(MaterialFacts {
+        facts,
+        rel_paths,
+        tones: recording_tones(conn)?,
+    })
+}
+
+/// 解析値を引く。無ければ `None`。
+fn analysis_of(conn: &mut SqliteConnection, take_id: i32) -> Result<Option<TakeAnalysis>> {
+    let row = take_analysis::table
+        .filter(take_analysis::take_id.eq(take_id))
+        .select((
+            take_analysis::peak,
+            take_analysis::f0,
+            take_analysis::amp,
+            take_analysis::thumbnail,
+            take_analysis::centroid_hz,
+        ))
+        .first::<(f64, Vec<u8>, Vec<u8>, Vec<u8>, Option<f64>)>(conn)
+        .optional()
+        .map_err(db("analysis_of"))?;
+
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "peak は 0.0..=1.0 付近。f32 で保つ"
+    )]
+    Ok(
+        row.map(|(peak, f0, amp, thumbnail, centroid_hz)| TakeAnalysis {
+            peak: peak as f32,
+            frq: Frq {
+                f0: bytes_to_f64s(&f0),
+                amp: bytes_to_f64s(&amp),
+            },
+            thumbnail,
+            centroid_hz,
+        }),
+    )
+}
+
 /// 確認の進み方（`TR-ALN-25`）。
 fn review_state(conn: &mut SqliteConnection) -> Result<ReviewStateRow> {
     review_state::table
@@ -1948,17 +2104,7 @@ impl Ledger {
             .into_iter()
             .map(RowId::new)
             .collect();
-        let mut first: BTreeMap<RowId, TakeId> = BTreeMap::new();
-        for (row, id) in takes::table
-            .filter(takes::invalid.eq(0))
-            .select((takes::row_id, takes::id))
-            .load::<(String, i32)>(&mut self.conn)
-            .map_err(db("alias_owners.first"))?
-        {
-            let id = TakeId::new(id);
-            let e = first.entry(RowId::new(row)).or_insert(id);
-            *e = (*e).min(id);
-        }
+        let first = first_valid_takes(&mut self.conn)?;
         let produced: Vec<(String, i32, String)> = row_aliases::table
             .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
             .select((rows::id, rows::tone, row_aliases::alias))
@@ -1975,6 +2121,14 @@ impl Ledger {
             .into_iter()
             .map(|(k, row)| (k, row.into_string()))
             .collect())
+    }
+
+    /// 素材の解決に要る事実（`DEC-PLT-052`）。
+    ///
+    /// 試唱と書き出しが、同じ事実から [`koeru_model::materials::resolve`] で候補を解く。
+    /// 読み取り専用の版固定の経路は [`LedgerSnapshot::material_facts`]。
+    pub fn material_facts(&mut self) -> Result<MaterialFacts> {
+        material_facts(&mut self.conn)
     }
 
     /// 録音リストが要求するエイリアスの全体（`TR-RCL-18`）。
@@ -2374,34 +2528,7 @@ impl Ledger {
     /// （古いプロジェクトや、まだ解析が終わっていないテイク）。
     #[tracing::instrument(skip(self), fields(take_id))]
     pub fn analysis_of(&mut self, take_id: i32) -> Result<Option<TakeAnalysis>> {
-        let row = take_analysis::table
-            .filter(take_analysis::take_id.eq(take_id))
-            .select((
-                take_analysis::peak,
-                take_analysis::f0,
-                take_analysis::amp,
-                take_analysis::thumbnail,
-                take_analysis::centroid_hz,
-            ))
-            .first::<(f64, Vec<u8>, Vec<u8>, Vec<u8>, Option<f64>)>(&mut self.conn)
-            .optional()
-            .map_err(db("analysis_of"))?;
-
-        #[allow(
-            clippy::cast_possible_truncation,
-            reason = "peak は 0.0..=1.0 付近。f32 で保つ"
-        )]
-        Ok(
-            row.map(|(peak, f0, amp, thumbnail, centroid_hz)| TakeAnalysis {
-                peak: peak as f32,
-                frq: Frq {
-                    f0: bytes_to_f64s(&f0),
-                    amp: bytes_to_f64s(&amp),
-                },
-                thumbnail,
-                centroid_hz,
-            }),
-        )
+        analysis_of(&mut self.conn, take_id)
     }
 
     /// 書き出しを1件記録する（`TR-PKG-44`）。
@@ -2847,60 +2974,6 @@ impl Ledger {
             .execute(&mut self.conn)
             .map_err(db("set_song_transpose"))?;
         Ok(())
-    }
-
-    /// その綴りを鳴らすためのテイク（`TR-SYN-12`, `TR-RCL-18`）。
-    ///
-    /// 採用テイクだけ。 無効にしたテイク（取りこぼし、`TR-REC-07`）は入らない。
-    /// 同じ綴りを複数の行が生むときは、先に来る行のものを使う（決定的にする）。
-    #[tracing::instrument(skip(self, alias))]
-    pub fn take_for_alias(&mut self, alias: &str) -> Result<Option<Take>> {
-        self.take_for_alias_at(alias, None)
-    }
-
-    /// その収録音高で、その綴りを鳴らすためのテイク（`TR-SYN-16`）。
-    ///
-    /// `tone` が `None` なら音高を問わない（単音階）。 多音階では
-    /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
-    /// 1音だけ別人の声になる。
-    ///
-    /// **仮名で引いていた。** 原音設定は行が生む綴りで置かれている
-    /// （`TR-RCL-18`）ので、連続音では `か` を引いても何も出ず、
-    /// 試唱の素材が1つも載らなかった。
-    ///
-    /// # Errors
-    ///
-    /// SQLite の操作が失敗した。
-    #[tracing::instrument(skip(self, alias))]
-    pub fn take_for_alias_at(&mut self, alias: &str, tone: Option<i32>) -> Result<Option<Take>> {
-        let mut q = row_aliases::table
-            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
-            .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
-            .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
-            .left_join(take_analysis::table.on(take_analysis::take_id.eq(takes::id)))
-            .filter(row_aliases::alias.eq(alias))
-            .filter(takes::invalid.eq(0))
-            .into_boxed();
-        if let Some(t) = tone {
-            q = q.filter(rows::tone.eq(t));
-        }
-        let row = q
-            .order(rows::ordinal.asc())
-            .select((
-                takes::id,
-                takes::row_id,
-                takes::rel_path,
-                takes::frames,
-                takes::invalid,
-                takes::generation,
-                take_analysis::peak.nullable(),
-                takes::recorded_at,
-            ))
-            .first::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(&mut self.conn)
-            .optional()
-            .map_err(db("take_for_alias"))?;
-
-        Ok(row.map(build_take))
     }
 
     /// テイクを1件引く。無ければ `None`。
@@ -3753,6 +3826,16 @@ impl LedgerSnapshot {
     /// 綴りの表の写し。 [`Ledger::presamp_snapshot`] と同じ版。
     pub fn presamp_snapshot(&mut self) -> Result<Option<String>> {
         presamp_snapshot(self.conn())
+    }
+
+    /// 素材の解決に要る事実。 [`Ledger::material_facts`] と同じ版。
+    pub fn material_facts(&mut self) -> Result<MaterialFacts> {
+        material_facts(self.conn())
+    }
+
+    /// 解析値を引く。 [`Ledger::analysis_of`] と同じ版。
+    pub fn analysis_of(&mut self, take_id: i32) -> Result<Option<TakeAnalysis>> {
+        analysis_of(self.conn(), take_id)
     }
 }
 
@@ -4990,6 +5073,97 @@ mod m5_tests {
                 .expect("引ける")
                 .contains("- い")
         );
+    }
+
+    /// 同じ音高で同じ綴り（`- い`）を生む2つの行を、指定した順に録る。
+    /// 返るのは（並びが前の行, 並びが後ろの行）。 5値は、持ち主が持つ綴りにだけ置く
+    /// （本番の解析と同じ）。
+    fn record_two_producers(l: &mut Ledger, hi_first: bool) -> (String, String) {
+        let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
+            .expect("書き込める");
+        let sid = l.start_session(&session()).expect("始められる");
+        let producers: Vec<(i32, String)> = row_aliases::table
+            .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
+            .filter(row_aliases::alias.eq("- い"))
+            .select((rows::ordinal, rows::id))
+            .order(rows::ordinal.asc())
+            .load(&mut l.conn)
+            .expect("引ける");
+        assert!(producers.len() > 1, "第2段が語頭 CV を重ねて生む前提");
+        let lo = producers[0].1.clone();
+        let hi = producers[producers.len() - 1].1.clone();
+        let order = if hi_first { [&hi, &lo] } else { [&lo, &hi] };
+        for row in order {
+            let t = adopt(l, sid, row);
+            let o = koeru_oto::Oto {
+                offset_ms: 0.0,
+                consonant_ms: 10.0,
+                cutoff_ms: -100.0,
+                preutterance_ms: 5.0,
+                overlap_ms: 2.0,
+            };
+            for a in l.owned_aliases_of_row(row).expect("引ける") {
+                l.put_oto(t, &a, &o, 0.9, None, false).expect("書ける");
+            }
+        }
+        (lo, hi)
+    }
+
+    /// 試唱が引くテイクは、綴りの持ち主のテイク（`DEC-RCL-016`, `DEC-PLT-052`）。
+    ///
+    /// **並びが前の行のテイクを引いていた。** 先に録ったのが並びの後ろの行（詰め直した行を
+    /// 先に録ったときなど）だと、5値は持ち主の行にしか無いので、引いた先に何も無くて
+    /// 綴りが黙って鳴らなかった。 持ち主の行を先に録るのが並びの前でも後ろでも、
+    /// 同じ綴りが同じ5値で鳴る。
+    #[test]
+    fn 使う素材は先に録った行のもので_録る順に依らず綴りが揃う() {
+        use koeru_model::materials::{Disposition, Role, UseContext, resolve};
+        let mut sounded = Vec::new();
+        for hi_first in [true, false] {
+            let mut l = Ledger::open_in_memory().expect("開ける");
+            let (lo, hi) = record_two_producers(&mut l, hi_first);
+            let owner = if hi_first { &hi } else { &lo };
+
+            let m = l.material_facts().expect("引ける");
+            let r = resolve(&m.facts, UseContext::Preview, |_| Role::Cv);
+            let key = (60, "- い".to_owned());
+            let c = r
+                .candidates()
+                .iter()
+                .find(|c| c.key == key && c.disposition == Disposition::Use)
+                .expect("先に録った行のテイクを使う");
+            assert_eq!(c.row.as_str(), owner, "先に録った行が持つ");
+            assert!(m.facts.oto(c).is_some(), "持ち主のテイクに5値がある");
+            assert!(m.rel_paths.contains_key(&c.take));
+            // 台帳が答える持ち主と同じ。
+            assert_eq!(l.alias_owners().expect("引ける").get(&key), Some(owner));
+
+            sounded.push(
+                r.used()
+                    .map(|c| c.key.clone())
+                    .collect::<std::collections::BTreeSet<_>>(),
+            );
+        }
+        assert_eq!(sounded[0], sounded[1], "録る順を替えても鳴る綴りは同じ");
+        assert!(sounded[0].contains(&(60, "- い".to_owned())));
+    }
+
+    /// 被覆は、解いた結果の鍵と台帳の被覆で一致する。
+    #[test]
+    fn 解いた被覆は台帳の被覆と同じ() {
+        use koeru_model::materials::{Role, UseContext, resolve};
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        record_two_producers(&mut l, true);
+        let m = l.material_facts().expect("引ける");
+        let r = resolve(&m.facts, UseContext::Preview, |_| Role::Cv);
+        let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
+        for (tone, alias) in r.covered() {
+            by_tone.entry(*tone).or_default().insert(alias.clone());
+        }
+        assert_eq!(by_tone, l.covered_aliases_by_tone().expect("引ける"));
+        // 読み取りの版固定の経路も同じ事実を返す。
+        assert_eq!(m.tones, l.recording_tones().expect("引ける"));
     }
 
     /// 連続音の行が生むのは仮名ではなくエイリアス（`TR-PKG-22`）。

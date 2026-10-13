@@ -52,6 +52,7 @@ use koeru_core::waveform;
 // `Outcome` は収録の校正（`calibration::Outcome`）が名乗っているので、確定の状態は
 // `koeru_failure::Outcome` と書く。
 use koeru_failure::{Class, Failure};
+use koeru_model::materials::{Role, UseContext};
 use koeru_model::retake::{self, Anchor, Onsets, Pins};
 // 背後の仕事（`DEC-PLT-047`）。 `Receipt` は台帳の受領証（`koeru_core::db::Receipt`）が
 // 名乗っているので、仕事の受領証は `jobs::Receipt` と書く。
@@ -733,6 +734,7 @@ pub struct Studio {
 }
 
 /// 採用テイクから集めた素材。
+#[derive(Default)]
 struct Materials {
     /// エイリアスごとの WAV の場所。
     paths: HashMap<String, PathBuf>,
@@ -3518,6 +3520,11 @@ impl Studio {
         let take = self.writer()?.take(take_id)?.ok_or_else(unknown_take)?;
         // 1テイクに複数のエントリがある（`DEC-ALN-013`）。試聴は先頭の1つで鳴らす。
         // 並びはエイリアス順で常に同じ（`TR-ALN-29`）。
+        //
+        // **素材の解決（`DEC-PLT-052`）を通していない。** 引き数が綴りではなくテイクで、
+        // 「このテイクを聴く」入口だから。 どの綴りを鳴らすかを決める経路ではないので、
+        // 持ち主の規則は掛からない。 先頭の1つを選ぶ決め方を解決へ寄せるなら、
+        // 候補に「テイクの代表」という用途を足す判断が要る（T08c の後続、未決）。
         let oto = self
             .writer()?
             .otos_of(take_id)?
@@ -4778,7 +4785,7 @@ impl Studio {
         //
         // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
         // 収録音高ごとの素材（`TR-SYN-16`）。 単音階なら鍵は `None` の1つ。
-        let by_tone = self.materials_by_tone(&root)?;
+        let by_tone = self.materials_by_tone(&root, &rules, preset)?;
         // 解決はノートごとに、そのノートが使える区画だけで行う（`DEC-SYN-014`）。
         //
         // **全体の和集合で綴りを選んでいた。** 選んだ綴りがそのノートの区画に
@@ -5104,63 +5111,67 @@ impl Studio {
         out
     }
 
-    /// 採用テイクの素材・周波数表・oto を集める。
+    /// 収録音高ごとの、鳴らす素材・周波数表・oto（`TR-SYN-16`）。
     ///
-    /// `tone` を渡すとその収録音高の素材だけを拾う（`TR-SYN-16`）。 多音階では
+    /// 単音階なら1つで、鍵は `None`。 多音階では音高ごとに引き、
     /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
-    /// 1音だけ別人の声になる。単音階では `None`。
-    fn adopted_materials_at(
-        &mut self,
-        root: &std::path::Path,
-        tone: Option<i32>,
-    ) -> Result<Materials> {
-        let mut paths = HashMap::new();
-        let mut tables = HashMap::new();
-        let mut otos = HashMap::new();
-
-        // 行が生む綴りで集める（`TR-RCL-18`）。
-        //
-        // **仮名で集めていた。** 原音設定は綴りで置かれているので、
-        // 連続音では `oto_of(take, "か")` が何も返さず、**素材が1つも
-        // 載らなかった。** CVVC では渡りと語尾だけが落ちていた。
-        let rows: Vec<String> = self.writer()?.covered_aliases()?.into_iter().collect();
-        for unit in rows {
-            let Some(take) = self.writer()?.take_for_alias_at(&unit, tone)? else {
-                continue;
-            };
-            // 1テイクに複数のエントリがあるので、欲しい綴りを名前で引く
-            // （`DEC-ALN-013`）。
-            let Some(oto) = self.writer()?.oto_of(take.id, &unit)? else {
-                continue;
-            };
-            paths.insert(unit.clone(), root.join(&take.rel_path));
-            if let Some(a) = self.writer()?.analysis_of(take.id)? {
-                tables.insert(unit.clone(), a.frq.f0);
-            }
-            otos.insert(unit, oto);
-        }
-        Ok(Materials {
-            paths,
-            tables,
-            otos,
-        })
-    }
-
-    /// 収録音高ごとの素材（`TR-SYN-16`）。
+    /// 1音だけ別人の声になる。
     ///
-    /// 単音階なら1つで、鍵は `None`。 多音階では音高ごとに引く。
+    /// どの素材を使うかは、書き出しと同じ解決が決める（`DEC-PLT-052`）。 綴りの持ち主の
+    /// 行（`DEC-RCL-016`）の採用テイクで、5値があるものだけ。 **並びが前の行のテイクを
+    /// 引いていた。** 先に録ったのが並びの後ろの行だと、5値の無いテイクを引いて、
+    /// 持ち主の素材があるのに綴りが黙って鳴らなかった。
+    ///
+    /// 台帳の1つの版から読む。 解いている間に録音が確定しても、途中の版を混ぜない。
     fn materials_by_tone(
         &mut self,
         root: &std::path::Path,
+        rules: &koeru_core::presamp::Rules,
+        preset: koeru_core::preset::MethodPreset,
     ) -> Result<std::collections::BTreeMap<Option<i32>, Materials>> {
-        let tones = self.writer()?.recording_tones()?;
-        let mut out = std::collections::BTreeMap::new();
-        if tones.len() <= 1 {
-            out.insert(None, self.adopted_materials_at(root, None)?);
-        } else {
+        let (runtime, lease) = {
+            let open = self.opened()?;
+            (Arc::clone(&open.runtime), open.lease)
+        };
+        let session = runtime.read(&lease)?;
+        let facet = session.materials()?;
+        // 試唱が鳴らさない役割（語尾）を引くための一覧。 書き出しは同じ事実から語尾も配る。
+        let catalog = koeru_model::target::Catalog::new(rules, preset.method, preset.set);
+        let resolution = facet.resolve(UseContext::Preview, |(_, alias)| Role::of(&catalog, alias));
+
+        let tones = facet.tones();
+        let multi = tones.len() > 1;
+        let mut out: std::collections::BTreeMap<Option<i32>, Materials> =
+            std::collections::BTreeMap::new();
+        if multi {
+            // 1テイクも録っていない音高も、空の区画として持つ（解決が区画を数える）。
             for t in tones {
-                out.insert(Some(t), self.adopted_materials_at(root, Some(t))?);
+                out.insert(Some(*t), Materials::default());
             }
+        } else {
+            out.insert(None, Materials::default());
+        }
+        // 周波数表はテイクごとに1度だけ引く。 綴りごとに引くと、同じ表を何度も読む。
+        let mut tables: HashMap<koeru_model::id::TakeId, Option<Vec<f64>>> = HashMap::new();
+        for c in resolution.used() {
+            let (tone, alias) = &c.key;
+            let (Some(rel), Some(oto)) = (facet.rel_path(c.take), facet.oto(c)) else {
+                continue;
+            };
+            let table = match tables.get(&c.take) {
+                Some(t) => t.clone(),
+                None => {
+                    let t = session.analysis_of(c.take)?.map(|a| a.frq.f0);
+                    tables.insert(c.take, t.clone());
+                    t
+                }
+            };
+            let m = out.entry(multi.then_some(*tone)).or_default();
+            m.paths.insert(alias.clone(), root.join(rel));
+            if let Some(f0) = table {
+                m.tables.insert(alias.clone(), f0);
+            }
+            m.otos.insert(alias.clone(), *oto);
         }
         Ok(out)
     }
@@ -6632,6 +6643,216 @@ mod derived_take_tests {
         let shown = format!("{unfinished:?}");
         assert!(shown.contains("ledger.unknown_take"), "{shown}");
         assert!(!shown.contains("0.9"), "{shown}");
+    }
+}
+
+/// 試唱が鳴らす素材と、書き出しが配る素材（`DEC-PLT-052`）。 本物の SQLite の台帳を通す。
+// MFA を組んでいない OS では `Studio::open` が設計どおり失敗する（`DEC-ALN-016`）。
+#[cfg(all(test, target_os = "macos", not(koeru_force_unsupported_backend)))]
+mod material_tests {
+    use super::*;
+
+    fn opened(tag: &str, preset: &str, tones: &[i32]) -> Studio {
+        let root = std::env::temp_dir().join(format!(
+            "koeru-materials-{tag}-{}-{}",
+            std::process::id(),
+            tones.len()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut s = Studio::open(root).expect("ライブラリを開ける");
+        let id = s
+            .create_project_with("素材", preset, tones)
+            .expect("作れる");
+        s.open_project(id).expect("開ける");
+        s
+    }
+
+    /// `- い` を生む行の ID を、並びの順に。
+    fn producers_of_head_i(s: &mut Studio) -> Vec<String> {
+        let rows: Vec<String> = s
+            .rows_with_takes()
+            .expect("引ける")
+            .into_iter()
+            .map(|r| r.row_id)
+            .collect();
+        let mut out = Vec::new();
+        for r in rows {
+            if s.writer()
+                .expect("書き手")
+                .aliases_of_row(&r)
+                .expect("引ける")
+                .contains("- い")
+            {
+                out.push(r);
+            }
+        }
+        out
+    }
+
+    fn by_tone(s: &mut Studio) -> std::collections::BTreeMap<Option<i32>, Materials> {
+        let root = s.opened().expect("開いている").dir().root().to_path_buf();
+        let rules = s.current_rules().expect("引ける");
+        let preset = s.current_preset().expect("引ける");
+        s.materials_by_tone(&root, &rules, preset)
+            .expect("素材を集められる")
+    }
+
+    /// 試唱は、綴りの持ち主の行のテイクで鳴らす（`DEC-RCL-016`）。
+    ///
+    /// **並びが前の行のテイクを引いていた。** 先に録ったのが並びの後ろの行（詰め直した行を
+    /// 先に録ったときなど）だと、5値は持ち主の行にしか無いので、引いた先に何も無くて
+    /// 綴りが黙って鳴らなかった。 どちらの順で録っても、同じ綴りが揃って鳴る。
+    #[test]
+    fn 試唱は先に録った行の素材で鳴らし_録る順に依らず綴りが揃う() {
+        let mut sounded = Vec::new();
+        for hi_first in [true, false] {
+            let mut s = opened(
+                if hi_first { "hi-first" } else { "lo-first" },
+                "sequential",
+                &[57],
+            );
+            let producers = producers_of_head_i(&mut s);
+            assert!(producers.len() > 1, "第2段が語頭 CV を重ねて生む前提");
+            let (lo, hi) = (producers[0].clone(), producers[producers.len() - 1].clone());
+            let order = if hi_first { [&hi, &lo] } else { [&lo, &hi] };
+            for row in order {
+                s.seed_material_for_test(row).expect("置ける");
+            }
+            let owner = if hi_first { &hi } else { &lo };
+
+            let root = s.opened().expect("開いている").dir().root().to_path_buf();
+            let got = by_tone(&mut s);
+            let m = got.get(&None).expect("単音階の鍵は None");
+            assert_eq!(
+                m.paths.get("- い"),
+                Some(&root.join(format!("audio/{owner}_1.wav"))),
+                "先に録った行のテイクを引く"
+            );
+            assert!(m.otos.contains_key("- い"));
+            assert!(
+                m.tables.contains_key("- い"),
+                "周波数表も持ち主のテイクのもの"
+            );
+            let owned = s
+                .writer()
+                .expect("書き手")
+                .owned_aliases_of_row(owner)
+                .expect("引ける");
+            assert!(
+                owned.iter().all(|a| m.paths.contains_key(a)),
+                "持ち主の綴りが全部鳴る"
+            );
+            sounded.push(m.paths.keys().cloned().collect::<BTreeSet<_>>());
+        }
+        assert_eq!(sounded[0], sounded[1], "録る順を替えても鳴る綴りは同じ");
+    }
+
+    /// 同じ綴りでも、収録音高が違えば別の素材（`TR-SYN-16`）。 区画の鍵は音高。
+    #[test]
+    fn 試唱は音高ごとに別の素材を引く() {
+        let mut s = opened("tones", "sequential", &[55, 62]);
+        let rows: Vec<String> = s
+            .rows_with_takes()
+            .expect("引ける")
+            .into_iter()
+            .map(|r| r.row_id)
+            .collect();
+        let low = rows
+            .iter()
+            .find(|r| r.ends_with("@G3"))
+            .expect("G3 の行")
+            .clone();
+        let high = rows
+            .iter()
+            .find(|r| r.ends_with("@D4"))
+            .expect("D4 の行")
+            .clone();
+        s.seed_material_for_test(&high).expect("置ける");
+        s.seed_material_for_test(&low).expect("置ける");
+
+        let root = s.opened().expect("開いている").dir().root().to_path_buf();
+        let got = by_tone(&mut s);
+        assert_eq!(got.len(), 2, "音高の数だけ区画を持つ");
+        let a = s
+            .writer()
+            .expect("書き手")
+            .owned_aliases_of_row(&low)
+            .expect("引ける")
+            .into_iter()
+            .find(|a| got[&Some(62)].paths.contains_key(a))
+            .expect("両方の音高に同じ綴りがある");
+        assert_eq!(
+            got[&Some(55)].paths.get(&a),
+            Some(&root.join(format!("audio/{low}_1.wav")))
+        );
+        assert_eq!(
+            got[&Some(62)].paths.get(&a),
+            Some(&root.join(format!("audio/{high}_1.wav")))
+        );
+    }
+
+    /// 試唱が鳴らす綴りは、書き出しが配る綴りから、鳴らさない語尾を除いたもの。
+    /// 違いは用途（`UseContext`）だけが持つ。
+    #[test]
+    fn 試唱の綴りは書き出しの綴りから語尾を除いたもの() {
+        use koeru_model::materials::{self, Delivery};
+
+        let mut s = opened("cvvc", "cvvc", &[57]);
+        let rows: Vec<String> = s
+            .rows_with_takes()
+            .expect("引ける")
+            .into_iter()
+            .map(|r| r.row_id)
+            .take(12)
+            .collect();
+        for r in &rows {
+            s.seed_material_for_test(r).expect("置ける");
+        }
+
+        let rules = s.current_rules().expect("引ける");
+        let preset = s.current_preset().expect("引ける");
+        let catalog = koeru_model::target::Catalog::new(&rules, preset.method, preset.set);
+        let exported: BTreeSet<String> = {
+            let material = s
+                .writer()
+                .expect("書き手")
+                .material_facts()
+                .expect("引ける");
+            materials::resolve(
+                &material.facts,
+                UseContext::Export {
+                    delivery: Delivery::AsRecorded,
+                },
+                |_| Role::Cv,
+            )
+            .used()
+            .map(|c| c.key.1.clone())
+            .collect()
+        };
+        let previewed: BTreeSet<String> = by_tone(&mut s)
+            .remove(&None)
+            .expect("単音階の鍵は None")
+            .paths
+            .into_keys()
+            .collect();
+
+        let endings: BTreeSet<String> = exported
+            .iter()
+            .filter(|a| Role::of(&catalog, a) == Role::Ending)
+            .cloned()
+            .collect();
+        assert!(!endings.is_empty(), "語尾を録ってある前提");
+        assert!(
+            exported.iter().any(|a| Role::of(&catalog, a) == Role::Vc),
+            "渡りも録ってある前提"
+        );
+        assert!(previewed.is_disjoint(&endings), "試唱は語尾を鳴らさない");
+        let expected: BTreeSet<String> = exported.difference(&endings).cloned().collect();
+        assert_eq!(previewed, expected, "語尾以外は書き出しと同じ");
+
+        // 画面が出す書き出しの数と、解決が配ると決めた数が一致する。
+        let state = s.package_state().expect("引ける");
+        assert_eq!(state.alias_count, exported.len(), "配る綴りは解決のとおり");
     }
 }
 

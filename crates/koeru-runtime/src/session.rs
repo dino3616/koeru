@@ -27,13 +27,18 @@
 //! `editor`（T13 で既存契約との接続を検証。M6の編集機能追加は別計画）と `distribution`（配布物の WAV 走査が
 //! 要る。T08 / T09）はここに無い。 台帳の読みだけでは組めない・まだ設計が
 //! 無いという理由でここに置いていないだけで、忘れているわけではない。
+//!
+//! `materials`（素材の解決の事実）は台帳の読みだけで組めるので、ここにある（`DEC-PLT-052`）。
 
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 
+use koeru_core::analysis::TakeAnalysis;
 use koeru_core::capture;
-use koeru_core::db::{LedgerSnapshot, Revision, RowTakes, Take};
+use koeru_core::db::{LedgerSnapshot, MaterialFacts, Revision, RowTakes, Take};
 use koeru_core::song::Song;
+use koeru_model::id::TakeId;
+use koeru_model::materials::{self, Candidate, Facts, Resolution, Role, UseContext};
 use koeru_model::review::ReviewQueue;
 
 use crate::error::RuntimeError;
@@ -102,6 +107,51 @@ impl RepertoireFacet {
     }
 }
 
+/// 素材 facet。 試唱と書き出しが同じ候補を解くための事実（`DEC-PLT-052`）。
+///
+/// 解くのは [`koeru_model::materials::resolve`]。 用途ごとの違いは `UseContext` が持つので、
+/// この facet は用途を知らない——事実を1つの版から組んで返すだけ。
+#[derive(Debug)]
+pub struct MaterialsFacet {
+    material: MaterialFacts,
+}
+
+impl MaterialsFacet {
+    /// 用途に応じて、候補を解く。 `role_of` は鍵の役割（試唱が語尾を鳴らさないかの判断に要る）。
+    #[must_use]
+    pub fn resolve(
+        &self,
+        context: UseContext,
+        role_of: impl Fn(&(i32, String)) -> Role,
+    ) -> Resolution<(i32, String)> {
+        materials::resolve(&self.material.facts, context, role_of)
+    }
+
+    /// 候補の5値。 無ければ `None`。
+    #[must_use]
+    pub fn oto(&self, c: &Candidate<(i32, String)>) -> Option<&koeru_core::oto::Oto> {
+        self.material.facts.oto(c)
+    }
+
+    /// 候補のテイクのマスターの、プロジェクト直下からの相対パス。
+    #[must_use]
+    pub fn rel_path(&self, take: TakeId) -> Option<&str> {
+        self.material.rel_paths.get(&take).map(String::as_str)
+    }
+
+    /// 収録音高（昇順）。
+    #[must_use]
+    pub fn tones(&self) -> &[i32] {
+        &self.material.tones
+    }
+
+    /// 解くのに使う事実そのもの。
+    #[must_use]
+    pub const fn facts(&self) -> &Facts<(i32, String), koeru_core::oto::Oto> {
+        &self.material.facts
+    }
+}
+
 /// 1つの版に固定した読み（`ProjectLease` / 版 / facet）。
 ///
 /// [`ProjectRuntime::read`](crate::ProjectRuntime::read) が返す。
@@ -119,6 +169,7 @@ pub struct ProjectReadSession {
     recording: OnceLock<Arc<RecordingFacet>>,
     review: OnceLock<Arc<ReviewFacet>>,
     repertoire: OnceLock<Arc<RepertoireFacet>>,
+    materials: OnceLock<Arc<MaterialsFacet>>,
 }
 
 impl std::fmt::Debug for ProjectReadSession {
@@ -148,6 +199,7 @@ impl ProjectReadSession {
             recording: OnceLock::new(),
             review: OnceLock::new(),
             repertoire: OnceLock::new(),
+            materials: OnceLock::new(),
         }
     }
 
@@ -244,6 +296,34 @@ impl ProjectReadSession {
         let songs = self.timed(|| self.with_snapshot(LedgerSnapshot::songs_in_bank))?;
         let arc = Arc::new(RepertoireFacet { songs });
         Ok(Arc::clone(self.repertoire.get_or_init(|| arc)))
+    }
+
+    /// 素材 facet（`DEC-PLT-052`）。 台帳から導ける事実なので、ここで組み直す。
+    ///
+    /// 試唱が使う素材も、書き出しが配る素材も、この事実から同じ [`koeru_model::materials::resolve`]
+    /// で解く。 版が固定されているので、解いた結果は同じセッションの他の facet と同じ時点のもの。
+    ///
+    /// # Errors
+    ///
+    /// スナップショットを読めない。
+    pub fn materials(&self) -> Result<Arc<MaterialsFacet>, RuntimeError> {
+        if let Some(f) = self.materials.get() {
+            return Ok(Arc::clone(f));
+        }
+        let material = self.timed(|| self.with_snapshot(LedgerSnapshot::material_facts))?;
+        let arc = Arc::new(MaterialsFacet { material });
+        Ok(Arc::clone(self.materials.get_or_init(|| arc)))
+    }
+
+    /// 解析値をテイク1件ぶん、同じ版から引く。
+    ///
+    /// 周波数表は大きいので、[`MaterialsFacet`] には持たせない。 鳴らす候補のテイクだけ引く。
+    ///
+    /// # Errors
+    ///
+    /// スナップショットを読めない。
+    pub fn analysis_of(&self, take: TakeId) -> Result<Option<TakeAnalysis>, RuntimeError> {
+        self.with_snapshot(|s| s.analysis_of(take.get()))
     }
 
     /// facet 1つの構築時間を span へ記録する（T05 の観測性契約

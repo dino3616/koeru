@@ -48,4 +48,6 @@ pub mod time;
 pub use error::RuntimeError;
 pub use lease::ProjectLease;
 pub use runtime::{ProjectRuntime, WriterGuard};
-pub use session::{ProjectReadSession, RecordingFacet, RepertoireFacet, ReviewFacet};
+pub use session::{
+    MaterialsFacet, ProjectReadSession, RecordingFacet, RepertoireFacet, ReviewFacet,
+};
