@@ -108,6 +108,7 @@
 | [DEC-PLT-049](DEC-PLT-049.toml) |  | CMP（部品の台帳）は DEC と EVID だけに分解し、部品の inventory は作らない | accepted |
 | [DEC-PLT-050](DEC-PLT-050.toml) |  | 正本の置き場所は meta/ の下の knowledge・specs・verification に分け、移すのは D08 | accepted |
 | [DEC-PLT-051](DEC-PLT-051.toml) | 試唱の流し込みと解析の lane の分け方 | 試唱の流し込みは JobRuntime の専用の lane（試唱）で回し、lane は前景・試唱・背景の3本にする | accepted |
+| [DEC-PLT-052](DEC-PLT-052.toml) | 試唱と書き出しが同じ素材を、用途の違いを明示して選ぶ | 素材の解決は、用途（UseContext）を受ける1つの resolver が持つ | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -152,4 +153,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-142 件。
+143 件。
