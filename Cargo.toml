@@ -68,7 +68,9 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
 block2 = "0.6.2"
 
 # WORLD（同梱の C++）をビルドする。cc は rust-lang org。
-cc = "1.4.6"
+# `parallel` は Cargo の jobserver から枠を借りて並列にコンパイルする（jobserver も rust-lang org）。
+# 3 コアで Kaldi が 136 秒から 40 秒になり、アーカイブの並びも中身も変わらない（`TR-ALN-29`）。
+cc = { version = "1.4.6", features = ["parallel"] }
 
 # プロジェクトの永続化。SQLite を bundled で同梱し、OS の libsqlite3 に依存しない
 # （TR-PLT-20 のオフライン完結、TR-PLT-07 の外部インストール禁止）。
