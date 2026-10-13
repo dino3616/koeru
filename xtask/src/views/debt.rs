@@ -98,7 +98,7 @@ fn list(items: &[String]) -> String {
     }
 }
 
-/// `design-debt --human` の端末向けの形。 提案書 10.3.1 の項目のうち、記録に欄があるもの。
+/// `design-debt --human`（と、無指定の `human` の節）の端末向けの形。 提案書 10.3.1 の項目のうち、記録に欄があるもの。
 pub(crate) fn render_human_debt(items: &[HumanDebtItem]) -> String {
     let mut out = format!(
         "  人の観察が要る仮説 {} 件（優先度は付けない）\n",

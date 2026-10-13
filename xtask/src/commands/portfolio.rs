@@ -27,20 +27,38 @@ use crate::views::portfolio::{self, Observed, Portfolio};
 
 const USAGE: &str = "使い方: cargo xtask portfolio [--receipts <dir>]... [--format human|json]";
 
-/// `--receipts` を集める。 知らない引数は使い方の誤り。
-fn receipt_dirs(args: &[String]) -> Result<Vec<PathBuf>, String> {
+/// `--receipts` を集める。 知らない引数は、`usage` を返す使い方の誤り。
+pub(super) fn receipt_dirs(args: &[String], usage: &str) -> Result<Vec<PathBuf>, String> {
     let mut dirs = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--receipts" {
-            dirs.push(PathBuf::from(it.next().ok_or(USAGE)?));
+            dirs.push(PathBuf::from(it.next().ok_or(usage)?));
         } else if let Some(v) = a.strip_prefix("--receipts=") {
             dirs.push(PathBuf::from(v));
         } else {
-            return Err(USAGE.to_owned());
+            return Err(usage.to_owned());
         }
     }
     Ok(dirs)
+}
+
+/// 受領証を読む。 `dirs` が空なら `target/receipts/`（無くても誤りにしない）。
+pub(super) fn load_receipts(root: &Path, dirs: &[PathBuf], rep: &mut Report) -> Vec<Observed> {
+    let mut observed = Vec::new();
+    if dirs.is_empty() {
+        read_dir(
+            root,
+            &root.join("target/receipts"),
+            true,
+            rep,
+            &mut observed,
+        );
+    }
+    for dir in dirs {
+        read_dir(root, dir, false, rep, &mut observed);
+    }
+    observed
 }
 
 /// ディレクトリの `*.json` を、ファイル名の昇順で読む。
@@ -117,26 +135,14 @@ pub(crate) fn portfolio(
     format: OutputFormat,
     mut rep: Report,
 ) -> ExitCode {
-    let dirs = match receipt_dirs(args) {
+    let dirs = match receipt_dirs(args, USAGE) {
         Ok(d) => d,
         Err(usage) => {
             eprintln!("{usage}");
             return ExitCode::FAILURE;
         }
     };
-    let mut observed = Vec::new();
-    if dirs.is_empty() {
-        read_dir(
-            root,
-            &root.join("target/receipts"),
-            true,
-            &mut rep,
-            &mut observed,
-        );
-    }
-    for dir in &dirs {
-        read_dir(root, dir, false, &mut rep, &mut observed);
-    }
+    let observed = load_receipts(root, &dirs, &mut rep);
     let probes = portfolio::definitions(entries, snapshot, &mut rep);
     let view = Portfolio::build(&probes, &observed);
     finish(
