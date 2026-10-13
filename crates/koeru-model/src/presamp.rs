@@ -372,7 +372,7 @@ pub struct Verified {
 /// 突き合わせた版を読む（`DEC-SYN-010`）。
 ///
 /// TOML の parser を引かない。 読むのは `name` と `version` の2つだけで、
-/// 形は CI と `openutau-hash-fix` が保っている。**依存を1つ増やすほどの
+/// 形は CI と `nix-hash-fix` が保っている。**依存を1つ増やすほどの
 /// 用ではない**——ここで読み違えても、CI が本物を使って落ちる。
 #[must_use]
 pub fn verified_openutau() -> Vec<Verified> {

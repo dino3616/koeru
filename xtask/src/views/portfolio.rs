@@ -11,7 +11,7 @@
 //! | `executed-and-passed` | 走って、仕事をして、床を満たして、通った |
 //! | `executed-and-failed` | 走って、落ちた |
 //! | `skipped` | 走らせなかった（`Skipped`）、または走れなかった（`NotRun`） |
-//! | `not-applicable` | その組は、どの環境も作らない。 または native が要る Probe の native でない backend |
+//! | `not-applicable` | その組は、どの環境も作らない。 受領証を求めない組（macOS で書いていない OS の席を強制したもの）に届いていない。 または native が要る Probe の native でない backend |
 //! | `missing` | その環境の受領証が届いていない |
 //! | `insufficient` | 受領証は通ったと言うが、合格に数えない（false green の候補） |
 //!
@@ -344,8 +344,9 @@ fn row(p: &ProbeDefinition, observed: &[Observed]) -> ProbeRow {
 
 fn cell(p: &ProbeDefinition, platform: &str, backend: &str, observed: &[Observed]) -> Cell {
     let reachable = ExecutionContext::is_reachable(platform, backend);
-    // native が要る Probe の、native でない backend。 受領証を求めない。
-    let wanted = !(p.requires_native && backend != "native");
+    // native が要る Probe の、native でない backend と、受領証を求めない組。
+    let wanted = ExecutionContext::is_required(platform, backend)
+        && !(p.requires_native && backend != "native");
     let received: Vec<&Observed> = observed
         .iter()
         .filter(|o| o.receipt.probe == p.id)

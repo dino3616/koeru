@@ -35,7 +35,7 @@ fn definition(id: &str) -> ProbeDefinition {
         runner: "cargo".into(),
         package: "p".into(),
         target: "lib".into(),
-        platforms: vec!["macos".into(), "linux".into()],
+        platforms: vec!["windows".into(), "linux".into()],
         backends: vec!["unsupported".into()],
         requires_native: false,
         min_cases: 1,
@@ -69,20 +69,20 @@ fn receipt(probe: &str, platform: &str, status: Status, actual_work: u64) -> Obs
 
 #[test]
 fn 人の観察が要る仮説と実行の不足が種類ごとに分かれて出る() {
-    // X-001 は linux で通り、macos は受領証が無い。 X-002 は linux で 0 件を開いて通り、
-    // macos は走らせなかった。
+    // X-001 は linux で通り、windows は受領証が無い。 X-002 は linux で 0 件を開いて通り、
+    // windows は走らせなかった。
     let portfolio = Portfolio::build(
         &[definition("SUITE-X-001"), definition("SUITE-X-002")],
         &[
             receipt("SUITE-X-001", "linux", Status::Passed, 3),
             receipt("SUITE-X-002", "linux", Status::Passed, 0),
-            receipt("SUITE-X-002", "macos", Status::Skipped, 0),
+            receipt("SUITE-X-002", "windows", Status::Skipped, 0),
             // 環境不明。
             Observed {
                 source: "old.json".into(),
                 receipt: Receipt {
                     environment: None,
-                    ..receipt("SUITE-X-001", "macos", Status::Passed, 3).receipt
+                    ..receipt("SUITE-X-001", "windows", Status::Passed, 3).receipt
                 },
             },
         ],
@@ -94,8 +94,8 @@ fn 人の観察が要る仮説と実行の不足が種類ごとに分かれて�
             .map(|c| format!("{}:{}", c.probe, c.cell.platform))
             .collect()
     };
-    assert_eq!(ids(&debt.missing), ["SUITE-X-001:macos"]);
-    assert_eq!(ids(&debt.skipped), ["SUITE-X-002:macos"]);
+    assert_eq!(ids(&debt.missing), ["SUITE-X-001:windows"]);
+    assert_eq!(ids(&debt.skipped), ["SUITE-X-002:windows"]);
     assert_eq!(ids(&debt.false_green), ["SUITE-X-002:linux"]);
     assert_eq!(debt.unplaced.len(), 1);
     assert_eq!(debt.len(), 5);
@@ -115,7 +115,7 @@ fn 落ちたセルは債務に入れない() {
         &[definition("SUITE-X-001")],
         &[
             receipt("SUITE-X-001", "linux", Status::Failed, 3),
-            receipt("SUITE-X-001", "macos", Status::Passed, 3),
+            receipt("SUITE-X-001", "windows", Status::Passed, 3),
         ],
     );
     let debt = Debt::build(Vec::new(), &portfolio);

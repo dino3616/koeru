@@ -149,6 +149,13 @@ impl ExecutionContext {
     pub(crate) fn is_reachable(platform: &str, backend: &str) -> bool {
         backend == "unsupported" || (backend == "native" && platform == "macos")
     }
+
+    /// その組の受領証を求めるか。 macOS で書いていない OS の席を強制した組は、
+    /// 組み立つことを CI の clippy が見るだけで、試験は走らせない（`DEC-PLT-059`）。
+    /// 手元で走らせた受領証が届けば、他の組と同じく判定する。
+    pub(crate) fn is_required(platform: &str, backend: &str) -> bool {
+        Self::is_reachable(platform, backend) && !(platform == "macos" && backend == "unsupported")
+    }
 }
 
 /// 受領証が名乗る、走らせた環境。 [`ExecutionContext`] の所有する写しで、JSON から

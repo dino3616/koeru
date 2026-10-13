@@ -1,0 +1,91 @@
+schema = 'evidence'
+id = 'EVID-PLT-005'
+title = 'CI の所要時間の内訳。 macOS の2枠が全体を決め、Rust はキャッシュ無しで組み、Actions のキャッシュは magic-nix-cache が上限を超えて埋めていた'
+kind = 'implementation_survey'
+source = 'GitHub Actions の `ci.yml` の実行履歴（直近 48 回、`gh run list` と `gh api .../jobs`）、macOS ジョブの段ごとのログ、`gh api .../actions/cache/usage`'
+provenance = '''
+ジョブの時間は `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` の `created_at`・
+`started_at`・`completed_at` から数えた。 待ちは `started_at - created_at`、
+所要は `completed_at - started_at`。 全体は run の作成から最後のジョブの完了まで。
+macOS の内訳は、1回の run のログの段ごとの時刻から読んだ。
+'''
+confidence = 'Fact'
+
+before = '''
+直近 48 回。 全体の中央値は 16.3 分、p90 は 31.5 分。
+48 回すべてで最後に終わったのは macOS のジョブだった
+（`macOS (clippy + unsupported backend)` が 33 回、`test (macos-latest)` が 15 回）。
+
+| ジョブ | 待ちの中央値 | 所要の中央値 |
+|---|---|---|
+| macOS (clippy + unsupported backend) | 0.3 分（p90 15.1 分） | 15.3 分 |
+| test (macos-latest) | 0.4 分（p90 15.0 分） | 12.6 分 |
+| test (windows) | 0.1 分 | 9.3 分 |
+| test (ubuntu-latest) | 0.1 分 | 6.3 分 |
+| fmt + clippy | 0.1 分 | 3.8 分 |
+| ui | 0.1 分 | 2.8 分 |
+| specs | 0.1 分 | 2.4 分 |
+| talks | 0.1 分 | 1.8 分 |
+| license policy | 0.1 分 | 1.3 分 |
+| phonemizer parity（2本） | 0.1 分 | 0.1 分 |
+
+[Fact] 1回の CI は 11 ジョブで、うち macOS が2つ。 Free プランの macOS の同時実行は 5 まで。
+macOS の待ちの p90 が 15 分なのは、PR が重なって枠が埋まったときに当たる。
+
+[Fact] `macOS (clippy + unsupported backend)` の 15 分の内訳。
+Nix の準備が約 3 分（導入 70 秒、magic-nix-cache の起動 30 秒、devShell の実体化 75 秒）、
+native の clippy が 4 分 24 秒、unsupported の clippy が 2 分 55 秒、
+xtask の release ビルドが 1 分 26 秒、試験の組み立てが 4 分 06 秒、試験の実行が約 1 分。
+unsupported の段は `RUSTFLAGS` が変わるので依存まで全部組み直していた。
+
+[Fact] Rust のビルドキャッシュは無かった。 全ジョブが毎回コールドビルド。
+
+[Fact] xtask を release で組んだあと、`cargo test --workspace` の中で同じ依存を dev でもう一度組んでいた。
+
+[Fact] Actions のキャッシュは 11.9 GB・5572 件で、リポジトリの上限 10 GB を超えていた。
+ほぼすべてが magic-nix-cache の書いた Nix のストアパス。
+
+[Fact] CI で doctest が1件も走っていなかった。 `test-receipt` は `--no-run` で組んだ
+試験 binary しか走らせず、doctest は binary にならない。 doctest を持つのは koeru-audio の 7 件。
+'''
+
+after = '''
+`DEC-PLT-059` の変更をすべて入れた PR の run（38374352660）。 Rust のキャッシュは同じ PR の
+前の run が保存したものに完全一致で当たっている。 全体は 10.5 分。
+1回の CI は 8 ジョブで、うち macOS は1つ。
+
+| ジョブ | 待ち | 所要 |
+|---|---|---|
+| test (macos-latest) | 0.1 分 | 10.4 分 |
+| test (windows) | 0.0 分 | 4.4 分 |
+| test (ubuntu-latest) | 0.0 分 | 3.5 分 |
+| ui | 0.1 分 | 2.0 分 |
+| specs | 0.0 分 | 1.8 分 |
+| talks | 0.0 分 | 1.5 分 |
+| phonemizer parity（2本） | 0.0 分 | 0.2 分 |
+
+[Fact] `test (macos-latest)` の 10.4 分の内訳。 checkout が 13 秒、Nix の導入が 5 秒、
+devShell の取得が 89 秒、Rust のキャッシュの取得が 31 秒（866 MB）、native の clippy が 77 秒、
+xtask の組み立てが 7 秒、試験の組み立てが 2 分 19 秒、試験の実行が約 3 分（doctest を含む）、
+unsupported の clippy が 33 秒。
+
+[Fact] Rust のキャッシュはワークスペースの crate を持たない。 キャッシュが完全一致で当たっても、
+koeru-align と koeru-synth の build.rs が Kaldi と WORLD をコンパイルし直す。 cc の `parallel` を
+立てる前の run（38367325231）では、macOS の native の clippy が 154 秒だった。
+
+[Fact] cc の `parallel` は、手元で `CARGO_BUILD_JOBS=3` にして Kaldi の組み立てを 136 秒から
+40 秒にした。 直列と並列で、アーカイブの `ar t` の並びと各オブジェクトの中身の md5 が一致した。
+
+[Fact] `Cargo.lock` を変えた run（38371944376）では、macOS の Rust のキャッシュが見つからず、
+macOS が 19.1 分かかった。 キャッシュが外れたときの組み立ては、これが目安になる。
+
+[Fact] devShell の閉包は darwin で `default` が 3.4 GiB、`ci` が 2.2 GiB。 差はほぼ Playwright の
+ブラウザ（1.1 GiB）と nixd。 Ubuntu の devShell の取得は 48 秒。
+
+[Fact] Rust のキャッシュは1組で約 2.8 GB（linux 1.1、macos 0.9、windows 0.7、xtask 0.2）。
+この PR を main へ入れるまでは、main と他の PR が magic-nix-cache で書き続けるので、
+使用量は 10 GB 前後のまま。
+
+[Fact] koeru-align と koeru-synth の opt-level を 2 にすると、手元の 3 並列で build.rs を含む組み直しが
+40 秒から 50 秒に延び、2つの crate の試験（177 件）は 15 秒から 12 秒になった。
+'''

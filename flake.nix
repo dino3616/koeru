@@ -178,21 +178,60 @@
           # npm 側の版と nixpkgs 側の版が揃っていないと、Playwright が
           # 入っていないブラウザを探して落ちる。整合は CI が検査する。
           playwrightVersion = ui.devDependencies.playwright;
+
+          # Rust を組んで検査するのに要るもの。 CI の Rust と仕様のジョブはこれだけで閉じる
+          # ——ブラウザ（1 GiB 余り）と編集機の道具を、ジョブのたびに取りに行かない（`DEC-PLT-059`）。
+          ciPackages = [
+            (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+            fslc
+            pkgs.cargo-deny
+            pkgs.git
+            # モデルの実体は LFS にある（`DEC-ALN-012`）。これが無いと
+            # submodule の取得が途中で死ぬ。
+            pkgs.git-lfs
+            pkgs.pkg-config
+            pkgs.nixfmt
+            # 反パターンと未使用の束縛。CI が強制する——走らせない検査は置かない。
+            pkgs.statix
+            pkgs.deadnix
+          ]
+          # Accelerate は SDK が持つ。`koeru-align` の build.rs が
+          # `framework=Accelerate` を引く。
+          ++ lib.optional pkgs.stdenv.hostPlatform.isDarwin pkgs.apple-sdk
+          ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+            # Tauri が Linux で要る一式（`DEC-PLT-014`）。
+            # 以前は CI の composite action が apt で入れていた。ここが唯一の住所
+            # ——2箇所に置くと、片方だけが古くなる（`AGENTS.md` の禁止事項6）。
+            # 個別に削らない。 どれが要るかを自分で追うことになり、CI が1往復ずつ遅れる。
+            pkgs.webkitgtk_4_1
+            pkgs.libsoup_3
+            pkgs.gtk3
+            pkgs.libayatana-appindicator
+            pkgs.librsvg
+            pkgs.xdotool
+            pkgs.openssl
+            pkgs.patchelf
+            pkgs.wrapGAppsHook3
+          ];
+          ciShellHook = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            # 立てないと WebKitGTK が空白のウィンドウを描く。
+            export WEBKIT_DISABLE_COMPOSITING_MODE=1
+            # Wayland で表示倍率を正しく報告させる。
+            export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH:$XDG_DATA_DIRS"
+          '';
         in
         {
+          ci = pkgs.mkShell {
+            name = "koeru-ci";
+            packages = ciPackages;
+            shellHook = ciShellHook;
+          };
+
           default = pkgs.mkShell {
             name = "koeru";
 
-            packages = [
-              (pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+            packages = ciPackages ++ [
               bun
-              fslc
-              pkgs.cargo-deny
-              pkgs.git
-              # モデルの実体は LFS にある（`DEC-ALN-012`）。これが無いと
-              # submodule の取得が途中で死ぬ。
-              pkgs.git-lfs
-              pkgs.pkg-config
               # `.github/scripts/update-hashes.sh` が上流の digest を引く。 ホストの curl に
               # 頼ると、最小構成の NixOS で hash を更新できない。
               pkgs.curl
@@ -202,28 +241,6 @@
               # nixd を採るのは、nixpkgs を実際に評価して補完するから
               # ——nil は静的解析だけで、パッケージ名が出てこない。
               pkgs.nixd
-              pkgs.nixfmt
-              # 反パターンと未使用の束縛。CI が強制する——走らせない検査は置かない。
-              pkgs.statix
-              pkgs.deadnix
-            ]
-            # Accelerate は SDK が持つ。`koeru-align` の build.rs が
-            # `framework=Accelerate` を引く。
-            ++ lib.optional pkgs.stdenv.hostPlatform.isDarwin pkgs.apple-sdk
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-              # Tauri が Linux で要る一式（`DEC-PLT-014`）。
-              # 以前は CI の composite action が apt で入れていた。ここが唯一の住所
-              # ——2箇所に置くと、片方だけが古くなる（`AGENTS.md` の禁止事項6）。
-              # 個別に削らない。 どれが要るかを自分で追うことになり、CI が1往復ずつ遅れる。
-              pkgs.webkitgtk_4_1
-              pkgs.libsoup_3
-              pkgs.gtk3
-              pkgs.libayatana-appindicator
-              pkgs.librsvg
-              pkgs.xdotool
-              pkgs.openssl
-              pkgs.patchelf
-              pkgs.wrapGAppsHook3
             ];
 
             # ブラウザは Nix から出す。 ダウンロード版は NixOS と NixOS-WSL で
@@ -238,11 +255,8 @@
             KOERU_PLAYWRIGHT_FROM_NIXPKGS = pkgs.playwright-driver.version;
 
             shellHook = ''
+              ${ciShellHook}
               ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                # 立てないと WebKitGTK が空白のウィンドウを描く。
-                export WEBKIT_DISABLE_COMPOSITING_MODE=1
-                # Wayland で表示倍率を正しく報告させる。
-                export XDG_DATA_DIRS="$GSETTINGS_SCHEMAS_PATH:$XDG_DATA_DIRS"
                 # 発表資料（`talks/`）は和文を描いてはみ出しを測る。 Linux には和文の
                 # 書体が無く、Chromium が豆腐を測って macOS と別の結果を返す。
                 export FONTCONFIG_FILE=${

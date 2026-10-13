@@ -22,6 +22,11 @@ nix develop --command cargo test --workspace  # 1つだけ走らせる
 
 以下のコマンドは、すべてこのシェルの中で走らせる。
 
+CI の Rust と仕様のジョブは `nix develop .#ci` で走る。 `ci` は bun・Playwright の
+ブラウザ・nixd を持たない devShell で、それ以外は `default` と同じ（`DEC-PLT-059`）。
+Rust の組み立てに要るものを足すときは `flake.nix` の `ciPackages` に足す——`default` にだけ
+足すと、手元では通って CI でだけ見つからない。
+
 ## 基本
 
 ```bash
@@ -44,6 +49,12 @@ cargo xtask check-portfolio            # 登録の漏れだけを見る。組み
 
 落ちる形は4つ。 登録の無い試験 binary、`min_cases` を割った実行件数、失敗、
 登録（`manual`）より多い無視。 受領証は `target/receipts/{実行器}-{OS}-{backend}.json`。
+
+doctest も数える。 `--no-run` の組み立てには出てこないので、`cargo test --workspace --doc`
+を別に1回走らせ、crate ごとに `target = 'doc'` の suite と突き合わせる。 doctest を足した
+crate に登録が無ければ落ちる。 以前は CI で doctest が1件も走っていなかった。
+Windows では走らせない。 tauri-build が検索パスに置く空の `msvcrt.lib` を、cargo が
+全 crate の doctest に渡してしまい、リンクで落ちる。
 
 試験ファイルを足したら、`meta/suites/` にも1件足す。 `min_cases` は、その試験が
 件数を求められるどの環境でも下回らない数にする（書いていない OS では cfg で外れる
@@ -270,9 +281,9 @@ cargo xtask next-id DEC-PLT     # その接頭辞で、まだ使われていな�
 消え、それを引用していた記録だけが別のことを指す。形も参照先も壊れないので、
 上の検査は全部通る。**踏んだ**（`meta/README.md`）。
 
-`check-profile` は通常の CI では走らせない。 未決が残っているのは開発中は正常で、
+`check-profile` は CI では走らせない。 未決が残っているのは開発中は正常で、
 その状態でリリースするのが異常だという線引きにしている。
-実行は `.github/workflows/release-gate.yml`。
+リリースする前に、そのプロファイルを手元で走らせる。
 
 仕様を書き換えたら、変異検査で空洞になっていないかを見ること。
 生き残りは失敗ではなく、レビュー待ちの列として扱う。

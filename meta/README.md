@@ -124,10 +124,12 @@ cargo xtask test-receipt     # 試験を走らせ、件数を suite と突き合
 
 **試験 binary はどれも、ちょうど1件の suite に属する**（`DEC-PLT-039`）。 crate の lib、`tests/*.rs`、bin のそれぞれが1つの試験 binary になる。 登録の無いものは `check-portfolio` が落とすので、試験ファイルを足したら `suites/` にも足す。
 
-`test-receipt` は試験 binary を1本ずつ走らせ、libtest の要約行から件数を数える。 登録と合わないものは落とす。
+doctest は試験 binary にならないので、crate ごとに `target = 'doc'` の suite として数える。 登録を求めるのは doctest を持つ crate だけで、持つのに登録が無いものは `test-receipt` が落とす（`check-portfolio` は組み立てないので、doctest の有無が分からない）。
+
+`test-receipt` は試験 binary を1本ずつ走らせ、libtest の要約行から件数を数える。 doctest はワークスペースを1回で走らせ、crate の見出しごとに数える。 Windows では doctest を組めないので走らせず、doc の suite の `platforms` に `windows` を書かない（理由は `xtask/src/probe/receipt.rs`）。 登録と合わないものは落とす。
 
 - `min_cases` — 実行した件数の下限。 これを割ると落ちる。 数え方が壊れて 0 件になったり、cfg で丸ごと外れたりしたのを見つけるための床で、正確な件数ではない
 - `manual` — `#[ignore]` にしてある手動のハーネスの数。 これより多く無視すると落ちる。 黙って外した試験を見つける
-- `platforms` / `backends` — 件数を求める環境。 `unsupported` は書いていない OS の席で、Linux・Windows と、`--cfg koeru_force_unsupported_backend` で組んだ macOS が当たる
+- `platforms` / `backends` — 件数を求める環境。 `unsupported` は書いていない OS の席で、Linux・Windows が当たる。 `--cfg koeru_force_unsupported_backend` で組んだ macOS も当たるが、受領証は求めない（`DEC-PLT-059`）。 手元で走らせて届けば判定する
 
 前提（モデル・fixture・マイク・実音声）を欠いたときの扱いは `DEC-PLT-039` が決めている。 手動のハーネスは `#[ignore = "理由"]` を付け、その数を `manual` に書く。

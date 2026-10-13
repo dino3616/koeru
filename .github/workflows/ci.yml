@@ -16,53 +16,16 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+  # `RUSTFLAGS: -D warnings` と同じく rustc の警告で落とすが、こちらは
+  # ビルドの指紋に入らない。 `RUSTFLAGS` を変えると依存まで全部組み直す。
+  # build.rs の `cargo::warning`（cc が流す C++ の警告）では落ちない。
+  CARGO_BUILD_WARNINGS: deny
+  # CI の作業ツリーは毎回使い捨てなので、incremental の中間物は書くだけ無駄になる。
+  CARGO_INCREMENTAL: 0
+  # パニックの行番号は残し、変数の情報は捨てる。 target が縮み、リンクも速くなる。
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
-  lint:
-    name: fmt + clippy
-    # ubuntu で回す。 音声のバックエンドは macOS しか無いので、
-    # ここでは `backend::current` がスタブを指す。
-    # 「書いていない OS でもアプリが組み立つか」を見ているのはこのジョブ。
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        # 開発環境は flake が持つ（`DEC-PLT-033`）。 Rust も Linux の
-        # WebKitGTK 一式も devShell から出るので、apt は要らない。
-        shell: nix develop --command bash -eo pipefail {0}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # C / C++ とモデルは submodule で調達している（DEC-PLT-016, DEC-ALN-012）。
-          # 取らないと build.rs が手順を出して止まる。
-          submodules: recursive
-          # MFA のモデルは HuggingFace の LFS に入っている（DEC-ALN-012）。
-          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
-          lfs: true
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
-      - name: Show toolchain
-        run: rustc --version && cargo --version
-      - name: rustfmt
-        run: cargo fmt --all --check
-      # 整形の契約を持たないファイルを作らない。形式は RFC 166（nixfmt）。
-      # git から数えるので、`.nix` が増えても漏れない。
-      - name: nixfmt
-        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty nixfmt --check
-      # 反パターン（statix）と未使用の束縛（deadnix）。
-      # Rust の clippy と同じ規律で、機械で見えるものは機械に見せる。
-      # `errfmt` で出す。 既定の span 描画は日本語コメントの桁を
-      # バイト数で数えるので、指している場所がずれて読めない。
-      - name: statix
-        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty -n1 statix check -o errfmt
-      - name: deadnix
-        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty deadnix --fail
-      # リポジトリ全体で clippy::all を deny する。設定は Cargo.toml の
-      # [workspace.lints] にあり、ここは通過を強制するだけ。
-      - name: clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
   test:
     name: test
     strategy:
@@ -73,15 +36,59 @@ jobs:
     timeout-minutes: 45
     defaults:
       run:
-        shell: nix develop --command bash -eo pipefail {0}
+        # 開発環境は flake が持つ（`DEC-PLT-033`）。 Rust も Linux の
+        # WebKitGTK 一式も devShell から出るので、apt は要らない。
+        # `ci` はブラウザと編集機の道具を持たない devShell で、取りに行く量が 1 GiB 余り減る。
+        shell: nix develop .#ci --command bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # 理由は lint ジョブの同じ箇所。Rust をビルドする job だけが要る。
+          # C / C++ とモデルは submodule で調達している（DEC-PLT-016, DEC-ALN-012）。
+          # 取らないと build.rs が手順を出して止まる。
           submodules: recursive
+          # MFA のモデルは HuggingFace の LFS に入っている（DEC-ALN-012）。
+          # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
           lfs: true
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # Nix は daemon を立てない単一ユーザーで入れる。 macOS で導入が約 1 分から数秒になる。
+      # ストアは cache.nixos.org から引く。 magic-nix-cache は置かない。
+      # ストアパスごとに1件ずつ書き、Actions のキャッシュの枠を埋めていた（`DEC-PLT-059`）。
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      # Rust の組み立ては OS ごとに1つの鍵で持つ。 保存は main だけで、PR は main のものを読む。
+      # PR で保存したものはその PR からしか読めず、10 GB の枠を食い合う（`DEC-PLT-059`）。
+      # 鍵に入れる rustc の版は devShell のものを読む。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
+          cmd-format: nix develop .#ci -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Show toolchain
+        run: rustc --version && cargo --version
+      # 整形と Nix の lint は OS に依らないので、ubuntu で1回だけ見る。
+      - name: rustfmt
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      # 整形の契約を持たないファイルを作らない。形式は RFC 166（nixfmt）。
+      # git から数えるので、`.nix` が増えても漏れない。
+      - name: nixfmt
+        if: runner.os == 'Linux'
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty nixfmt --check
+      # 反パターン（statix）と未使用の束縛（deadnix）。
+      # Rust の clippy と同じ規律で、機械で見えるものは機械に見せる。
+      # `errfmt` で出す。 既定の span 描画は日本語コメントの桁を
+      # バイト数で数えるので、指している場所がずれて読めない。
+      - name: statix
+        if: runner.os == 'Linux'
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty -n1 statix check -o errfmt
+      - name: deadnix
+        if: runner.os == 'Linux'
+        run: git ls-files -z '*.nix' | xargs -0 --no-run-if-empty deadnix --fail
+      # リポジトリ全体で clippy::all を deny する。設定は Cargo.toml の
+      # [workspace.lints] にあり、ここは通過を強制するだけ。
+      #
+      # 音声のバックエンドは macOS しか無いので、ubuntu では `backend::current` が
+      # スタブを指す。 macOS では CoreAudio と Kaldi の経路を見る。
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # MFA のモデルは submodule ＋ LFS で入る。 実体が来ていないと実モデルの
       # 試験が中身を実行せずに ok と出るので、走らせる前にここで落とす。
       # LFS を引けていないときは 130 バイト程度のポインタが置かれるだけで、
@@ -99,6 +106,24 @@ jobs:
       # マイクや実音声が要るハーネスは `#[ignore]` で、ここでは無視として数える。
       # 一度は自分で戻っていて、マイクの無いランナーで「通過」と数えられていた。
       - run: cargo xtask test-receipt
+      # 「書いていない OS の席」を macOS で強制して組む。 Linux では自然に選ばれるが、
+      # `target_os = "macos"` の下で cfg を書き忘れると、ここでしか分からない。**一度やった。**
+      # 試験は走らせない。 席の振る舞いは ubuntu と Windows が見ていて、ここでしか
+      # 赤くならないのは「組み立たない」ことだけ（`DEC-PLT-059`）。
+      #
+      # 最後に置く。 `RUSTFLAGS` を変えると build.rs も組み直されて走り直し、
+      # koeru-align が Kaldi を最初からコンパイルし直す。 試験より前に置くと、
+      # 試験の組み立てでもう一度 Kaldi を組むことになる。
+      - name: clippy（書いていない OS の席）
+        if: runner.os == 'macOS'
+        env:
+          RUSTFLAGS: --cfg koeru_force_unsupported_backend
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # 試験の作業場所はキャッシュに入れない。 残すと rust-cache の掃除が中の fixture を
+      # target と取り違え、エラーの注記を出す。
+      - name: 試験の作業場所を消す
+        shell: bash
+        run: rm -rf target/tmp
 
   test-windows:
     name: test (windows)
@@ -127,39 +152,17 @@ jobs:
           n=$(wc -c < "$f")
           test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
       # ツールチェーンはランナーの rustup が `rust-toolchain.toml` を読んで揃える。
+      # キャッシュの扱いは test ジョブと同じ。 Nix を通らないので、rustc もそのまま呼ぶ。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # 件数の突き合わせは他の OS と同じ（`DEC-PLT-039`）。
       - run: cargo xtask test-receipt
-
-  macos:
-    name: macOS (clippy + unsupported backend)
-    # lint は ubuntu で回すので、macOS の backend と Kaldi の経路は clippy を通っていなかった。
-    # 「書いていない OS の席」も macOS で強制して組む——Linux では自然に選ばれるが、
-    # macOS で組んだときに cfg の書き忘れがあると、ここでしか分からない。**一度やった。**
-    runs-on: macos-latest
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: nix develop --command bash -eo pipefail {0}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          submodules: recursive
-          lfs: true
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
-      - name: clippy（native の backend）
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - name: clippy（書いていない OS の席）
-        env:
-          RUSTFLAGS: -D warnings --cfg koeru_force_unsupported_backend
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # `RUSTDOCFLAGS` を忘れない。 `RUSTFLAGS` は rustdoc に届かないので、
-      # doctest だけが違う設定で組まれる。
-      - name: test-receipt（書いていない OS の席）
-        env:
-          RUSTFLAGS: -D warnings --cfg koeru_force_unsupported_backend
-          RUSTDOCFLAGS: --cfg koeru_force_unsupported_backend
-        run: cargo xtask test-receipt
+      # 理由は test ジョブの同じ段。
+      - name: 試験の作業場所を消す
+        shell: bash
+        run: rm -rf target/tmp
 
   specs:
     name: specs (FSL + meta)
@@ -167,7 +170,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        shell: nix develop --command bash -eo pipefail {0}
+        shell: nix develop .#ci --command bash -eo pipefail {0}
     steps:
       # xtask の依存は toml と serde_json と apollo-compiler で、koeru-* を引かない。
       # submodule も LFS も要らない。
@@ -179,8 +182,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      # 組むのは xtask だけで、ui ジョブと同じ鍵を使う。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: xtask
+          cmd-format: nix develop .#ci -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # fslc は版と SHA-256 の両方で `flake.nix` が固定している。
       # Renovate が追うのは版だけで、hash は `nix-hash-fix` が PR の中で当てる
       # （`DEC-PLT-033`）。
@@ -202,21 +210,26 @@ jobs:
       # `check-meta` は前の版とも比べ、どの基準と比べたかを1行出す。
       - name: meta registries
         run: |
-          cargo run --package xtask -- check-meta
-          cargo run --package xtask -- check-budgets
-          cargo run --package xtask -- check-coverage
+          cargo xtask check-meta
+          cargo xtask check-budgets
+          cargo xtask check-coverage
           # 手書き文書とソースコメントの ID 参照が実体に解決するか。
           # check-meta は TOML の中しか見ないので、ここが Markdown とコメントを受け持つ。
-          cargo run --package xtask -- check-references
+          cargo xtask check-references
           # 判断記録の索引は生成物。手で足すと片方だけが古くなる。
-          cargo run --package xtask -- index-decisions --check
+          cargo xtask index-decisions --check
           # 試験 binary がどれも `meta/suites/` に登録されているか（`DEC-PLT-039`）。
           # 組み立てずに `cargo metadata` だけで見る。
-          cargo run --package xtask -- check-portfolio
+          cargo xtask check-portfolio
       # consumer への契約（`DEC-PLT-035`）。 Rust の実装も画面も組み立てずに、
       # canonical SDL と見本の operation と能力の表を検査する（`DEC-PLT-040`）。
       - name: application contract
-        run: cargo run --package xtask -- check-schema
+        run: cargo xtask check-schema
+      # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。
+      # 外部 PR に対する防波堤。 マニフェストを解決するだけで組み立てないので、
+      # submodule も LFS も要らないこのジョブに置く。
+      - name: cargo-deny
+        run: cargo deny check
 
   ui:
     name: ui (format + lint + type + story)
@@ -233,8 +246,13 @@ jobs:
     steps:
       # bun しか使わない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      # 受領証を作る xtask だけを組む。 specs ジョブと同じ鍵を使う。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: xtask
+          cmd-format: nix develop -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # story は実ブラウザに描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
       # ブラウザは nixpkgs の playwright-driver から出す。 npm の版と
       # nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
@@ -272,8 +290,7 @@ jobs:
         shell: nix develop ${{ github.workspace }} --command bash -eo pipefail {0}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
       # dek は描画を Playwright で測る。ブラウザは nixpkgs から出るので、ui と同じく版を揃える。
       - name: Playwright の版が揃っているか
         run: |
@@ -288,23 +305,6 @@ jobs:
       # 作り直したものと一致するか。 PDF は書体と生成日時が環境で変わるので突き合わせない。
       - name: check
         run: bun run check
-
-  licenses:
-    name: license policy
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: nix develop --command bash -eo pipefail {0}
-    steps:
-      # cargo deny はマニフェスト解決だけでビルドしない。submodule も LFS も要らない。
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
-      # AGPL-3.0-or-later に取り込めないライセンスを持つ依存が入ったら落とす。
-      # 外部 PR に対する防波堤。
-      - name: cargo-deny
-        run: cargo deny check
 
   phonemizer-parity:
     name: phonemizer parity (${{ matrix.channel }})
@@ -324,7 +324,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # 版・資産名・指紋は1箇所で持つ。 Renovate が版を上げ、
-      # openutau-hash-fix が指紋を当てる（`.github/renovate.json`）。
+      # nix-hash-fix が指紋を当てる（`.github/renovate.json`）。
       - name: 固定した OpenUtau を読む
         id: pin
         shell: bash

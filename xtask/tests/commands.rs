@@ -2510,7 +2510,7 @@ fn portfolio_は複数のディレクトリの受領証を重ねて_不足があ
         cell_states(&v),
         [
             "macos/native:executed-and-passed",
-            "macos/unsupported:missing",
+            "macos/unsupported:not-applicable",
             "linux/native:not-applicable",
             "linux/unsupported:insufficient",
             "windows/native:not-applicable",
@@ -2553,7 +2553,7 @@ fn portfolio_は受領証が無ければ全セルが_missing_か_not_applicable(
         cell_states(&portfolio_json(&run)),
         [
             "macos/native:missing",
-            "macos/unsupported:missing",
+            "macos/unsupported:not-applicable",
             "linux/native:not-applicable",
             "linux/unsupported:missing",
             "windows/native:not-applicable",
@@ -2563,7 +2563,7 @@ fn portfolio_は受領証が無ければ全セルが_missing_か_not_applicable(
     // 省略した `target/receipts/` がまだ無いのは、何も走らせていないだけ。
     let run = fx.run(&["portfolio", "--format", "json"]);
     assert_eq!(run.code, 0, "{run:?}");
-    assert_eq!(portfolio_json(&run)["portfolio"]["summary"]["missing"], 4);
+    assert_eq!(portfolio_json(&run)["portfolio"]["summary"]["missing"], 3);
 }
 
 #[test]
@@ -2652,16 +2652,13 @@ fn design_debt_は_human_が無ければ全種類を種類ごとに出す() {
             })
             .collect()
     };
-    // 受領証が無いのは macOS の unsupported と Windows の unsupported。
-    assert_eq!(
-        probes("missing"),
-        ["macos/unsupported", "windows/unsupported"]
-    );
+    // 受領証が無いのは Windows の unsupported。 macOS の unsupported は求めない（`DEC-PLT-059`）。
+    assert_eq!(probes("missing"), ["windows/unsupported"]);
     assert_eq!(probes("false_green"), ["linux/unsupported"]);
     assert_eq!(d["false_green"][0]["insufficiencies"][0], "no-actual-work");
     assert_eq!(d["unplaced"][0]["reason"], "unknown-environment");
     assert_eq!(d["human"], serde_json::json!([]));
-    assert_eq!(d["count"], 4);
+    assert_eq!(d["count"], 3);
 
     // 人向けの出力は種類ごとの節に分かれ、最後の行は合否。 優先度は付けない。
     let run = fx.run(&["design-debt", "--receipts", "artifacts/macos"]);
@@ -2682,6 +2679,6 @@ fn design_debt_は_human_が無ければ全種類を種類ごとに出す() {
     let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
     assert_eq!(
         v["design_debt"]["missing"].as_array().map(Vec::len),
-        Some(4)
+        Some(3)
     );
 }

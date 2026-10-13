@@ -1,2 +1,3 @@
 [alias]
-xtask = "run --package xtask --release --"
+# 組み方は `Cargo.toml` の `[profile.xtask]` が持つ。
+xtask = "run --package xtask --profile xtask --"

@@ -9,6 +9,9 @@
 //! 数えるのは libtest の安定版の出力（`--list` の `: test` 行と、`test result:` の要約行）。
 //! 形が変わったら読めずに落ちる。黙って 0 件にしない。
 //!
+//! doctest は試験 binary にならないので、`cargo test --doc` を別に走らせ、crate ごとに
+//! `target = 'doc'` の suite として数える。
+//!
 //! Probe の定義・実行環境・実行結果の型は [`super::model`] が持つ。ここはそれを cargo と
 //! bun の実際の起動へつなぐだけ。
 
@@ -99,11 +102,18 @@ fn cargo_targets(root: &Path) -> Result<BTreeSet<(String, String)>, String> {
             } else {
                 continue;
             };
+            if has_doctests(t) {
+                set.insert((name.clone(), DOCTEST_TARGET.to_owned()));
+            }
             set.insert((name.clone(), target));
         }
     }
     Ok(set)
 }
+
+/// doctest の suite が名乗る target。 doctest は lib に付くが、lib の試験 binary とは
+/// 別に走るので、別の suite に数える。
+const DOCTEST_TARGET: &str = "doc";
 
 /// crate のディレクトリ → package 名の表（`cargo metadata` の `manifest_path` から）。
 ///
@@ -145,6 +155,9 @@ pub(crate) fn check_portfolio(root: &Path, entries: &[Entry], mut rep: Report) -
     }
     for key in &targets {
         match registered.get(key) {
+            // doctest の有無は組み立てないと分からない。 持つのに登録が無いものは
+            // `test-receipt` が落とす。
+            None if key.1 == DOCTEST_TARGET => {}
             None => rep.error(format!(
                 "{} の {} がどの suite にも登録されていない。`meta/suites/` に足す",
                 key.0, key.1
@@ -171,7 +184,7 @@ pub(crate) fn check_portfolio(root: &Path, entries: &[Entry], mut rep: Report) -
     rep.note(format!(
         "suite {} 件 / cargo の試験 target {} 個",
         suites.len(),
-        targets.len()
+        targets.iter().filter(|(_, t)| t != DOCTEST_TARGET).count()
     ));
     if suites.is_empty() {
         rep.error("suite が1件も無い。`meta/suites/` を確かめる");
@@ -475,6 +488,7 @@ fn cargo_receipts(
             Err(e) => rep.error(format!("{}: {e}", probe.id)),
         }
     }
+    out.extend(doctest_receipts(root, &by_key, ctx, &mut seen, rep));
     // この環境で数えるはずの suite が、組み立てにも出てこなかった。
     for s in probes
         .iter()
@@ -489,6 +503,181 @@ fn cargo_receipts(
         }
     }
     out
+}
+
+/// doctest を数えて判定する。 `seen` には数えた suite を足す。
+///
+/// doctest は `--no-run` の JSON に試験 binary として出てこないので、別に走らせる。
+/// 登録は doctest を持つ crate にだけ求める——持たない crate を登録させても、
+/// 0 件の suite が並ぶだけになる。
+fn doctest_receipts(
+    root: &Path,
+    by_key: &BTreeMap<(&str, &str), &ProbeDefinition>,
+    ctx: &ExecutionContext,
+    seen: &mut BTreeSet<String>,
+    rep: &mut Report,
+) -> Vec<Receipt> {
+    // Windows ではワークスペースの doctest をまとめて組めない。 tauri-build が VC ランタイムを
+    // 静的に結ぶために中身の無い `msvcrt.lib` を検索パスに置き、cargo はその検索パスを全 crate の
+    // doctest に渡すので、どの doctest も CRT を引けずにリンクで落ちる。 koeru-app を外して
+    // 走らせると feature の統合が変わり、依存を組み直す。 doctest は OS に依らない型の検査なので、
+    // macOS と Linux で数える。
+    if ctx.platform == "windows" {
+        for probe in by_key
+            .values()
+            .filter(|p| p.target == DOCTEST_TARGET && p.applies(ctx))
+        {
+            seen.insert(probe.id.clone());
+            rep.error(format!(
+                "{}: Windows では doctest を走らせない。 platforms から windows を外す",
+                probe.id
+            ));
+        }
+        return Vec::new();
+    }
+    let (sections, ok) = match run_doctests(root) {
+        Ok(r) => r,
+        Err(e) => {
+            rep.error(e);
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::new();
+    let mut failed_somewhere = false;
+    for (package, c) in &sections {
+        failed_somewhere |= c.failed > 0;
+        match by_key.get(&(package.as_str(), DOCTEST_TARGET)) {
+            Some(probe) => {
+                seen.insert(probe.id.clone());
+                out.push(judge(probe, *c, ctx));
+            }
+            None if c.discovered > 0 => rep.error(format!(
+                "{package} の doctest（{} 件）がどの suite にも登録されていない。\
+                 `meta/suites/` に target = 'doc' で足す",
+                c.discovered
+            )),
+            None => {}
+        }
+    }
+    // 件数に失敗が出ていないのに落ちたのは、doctest が組み立たなかったとき。
+    if !ok && !failed_somewhere {
+        rep.error("cargo test --doc が失敗を返した。doctest が組み立たなかった");
+    }
+    out
+}
+
+/// crate ごとの doctest の件数（package 名と、合算した件数）。 2つ目は終了コードが成功か。
+///
+/// `-p` で crate を1つずつ選ぶと feature の統合が変わり、依存を組み直す。 だから
+/// ワークスペースを1回で走らせ、cargo が標準エラーに出す `Doc-tests <crate>` の見出しで
+/// 区切る。 見出しと件数が別の出力に出るので、両方を同じ pipe に流して順序を保つ。
+fn run_doctests(root: &Path) -> Result<(Vec<(String, Counts)>, bool), String> {
+    let packages = lib_packages(root)?;
+    let (mut reader, writer) =
+        std::io::pipe().map_err(|e| format!("doctest の出力を受ける pipe を作れない: {e}"))?;
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "test",
+        "--workspace",
+        "--all-features",
+        "--doc",
+        "--no-fail-fast",
+    ])
+    .current_dir(root)
+    .stdout(
+        writer
+            .try_clone()
+            .map_err(|e| format!("pipe を複製できない: {e}"))?,
+    )
+    .stderr(writer);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("cargo test --doc を起動できない: {e}"))?;
+    // 書き込み側を手放さないと、子が終わっても読み終わらない。
+    drop(cmd);
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut reader, &mut text)
+        .map_err(|e| format!("cargo test --doc の出力を読めない: {e}"))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("cargo test --doc を待てない: {e}"))?;
+    print!("{text}");
+    let sections = doctest_sections(&text, &packages).ok_or(
+        "cargo test --doc の出力に `Doc-tests` の見出しか `test result:` が無い。\
+         形が変わったか、途中で落ちた",
+    )?;
+    Ok((sections, status.success()))
+}
+
+/// lib の crate 名（`koeru_audio`）→ package 名（`koeru-audio`）。
+fn lib_packages(root: &Path) -> Result<BTreeMap<String, String>, String> {
+    let meta = cargo_metadata(root)?;
+    let mut map = BTreeMap::new();
+    for pkg in meta["packages"].as_array().into_iter().flatten() {
+        let name = pkg["name"].as_str().unwrap_or_default();
+        for t in pkg["targets"].as_array().into_iter().flatten() {
+            if has_doctests(t) {
+                let lib = t["name"].as_str().unwrap_or_default().replace('-', "_");
+                map.insert(lib, name.to_owned());
+            }
+        }
+    }
+    Ok(map)
+}
+
+/// doctest を持ちうる target か。 lib で、`doctest = false` にしていないもの。
+fn has_doctests(target: &serde_json::Value) -> bool {
+    let is_lib = target["kind"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .any(|k| k.ends_with("lib"));
+    is_lib && target["doctest"].as_bool().unwrap_or(false)
+}
+
+/// `Doc-tests <crate>` の見出しごとに、`running N tests` と `test result:` を足し合わせる。
+///
+/// edition 2024 では、まとめて組める doctest と `compile_fail` などの単独のものが別々に
+/// 走り、1つの crate に要約行が2本出る。 最後の1本だけを読むと片方を落とす。
+/// 見出しの無い crate や、要約行の欄が読めない crate があれば `None`。
+fn doctest_sections(
+    text: &str,
+    packages: &BTreeMap<String, String>,
+) -> Option<Vec<(String, Counts)>> {
+    let mut out: Vec<(String, Counts, bool)> = Vec::new();
+    for raw in text.lines() {
+        let line = strip_ansi(raw);
+        let line = line.trim();
+        if let Some(lib) = line.strip_prefix("Doc-tests ") {
+            let lib = lib.trim();
+            let package = packages.get(lib).cloned().unwrap_or_else(|| lib.to_owned());
+            out.push((package, Counts::default(), false));
+            continue;
+        }
+        let Some((_, c, summarized)) = out.last_mut() else {
+            continue;
+        };
+        if let Some(rest) = line.strip_prefix("running ") {
+            if let Some(n) = rest
+                .split_whitespace()
+                .next()
+                .and_then(|n| n.parse::<u64>().ok())
+            {
+                c.discovered += n;
+            }
+        } else if line.starts_with("test result:") {
+            let s = libtest_counts(line)?;
+            c.passed += s.passed;
+            c.failed += s.failed;
+            c.ignored += s.ignored;
+            *summarized = true;
+        }
+    }
+    if out.is_empty() || out.iter().any(|(_, _, s)| !s) {
+        return None;
+    }
+    Some(out.into_iter().map(|(p, c, _)| (p, c)).collect())
 }
 
 /// UI の story 試験。 vitest の要約行（`Tests  207 passed (207)`）を読む。
@@ -642,6 +831,44 @@ mod tests {
         // 欄が読めなければ 0 に倒さず、読めないと言う。
         assert!(libtest_counts("test result: ok. 2 succeeded").is_none());
         assert!(libtest_counts("no summary").is_none());
+    }
+
+    #[test]
+    fn doctest_は見出しごとに要約行を全部足す() {
+        let packages = BTreeMap::from([
+            ("koeru_audio".to_owned(), "koeru-audio".to_owned()),
+            ("koeru_core".to_owned(), "koeru-core".to_owned()),
+        ]);
+        let out = "\
+\u{1b}[1m\u{1b}[32m   Doc-tests\u{1b}[0m koeru_audio
+
+running 2 tests
+test a ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+running 5 tests
+test b - compile fail ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.31s
+
+   Doc-tests koeru_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+";
+        let s = doctest_sections(out, &packages).expect("読める");
+        assert_eq!(s.len(), 2);
+        assert_eq!(s[0].0, "koeru-audio");
+        assert_eq!((s[0].1.discovered, s[0].1.passed), (7, 7));
+        assert_eq!((s[1].0.as_str(), s[1].1.discovered), ("koeru-core", 0));
+    }
+
+    #[test]
+    fn doctest_の要約行が欠けたら読めないと言う() {
+        let packages = BTreeMap::new();
+        // 見出しの後で落ちて要約行が出なかった crate を、0 件として数えない。
+        assert!(doctest_sections("   Doc-tests x\n\nrunning 3 tests\n", &packages).is_none());
+        assert!(doctest_sections("no output", &packages).is_none());
     }
 
     #[test]
