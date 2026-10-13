@@ -673,8 +673,16 @@ impl<'a> Object<'a> {
         }
     }
 
+    /// 要件。 legacy の `requirement-set` と、目標の形の `requirement` の両方を、同じ口で読む。
+    /// 目標の形が持たない欄（`title`・`confidence` など）は `None`。
     pub(crate) fn as_requirement(&self) -> Option<Requirement<'a>> {
-        (self.spec.schema == "requirement-set").then_some(Requirement(self.record))
+        matches!(self.spec.schema, "requirement-set" | "requirement")
+            .then_some(Requirement(self.record))
+    }
+
+    /// 目標の形の仮説（`design-hypothesis`）。
+    pub(crate) fn as_hypothesis(&self) -> Option<Hypothesis<'a>> {
+        Hypothesis::of_record(self.record)
     }
 
     pub(crate) fn as_quantity(&self) -> Option<Quantity<'a>> {
@@ -682,7 +690,7 @@ impl<'a> Object<'a> {
     }
 
     pub(crate) fn as_decision(&self) -> Option<Decision<'a>> {
-        (self.spec.schema == "decision").then_some(Decision(self.record))
+        Decision::of_record(self.record)
     }
 
     pub(crate) fn as_question(&self) -> Option<Question<'a>> {
@@ -892,6 +900,12 @@ impl<'a> Allocation<'a> {
 pub(crate) struct Decision<'a>(&'a Record);
 
 impl<'a> Decision<'a> {
+    /// 記録が判断（`decision`）なら、その型つきの口。 ID の形に読めない記録も読める
+    /// （[`Hypothesis::of_record`] と同じ事情）。
+    pub(crate) fn of_record(record: &'a Record) -> Option<Self> {
+        (record.schema() == "decision").then_some(Self(record))
+    }
+
     pub(crate) fn title(&self) -> Option<&'a str> {
         text(self.0, "title")
     }
@@ -935,6 +949,13 @@ impl<'a> Decision<'a> {
         text(self.0, "superseded_by")
     }
 
+    /// 判断自身が、置き換えられたと名乗っている（`status = 'superseded'`、または `superseded_by`
+    /// を持つ）。 「現在有効か」の判定のうち、欄から決まる半分で、残りの半分（後継の edge）は
+    /// graph が持つ。 両方を合わせた判定は [`super::Design::is_current`]。
+    pub(crate) fn declares_superseded(&self) -> bool {
+        self.status() == Some("superseded") || self.superseded_by().is_some()
+    }
+
     /// 縛る制約の名前と本文。 判断が REQ を作らずに持っている条件。
     pub(crate) fn constraint(&self) -> Option<(&'a str, &'a str)> {
         Some((
@@ -967,6 +988,61 @@ impl<'a> Decision<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Judgement<'a> {
     selected: Option<&'a str>,
+}
+
+/// 仮説。 HYP。 目標の形（`design-hypothesis`、提案書 5.5、`DEC-PLT-048` の6）。
+///
+/// `supporting_evidence` / `contradicting_evidence` は、記録に書かれた値をそのまま読む口。
+/// graph の edge にはならない（欄の役割は [`Role::Mirror`]）。 edge にするかは D08 が決める。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Hypothesis<'a>(&'a Record);
+
+impl<'a> Hypothesis<'a> {
+    /// 記録が仮説（`design-hypothesis`）なら、その型つきの口。 ID の形に読めない記録も読める
+    /// ——[`Object`] は ID の形に読めない記録を持たないが、欄の検査は ID の形に依らない。
+    pub(crate) fn of_record(record: &'a Record) -> Option<Self> {
+        (record.schema() == "design-hypothesis").then_some(Self(record))
+    }
+
+    /// この仮説を立てた問い。
+    pub(crate) fn question(&self) -> Option<&'a str> {
+        text(self.0, "question")
+    }
+
+    /// 仮説の種類。 どの観測方法が証言できるかの表（`capabilities.toml`）の鍵。
+    pub(crate) fn hypothesis_kind(&self) -> Option<&'a str> {
+        text(self.0, "hypothesis_kind")
+    }
+
+    pub(crate) fn statement(&self) -> Option<&'a str> {
+        text(self.0, "statement")
+    }
+
+    pub(crate) fn scope(&self) -> Option<&'a str> {
+        text(self.0, "scope")
+    }
+
+    /// 人が書いた現在の状態（`untested` / `supported` / `superseded` など）。
+    pub(crate) fn assessment(&self) -> Option<&'a str> {
+        text(self.0, "assessment")
+    }
+
+    /// 仮説自身が、置き換えられたと名乗っている（`assessment = 'superseded'`）。 仮説には後継を
+    /// 書く欄が無いので、判断（[`Decision::declares_superseded`]）と違い、名乗りは `assessment`
+    /// だけ。 「現在有効か」の判定は [`super::Design::is_current`]。
+    pub(crate) fn declares_superseded(&self) -> bool {
+        self.assessment() == Some("superseded")
+    }
+
+    /// 支持する調査の ID。 書かれたまま（ID の形かは確かめない）。
+    pub(crate) fn supporting_evidence(&self) -> Vec<String> {
+        self.0.strs("supporting_evidence")
+    }
+
+    /// 反証する調査の ID。 書かれたまま（ID の形かは確かめない）。
+    pub(crate) fn contradicting_evidence(&self) -> Vec<String> {
+        self.0.strs("contradicting_evidence")
+    }
 }
 
 /// 未解決の問い。 Q。

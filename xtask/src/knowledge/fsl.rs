@@ -29,8 +29,9 @@ pub(crate) fn fsl_sites_view(view: &RepoView) -> BTreeMap<String, String> {
         .filter(|rel| rel.ends_with(".fsl"))
         .collect();
     rels.sort();
-    for rel in rels {
-        let Ok(Some(text)) = view.read(&rel) else {
+    // 版から読むと、1件ずつでは `git` をファイルの数だけ起動する。 まとめて読む。
+    for (rel, text) in rels.iter().zip(view.read_many(&rels)) {
+        let Ok(Some(text)) = text else {
             continue;
         };
         for (n, line) in text.lines().enumerate() {

@@ -47,13 +47,16 @@ pub(crate) fn load_view_with(
         .collect();
     rels.sort();
 
+    // 版から読むと、1件ずつでは `git` をファイルの数だけ起動する。 まとめて読む。
+    let texts = view.read_many(&rels);
+
     let mut out = Vec::new();
-    for rel in rels {
+    for (rel, text) in rels.into_iter().zip(texts) {
         // `Entry::path` は root 込みのまま持つ——作業ツリーを渡したときに、
         // 既存コマンドの診断文言（`path.display()`）を1文字も変えないため。
         let path = root.join(&rel);
         let file = path.display().to_string();
-        let text = match view.read(&rel) {
+        let text = match text {
             Ok(Some(text)) => text,
             Ok(None) | Err(_) => {
                 rep.error(format!("{file}: 読めない"));
