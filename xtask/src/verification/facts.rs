@@ -8,6 +8,7 @@
 //! 判定に要る欄がそろった組にだけ規則を掛けることで付ける。
 
 use crate::diagnostic::Location;
+use crate::knowledge::design::{self, Decision};
 use crate::knowledge::{KnowledgeSnapshot, Record};
 use crate::probe::{Prerequisites, ProbeDefinition};
 
@@ -21,6 +22,8 @@ pub(crate) struct Hypothesis {
     pub(crate) contradicting: Vec<String>,
     /// 人が書いた現在の状態（`untested` / `supported` など）。 読むだけで、ここからは書き換えない。
     pub(crate) assessment: Option<String>,
+    /// 仮説自身が、置き換えられたと名乗っている（D00 の [`design::Hypothesis::declares_superseded`]）。
+    pub(crate) declares_superseded: bool,
 }
 
 /// 観測としての調査。 schema `evidence`。
@@ -87,7 +90,9 @@ impl ProbeSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecisionDeps {
     pub(crate) id: String,
-    pub(crate) status: Option<String>,
+    /// 判断自身が、置き換えられたと名乗っている（D00 の [`Decision::declares_superseded`]）。
+    /// 後継の edge は graph の側で、この層は graph を持たないので見ない。
+    pub(crate) declares_superseded: bool,
     pub(crate) relies_on: Vec<String>,
     /// この判断が作る・直す要件。
     pub(crate) requirements: Vec<String>,
@@ -96,7 +101,7 @@ pub(crate) struct DecisionDeps {
 impl DecisionDeps {
     /// 置き換えられた判断は、もう仮説に依存していない。
     pub(crate) fn is_live(&self) -> bool {
-        self.status.as_deref() != Some("superseded")
+        !self.declares_superseded
     }
 }
 
@@ -118,13 +123,15 @@ impl Facts {
         let hypotheses = snapshot
             .by_schema("design-hypothesis")
             .filter_map(|r| {
+                let typed = design::Hypothesis::of_record(r)?;
                 Some(Hypothesis {
                     id: r.str("id")?.to_owned(),
                     place: place(r),
-                    kind: r.str("hypothesis_kind").map(str::to_owned),
-                    supporting: r.strs("supporting_evidence"),
-                    contradicting: r.strs("contradicting_evidence"),
-                    assessment: r.str("assessment").map(str::to_owned),
+                    kind: typed.hypothesis_kind().map(str::to_owned),
+                    supporting: typed.supporting_evidence(),
+                    contradicting: typed.contradicting_evidence(),
+                    assessment: typed.assessment().map(str::to_owned),
+                    declares_superseded: typed.declares_superseded(),
                 })
             })
             .collect();
@@ -168,7 +175,8 @@ impl Facts {
                 requirements.extend(r.strs("revises_requirements"));
                 Some(DecisionDeps {
                     id: r.str("id")?.to_owned(),
-                    status: r.str("status").map(str::to_owned),
+                    declares_superseded: Decision::of_record(r)
+                        .is_some_and(|d| d.declares_superseded()),
                     relies_on: r.strs("relies_on_hypotheses"),
                     requirements,
                 })

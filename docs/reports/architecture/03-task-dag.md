@@ -182,6 +182,12 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 - **Verification:** external-tool compatibility + real DB/assets + real engine selected cases。
 - **Evidence outputs:** compatibility matrix、quality receipts、export hashes。
 - **Human review / decision:** perceptual/quality thresholds、external conversion policy、licenses。
+  - 実音声の品質は合否の閾値を置かない（`DEC-ALN-007`）。実機ハーネスは SHA・WAV の指紋・数値を受領証に残し、聴感は人が記録する。
+  - 外部形式への変換は今の出力を変えず、新しい変換も足さない。
+  - 依存は足さない。実音声を fixture にするなら、そのとき同意と公開の可否を決める。
+  - engine が使えない環境で起動を止める挙動（`DEC-ALN-016`）は変えない。可用性を値にするところまで。
+  - 鍵は移行中の（音高, 綴り）のまま受け、綴りを鍵にする型を新しく増やさない（`DEC-RCL-017`）。retake の手編集の引き継ぎには触らない。
+  - 呼ばれていない外部 resampler と持ち出しの口は繋ぎも削りもしない（`Q-PLT-007`）。
 
 ## T09 — Rust GraphQL adapter / schema parity
 

@@ -14,7 +14,7 @@
 //! - `check-schema`   canonical SDL と operation と能力の表を検査する（`checks::schema`）
 //! - `context`        現在の判断の文脈と、比較元からの意味の変化を出す（`context`、D01）
 //! - `portfolio`      要る Probe と受領証を突き合わせ、不足を false green にせず出す（`views::portfolio`、D07c）
-//! - `design-debt`    人の観察が要る仮説の待ち行列を出す（`views::debt`、D07c）
+//! - `design-debt`    未検証の待ち行列を種類ごとに出す。 `--human` は人の観察が要る仮説だけ（`views::debt`、D07c）
 //!
 //! 置き場所は層で分ける。 下の層は上の層を引かない。
 //!

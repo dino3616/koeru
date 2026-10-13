@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::compile::{Context, EdgeInfo, EdgeKey, RootInput, RootReport, World, key_text};
 use super::rules::Tier;
-use crate::graph::{ChangeKind, GraphDiff, NodeKey, RelationClass, diff};
+use crate::graph::{ChangeKind, GraphDiff, NodeKey, diff};
 use crate::knowledge::Id;
 use crate::knowledge::design::Kind;
 
@@ -225,22 +225,10 @@ fn changed_and_superseded(
         if !union.contains(key) {
             continue;
         }
-        let mut by: Vec<Id> = new
-            .graph
-            .incoming(key)
-            .iter()
-            .filter(|r| r.class == RelationClass::Supersession)
-            .filter_map(|r| match &r.from {
-                NodeKey::Object(id) => Some(id.clone()),
-                NodeKey::Locator { .. } => None,
-            })
-            .collect();
-        by.sort();
-        by.dedup();
         out.push(Change::Superseded {
             key: key.clone(),
             tier: tier_of(key),
-            by,
+            by: new.design.successors(&new.graph, key),
         });
     }
 }
@@ -249,12 +237,13 @@ fn changed_and_superseded(
 fn hypotheses(old: &World<'_>, new: &World<'_>, union: &BTreeSet<NodeKey>, out: &mut Vec<Change>) {
     for key in union {
         let NodeKey::Object(id) = key else { continue };
-        let Some(now) = new.targets.hypotheses.get(id) else {
+        let Some(now) = new.hypothesis(id) else {
             continue;
         };
-        let before = old.targets.hypotheses.get(id);
-        let known: BTreeSet<&Id> =
-            before.map_or_else(BTreeSet::new, |h| h.contradicting.iter().collect());
+        let before = old.hypothesis(id);
+        let known: BTreeSet<&Id> = before
+            .as_ref()
+            .map_or_else(BTreeSet::new, |h| h.contradicting.iter().collect());
         let fresh: Vec<Id> = now
             .contradicting
             .iter()
@@ -267,7 +256,7 @@ fn hypotheses(old: &World<'_>, new: &World<'_>, union: &BTreeSet<NodeKey>, out: 
                 evidence: fresh,
             });
         }
-        if before.is_some_and(|b| b.scope != now.scope) {
+        if before.as_ref().is_some_and(|b| b.scope != now.scope) {
             out.push(Change::ScopeChanged {
                 hypothesis: id.clone(),
             });

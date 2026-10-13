@@ -2,7 +2,8 @@
 //!
 //! [`RepoView::working_tree`] はファイルシステムをそのまま読み、[`RepoView::revision`]
 //! は解決した SHA から git の plumbing で読む。上位（`touched` など）はどちらの版かを
-//! 気にせず、`read` / `exists` / `walk` / `identity` の4つだけを呼べばよい。
+//! 気にせず、`read` / `read_many` / `exists` / `walk` / `identity` だけを呼べばよい。
+//! 多数のファイルを読むときは `read_many`——版から読むと、`read` は1件ごとに `git` を起動する。
 //!
 //! パスはすべて repo の根からの相対で、区切りは `/` に揃えてある——版から読むときは
 //! git がもともとそう返し、作業ツリーから読むときは組み立てた文字列を明示的に揃える。
@@ -125,6 +126,23 @@ impl RepoView {
         }
     }
 
+    /// `rels` の中身を、`rels` と同じ順で返す。 1件ずつ [`Self::read`] した結果と同じ。
+    ///
+    /// git の版から読むとき、1件ごとに `git` を起動すると、ファイルの数がそのまま待ち時間に
+    /// なる（250 件ほどで版ごとに 30 秒）。 ここは `git cat-file --batch` 1本にまとめる。
+    /// 作業ツリーとメモリ上は、元から安いので1件ずつ読む。
+    ///
+    /// まとめて読めないもの（名前に改行を含む、ファイルでなく木、出力を読み取れなかった）は、
+    /// 1件ずつ読み直す。 結果の意味は変えない。
+    pub(crate) fn read_many(&self, rels: &[String]) -> Vec<Result<Option<String>, ViewError>> {
+        match self {
+            RepoView::Revision { root, sha } => read_revision_many(root, sha, rels),
+            RepoView::WorkingTree { .. } | RepoView::InMemory { .. } => {
+                rels.iter().map(|rel| self.read(rel)).collect()
+            }
+        }
+    }
+
     /// `rel` がこの版に存在するか。
     ///
     /// **今はまだ試験だけが呼ぶ。** 消費者（X03・X04）はこの先に乗る。
@@ -215,6 +233,94 @@ fn read_revision(root: &Path, sha: &str, rel: &str) -> Result<Option<String>, Vi
         Err(ProcessError::ExitStatus { .. }) => Ok(None),
         Err(e) => Err(ViewError::Failed(e.to_string())),
     }
+}
+
+/// `git cat-file --batch` が返した、1件分。
+#[derive(Debug, PartialEq, Eq)]
+enum Batched {
+    /// その版に無い。
+    Missing,
+    /// ファイル。
+    Blob(Vec<u8>),
+    /// ファイルでない（木・タグ・コミット）。 `cat-file -p` の表示は種類で違うので、まとめては読まず
+    /// 1件ずつ読み直す。
+    Other,
+}
+
+fn read_revision_many(
+    root: &Path,
+    sha: &str,
+    rels: &[String],
+) -> Vec<Result<Option<String>, ViewError>> {
+    // 入力は1行1件。 名前に改行を含むものは行にできないので、1件ずつ読む。
+    let batchable: Vec<usize> = (0..rels.len())
+        .filter(|&i| !rels[i].contains(['\n', '\0']))
+        .collect();
+    let mut out: Vec<Option<Result<Option<String>, ViewError>>> =
+        rels.iter().map(|_| None).collect();
+    if !batchable.is_empty() {
+        let mut input = Vec::new();
+        for &i in &batchable {
+            input.extend_from_slice(format!("{sha}:{}\n", rels[i]).as_bytes());
+        }
+        let parsed = process::run_with_stdin(root, "git", &["cat-file", "--batch"], &input)
+            .ok()
+            .and_then(|o| parse_batch(&o.stdout, batchable.len()));
+        if let Some(items) = parsed {
+            for (&i, item) in batchable.iter().zip(items) {
+                out[i] = match item {
+                    Batched::Missing => Some(Ok(None)),
+                    Batched::Blob(bytes) => Some(
+                        process::Output { stdout: bytes }
+                            .text()
+                            .map(Some)
+                            .map_err(|e| ViewError::NotUtf8(e.to_string())),
+                    ),
+                    Batched::Other => None,
+                };
+            }
+        }
+    }
+    out.into_iter()
+        .zip(rels)
+        .map(|(done, rel)| done.unwrap_or_else(|| read_revision(root, sha, rel)))
+        .collect()
+}
+
+/// `git cat-file --batch` の出力を、`count` 件に切る。 並びは入力と同じ。
+///
+/// 1件は `<oid> <type> <size>\n<size バイトの本文>\n`。 無いものは `<入力> missing\n`。
+/// 数が合わない・読めない行がある出力は、一部だけを信用せず全体を `None` にする。
+fn parse_batch(out: &[u8], count: usize) -> Option<Vec<Batched>> {
+    let mut items = Vec::with_capacity(count);
+    let mut rest = out;
+    for _ in 0..count {
+        let eol = rest.iter().position(|&b| b == b'\n')?;
+        let header = std::str::from_utf8(&rest[..eol]).ok()?;
+        rest = &rest[eol + 1..];
+        if header.ends_with(" missing") {
+            items.push(Batched::Missing);
+            continue;
+        }
+        let mut fields = header.split(' ');
+        let (_oid, kind, size) = (fields.next()?, fields.next()?, fields.next()?);
+        if fields.next().is_some() {
+            return None;
+        }
+        let size: usize = size.parse().ok()?;
+        // 本文と、その後ろの改行。
+        let body = rest.get(..size)?;
+        if rest.get(size) != Some(&b'\n') {
+            return None;
+        }
+        rest = &rest[size + 1..];
+        items.push(if kind == "blob" {
+            Batched::Blob(body.to_vec())
+        } else {
+            Batched::Other
+        });
+    }
+    rest.is_empty().then_some(items)
 }
 
 fn walk_working_tree(root: &Path, dir: &str) -> Vec<String> {
@@ -711,6 +817,139 @@ mod tests {
         assert_eq!(parse_renames(""), Vec::new());
         // 途中で切れていても落ちない。
         assert_eq!(parse_renames("R100\0only-one\0"), Vec::new());
+    }
+
+    /// 1件ずつ読んだ結果と、まとめて読んだ結果が、どの view でも同じになる。
+    fn assert_same_as_one_by_one(view: &RepoView, rels: &[String]) {
+        let one_by_one: Vec<_> = rels.iter().map(|r| view.read(r)).collect();
+        let many = view.read_many(rels);
+        assert_eq!(many.len(), rels.len());
+        for ((rel, a), b) in rels.iter().zip(&one_by_one).zip(&many) {
+            match (a, b) {
+                (Ok(a), Ok(b)) => assert_eq!(a, b, "{rel}"),
+                (Err(a), Err(b)) => assert_eq!(a.to_string(), b.to_string(), "{rel}"),
+                _ => panic!("{rel}: 1件ずつ {a:?}、まとめて {b:?}"),
+            }
+        }
+    }
+
+    /// 版から読むとき、ある・無い・空・UTF-8 でない・日本語や空白の名前・改行を含む名前・木（ディレクトリ）を
+    /// まとめて渡しても、1件ずつ読んだのと同じ結果が同じ順で返る。
+    #[test]
+    fn まとめて読んだ結果は1件ずつ読んだ結果と同じ() {
+        let repo = Repo::new("read-many");
+        repo.write("a.txt", "一行目\n二行目\n");
+        repo.write("empty.txt", "");
+        repo.write("日本語 名前.toml", "x = 1\n");
+        repo.write("sub/b.txt", "末尾の改行なし");
+        fs::write(repo.root().join("binary.bin"), [0xff, 0xfe, b'\n', 0x00])
+            .expect("バイナリを書ける");
+        let sha = repo.commit("base");
+        let rels: Vec<String> = [
+            "a.txt",
+            "none.txt",
+            "empty.txt",
+            "日本語 名前.toml",
+            "sub/b.txt",
+            "binary.bin",
+            "sub",
+            "sub/none.txt",
+            "a.txt",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+
+        let view = RepoView::revision(repo.root(), &sha).unwrap();
+        assert_same_as_one_by_one(&view, &rels);
+        let many = view.read_many(&rels);
+        assert_eq!(
+            many[0].as_ref().unwrap(),
+            &Some("一行目\n二行目\n".to_owned())
+        );
+        assert_eq!(many[1].as_ref().unwrap(), &None);
+        assert_eq!(many[2].as_ref().unwrap(), &Some(String::new()));
+        assert!(matches!(many[5], Err(ViewError::NotUtf8(_))));
+        assert_eq!(many[8].as_ref().unwrap(), many[0].as_ref().unwrap());
+
+        // 作業ツリーとメモリ上も、同じ口で呼べて、1件ずつと同じ。
+        assert_same_as_one_by_one(&RepoView::working_tree(repo.root()), &rels);
+        let memory = RepoView::in_memory(
+            repo.root(),
+            BTreeMap::from([("a.txt".to_owned(), "x\n".to_owned())]),
+        );
+        assert_same_as_one_by_one(&memory, &rels);
+        assert_eq!(view.read_many(&[]).len(), 0);
+    }
+
+    /// 名前に改行を含むものは `--batch` の行に載らないので、1件ずつ読む側へ回る。
+    /// Windows はこの名前のファイルを作れない。
+    #[cfg(unix)]
+    #[test]
+    fn 名前に改行を含むものもまとめて読める() {
+        let repo = Repo::new("read-many-newline");
+        repo.write("a.txt", "x\n");
+        repo.write("改行\nを含む.txt", "名前に改行\n");
+        let sha = repo.commit("base");
+        let rels: Vec<String> = ["改行\nを含む.txt", "a.txt"].map(str::to_owned).to_vec();
+
+        let view = RepoView::revision(repo.root(), &sha).unwrap();
+        assert_same_as_one_by_one(&view, &rels);
+        let many = view.read_many(&rels);
+        assert_eq!(many[0].as_ref().unwrap(), &Some("名前に改行\n".to_owned()));
+        assert_eq!(many[1].as_ref().unwrap(), &Some("x\n".to_owned()));
+        assert_same_as_one_by_one(&RepoView::working_tree(repo.root()), &rels);
+    }
+
+    /// 出力が OS の管の大きさを超えても詰まらない。 入力の書き込みと出力の読み出しが、互いを待たない。
+    #[test]
+    fn 大きな出力と多数のファイルでも詰まらない() {
+        let repo = Repo::new("read-many-large");
+        let big = "あ".repeat(400_000);
+        repo.write("big.txt", &big);
+        for n in 0..400 {
+            repo.write(&format!("many/f{n:04}.txt"), &format!("本文 {n}\n"));
+        }
+        let sha = repo.commit("base");
+        let view = RepoView::revision(repo.root(), &sha).unwrap();
+        let mut rels = vec!["big.txt".to_owned()];
+        rels.extend((0..400).map(|n| format!("many/f{n:04}.txt")));
+        rels.push("big.txt".to_owned());
+        let many = view.read_many(&rels);
+        assert_eq!(many.len(), 402);
+        assert_eq!(many[0].as_ref().unwrap().as_deref(), Some(big.as_str()));
+        assert_eq!(many[401].as_ref().unwrap().as_deref(), Some(big.as_str()));
+        assert_eq!(many[1 + 7].as_ref().unwrap().as_deref(), Some("本文 7\n"));
+    }
+
+    /// `--batch` の出力の切り方。 数が合わない・途中で切れた出力は、一部だけ信用せず全体を捨てる。
+    #[test]
+    fn batch_の出力を切る() {
+        let out = b"0123 blob 3\nabc\nspec missing\n4567 tree 2\nxy\n8901 blob 0\n\n";
+        assert_eq!(
+            parse_batch(out, 4),
+            Some(vec![
+                Batched::Blob(b"abc".to_vec()),
+                Batched::Missing,
+                Batched::Other,
+                Batched::Blob(Vec::new()),
+            ])
+        );
+        // 本文に改行や、ヘッダに見える文字列が入っていても、大きさで切る。
+        let tricky = b"0123 blob 13\nx missing\n0 y\n";
+        assert_eq!(
+            parse_batch(tricky, 1),
+            Some(vec![Batched::Blob(b"x missing\n0 y".to_vec())])
+        );
+        assert_eq!(parse_batch(out, 3), None, "件数より多く出た");
+        assert_eq!(parse_batch(out, 5), None, "件数より少なく出た");
+        assert_eq!(
+            parse_batch(b"0123 blob 9\nabc\n", 1),
+            None,
+            "本文が足りない"
+        );
+        assert_eq!(parse_batch(b"0123 blob 3\nabcX", 1), None, "改行が来ない");
+        assert_eq!(parse_batch(b"x ambiguous\n", 1), None, "読めないヘッダ");
+        assert_eq!(parse_batch(b"", 0), Some(Vec::new()));
     }
 
     /// 変更されたファイルの一覧。 内容までは持たない、いちばん軽い問い合わせ。

@@ -2049,3 +2049,224 @@ fn 意味を変えない修正の欄は省略可能で型つきで読める() {
         Some(vec!["一件目".to_owned(), "二件目".to_owned()])
     );
 }
+
+// ## 現在有効か（X09）
+
+/// 判断を2件だけ置く。 `old` は置き換えられたかもしれない側、`new` は後継の側。
+fn two_decisions(old_lines: &str, new_lines: &str) -> Design {
+    let body = |id: &str, lines: &str| {
+        format!(
+            "schema = 'decision'\nid = '{id}'\ntitle = '{id}'\nowner = 'x'\noptions = ['a']\n\
+             selected = 'a'\nrationale = '理由'\nreview_triggers = ['t']\n{lines}"
+        )
+    };
+    let mut f = BTreeMap::new();
+    f.insert(
+        "meta/decisions/DEC-fix-001.toml".to_owned(),
+        body("DEC-fix-001", old_lines),
+    );
+    f.insert(
+        "meta/decisions/DEC-fix-002.toml".to_owned(),
+        body("DEC-fix-002", new_lines),
+    );
+    design_of(&f)
+}
+
+fn currency(design: &Design) -> (bool, bool) {
+    let graph = design.graph();
+    (
+        design.is_current(&graph, &key("DEC-fix-001")),
+        design.is_current(&graph, &key("DEC-fix-002")),
+    )
+}
+
+#[test]
+fn 置き換えの記録が無ければどちらも現在有効() {
+    let design = two_decisions("status = 'accepted'\n", "status = 'accepted'\n");
+    assert_eq!(currency(&design), (true, true));
+}
+
+#[test]
+fn 現在有効でないのは_3つが揃ったときだけではない_後継の関係だけでも外れる() {
+    let design = two_decisions(
+        "status = 'accepted'\n",
+        "status = 'accepted'\nsupersedes = ['DEC-fix-001']\n",
+    );
+    assert_eq!(currency(&design), (false, true));
+}
+
+#[test]
+fn 現在有効でないのは_状態の欄だけでも外れる() {
+    let design = two_decisions("status = 'superseded'\n", "status = 'accepted'\n");
+    let graph = design.graph();
+    assert!(
+        design.successors(&graph, &key("DEC-fix-001")).is_empty(),
+        "後継の関係は無い"
+    );
+    assert_eq!(currency(&design), (false, true));
+}
+
+#[test]
+fn 現在有効でないのは_superseded_by_だけでも外れる() {
+    let design = two_decisions(
+        "status = 'accepted'\nsuperseded_by = 'DEC-fix-002'\n",
+        "status = 'accepted'\n",
+    );
+    assert_eq!(currency(&design), (false, true));
+}
+
+#[test]
+fn 後継は昇順で重複なく返り_後継が無ければ空() {
+    let design = two_decisions(
+        "status = 'superseded'\n",
+        "status = 'accepted'\nsupersedes = ['DEC-fix-001']\n",
+    );
+    let graph = design.graph();
+    assert_eq!(
+        design.successors(&graph, &key("DEC-fix-001")),
+        vec![id("DEC-fix-002")]
+    );
+    assert!(design.successors(&graph, &key("DEC-fix-002")).is_empty());
+    // graph に無い鍵は後継を持たず、現在有効として数える。
+    assert!(design.successors(&graph, &key("DEC-fix-099")).is_empty());
+    assert!(design.is_current(&graph, &key("DEC-fix-099")));
+}
+
+/// 判断自身の名乗りだけを見る半分。 後継の edge は graph の側。
+#[test]
+fn 判断の名乗りは状態の欄と_superseded_by_のどちらでも当たる() {
+    let declares = |lines: &str| {
+        let design = two_decisions(lines, "status = 'accepted'\n");
+        design
+            .object(&id("DEC-fix-001"))
+            .and_then(|o| o.as_decision())
+            .map(|d| d.declares_superseded())
+    };
+    assert_eq!(declares("status = 'accepted'\n"), Some(false));
+    assert_eq!(declares("status = 'superseded'\n"), Some(true));
+    assert_eq!(
+        declares("status = 'accepted'\nsuperseded_by = 'DEC-fix-002'\n"),
+        Some(true)
+    );
+}
+
+// ## 仮説と目標の形の要件を読む口（X09）
+
+const HYPOTHESIS_WITH_EVIDENCE: &str = "schema = 'design-hypothesis'
+id = 'HYP-91MTWX'
+question = 'Q-fix-001'
+hypothesis_kind = 'semantic-comprehension'
+statement = '初めて使う人が説明できる'
+scope = '音源一覧'
+assessment = 'untested'
+supporting_evidence = ['EVID-fix-001']
+contradicting_evidence = ['EVID-fix-002', 'not an id']
+";
+
+#[test]
+fn 仮説の欄を型つきで読める() {
+    let mut f = target_files();
+    f.insert(
+        "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+        HYPOTHESIS_WITH_EVIDENCE.to_owned(),
+    );
+    let design = design_of(&f);
+    let h = design
+        .object(&id("HYP-91MTWX"))
+        .and_then(|o| o.as_hypothesis())
+        .expect("仮説");
+    assert_eq!(h.question(), Some("Q-fix-001"));
+    assert_eq!(h.hypothesis_kind(), Some("semantic-comprehension"));
+    assert_eq!(h.statement(), Some("初めて使う人が説明できる"));
+    assert_eq!(h.scope(), Some("音源一覧"));
+    assert_eq!(h.assessment(), Some("untested"));
+    assert_eq!(h.supporting_evidence(), ["EVID-fix-001"]);
+    // ID の形かは確かめず、書かれたまま返す。
+    assert_eq!(h.contradicting_evidence(), ["EVID-fix-002", "not an id"]);
+    // 仮説でない記録は仮説として読めない。
+    assert!(
+        design
+            .object(&id("DEC-6CQ3NA"))
+            .is_some_and(|o| o.as_hypothesis().is_none())
+    );
+}
+
+/// 支持と反証は欄の値であって、graph の edge ではない（欄の役割は `Mirror`）。 edge にするかは
+/// D08 が決めるので、読める口を足しても edge は増えない。
+#[test]
+fn 仮説の支持と反証は_edge_にならない() {
+    let mut with_evidence = target_files();
+    with_evidence.insert(
+        "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+        HYPOTHESIS_WITH_EVIDENCE.to_owned(),
+    );
+    let edges_of = |files: &BTreeMap<String, String>| {
+        let graph = design_of(files).graph();
+        let hyp = key("HYP-91MTWX");
+        let evidence = [key("EVID-fix-001"), key("EVID-fix-002")];
+        let from_hypothesis = graph.outgoing(&hyp).len();
+        let into_evidence: usize = evidence.iter().map(|e| graph.incoming(e).len()).sum();
+        let from_evidence: usize = evidence.iter().map(|e| graph.outgoing(e).len()).sum();
+        (from_hypothesis, into_evidence, from_evidence)
+    };
+    // 欄を空にした版と、edge の数が同じ。
+    assert_eq!(edges_of(&with_evidence), edges_of(&target_files()));
+}
+
+#[test]
+fn 要件は旧形も目標の形も同じ口で本文を読める() {
+    let design = design_of(&target_files());
+    let statement = |raw: &str| {
+        design
+            .object(&id(raw))
+            .and_then(|o| o.as_requirement())
+            .map(|r| (r.statement().map(str::to_owned), r.confidence().is_some()))
+    };
+    assert_eq!(
+        statement("REQ-5H8NQ2"),
+        Some((
+            Some("現在可能な創作行為を利用者が認識できなければならない".to_owned()),
+            false
+        )),
+        "目標の形は確度の欄を持たない"
+    );
+    assert_eq!(
+        statement("TR-fix-01"),
+        Some((Some("本文".to_owned()), true))
+    );
+    assert_eq!(statement("DEC-6CQ3NA"), None);
+}
+
+/// 仮説は後継を書く欄を持たないので、置き換えられたという名乗りは `assessment` だけ。
+/// 判断と同じ1つの判定（`is_current`）で、現在有効でないと数える。
+#[test]
+fn assessment_が_superseded_の仮説は現在有効ではない() {
+    let hypothesis = |assessment: &str| {
+        HYPOTHESIS.replace(
+            "assessment = 'untested'",
+            &format!("assessment = '{assessment}'"),
+        )
+    };
+    let current_of = |assessment: &str| {
+        let mut f = target_files();
+        f.insert(
+            "meta/hypotheses/HYP-91MTWX.toml".to_owned(),
+            hypothesis(assessment),
+        );
+        let design = design_of(&f);
+        let graph = design.graph();
+        let h = design
+            .object(&id("HYP-91MTWX"))
+            .and_then(|o| o.as_hypothesis())
+            .expect("仮説");
+        (
+            h.declares_superseded(),
+            design.is_current(&graph, &key("HYP-91MTWX")),
+            // 同じ版の、仮説でも判断でもない記録は影響を受けない。
+            design.is_current(&graph, &key("REQ-5H8NQ2")),
+        )
+    };
+    assert_eq!(current_of("untested"), (false, true, true));
+    assert_eq!(current_of("supported"), (false, true, true));
+    assert_eq!(current_of("superseded"), (true, false, true));
+}
