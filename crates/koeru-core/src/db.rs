@@ -27,6 +27,7 @@
 
 use crate::analysis::{TakeAnalysis, TakeMetrics, bytes_to_f64s, f64s_to_bytes};
 use crate::calibration::Calibration;
+use crate::fingerprint::Digest;
 use crate::frq::Frq;
 use crate::inventory::{Unit, UnitSet, units};
 use crate::oto::Boundary;
@@ -195,6 +196,11 @@ pub enum LedgerError {
     /// 欠落の種類の表記を知らない（`take_gaps.kind`）。 推し量って読まない。
     #[error("欠落の種類が読めない")]
     UnknownGapKind,
+
+    /// テイクに置いてあるマスターの指紋が、64字の16進として読めない（`takes.master_sha256`）。
+    /// 計算し直して上書きしない——何が起きたかを隠す。
+    #[error("マスターの指紋が読めない")]
+    MalformedMasterDigest,
 }
 
 impl koeru_failure::Failure for LedgerError {
@@ -214,6 +220,7 @@ impl koeru_failure::Failure for LedgerError {
             Self::CaptureNotFinalized => "ledger.capture_not_finalized",
             Self::UnknownIntentState => "ledger.unknown_intent_state",
             Self::UnknownGapKind => "ledger.unknown_gap_kind",
+            Self::MalformedMasterDigest => "ledger.malformed_master_digest",
         }
     }
 
@@ -245,7 +252,8 @@ impl koeru_failure::Failure for LedgerError {
             | Self::Migration { .. }
             | Self::MigrationValidation
             | Self::UnknownIntentState
-            | Self::UnknownGapKind => Class::Corrupt,
+            | Self::UnknownGapKind
+            | Self::MalformedMasterDigest => Class::Corrupt,
             // 移行すれば開けるので「今は受けられない」。 `ProjectDir::migrate_ledger` を
             // 先に呼ぶのが次の手（`DEC-PLT-041`）。
             Self::MigrationPending => Class::Rejected,
@@ -3471,6 +3479,72 @@ impl Ledger {
                 })
             })
     }
+
+    /// マスターの内容の指紋を記録する（`DEC-PLT-053`）。 返すのは台帳に残った値。
+    ///
+    /// **先に書かれた値が残る。** もう値があれば書き換えず、その値を返す。 マスターは確定したら
+    /// 変えない（`TR-REC-21` の「既存のテイクを削除・上書きせず」）ので、あとから別の値が来たなら
+    /// ファイルのほうが変わっている。 呼び出し側が返った値と手元の値を比べて気づく。
+    ///
+    /// # Errors
+    ///
+    /// テイクが無い（[`LedgerError::UnknownTake`]）、先に置いてあった値が読めない
+    /// （[`LedgerError::MalformedMasterDigest`]）。
+    pub fn record_master_digest(&mut self, take_id: i32, digest: &Digest) -> Result<Digest> {
+        diesel::update(
+            takes::table
+                .filter(takes::id.eq(take_id))
+                .filter(takes::master_sha256.is_null()),
+        )
+        .set(takes::master_sha256.eq(digest.to_hex()))
+        .execute(&mut self.conn)
+        .map_err(db("record_master_digest"))?;
+        self.master_digest_of(take_id)?
+            .ok_or(LedgerError::UnknownTake)
+    }
+
+    /// 記録してあるマスターの内容の指紋。 まだ計算していなければ `None`
+    /// （この列を足す前に録ったテイクと、確定の直後に落ちたテイク）。
+    ///
+    /// # Errors
+    ///
+    /// テイクが無い、置いてある値が読めない。
+    pub fn master_digest_of(&mut self, take_id: i32) -> Result<Option<Digest>> {
+        let stored = takes::table
+            .filter(takes::id.eq(take_id))
+            .select(takes::master_sha256)
+            .first::<Option<String>>(&mut self.conn)
+            .optional()
+            .map_err(db("master_digest_of"))?
+            .ok_or(LedgerError::UnknownTake)?;
+        parse_master_digest(stored)
+    }
+
+    /// 場所から、テイクと記録してあるマスターの指紋を引く。 その場所のテイクが無ければ `None`。
+    ///
+    /// 試唱の素材の鍵が、素材の場所から指紋を引くのに使う。 場所は `masters/` の下の相対で、
+    /// 区切りは `/` に揃えて探す（[`ledger_path`]）。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めない、置いてある値が読めない。
+    pub fn master_digest_at(&mut self, rel_path: &str) -> Result<Option<(i32, Option<Digest>)>> {
+        takes::table
+            .filter(takes::rel_path.eq(ledger_path(rel_path).as_ref()))
+            .select((takes::id, takes::master_sha256))
+            .first::<(i32, Option<String>)>(&mut self.conn)
+            .optional()
+            .map_err(db("master_digest_at"))?
+            .map(|(id, stored)| parse_master_digest(stored).map(|d| (id, d)))
+            .transpose()
+    }
+}
+
+/// 台帳の文字列を指紋へ読む。 NULL は「まだ計算していない」、読めない文字列は壊れている。
+fn parse_master_digest(stored: Option<String>) -> Result<Option<Digest>> {
+    stored
+        .map(|s| Digest::from_hex(&s).ok_or(LedgerError::MalformedMasterDigest))
+        .transpose()
 }
 
 impl LedgerRead for Ledger {

@@ -15,6 +15,21 @@ pub const MODEL_SAMPLE_RATE_HZ: u32 = 16_000;
 /// フレーム進み幅（ミリ秒）。
 pub const FRAME_SHIFT_MS: f64 = 10.0;
 
+/// この OS で MFA を動かせるか（`DEC-PLT-038`）。 組んでいない OS では使えない。
+///
+/// 理由の code と分類は [`MfaError::Unsupported`] と同じ。 失敗として返す口（[`MfaAligner::open`]）と
+/// 値として問う口（これ）で、2通りに言わない。
+///
+/// `kaldi.rs` にも同じ名前で置いてある。 **片方だけに足さない。**
+#[must_use]
+pub fn availability() -> crate::aligner::Availability {
+    use koeru_failure::Failure as _;
+    crate::aligner::Availability::Unavailable(crate::aligner::Unavailable {
+        code: MfaError::Unsupported.code(),
+        class: MfaError::Unsupported.class(),
+    })
+}
+
 /// この OS では Kaldi をまだ組んでいない。
 #[derive(Debug, thiserror::Error)]
 pub enum MfaError {
@@ -93,6 +108,23 @@ impl crate::aligner::Aligner for MfaAligner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 使えるかを値で問える。 理由は開けないときの失敗と同じ code と分類。
+    #[test]
+    fn この_os_では使えないと値で言う() {
+        use crate::aligner::{Availability, Unavailable};
+        assert_eq!(
+            availability(),
+            Availability::Unavailable(Unavailable {
+                code: "mfa.unsupported_platform",
+                class: koeru_failure::Class::Unsupported,
+            })
+        );
+        assert_eq!(
+            availability().reason().map(|r| r.code),
+            Some("mfa.unsupported_platform")
+        );
+    }
 
     /// **書いていないことを言う。** 黙って成功しない。
     #[test]

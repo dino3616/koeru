@@ -421,15 +421,6 @@ fn business_tables(conn: &mut SqliteConnection) -> Vec<String> {
         .collect()
 }
 
-/// [`business_tables`] に `project_revision` も含めた、台帳の全表。
-fn business_tables_and_revision(conn: &mut SqliteConnection) -> Vec<String> {
-    sqlite_master::table
-        .filter(sqlite_master::kind.eq("table"))
-        .select(sqlite_master::name)
-        .load::<String>(conn)
-        .expect("sqlite_master を読めること")
-}
-
 /// その表に立っている `rev_<table>_*` トリガーの本数。
 fn revision_trigger_count(conn: &mut SqliteConnection, table: &str) -> i64 {
     sqlite_master::table
@@ -528,13 +519,12 @@ fn 移行後も取り込み済みの曲が残り原文の表が足される() {
 fn 移行後にproject_revisionと全表のトリガーが揃う() {
     let dir = new_project("revision-migration");
     {
-        let mut conn = pending_one_migration_short(&dir.db_path());
-        // `project_revision` を作った移行が最後ではなくなったので、その移行まで戻す。
-        // 「あと何個戻すか」を数で書くと、移行が増えるたびに落ちる。
-        while business_tables_and_revision(&mut conn).contains(&"project_revision".to_owned()) {
-            conn.revert_last_migration(MIGRATIONS)
-                .expect("1つ戻せること");
-        }
+        // 「最後の1つ」ではなく名指しで戻す。 後ろに別の移行が足されても、この試験が
+        // 見たいのは `project_revision` の移行だけ。
+        let mut conn = raw_connection(&dir.db_path());
+        conn.run_pending_migrations(MIGRATIONS)
+            .expect("全部当てられること");
+        revert_named(&mut conn, "project_revision");
         insert_row(&mut conn, "r1");
     }
 
@@ -572,4 +562,179 @@ fn 移行後にproject_revisionと全表のトリガーが揃う() {
         .first(&mut conn)
         .expect("読めること");
     assert!(after > value, "書き込みで版が進むこと");
+}
+
+/// 名前に `fragment` を含む移行だけを戻す。 「最後の1つ」を戻す手順は、後ろに別の移行が
+/// 足されると別のものを戻す。
+fn revert_named(conn: &mut SqliteConnection, fragment: &str) {
+    use diesel::migration::MigrationSource as _;
+    let all = MIGRATIONS.migrations().expect("移行を読めること");
+    let target = all
+        .iter()
+        .find(|m| m.name().to_string().contains(fragment))
+        .unwrap_or_else(|| panic!("{fragment} の移行がある"));
+    conn.revert_migration(&**target).expect("戻せること");
+}
+
+#[derive(diesel::QueryableByName)]
+struct ColumnCount {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    n: i64,
+}
+
+fn has_column(conn: &mut SqliteConnection, table: &str, column: &str) -> bool {
+    diesel::sql_query(format!(
+        "SELECT COUNT(*) AS n FROM pragma_table_info('{table}') WHERE name = '{column}'"
+    ))
+    .get_result::<ColumnCount>(conn)
+    .expect("列を調べられること")
+    .n == 1
+}
+
+/// マスターの指紋の列を足す前の台帳が、移行で列を得ても中身を落とさず、指紋が NULL のまま
+/// 残る。 要るときに書き、書いたあとは変えない（`DEC-PLT-053`）。
+///
+/// **移行は指紋を埋めない。** SQL はファイルを読めない。 埋めるのはアプリで、ここは
+/// 「埋まっていない」ことと、台帳が埋められる形であることを見る。
+#[test]
+fn 旧い台帳は指紋が空のまま開き_書いたあとは変わらない() {
+    use koeru_core::db::{FinalizedTake, SessionSnapshot};
+    use koeru_core::fingerprint::Digest;
+    use koeru_core::inventory::UnitSet;
+    use koeru_core::reclist::generate_single;
+
+    let dir = new_project("master-digest");
+    // 今の版の台帳でテイクを2つ作る。
+    {
+        let mut l = Ledger::open(dir.db_path()).expect("開けること");
+        let list = generate_single(UnitSet::Core, 3).expect("生成できること");
+        l.install_reclist(&list, 60).expect("書けること");
+        let session = l
+            .start_session(&SessionSnapshot {
+                started_at: "2026-10-13T00:00:00Z".into(),
+                device_id: "test".into(),
+                sample_rate_hz: 48_000,
+                channels: 1,
+                effects_state: "clean".into(),
+                route: "test".into(),
+                source_channel: 0,
+                master_rate_hz: 44_100,
+                resampler: "test".into(),
+                upstream_conversion: "unknown".into(),
+            })
+            .expect("始められること");
+        for (i, row) in list.iter().take(2).enumerate() {
+            l.commit_take(&FinalizedTake {
+                row_id: row.id.clone(),
+                session_id: session,
+                rel_path: format!("masters/m{i}.wav"),
+                frames: 44_100,
+                recorded_at: "2026-10-13T00:00:01Z".into(),
+            })
+            .expect("載せられること");
+        }
+    }
+    // 列を足す前の姿へ戻す。 戻すと列ごと指紋が消えるが、テイクは残る。
+    {
+        let mut conn = raw_connection(&dir.db_path());
+        revert_named(&mut conn, "master_content_hash");
+        assert!(!has_column(&mut conn, "takes", "master_sha256"));
+    }
+    assert_eq!(
+        db::migration_state(&dir.db_path()).expect("読めること"),
+        MigrationState::Pending
+    );
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+    {
+        let mut conn = raw_connection(&dir.db_path());
+        assert!(has_column(&mut conn, "takes", "master_sha256"));
+    }
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let (id_a, none_a) = l
+        .master_digest_at("masters/m0.wav")
+        .expect("読めること")
+        .expect("テイクが残っていること");
+    assert_eq!(none_a, None, "移行は指紋を埋めない");
+    let (id_b, none_b) = l
+        .master_digest_at("masters\\m1.wav")
+        .expect("読めること")
+        .expect("区切りが違っても同じ場所を引けること");
+    assert_eq!(none_b, None);
+    assert!(
+        l.master_digest_at("masters/none.wav")
+            .expect("読めること")
+            .is_none()
+    );
+
+    // 要るときに書く。 先に書かれたものが残る。
+    let first = Digest::of(b"first");
+    assert_eq!(l.record_master_digest(id_a, &first).expect("書ける"), first);
+    assert_eq!(
+        l.record_master_digest(id_a, &Digest::of(b"second"))
+            .expect("返ること"),
+        first,
+        "2回目は書き換えず、残っている値を返す"
+    );
+    assert_eq!(l.master_digest_of(id_a).expect("読める"), Some(first));
+    assert_eq!(l.master_digest_of(id_b).expect("読める"), None);
+    assert!(matches!(
+        l.record_master_digest(424_242, &first),
+        Err(LedgerError::UnknownTake)
+    ));
+    assert!(matches!(
+        l.master_digest_of(424_242),
+        Err(LedgerError::UnknownTake)
+    ));
+}
+
+/// 64字でないものは台帳が断り、64字の16進でないものは置いてあっても読めないと言う。
+/// 計算し直して隠さない。
+#[test]
+fn 壊れた指紋は置けず_置いてあれば読めないと言う() {
+    let dir = new_project("master-digest-bad");
+    let mut conn = raw_connection(&dir.db_path());
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("全部当てられること");
+    diesel::sql_query(
+        "INSERT INTO sessions (started_at, device_id, sample_rate_hz, channels, effects_state, \
+         route) VALUES ('t', 'd', 48000, 1, 'clean', 'r')",
+    )
+    .execute(&mut conn)
+    .expect("セッションを入れられること");
+    insert_row(&mut conn, "r1");
+    diesel::sql_query(
+        "INSERT INTO takes (row_id, session_id, rel_path, frames, recorded_at, generation) \
+         VALUES ('r1', 1, 'masters/x.wav', 1, 't', 1)",
+    )
+    .execute(&mut conn)
+    .expect("テイクを入れられること");
+
+    assert!(
+        diesel::sql_query("UPDATE takes SET master_sha256 = 'abc'")
+            .execute(&mut conn)
+            .is_err(),
+        "長さが違うものは台帳が断る"
+    );
+    diesel::sql_query(format!(
+        "UPDATE takes SET master_sha256 = '{}'",
+        "Z".repeat(64)
+    ))
+    .execute(&mut conn)
+    .expect("長さが合えば入る（字までは SQL が見ない）");
+    drop(conn);
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    assert!(matches!(
+        l.master_digest_of(1),
+        Err(LedgerError::MalformedMasterDigest)
+    ));
+    assert!(matches!(
+        l.record_master_digest(1, &koeru_core::fingerprint::Digest::of(b"x")),
+        Err(LedgerError::MalformedMasterDigest)
+    ));
 }

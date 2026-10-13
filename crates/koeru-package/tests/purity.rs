@@ -9,31 +9,29 @@ use std::path::{Path, PathBuf};
 
 /// 引いてよい workspace の crate。 **並べていないものは通さない。**
 ///
-/// - `koeru-audio` — WAV の読み書き。 符号化を `koeru-formats` へ移すまで（T08e-1）残る
 /// - `koeru-failure` — 失敗の語彙
-/// - `koeru-formats` — `oto.ini`・周波数表・文字符号化の構文
+/// - `koeru-formats` — `oto.ini`・周波数表・文字符号化・WAV・ZIP の構文と符号化
 /// - `koeru-model` — 書き出しの可否・被覆・下位方式への計画など、入出力を持たない規則
-const WORKSPACE_ALLOWED: [&str; 4] = [
-    "koeru-audio",
-    "koeru-failure",
-    "koeru-formats",
-    "koeru-model",
-];
+const WORKSPACE_ALLOWED: [&str; 3] = ["koeru-failure", "koeru-formats", "koeru-model"];
 
 /// 戻ってきてはいけない crate。
 ///
 /// - `koeru-core` — SQLite・ZIP・YAML・ファイルを持つ旧ドメイン層。 書き出しの組み立てが
 ///   引くと、木を作るために DB の依存を全部引くことになる
-/// - `koeru-align` / `koeru-synth` — 計算だけのエンジン。 書き出しが引いてよいのは
-///   外部形式の構文（`koeru-formats`）で、アライナの再輸出を経由しない。
-///   `oto.ini` のためだけに Kaldi を引いていた
+/// - `koeru-audio` / `koeru-align` / `koeru-synth` — ファイルや OS の音声 API を持つ層と
+///   計算だけのエンジン。 書き出しが引いてよいのは外部形式の構文と符号化
+///   （`koeru-formats`）で、再輸出を経由しない。 `oto.ini` のためだけに Kaldi を、
+///   WAV のためだけに録音の層を引いていた
 /// - `koeru-app` / `koeru-runtime` — 上の層
+/// - `zip` — 配布 ZIP の符号化は `koeru-formats` が持つ
 /// - 残りは外側の crate が持つもの（SQLite・YAML・Tauri・GraphQL）。
-///   `zip` と `image` は今はここが持つので並べない（T08e-1）
-const DEPENDENCIES_FORBIDDEN: [&str; 11] = [
+///   `image` は音源アイコンの変換（`icon.rs`）で今はここが持つので並べない
+const DEPENDENCIES_FORBIDDEN: [&str; 13] = [
     "koeru-core",
+    "koeru-audio",
     "koeru-align",
     "koeru-synth",
+    "zip",
     "koeru-app",
     "koeru-runtime",
     "diesel",
@@ -46,8 +44,8 @@ const DEPENDENCIES_FORBIDDEN: [&str; 11] = [
 
 /// 本体のコードがどのファイルでも触ってはいけない標準ライブラリの口と時計。
 ///
-/// `std::io` は縛らない。 `icon.rs` がメモリ上の `Cursor` を使い、`archive.rs` が
-/// ファイルを読み書きする。 `std::path` は名前の組み替えだけなので通す。
+/// `std::io` は縛らない。 `icon.rs` がメモリ上の `Cursor` を使う。
+/// `std::path` は名前の組み替えだけなので通す。
 const STD_FORBIDDEN: [&str; 5] = [
     "std::net",
     "std::process",
@@ -56,14 +54,11 @@ const STD_FORBIDDEN: [&str; 5] = [
     "SystemTime",
 ];
 
-/// 本体のコードが、下の例外を除いて触ってはいけない口。
-const STD_FS_ENV: [&str; 2] = ["std::fs", "std::env"];
-
-/// `STD_FS_ENV` を今は許しているファイル（`src` からの相対）。
+/// 本体のコードがどのファイルでも触ってはいけない口。 例外は無い。
 ///
-/// `archive.rs` が ZIP を直接ファイルへ書き、読み戻している（`TR-PKG-52`）。
-/// ファイルに触る部分を呼び出し側へ出す（T08e-1）。 出したらここを空にする。
-const STD_FS_ENV_EXEMPT: [&str; 1] = ["archive.rs"];
+/// ZIP を書いて読み戻す手順（`TR-PKG-52`）は、符号化を `koeru-formats`、ファイルを
+/// 開く側を `koeru-app` の `export_io` が持つ。
+const STD_FS_ENV: [&str; 2] = ["std::fs", "std::env"];
 
 #[test]
 fn 許可した_workspace_crate_しか引かない() {
@@ -100,13 +95,9 @@ fn 本体のコードが外へ出る口と時計に触らない() {
     walk(&src, &mut |path, text| {
         files += 1;
         let relative = relative_to(&src, path);
-        let fs_env_allowed = STD_FS_ENV_EXEMPT.contains(&relative.as_str());
         for (i, line) in product_lines(text).enumerate() {
             let code = line.split("//").next().unwrap_or_default();
-            let forbidden = STD_FORBIDDEN
-                .iter()
-                .chain(STD_FS_ENV.iter().filter(|_| !fs_env_allowed));
-            for name in forbidden {
+            for name in STD_FORBIDDEN.iter().chain(STD_FS_ENV.iter()) {
                 if code.contains(name) {
                     found.push(format!("{relative}:{}: {name}", i + 1));
                 }
@@ -130,6 +121,12 @@ fn 依存とソースの読み方が壊れていない() {
     assert!(
         STD_FORBIDDEN.iter().any(|f| clock.contains(f)),
         "時計を拾う"
+    );
+    // どのファイルにも例外が無い。 `archive.rs` も同じ扱い。
+    let file = "let f = std::fs::File::create(dest)?;";
+    assert!(
+        STD_FS_ENV.iter().any(|f| file.contains(f)),
+        "ファイルを拾う"
     );
     let path = "use std::path::PathBuf;";
     assert!(

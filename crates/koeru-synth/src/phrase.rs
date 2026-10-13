@@ -16,6 +16,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use crate::resampler::{FrequencyTable, PreviewFlags, RenderError, RenderRequest, render};
+use koeru_model::fingerprint::Digest;
 use koeru_model::oto::Oto;
 
 /// 合成コアの版（`TR-SYN-02`, `TR-SYN-26`）。
@@ -35,8 +36,10 @@ pub struct NoteSpec {
     pub alias: String,
     /// 素材の場所。
     pub sample_path: PathBuf,
-    /// 素材の内容ハッシュ（`TR-SYN-02`）。録り直したら変わる。
-    pub sample_hash: u64,
+    /// 素材の内容の指紋（`TR-SYN-02`、`DEC-PLT-053`）。 録り直したら変わる。
+    ///
+    /// パスは混ぜない。 同じ中身が別の場所にあれば同じ値。 素材が無い音符は `None`。
+    pub sample_hash: Option<Digest>,
     /// oto の5値。
     pub oto: Oto,
     /// 鳴らしたい音高（MIDI）。
@@ -287,7 +290,7 @@ mod tests {
         NoteSpec {
             alias: alias.to_owned(),
             sample_path: PathBuf::from("x.wav"),
-            sample_hash: hash,
+            sample_hash: Some(Digest::of(&hash.to_le_bytes())),
             oto: oto(20.0, 480.0),
             midi,
             duration_ms: 400.0,
@@ -300,6 +303,20 @@ mod tests {
         let a = Phrase::new(vec![note("か", 60, 1)]);
         let b = Phrase::new(vec![note("か", 60, 2)]);
         assert_ne!(a.cache_key(), b.cache_key());
+    }
+
+    /// 素材が無い音符と、中身が空の素材は別の鍵。 素材の有無を取り違えない。
+    #[test]
+    fn 素材の有無で鍵が変わる() {
+        let with = note("か", 60, 1);
+        let mut without = with.clone();
+        without.sample_hash = None;
+        let mut empty = with.clone();
+        empty.sample_hash = Some(Digest::of(b""));
+        let keys = [with, without, empty].map(|n| Phrase::new(vec![n]).cache_key());
+        assert_ne!(keys[0], keys[1]);
+        assert_ne!(keys[1], keys[2]);
+        assert_ne!(keys[0], keys[2]);
     }
 
     /// oto が変われば鍵が変わる（`TR-SYN-26`）。

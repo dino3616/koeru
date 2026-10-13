@@ -31,7 +31,6 @@
 //! [`TakeAnalysisOutput::failure`] に入れる。
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +44,7 @@ use koeru_align::segment::{Boundaries, SegmentConfig, confidence, per_mora};
 use koeru_core::alias::Method;
 use koeru_core::analysis::{TakeAnalysis, TakeMetrics};
 use koeru_core::db::{ConfidenceParts, FingerprintRow, GapRecord, GapRecordKind, TakeGapCounts};
+use koeru_core::fingerprint::Canonical;
 use koeru_core::inventory::{Unit, UnitSet};
 use koeru_core::oto::{Boundary, Oto};
 use koeru_core::presamp::Rules;
@@ -90,13 +90,17 @@ impl From<AppError> for Stop {
     }
 }
 
-/// 指紋にする。 中身は記録へ流さず、同じ値かどうかだけが言えればよい。
+/// 並べた文字列の指紋（`DEC-PLT-053`）。 中身は記録へ流さず、同じ値かどうかだけが言える。
 ///
-/// 同じプロセスの中で突き合わせるだけなので、`DefaultHasher`（固定の鍵）で足りる。
-fn digest<T: Hash + ?Sized>(value: &T) -> String {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    value.hash(&mut h);
-    format!("{:016x}", h.finish())
+/// 内容の SHA-256 で、`domain` が用途を分ける。 並べ方は `koeru_model::fingerprint::Canonical`
+/// が決めており、版や起動で値が変わらない。 **以前は `DefaultHasher` で、同じプロセスの中でしか
+/// 比べられなかった**——受領証や永続化へ載せられる値ではなかった。
+fn digest<'a>(domain: &str, parts: impl IntoIterator<Item = &'a str>) -> String {
+    parts
+        .into_iter()
+        .fold(Canonical::new(domain), |c, part| c.text("part", part))
+        .finish()
+        .to_hex()
 }
 
 /// 読みが失敗していたら、失敗した code を指紋にする。 失敗を読んだことも入力の一部。
@@ -269,20 +273,35 @@ impl RowReads {
                 "row.setup",
                 stamp_of(&self.setup, |s| {
                     // 規則は綴りの表の写しの文字列にして引く。 順序が決まっている。
-                    digest(&(
-                        format!("{:?}", s.method),
-                        format!("{:?}", s.set),
-                        koeru_core::presamp::write(&s.rules, "\n"),
-                    ))
+                    digest(
+                        "row.setup",
+                        [
+                            format!("{:?}", s.method).as_str(),
+                            format!("{:?}", s.set).as_str(),
+                            koeru_core::presamp::write(&s.rules, "\n").as_str(),
+                        ],
+                    )
                 }),
             )
-            .with("row.kana", stamp_of(&self.kana, digest))
+            .with(
+                "row.kana",
+                stamp_of(&self.kana, |k| {
+                    digest("row.kana", k.iter().map(String::as_str))
+                }),
+            )
             .with(
                 "row.line",
-                stamp_of(&self.line, |l| digest(&format!("{l:?}"))),
+                stamp_of(&self.line, |l| {
+                    digest("row.line", [format!("{l:?}").as_str()])
+                }),
             )
             .with("row.tone", stamp_of(&self.tone, |t| t.to_string()))
-            .with("row.owned", stamp_of(&self.owned, digest))
+            .with(
+                "row.owned",
+                stamp_of(&self.owned, |o| {
+                    digest("row.owned", o.iter().map(String::as_str))
+                }),
+            )
     }
 }
 
@@ -1185,6 +1204,50 @@ pub(crate) mod tests {
         assert!(a.steps.iter().any(|s| matches!(s, Step::Measured(_))));
         // `.frq` は素材ファイル全体を hop=256 で渡す（`DEC-SYN-008`）。 切り出さない。
         assert_eq!(a.analysis.hop_size(), 256);
+    }
+
+    /// 計算が出した oto・境界・`.frq` を1つの指紋へ畳む（`DEC-PLT-053`）。
+    ///
+    /// 何も出ていなければ（境界も oto も空）、指紋が空の入力を畳んだだけになる。
+    /// 呼び出し側が `otos` の非空を確かめる。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    fn output_fingerprint(out: &TakeAnalysisOutput) -> (usize, koeru_core::fingerprint::Digest) {
+        let mut otos = Vec::new();
+        let mut boundaries = Vec::new();
+        for step in &out.steps {
+            match step {
+                Step::Entries(e) => otos.extend(e.rows.iter().map(|r| (r.alias.clone(), r.oto))),
+                Step::Boundaries(b) => boundaries.extend(b.iter().cloned()),
+                _ => {}
+            }
+        }
+        let frq = out.analysis.frq.to_bytes().expect("`.frq` にできる");
+        let digest = koeru_core::fingerprint::OutputFingerprint {
+            otos: &otos,
+            boundaries: &boundaries,
+            frq: &frq,
+        }
+        .digest();
+        (otos.len(), digest)
+    }
+
+    /// 同じ入力からの出力は同じ指紋になり、入力の音が変われば別の指紋になる
+    /// （`TR-ALN-29`）。 実モデルで走る。
+    ///
+    /// 出力の指紋は永続化しない（`DEC-PLT-053`）。 ここで使うだけ。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 出力の指紋は入力が同じなら同じで_音が変われば変わる() {
+        let run = |hz: f64| {
+            let input = input_for(&["あ", "か"], synthetic_voice(2, hz));
+            output_fingerprint(&analyze_take(&input, &|| Ok(())).expect("取り消されない"))
+        };
+        let (n, a) = run(180.0);
+        let (_, b) = run(180.0);
+        let (_, c) = run(240.0);
+        assert!(n > 0, "oto が出ている");
+        assert_eq!(a, b, "ビット単位で同じ出力は同じ指紋");
+        assert_ne!(a, c, "音が変われば出力も指紋も変わる");
     }
 
     /// 不連続のあるテイクは確認キューへ入れない。

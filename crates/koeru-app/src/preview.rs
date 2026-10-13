@@ -599,7 +599,7 @@ mod tests {
         Phrase::new(vec![NoteSpec {
             alias: "か".to_owned(),
             sample_path: PathBuf::from("x.wav"),
-            sample_hash: n,
+            sample_hash: Some(koeru_core::fingerprint::Digest::of(&n.to_le_bytes())),
             oto: Oto {
                 offset_ms: 0.0,
                 consonant_ms: 50.0,

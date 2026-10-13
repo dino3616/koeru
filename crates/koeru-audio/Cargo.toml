@@ -13,6 +13,8 @@ workspace = true
 
 [dependencies]
 koeru-failure = { path = "../koeru-failure" }
+# WAV の符号化と復号（`DEC-PLT-034`）。 ここに残るのはファイルを開く側だけ。
+koeru-formats = { path = "../koeru-formats" }
 thiserror.workspace = true
 tracing.workspace = true
 

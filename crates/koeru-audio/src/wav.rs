@@ -1,15 +1,10 @@
-//! WAV の入出力。
+//! 録音のファイル入出力（`.wav.part`、アトミックな確定）。
 //!
-//! KOERU が要る形式は2つだけ（`DEC-SYN-005`）。
-//!
-//! | | レート | 形式 | ch |
-//! |---|---|---|---|
-//! | マスター | 44100 Hz | 32 bit float | 1 |
-//! | 配布用 | 44100 Hz | 16 bit PCM | 1 |
-//!
-//! 汎用の読み書きが要らないので自前で持つ。`hound` も `dr_wav` も個人のリポジトリで、
-//! 束ねる相手を組織メンテのものに限るという方針（`DEC-REC-001`）に対して、
-//! この規模のものに例外を作らない。
+//! WAV の符号化そのもの（ヘッダ、16 bit への変換、ディザ、ヘッダの解析）は
+//! `koeru-formats` の [`koeru_formats::wav`] が持つ（`DEC-PLT-034`）。ここに残るのは
+//! ファイルを開く側——書きかけの `.wav.part` と、パスを受ける読み書きの薄い口。
+//! 既存の `koeru_audio::wav::…` の経路を通すために、符号化側の名前を再輸出している。
+//! **移行中。**
 //!
 //! ## 書き方
 //!
@@ -19,73 +14,18 @@
 //! DB へのコミットはその後（`project-storage.fsl` の `finalize_file` → `commit_take`）。
 
 use std::fs::File;
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-/// WAV の読み書きが失敗した理由。
-#[derive(Debug, thiserror::Error)]
-pub enum WavError {
-    /// ファイル操作が失敗した。`op` はどの操作かを示す固定の名前。
-    #[error("WAV のファイル操作が失敗した")]
-    Io {
-        op: &'static str,
-        #[source]
-        source: std::io::Error,
-    },
-
-    /// RIFF/WAVE として読めない。
-    #[error("WAV として読めない")]
-    Malformed { reason: &'static str },
-
-    /// KOERU が扱わない形式。
-    #[error("扱わない形式の WAV")]
-    Unsupported {
-        fmt: u16,
-        bits: u16,
-        channels: u16,
-        rate: u32,
-    },
-}
-
-impl koeru_failure::Failure for WavError {
-    fn code(&self) -> &'static str {
-        match self {
-            Self::Io { .. } => "wav.io_failed",
-            Self::Malformed { .. } => "wav.malformed",
-            Self::Unsupported { .. } => "wav.unsupported_format",
-        }
-    }
-
-    /// 読む WAV は KOERU が書いたマスターだけなので、読めないのは壊れている。
-    fn class(&self) -> koeru_failure::Class {
-        match self {
-            Self::Io { source, .. } => koeru_failure::io_class(source),
-            Self::Malformed { .. } => koeru_failure::Class::Corrupt,
-            Self::Unsupported { .. } => koeru_failure::Class::Unsupported,
-        }
-    }
-}
+pub use koeru_formats::wav::{
+    DISTRIBUTION_RATE_HZ, MASTER_RATE_HZ, Wav, WavError, WavInfo, distribution_bytes,
+};
 
 type Result<T> = std::result::Result<T, WavError>;
 
 fn io(op: &'static str) -> impl FnOnce(std::io::Error) -> WavError {
     move |source| WavError::Io { op, source }
 }
-
-/// マスターの標本化周波数（`TR-REC-02`）。
-///
-/// キャプチャはデバイスのネイティブレートで受け、pump が1回だけここへ変換する
-/// （`DEC-REC-006`）。 そこから下流はレートを持ち回らず、この値を使う。
-///
-/// [`write_distribution`] はヘッダに 44100 と書くだけでサンプルを変換しない。
-/// 44100 でないものを渡すと、44100 と名乗る別のレートの音が配られる。踏んだ。
-pub const MASTER_RATE_HZ: u32 = 44_100;
-/// 配布用の標本化周波数（`TR-REC-01`）。
-pub const DISTRIBUTION_RATE_HZ: u32 = 44_100;
-
-const FMT_PCM: u16 = 1;
-const FMT_FLOAT: u16 = 3;
-const HEADER_LEN: u64 = 44;
 
 /// 書きかけのテイク。
 ///
@@ -114,7 +54,7 @@ impl PartialTake {
         let file = File::create(&part_path).map_err(io("create"))?;
         let mut writer = BufWriter::new(file);
         // 長さはまだ分からないので 0 で置く。確定時に seek して埋める。
-        write_header(&mut writer, rate_hz, FMT_FLOAT, 32, 0).map_err(io("write_header"))?;
+        koeru_formats::wav::write_master_header(&mut writer, rate_hz, 0)?;
         Ok(Self {
             writer,
             part_path,
@@ -156,8 +96,7 @@ impl PartialTake {
         // 長さを埋める。
         let data_bytes = self.frames * 4;
         file.seek(SeekFrom::Start(0)).map_err(io("seek_header"))?;
-        write_header(&mut file, self.rate_hz, FMT_FLOAT, 32, data_bytes)
-            .map_err(io("rewrite_header"))?;
+        koeru_formats::wav::write_master_header(&mut file, self.rate_hz, data_bytes)?;
         file.flush().map_err(io("flush_header"))?;
 
         // fsync してから rename する。 逆だと、rename は済んでいるのに
@@ -181,151 +120,24 @@ impl PartialTake {
     }
 }
 
-/// 読み込んだ WAV。
-#[derive(Debug, Clone)]
-pub struct Wav {
-    pub samples: Vec<f32>,
-    pub rate_hz: u32,
-}
-
 /// マスター（32 bit float / モノラル）または配布用（16 bit / モノラル）を読む。
+///
+/// 符号化は [`koeru_formats::wav::read`]。 ここはファイルを開くだけ。
 #[tracing::instrument(skip(path))]
 pub fn read(path: impl AsRef<Path>) -> Result<Wav> {
     let mut file = File::open(path.as_ref()).map_err(io("open"))?;
-    let mut header = [0_u8; HEADER_LEN as usize];
-    file.read_exact(&mut header).map_err(io("read_header"))?;
-
-    if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
-        return Err(WavError::Malformed {
-            reason: "RIFF/WAVE ではない",
-        });
-    }
-    if &header[12..16] != b"fmt " {
-        return Err(WavError::Malformed {
-            reason: "fmt チャンクが先頭に無い",
-        });
-    }
-    let fmt = u16::from_le_bytes([header[20], header[21]]);
-    let channels = u16::from_le_bytes([header[22], header[23]]);
-    let rate_hz = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
-    let bits = u16::from_le_bytes([header[34], header[35]]);
-    if &header[36..40] != b"data" {
-        return Err(WavError::Malformed {
-            reason: "data チャンクが fmt の直後に無い",
-        });
-    }
-    let data_bytes = u32::from_le_bytes([header[40], header[41], header[42], header[43]]) as usize;
-
-    // KOERU が扱うのは2形式だけ（`DEC-SYN-005`）。
-    if channels != 1 || !matches!((fmt, bits), (FMT_FLOAT, 32) | (FMT_PCM, 16)) {
-        return Err(WavError::Unsupported {
-            fmt,
-            bits,
-            channels,
-            rate: rate_hz,
-        });
-    }
-
-    let mut data = vec![0_u8; data_bytes];
-    file.read_exact(&mut data).map_err(io("read_data"))?;
-    let samples = match (fmt, bits) {
-        (FMT_FLOAT, 32) => data
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| f32::from_le_bytes(*c))
-            .collect(),
-        _ => data
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| f32::from(i16::from_le_bytes(*c)) / 32768.0)
-            .collect(),
-    };
-    Ok(Wav { samples, rate_hz })
+    koeru_formats::wav::read(&mut file)
 }
 
 /// 配布用（44100 Hz / 16 bit / モノラル）として書く（`TR-REC-01`）。
 ///
-/// TPDF ディザのみを適用する（`TR-REC-37`）。音色を変える処理は行わない。
+/// 中身は [`distribution_bytes`]。 TPDF ディザのみを適用する（`TR-REC-37`）。
 #[tracing::instrument(skip(path, samples), fields(frames = samples.len()))]
 pub fn write_distribution(path: impl AsRef<Path>, samples: &[f32], dither: bool) -> Result<()> {
     let file = File::create(path.as_ref()).map_err(io("create"))?;
     let mut w = BufWriter::new(file);
-    w.write_all(&distribution_bytes(samples, dither))
-        .map_err(io("write"))?;
+    koeru_formats::wav::write_distribution(&mut w, samples, dither)?;
     w.flush().map_err(io("flush"))?;
-    Ok(())
-}
-
-/// 配布用 WAV をバイト列で組み立てる（`TR-REC-01`）。
-///
-/// 配布パッケージは ZIP を組み立てながら作るので、WAV を一度ファイルへ
-/// 書いてから読み直さない。[`write_distribution`] はこれを書くだけ。
-///
-/// **レートは常に [`DISTRIBUTION_RATE_HZ`]。** 呼び出し側のレートを
-/// 引き取らないのは、マスターが 44100 でないまま配ると「44100 と名乗る
-/// 別のレートの音」になるため（`TR-REC-02`, `DEC-REC-006`）。
-#[must_use]
-pub fn distribution_bytes(samples: &[f32], dither: bool) -> Vec<u8> {
-    let mut out = Vec::with_capacity(HEADER_LEN as usize + samples.len() * 2);
-    // Vec への書き込みは失敗しない。
-    let _ = write_header(
-        &mut out,
-        DISTRIBUTION_RATE_HZ,
-        FMT_PCM,
-        16,
-        (samples.len() * 2) as u64,
-    );
-
-    // TPDF ディザ（振幅 1 LSB）。2つの一様乱数の和で三角分布にする。
-    let mut state = 0x2545_F491_4F6C_DD1D_u64;
-    let mut tpdf = move || {
-        let mut next = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            // [0, 1) の一様乱数
-            (state >> 11) as f32 / (1_u64 << 53) as f32
-        };
-        next() - next()
-    };
-
-    for s in samples {
-        let scaled = s * 32767.0;
-        let with_dither = if dither { scaled + tpdf() } else { scaled };
-        #[allow(clippy::cast_possible_truncation)]
-        let v = with_dither.round().clamp(-32768.0, 32767.0) as i16;
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out
-}
-
-fn write_header<W: Write>(
-    w: &mut W,
-    rate_hz: u32,
-    fmt: u16,
-    bits: u16,
-    data_bytes: u64,
-) -> std::io::Result<()> {
-    let block_align = bits / 8; // モノラル
-    let byte_rate = rate_hz * u32::from(block_align);
-    #[allow(clippy::cast_possible_truncation)]
-    let data_len = data_bytes as u32;
-
-    w.write_all(b"RIFF")?;
-    w.write_all(&(36 + data_len).to_le_bytes())?;
-    w.write_all(b"WAVE")?;
-    w.write_all(b"fmt ")?;
-    w.write_all(&16_u32.to_le_bytes())?;
-    w.write_all(&fmt.to_le_bytes())?;
-    w.write_all(&1_u16.to_le_bytes())?; // モノラル
-    w.write_all(&rate_hz.to_le_bytes())?;
-    w.write_all(&byte_rate.to_le_bytes())?;
-    w.write_all(&block_align.to_le_bytes())?;
-    w.write_all(&bits.to_le_bytes())?;
-    w.write_all(b"data")?;
-    w.write_all(&data_len.to_le_bytes())?;
     Ok(())
 }
 
@@ -377,8 +189,22 @@ mod tests {
         assert!(!path.with_extension("wav.part").exists());
     }
 
+    /// 確定したファイルのヘッダは、書いた長さとレートを言う。
     #[test]
-    fn 配布用は十六ビットで書ける() {
+    fn 確定したヘッダは書いた長さを言う() {
+        let path = tmp("header");
+        let mut t = PartialTake::create(&path, 22_050).expect("開ける");
+        t.write(&[0.1; 300]).expect("書ける");
+        let final_path = t.finalize().expect("確定できる");
+
+        let mut file = File::open(&final_path).expect("開ける");
+        let info = koeru_formats::wav::inspect(&mut file).expect("ヘッダを読める");
+        assert_eq!((info.rate_hz, info.samples), (22_050, 300));
+        std::fs::remove_file(&final_path).ok();
+    }
+
+    #[test]
+    fn 配布用はパスへ書いて読み戻せる() {
         let path = tmp("dist");
         write_distribution(&path, &[0.0, 0.5, -0.5], false).expect("書ける");
         let w = read(&path).expect("読める");
@@ -388,46 +214,9 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// ディザは値を1 LSB ぶんしか動かさない（`TR-REC-37`）。
     #[test]
-    fn ディザは最下位ビット一つぶんに収まる() {
-        let path = tmp("dither");
-        let src: Vec<f32> = (0..1000).map(|i| (i as f32 / 1000.0) - 0.5).collect();
-        write_distribution(&path, &src, true).expect("書ける");
-        let w = read(&path).expect("読める");
-        for (a, b) in src.iter().zip(&w.samples) {
-            let diff = (a - b).abs();
-            assert!(diff < 2.0 / 32768.0, "差が 1 LSB 程度に収まる: {diff}");
-        }
-        std::fs::remove_file(&path).ok();
-    }
-
-    /// **扱わない形式は弾く。** ステレオや 24 bit を黙って受けない。
-    #[test]
-    fn 扱わない形式は弾く() {
-        let path = tmp("stereo");
-        let file = File::create(&path).expect("作れる");
-        let mut w = BufWriter::new(file);
-        // ステレオのヘッダを手で書く
-        w.write_all(b"RIFF").unwrap();
-        w.write_all(&36_u32.to_le_bytes()).unwrap();
-        w.write_all(b"WAVEfmt ").unwrap();
-        w.write_all(&16_u32.to_le_bytes()).unwrap();
-        w.write_all(&FMT_PCM.to_le_bytes()).unwrap();
-        w.write_all(&2_u16.to_le_bytes()).unwrap(); // 2ch
-        w.write_all(&44100_u32.to_le_bytes()).unwrap();
-        w.write_all(&176_400_u32.to_le_bytes()).unwrap();
-        w.write_all(&4_u16.to_le_bytes()).unwrap();
-        w.write_all(&16_u16.to_le_bytes()).unwrap();
-        w.write_all(b"data").unwrap();
-        w.write_all(&0_u32.to_le_bytes()).unwrap();
-        w.flush().unwrap();
-        drop(w);
-
-        assert!(matches!(
-            read(&path),
-            Err(WavError::Unsupported { channels: 2, .. })
-        ));
-        std::fs::remove_file(&path).ok();
+    fn 無いファイルは開けない() {
+        let e = read(tmp("nothing")).expect_err("開けない");
+        assert!(matches!(e, WavError::Io { op: "open", .. }));
     }
 }

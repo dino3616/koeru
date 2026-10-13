@@ -171,7 +171,7 @@ from_failure!(
     koeru_synth::resampler::RenderError,
     koeru_package::icon::IconError,
     koeru_package::tree::BuildError,
-    koeru_package::archive::ArchiveError,
+    crate::export_io::ExportError,
     koeru_runtime::RuntimeError,
     koeru_runtime::importing::ImportError,
     // 背後の仕事の失敗（`DEC-PLT-038`、`DEC-PLT-047`）。 投入・待ち・公開の断りが
