@@ -4,6 +4,9 @@ name: nix hash fix
 # 更新で、版上げのたびに必ず必要になると事前に分かっている（`DEC-PLT-033`）。
 # だから人にやらせない。
 #
+# 名前に反して Nix だけではない。 `flake.nix` の bun と fslc に加えて、
+# 綴りの突合相手の OpenUtau（`openutau.toml`、`DEC-SYN-010` の層B）の指紋もここが当てる。
+#
 # push には `GITHUB_TOKEN` 以外の資格情報が要る。 `GITHUB_TOKEN` で push すると
 # GitHub が新しいワークフローを起動しないので、失敗した check が残ったまま
 # automerge が発火しない。 ここでは PAT を使う——要る secret は

@@ -49,7 +49,7 @@
       "ignoreUnstable": false
     },
     {
-      "description": "OpenUtau は phonemizer の突合相手（DEC-SYN-010 の層B）。版が上がると期待値のキャッシュが作り直され、綴りが変われば CI が落ちる。通れば automerge してよい。指紋は openutau-hash-fix が当てる。",
+      "description": "OpenUtau は phonemizer の突合相手（DEC-SYN-010 の層B）。版が上がると期待値のキャッシュが作り直され、綴りが変われば CI が落ちる。通れば automerge してよい。指紋は nix-hash-fix ワークフローが当てる。",
       "matchPackageNames": ["stakira/OpenUtau"],
       "automerge": true,
       "groupName": null,
@@ -66,7 +66,7 @@
       "depNameTemplate": "ymm-oss/fsl"
     },
     {
-      "description": "OpenUtau は綴りの突合相手（DEC-SYN-010）。チャンネルごとに1件。SHA-256 は openutau-hash-fix ワークフローが当てる。",
+      "description": "OpenUtau は綴りの突合相手（DEC-SYN-010）。チャンネルごとに1件。SHA-256 は nix-hash-fix ワークフローが当てる。",
       "customType": "regex",
       "managerFilePatterns": ["/^crates/koeru-core/fixtures/phonemizer-parity/openutau\\.toml$/"],
       "matchStrings": ["name = \"(?<depType>[a-z]+)\"\\nversion = \"(?<currentValue>[^\"]+)\""],

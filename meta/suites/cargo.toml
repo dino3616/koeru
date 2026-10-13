@@ -144,6 +144,16 @@ min_cases = 0
 manual = 1
 contracts = ['DEC-REC-001', 'DEC-REC-004']
 
+[[suite]]
+id = 'SUITE-AUDIO-004'
+title = 'リングの端点は共有した参照から書けも読めもせず、複製もできない（doctest、うち5件は compile_fail）'
+runner = 'cargo'
+package = 'koeru-audio'
+target = 'doc'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 7
+contracts = ['DEC-REC-007']
+
 # ## koeru-align
 
 [[suite]]
