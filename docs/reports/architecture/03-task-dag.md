@@ -171,7 +171,7 @@ T15 の `xtask` 実装は、Design System 側の [implementation-plan](../design
 
 - **Objective:** align/synth/import/exportを新identity/storage/jobsへ接続し、representationとsemantic selectionを分ける。
 - **Prerequisites:** T02,T04,T05,T06,T07。
-- **Architecture contract:** engines compute only、formats parse/encode、Application decides use/selection/export plan。immutable input/output fingerprints。指紋は内容の SHA-256 で持ち、マスターの内容ハッシュは台帳の列が持つ（`DEC-PLT-053`）。取り込んだ曲は原文のバイト列を project に残し、OperationId で冪等にする（`DEC-PLT-054`）。
+- **Architecture contract:** engines compute only、formats parse/encode、Application decides use/selection/export plan。immutable input/output fingerprints。素材の解決は用途（use-context）を受ける1つの resolver が持つ（`DEC-PLT-052`）。指紋は内容の SHA-256 で持ち、マスターの内容ハッシュは台帳の列が持つ（`DEC-PLT-053`）。取り込んだ曲は原文のバイト列を project に残し、OperationId で冪等にする（`DEC-PLT-054`）。
 - **Owned / affected:** align/synth adapters、material resolution integration、song import、package/export workflows。
 - **Must not change:** actual external compatibility、real-audio quality evidence、lossless OTO、down-format behaviorをarchitecture都合で変更。
 - **Tests:** engine deterministic inputs、real audio harness receipts、OpenUtau parity、lossless roundtrip、export staging/publish faults。

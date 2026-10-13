@@ -237,6 +237,12 @@ fn 連続音から単独音へ降りて書き出せる() {
         "単独音へ降りられる: {:?}",
         state.downgrades
     );
+    let estimated = state
+        .downgrades
+        .iter()
+        .find(|x| x.method == Method::Single)
+        .map(|x| x.bytes)
+        .expect("単独音がある");
 
     // **2つの関門で止まっていた。** 語頭 CV の重複で `review.conflicting_alias`、
     // 越えたあとは綴りの重なりで `package.duplicate_alias`。
@@ -261,4 +267,27 @@ fn 連続音から単独音へ降りて書き出せる() {
         "配るのは綴りごとに1つ"
     );
     assert_eq!(out.release.method, Method::Single);
+
+    // 押す前に出す容量は、書き出しが実際に複製する素材の大きさ（`DEC-PLT-052`）。
+    // 一覧と書き出しが別の選び方をすると、出す数と作る量が食い違う。
+    let root = studio
+        .project_dir()
+        .expect("開いている")
+        .root()
+        .to_path_buf();
+    let copied: u64 = entry_names(&out.written.zip)
+        .expect("読める")
+        .iter()
+        .filter(|n| n.ends_with(".wav"))
+        .map(|n| {
+            let stem = std::path::Path::new(n)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .expect("WAV の名前");
+            std::fs::metadata(root.join(format!("audio/{stem}_1.wav")))
+                .expect("素材がある")
+                .len()
+        })
+        .sum();
+    assert_eq!(estimated, copied, "概算は実際に複製する素材と同じ");
 }
