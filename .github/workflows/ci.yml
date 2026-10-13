@@ -48,8 +48,17 @@ jobs:
           # MFA のモデルは HuggingFace の LFS に入っている（DEC-ALN-012）。
           # これが無いと clone が `git-lfs: command not found` で途中で死ぬ。
           lfs: true
+      # Nix のストアは cache.nixos.org から引く。 magic-nix-cache は置かない。
+      # ストアパスごとに1件ずつ書き、Actions のキャッシュの枠を埋めていた（`DEC-PLT-059`）。
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # Rust の組み立ては OS ごとに1つの鍵で持つ。 保存は main だけで、PR は main のものを読む。
+      # PR で保存したものはその PR からしか読めず、10 GB の枠を食い合う（`DEC-PLT-059`）。
+      # 鍵に入れる rustc の版は devShell のものを読む。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
+          cmd-format: nix develop -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Show toolchain
         run: rustc --version && cargo --version
       # 整形と Nix の lint は OS に依らないので、ubuntu で1回だけ見る。
@@ -132,6 +141,11 @@ jobs:
           n=$(wc -c < "$f")
           test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
       # ツールチェーンはランナーの rustup が `rust-toolchain.toml` を読んで揃える。
+      # キャッシュの扱いは test ジョブと同じ。 Nix を通らないので、rustc もそのまま呼ぶ。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # 件数の突き合わせは他の OS と同じ（`DEC-PLT-039`）。
       - run: cargo xtask test-receipt
 
@@ -154,7 +168,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # 組むのは xtask だけで、ui ジョブと同じ鍵を使う。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: xtask
+          cmd-format: nix develop -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # fslc は版と SHA-256 の両方で `flake.nix` が固定している。
       # Renovate が追うのは版だけで、hash は `nix-hash-fix` が PR の中で当てる
       # （`DEC-PLT-033`）。
@@ -213,7 +232,12 @@ jobs:
       # bun しか使わない。submodule も LFS も要らない。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      # 受領証を作る xtask だけを組む。 specs ジョブと同じ鍵を使う。
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: xtask
+          cmd-format: nix develop -c {0}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # story は実ブラウザに描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
       # ブラウザは nixpkgs の playwright-driver から出す。 npm の版と
       # nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
@@ -252,7 +276,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
       # dek は描画を Playwright で測る。ブラウザは nixpkgs から出るので、ui と同じく版を揃える。
       - name: Playwright の版が揃っているか
         run: |
