@@ -44,14 +44,31 @@ macOS × unsupported は配布しない組み立てである。 席の振る舞�
 fmt と clippy は `test (ubuntu)` に、`cargo deny` は specs に移す。 どちらも単独では Nix の準備が
 所要時間の大半を占めていた。
 
+## Nix
+
+- **Rust と仕様のジョブは `devShells.ci` で走らせる。** bun・Playwright のブラウザ・nixd を持たない。
+  darwin で閉包が 3.4 GiB から 2.2 GiB になり、devShell の取得が約 105 秒から約 89 秒になった。
+  ui と talks はブラウザを使うので `default` のまま。
+- **Nix は nix-quick-install-action で入れる。** daemon を立てない単一ユーザーの導入で、
+  macOS の導入が約 65 秒から 5 秒になった。
+- **magic-nix-cache は使わない。** Nix のストアパスごとに1件ずつ書き、10 GB を超えて
+  埋めていた。 devShell は cache.nixos.org から来る。
+- **Nix のキャッシュ（cache-nix-action）も入れない。** 外したあとも Nix の準備は macOS で約 94 秒と、
+  外す前の約 175 秒より短い。 `ci` の閉包は darwin で 2.2 GiB あり、保存すれば Nix に置く 3 GB の
+  目安をほぼ1つで使い切る。
+
 ## キャッシュ
 
 Actions のキャッシュはリポジトリで 10 GB まで。 PR で保存したものはその PR からしか読めない。
 
 - **Rust のキャッシュは main だけが保存する。** PR は main のものを読む。 キーは OS ごとの3つと、
-  specs と ui が共有する xtask の1つ。
-- **magic-nix-cache は使わない。** Nix のストアパスごとに1件ずつ書き、10 GB を超えて
-  埋めていた。 devShell の大半は cache.nixos.org から来る。
+  specs と ui が共有する xtask の1つ。 1組で約 2.8 GB（linux 1.1、macos 0.9、windows 0.7、xtask 0.2）。
+- **キャッシュが持つのは依存だけ。** ワークスペースの crate は毎回組み直すので、koeru-align と
+  koeru-synth の build.rs が Kaldi と WORLD を毎回コンパイルする。 そのため cc の `parallel` を立てた。
+  macOS の clippy が 154 秒から 77 秒になった。 アーカイブの並びも各オブジェクトの中身も変わらない
+  （`TR-ALN-29`）。
+- **`Cargo.lock` が変わると鍵が変わる。** 前のものを前方一致で読むが、build.rs が使う crate
+  （cc など）が変わると依存の大半を組み直す。 その1回は遅い。
 - **配分の目安は Rust で 6 GB、Nix（使うなら）で 3 GB。**
 
 ## 採らなかったもの
@@ -59,12 +76,22 @@ Actions のキャッシュはリポジトリで 10 GB まで。 PR で保存し�
 - **main だけで macOS を回す・変更の無いパスを飛ばす。** PR の検査範囲を狭める。
 - **sccache の GitHub Actions バックエンド。** 書き込みが毎分 200 件までで、制限に当たると戻らない。
 - **外部のキャッシュや有料のランナー。** secret と外部サービスを足さない。
+- **書いていない OS の席の cfg を、環境変数と build.rs に移す。** キャッシュが当たれば unsupported の
+  clippy は約 30 秒で、移す条件にした 1 分に届かない。 `RUSTFLAGS` を変えても組み直すのは
+  ワークスペースの crate だけで、依存は別に持たれてキャッシュに残る。
+- **試験 binary を並べて走らせる。** 試験の実行は macOS で約 3 分で、clippy と試験の組み立てを
+  合わせた約 3.5 分より短い。 時刻に依存する試験（pump、デバイスの喪失、解析ジョブの待ち）が 20 ファイル余りあり、
+  3 コアのランナーで binary を重ねると不安定になる。
+- **koeru-align と koeru-synth だけ opt-level を上げる。** 手元で 3 並列にして測ると、
+  組み直しが 40 秒から 50 秒に延び、2つの crate の試験は 15 秒から 12 秒にしか縮まない。
+- **LFS のキャッシュ。** checkout は LFS 込みで 8〜27 秒で、キャッシュの枠を割くほどではない。
 '''
 review_triggers = [
   'キャッシュが 10 GB を超え、キー同士が追い出し合うようになったとき',
   'macOS の開始待ちが、再び所要時間を支配するようになったとき',
   'リポジトリを Organization へ移し、マージキューや外部のランナーが使えるようになったとき',
   'macOS で書いていない OS の席だけを壊す欠陥が、組み立て以外で見つかったとき。 macOS × unsupported の試験を戻す',
+  'macOS で試験の実行が組み立てより長くなったとき。 試験 binary の並列実行を見直す',
 ]
 affects_decisions = [
   'DEC-PLT-033',

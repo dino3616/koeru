@@ -22,6 +22,11 @@ nix develop --command cargo test --workspace  # 1つだけ走らせる
 
 以下のコマンドは、すべてこのシェルの中で走らせる。
 
+CI の Rust と仕様のジョブは `nix develop .#ci` で走る。 `ci` は bun・Playwright の
+ブラウザ・nixd を持たない devShell で、それ以外は `default` と同じ（`DEC-PLT-059`）。
+Rust の組み立てに要るものを足すときは `flake.nix` の `ciPackages` に足す——`default` にだけ
+足すと、手元では通って CI でだけ見つからない。
+
 ## 基本
 
 ```bash

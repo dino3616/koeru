@@ -48,3 +48,44 @@ unsupported の段は `RUSTFLAGS` が変わるので依存まで全部組み直�
 [Fact] CI で doctest が1件も走っていなかった。 `test-receipt` は `--no-run` で組んだ
 試験 binary しか走らせず、doctest は binary にならない。 doctest を持つのは koeru-audio の 7 件。
 '''
+
+after = '''
+`DEC-PLT-059` の変更をすべて入れた PR の run（38374352660）。 Rust のキャッシュは同じ PR の
+前の run が保存したものに完全一致で当たっている。 全体は 10.5 分。
+1回の CI は 8 ジョブで、うち macOS は1つ。
+
+| ジョブ | 待ち | 所要 |
+|---|---|---|
+| test (macos-latest) | 0.1 分 | 10.4 分 |
+| test (windows) | 0.0 分 | 4.4 分 |
+| test (ubuntu-latest) | 0.0 分 | 3.5 分 |
+| ui | 0.1 分 | 2.0 分 |
+| specs | 0.0 分 | 1.8 分 |
+| talks | 0.0 分 | 1.5 分 |
+| phonemizer parity（2本） | 0.0 分 | 0.2 分 |
+
+[Fact] `test (macos-latest)` の 10.4 分の内訳。 checkout が 13 秒、Nix の導入が 5 秒、
+devShell の取得が 89 秒、Rust のキャッシュの取得が 31 秒（866 MB）、native の clippy が 77 秒、
+xtask の組み立てが 7 秒、試験の組み立てが 2 分 19 秒、試験の実行が約 3 分（doctest を含む）、
+unsupported の clippy が 33 秒。
+
+[Fact] Rust のキャッシュはワークスペースの crate を持たない。 キャッシュが完全一致で当たっても、
+koeru-align と koeru-synth の build.rs が Kaldi と WORLD をコンパイルし直す。 cc の `parallel` を
+立てる前の run（38367325231）では、macOS の native の clippy が 154 秒だった。
+
+[Fact] cc の `parallel` は、手元で `CARGO_BUILD_JOBS=3` にして Kaldi の組み立てを 136 秒から
+40 秒にした。 直列と並列で、アーカイブの `ar t` の並びと各オブジェクトの中身の md5 が一致した。
+
+[Fact] `Cargo.lock` を変えた run（38371944376）では、macOS の Rust のキャッシュが見つからず、
+macOS が 19.1 分かかった。 キャッシュが外れたときの組み立ては、これが目安になる。
+
+[Fact] devShell の閉包は darwin で `default` が 3.4 GiB、`ci` が 2.2 GiB。 差はほぼ Playwright の
+ブラウザ（1.1 GiB）と nixd。 Ubuntu の devShell の取得は 48 秒。
+
+[Fact] Rust のキャッシュは1組で約 2.8 GB（linux 1.1、macos 0.9、windows 0.7、xtask 0.2）。
+この PR を main へ入れるまでは、main と他の PR が magic-nix-cache で書き続けるので、
+使用量は 10 GB 前後のまま。
+
+[Fact] koeru-align と koeru-synth の opt-level を 2 にすると、手元の 3 並列で build.rs を含む組み直しが
+40 秒から 50 秒に延び、2つの crate の試験（177 件）は 15 秒から 12 秒になった。
+'''
