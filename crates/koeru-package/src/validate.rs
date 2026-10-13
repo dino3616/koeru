@@ -17,8 +17,10 @@
 //! 書き出しの可否を決めるこの層には要らない。
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use koeru_formats::text;
+use koeru_formats::wav::{WavError, WavInfo};
 use koeru_model::names::{self, AliasProblem};
 
 use crate::bank::{Sample, Subbank, VoiceBank, decorate};
@@ -167,12 +169,71 @@ pub enum Place {
     Presamp,
 }
 
+/// マスター WAV1本について、呼び出し側が先に調べておく事実（`TR-PKG-49`）。
+///
+/// 検証が要るのはヘッダの3つ（形式・レート・サンプル数）だけで、サンプルの値は見ない。
+/// ファイルを開くのは呼び出し側で、ここは開かない。 全テイクを読み直すと、画面の
+/// 状態を引くたびに数百 MB を読むことになる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MasterFact {
+    /// ファイルが無い。
+    Missing,
+    /// 開けない、ヘッダが壊れている、`data` が宣言より短い。
+    Unreadable,
+    /// KOERU が扱わない形式（モノラルでない、16 bit / 32 bit float でない）。
+    Unsupported,
+    /// 読めた。
+    Wav {
+        /// ヘッダのレート。
+        rate_hz: u32,
+        /// サンプル数（モノラルなのでフレーム数と同じ）。
+        samples: u64,
+    },
+}
+
+impl MasterFact {
+    /// ヘッダの読み取り結果から事実にする。
+    ///
+    /// ファイルが在るかどうかはここでは分からない。 無ければ [`MasterFact::Missing`] を
+    /// 呼び出し側が直接置く。
+    #[must_use]
+    pub fn from_header(header: &Result<WavInfo, WavError>) -> Self {
+        match header {
+            Ok(info) => Self::Wav {
+                rate_hz: info.rate_hz,
+                samples: info.samples,
+            },
+            Err(WavError::Unsupported { .. }) => Self::Unsupported,
+            Err(_) => Self::Unreadable,
+        }
+    }
+}
+
+/// 素材の在り処ごとの事実。
+///
+/// **引けなかったものは「無い」と読む。** 事実を集め損ねたときに通すと、
+/// 調べていない素材を書き出してしまう。
+pub type MasterFacts = BTreeMap<PathBuf, MasterFact>;
+
+/// `bank` の素材それぞれについて `probe` で事実を集める。
+///
+/// 同じ在り処は1回だけ調べる。 `probe` はファイルを開く側の仕事で、ここは数え上げるだけ。
+pub fn collect_facts(bank: &VoiceBank, mut probe: impl FnMut(&Path) -> MasterFact) -> MasterFacts {
+    let mut facts = MasterFacts::new();
+    for m in bank.subbanks.iter().flat_map(|s| &s.samples) {
+        if !facts.contains_key(&m.master) {
+            facts.insert(m.master.clone(), probe(&m.master));
+        }
+    }
+    facts
+}
+
 /// 書き出し前に全件検査する（`TR-PKG-49`）。
 ///
-/// WAV を実際に開く。 台帳の値だけを見ると、素材が消えている・
+/// 素材の事実（`facts`）を見る。 台帳の値だけを見ると、素材が消えている・
 /// レートが違うといった、書き出したあとにしか分からない壊れ方を通す。
-#[tracing::instrument(skip(bank), fields(profile = profile.as_str(), subbanks = bank.subbanks.len()))]
-pub fn validate(bank: &VoiceBank, profile: Profile) -> Report {
+#[tracing::instrument(skip(bank, facts), fields(profile = profile.as_str(), subbanks = bank.subbanks.len()))]
+pub fn validate(bank: &VoiceBank, profile: Profile, facts: &MasterFacts) -> Report {
     let mut report = Report::default();
 
     // `character.txt` と `character.yaml` は必ず生成する（`TR-PKG-01`, `TR-PKG-50`）。
@@ -196,7 +257,8 @@ pub fn validate(bank: &VoiceBank, profile: Profile) -> Report {
     check_names_and_aliases(bank, &mut report);
     for s in &bank.subbanks {
         for m in &s.samples {
-            check_sample(s, m, &mut report);
+            let fact = facts.get(&m.master).copied().unwrap_or(MasterFact::Missing);
+            check_sample(s, m, fact, &mut report);
         }
     }
     if profile.needs_cp932() {
@@ -312,7 +374,7 @@ fn check_names_and_aliases(bank: &VoiceBank, report: &mut Report) {
 }
 
 /// 素材1本の検査（`TR-PKG-49`）。
-fn check_sample(s: &Subbank, m: &Sample, report: &mut Report) {
+fn check_sample(s: &Subbank, m: &Sample, fact: MasterFact, report: &mut Report) {
     let path = format!("{}{}", s.path_prefix(), m.file);
     let mut push = |problem: Problem, alias: Option<String>| {
         report.findings.push(Finding {
@@ -322,35 +384,37 @@ fn check_sample(s: &Subbank, m: &Sample, report: &mut Report) {
         });
     };
 
-    if !m.master.is_file() {
-        push(Problem::WavMissing, None);
-        return;
-    }
-    let wav = match koeru_audio::wav::read(&m.master) {
-        Ok(w) => w,
-        Err(koeru_audio::wav::WavError::Unsupported { .. }) => {
+    let (rate_hz, samples) = match fact {
+        MasterFact::Missing => {
+            push(Problem::WavMissing, None);
+            return;
+        }
+        MasterFact::Unsupported => {
             push(Problem::UnsupportedFormat, None);
             return;
         }
-        Err(_) => {
+        MasterFact::Unreadable => {
             push(Problem::WavUnreadable, None);
             return;
         }
+        MasterFact::Wav { rate_hz, samples } => (rate_hz, samples),
     };
-    if wav.samples.is_empty() {
+    if samples == 0 {
         push(Problem::EmptyWav, None);
         return;
     }
-    if wav.rate_hz != koeru_audio::wav::DISTRIBUTION_RATE_HZ {
-        push(Problem::WrongSampleRate { found: wav.rate_hz }, None);
+    // **44100 でないマスターを通さない。** 書き出しはレートを変換せずヘッダに 44100 と
+    // 書くので、通すと 44100 と名乗る別のレートの音が配られる（`TR-REC-02`）。
+    if rate_hz != koeru_formats::wav::DISTRIBUTION_RATE_HZ {
+        push(Problem::WrongSampleRate { found: rate_hz }, None);
     }
 
-    let frames = wav.samples.len();
+    let frames = usize::try_from(samples).unwrap_or(usize::MAX);
     #[allow(
         clippy::cast_precision_loss,
         reason = "1テイクのサンプル数は f64 の仮数に収まる"
     )]
-    let len_ms = frames as f64 * 1000.0 / f64::from(wav.rate_hz);
+    let len_ms = samples as f64 * 1000.0 / f64::from(rate_hz);
 
     for e in &m.entries {
         let alias = Some(decorate(s, &e.alias));
@@ -505,26 +569,44 @@ mod tests {
     use koeru_formats::oto_ini::IniEntry;
     use koeru_model::alias::Method;
     use koeru_model::oto::Oto;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::cell::RefCell;
+    use std::io::Cursor;
 
-    fn tmp(tag: &str) -> PathBuf {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        let d =
-            std::env::temp_dir().join(format!("koeru-package-{}-{tag}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).expect("一時ディレクトリを作れること");
-        d
+    // このクレートはファイルを開かない。 試験は、置いたことになっている WAV の事実を
+    // 仮想の置き場（試験ごとのスレッドに1つ）へ書き、`validate` へはそこから集めて渡す。
+    thread_local! {
+        static DISK: RefCell<MasterFacts> = const { RefCell::new(MasterFacts::new()) };
     }
 
-    /// 44100 Hz / 指定した長さの WAV を置く。
+    fn tmp(tag: &str) -> PathBuf {
+        PathBuf::from("/virtual").join(tag)
+    }
+
+    fn wav_fact(rate_hz: u32, ms: u32) -> MasterFact {
+        MasterFact::Wav {
+            rate_hz,
+            samples: u64::from(rate_hz) * u64::from(ms) / 1000,
+        }
+    }
+
+    /// 置いた事実を仮想の置き場へ書く。
+    fn put(path: &Path, fact: MasterFact) {
+        DISK.with(|d| d.borrow_mut().insert(path.to_path_buf(), fact));
+    }
+
+    /// 44100 Hz / 指定した長さの WAV を置いたことにする。
     fn write_wav(dir: &Path, name: &str, ms: u32) -> PathBuf {
-        let frames = (44_100 * ms / 1000) as usize;
-        let samples = vec![0.1_f32; frames];
         let path = dir.join(name);
-        koeru_audio::wav::write_distribution(&path, &samples, false).expect("書けること");
+        put(&path, wav_fact(44_100, ms));
         path
+    }
+
+    /// 仮想の置き場にあるものを事実として、検証する。 置いていないものは無い。
+    fn validate(bank: &VoiceBank, profile: Profile) -> Report {
+        let facts = collect_facts(bank, |p| {
+            DISK.with(|d| d.borrow().get(p).copied().unwrap_or(MasterFact::Missing))
+        });
+        super::validate(bank, profile, &facts)
     }
 
     fn oto() -> Oto {
@@ -623,14 +705,7 @@ mod tests {
     fn レートが違えば止まる() {
         let d = tmp("rate");
         let path = d.join("s001.wav");
-        {
-            // 22050 Hz のマスターを作る。書き出し用の口はレートを持たないので、
-            // 録音用の口で作る。
-            let mut part =
-                koeru_audio::wav::PartialTake::create(&path, 22_050).expect("作れること");
-            part.write(&vec![0.1_f32; 22_050]).expect("書けること");
-            part.finalize().expect("確定できること");
-        }
+        put(&path, wav_fact(22_050, 1000));
         let b = bank(vec![subbank(
             None,
             "",
@@ -638,6 +713,118 @@ mod tests {
         )]);
         let r = validate(&b, Profile::Both);
         assert_eq!(kinds(&r), ["package.wrong_sample_rate"]);
+    }
+
+    /// ヘッダの読み取りから事実を作る経路で、44100 でないマスターを止める。
+    ///
+    /// 事実の組み立て（`koeru-formats` のヘッダ解析）と検証の継ぎ目。 どちらか片方の
+    /// 試験だけでは、レートの取り違えが間に落ちる。
+    #[test]
+    fn ヘッダから作った事実でもレートが違えば止まる() {
+        fn master(rate_hz: u32, frames: usize) -> Vec<u8> {
+            let mut out = Vec::new();
+            koeru_formats::wav::write_master_header(&mut out, rate_hz, frames as u64 * 4)
+                .expect("書けること");
+            out.resize(out.len() + frames * 4, 0);
+            out
+        }
+        let fact_of = |bytes: &[u8]| {
+            MasterFact::from_header(&koeru_formats::wav::inspect(&mut Cursor::new(bytes)))
+        };
+
+        let d = tmp("header-rate");
+        let slow = d.join("slow.wav");
+        let fine = d.join("fine.wav");
+        put(&slow, fact_of(&master(22_050, 22_050)));
+        put(&fine, fact_of(&master(44_100, 44_100)));
+        assert_eq!(fact_of(&master(22_050, 22_050)), wav_fact(22_050, 1000));
+
+        let b = bank(vec![
+            subbank(Some("C4"), "", vec![sample("a.wav", slow, &["あ"])]),
+            subbank(Some("G4"), "↑", vec![sample("b.wav", fine, &["あ"])]),
+        ]);
+        let r = validate(&b, Profile::Both);
+        assert_eq!(kinds(&r), ["package.wrong_sample_rate"]);
+        assert_eq!(
+            r.findings[0].problem,
+            Problem::WrongSampleRate { found: 22_050 }
+        );
+        assert_eq!(r.findings[0].file, "C4/a.wav");
+    }
+
+    /// 長さ0・読めない・扱わない形式は、それぞれの違反になる。
+    #[test]
+    fn 読めない素材は種別ごとに止まる() {
+        let d = tmp("unreadable");
+        let cases = [
+            ("empty.wav", wav_fact(44_100, 0), "package.empty_wav"),
+            ("bad.wav", MasterFact::Unreadable, "package.wav_unreadable"),
+            (
+                "odd.wav",
+                MasterFact::Unsupported,
+                "package.unsupported_format",
+            ),
+            ("gone.wav", MasterFact::Missing, "package.wav_missing"),
+        ];
+        for (name, fact, kind) in cases {
+            let path = d.join(name);
+            put(&path, fact);
+            let b = bank(vec![subbank(None, "", vec![sample(name, path, &["あ"])])]);
+            assert_eq!(kinds(&validate(&b, Profile::Both)), [kind], "{name}");
+        }
+    }
+
+    /// 事実を集め損ねた素材は通さない。
+    #[test]
+    fn 事実が引けない素材は無いものとして止まる() {
+        let b = bank(vec![subbank(
+            None,
+            "",
+            vec![sample(
+                "s001.wav",
+                tmp("unprobed").join("s001.wav"),
+                &["あ"],
+            )],
+        )]);
+        let r = super::validate(&b, Profile::Both, &MasterFacts::new());
+        assert_eq!(kinds(&r), ["package.wav_missing"]);
+    }
+
+    /// 同じ在り処は1回しか調べない。
+    #[test]
+    fn 事実は在り処ごとに1回だけ集める() {
+        let d = tmp("probe-once");
+        let shared = d.join("shared.wav");
+        let b = bank(vec![
+            subbank(
+                Some("C4"),
+                "",
+                vec![sample("a.wav", shared.clone(), &["あ"])],
+            ),
+            subbank(Some("G4"), "↑", vec![sample("a.wav", shared, &["い"])]),
+        ]);
+        let mut probes = 0;
+        let facts = collect_facts(&b, |_| {
+            probes += 1;
+            wav_fact(44_100, 1000)
+        });
+        assert_eq!((probes, facts.len()), (1, 1));
+    }
+
+    /// ヘッダの事実から長さを割り出す。 全部読んだときと同じ答えになる。
+    #[test]
+    fn 右ブランクの判定は事実のサンプル数から出る() {
+        let d = tmp("cutoff-len");
+        let path = d.join("s001.wav");
+        // 90ms しか無い素材。 offset 100ms は WAV の外。
+        put(&path, wav_fact(44_100, 90));
+        let b = bank(vec![subbank(
+            None,
+            "",
+            vec![sample("s001.wav", path, &["あ"])],
+        )]);
+        let k = kinds(&validate(&b, Profile::Both));
+        assert!(k.contains(&"package.oto_value"), "{k:?}");
     }
 
     /// `TR-PKG-19`。区画をまたいだ重複も見つける。

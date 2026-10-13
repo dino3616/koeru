@@ -38,18 +38,13 @@ pub enum Content {
     Bytes(Vec<u8>),
     /// マスター WAV。包むときに 16 bit へ落とす（`TR-PKG-20`）。
     ///
-    /// 全テイクを一度に載せない。 3時間の収録では数百 MB になる。
+    /// 在り処の名前を持つだけで、開かない。 開いて 16 bit へ落とすのは包む側
+    /// （ファイルを持つ層）で、全テイクを一度に載せない。 3時間の収録では数百 MB になる。
     Master(PathBuf),
 }
 
-/// 圧縮方式（`TR-PKG-27`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compression {
-    /// 無圧縮。`.wav` と `.frq`。
-    Store,
-    /// Deflate。テキスト・YAML・画像。
-    Deflate,
-}
+/// 圧縮方式（`TR-PKG-27`）。 符号化は `koeru-formats` が持つので、再輸出。
+pub use koeru_formats::archive::Compression;
 
 /// 組み立てに失敗した理由。
 #[derive(Debug, thiserror::Error)]

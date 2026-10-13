@@ -9,23 +9,27 @@ use std::path::{Path, PathBuf};
 /// 引いてよい crate。 **並べていないものは通さない。**
 ///
 /// `koeru-model` は `oto.ini` の5値の型（`Oto`）のためだけに引く。 採用・台帳・確信度の
-/// 規則は持ち込まない。 SQLite（`diesel`）・圧縮（`zip`）・Tauri・GraphQL は外側の crate が持つ。
-const DEPENDENCIES_ALLOWED: [&str; 6] = [
+/// 規則は持ち込まない。 `zip` は配布 ZIP の符号化のため（`archive.rs`）。 SQLite
+/// （`diesel`）・Tauri・GraphQL は外側の crate が持つ。
+const DEPENDENCIES_ALLOWED: [&str; 7] = [
     "encoding_rs",
     "koeru-failure",
     "koeru-model",
     "thiserror",
     "tracing",
     "unicode-normalization",
+    "zip",
 ];
 
 /// 本体のコードが触ってはいけない標準ライブラリの口。
 ///
-/// 受け取るのはバイト列と文字列。 `std::path` は名前の綴りを組み替えるだけなので通す
-/// （WAV 名から `.frq` 名を作る、`TR-PKG-05`）。
+/// 受け取るのはバイト列・文字列、または呼び出し側が開いた `Read` / `Write` / `Seek`。
+/// `std::io` の trait と `std::io::Error` は通す（WAV と ZIP が使う）。 開く口（`std::fs`）
+/// と、標準入出力（`std::io::std…`）は通さない。 `std::path` は名前の綴りを組み替えるだけ
+/// なので通す（WAV 名から `.frq` 名を作る、`TR-PKG-05`）。
 const STD_FORBIDDEN: [&str; 8] = [
     "std::fs",
-    "std::io",
+    "std::io::std",
     "std::net",
     "std::process",
     "std::thread",
@@ -88,20 +92,30 @@ fn 依存とソースの読み方が壊れていない() {
         ["encoding_rs", "koeru-failure", "libc"]
     );
 
-    let src = "use std::io::Write as _;\n#[cfg(test)]\nmod tests { use std::fs; }\n";
+    let src = "use std::fs::File;\n#[cfg(test)]\nmod tests { use std::fs; }\n";
     assert_eq!(
         product_lines(src).collect::<Vec<_>>(),
-        ["use std::io::Write as _;"]
+        ["use std::fs::File;"]
     );
     assert!(
         STD_FORBIDDEN.iter().any(|f| src.contains(f)),
-        "書き込みの口を拾う"
+        "ファイルを開く口を拾う"
     );
-    let naming = "use std::path::{Path, PathBuf};";
+    let stdin = "let mut line = String::new(); std::io::stdin().read_line(&mut line);";
     assert!(
-        !STD_FORBIDDEN.iter().any(|f| naming.contains(f)),
-        "名前を組み替えるだけの std::path は通す"
+        STD_FORBIDDEN.iter().any(|f| stdin.contains(f)),
+        "標準入力を拾う"
     );
+    for passes in [
+        "use std::path::{Path, PathBuf};",
+        "use std::io::{Read, Seek, Write};",
+        "source: std::io::Error,",
+    ] {
+        assert!(
+            !STD_FORBIDDEN.iter().any(|f| passes.contains(f)),
+            "通すべき口を拾っている: {passes}"
+        );
+    }
 }
 
 fn crate_dir() -> PathBuf {
