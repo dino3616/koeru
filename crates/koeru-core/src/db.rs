@@ -48,10 +48,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub mod intent;
+pub mod song_import;
 
 pub use intent::{
     Answer, CaptureId, CaptureIntent, Commit, CommitRequest, IntentState, Leftover, NewIntent,
     OperationId, Receipt,
+};
+pub use song_import::{
+    SongImport, SongImportAnswer, SongImportReceipt, SongImportRequest, SongSource,
 };
 
 /// 無音のピークを表す値（dBFS）。

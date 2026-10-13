@@ -11,13 +11,17 @@ use std::path::{Path, PathBuf};
 /// `koeru-model` は `oto.ini` の5値の型（`Oto`）のためだけに引く。 採用・台帳・確信度の
 /// 規則は持ち込まない。 `zip` は配布 ZIP の符号化のため（`archive.rs`）。 SQLite
 /// （`diesel`）・Tauri・GraphQL は外側の crate が持つ。
-const DEPENDENCIES_ALLOWED: [&str; 7] = [
+///
+/// `koeru-model` は UST / USTX が組む `Song` の型のためにも引く。 `yaml_serde` は USTX の
+/// 構文を読むためだけで、`DEC-RCL-012` が理由を持つ。
+const DEPENDENCIES_ALLOWED: [&str; 8] = [
     "encoding_rs",
     "koeru-failure",
     "koeru-model",
     "thiserror",
     "tracing",
     "unicode-normalization",
+    "yaml_serde",
     "zip",
 ];
 

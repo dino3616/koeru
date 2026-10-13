@@ -25,6 +25,8 @@ thiserror.workspace = true
 tracing.workspace = true
 # CP932 で書けない字の代替案を作る互換分解（TR-PKG-17）。
 unicode-normalization.workspace = true
+# USTX（OpenUtau の曲）の構文。 別名の展開と入れ子の深さに上限を持つ。
+yaml_serde.workspace = true
 # 配布 ZIP の符号化と読み戻し（`TR-PKG-26`、`TR-PKG-52`）。 deflate だけに絞ってある
 # （ルートの `Cargo.toml`）。 ワークスペースが既に引いているもので、新しい crate は入らない。
 zip.workspace = true

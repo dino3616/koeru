@@ -432,6 +432,84 @@ fn revision_trigger_count(conn: &mut SqliteConnection, table: &str) -> i64 {
         .expect("sqlite_master を読めること")
 }
 
+/// 取り込み済みの曲を持つ前の版の台帳を移行すると、曲は残り、原文の表が足される
+/// （`DEC-PLT-054`）。 移行より前に取り込んだ曲は原文を持たない。
+///
+/// 戻して当て直しても同じ形になる（`down.sql` が壊れていると、次の移行の試験が
+/// 最後の1つを戻せずに落ちる）。
+#[test]
+fn 移行後も取り込み済みの曲が残り原文の表が足される() {
+    let dir = new_project("song-imports-migration");
+    {
+        let mut conn = pending_one_migration_short(&dir.db_path());
+        // この移行より後に別の移行が入っても、この移行の前まで戻す。
+        while business_tables(&mut conn).contains(&"song_imports".to_owned()) {
+            conn.revert_last_migration(MIGRATIONS)
+                .expect("1つ戻せること");
+        }
+        for table in ["song_imports", "song_import_songs"] {
+            assert!(
+                !business_tables(&mut conn).contains(&table.to_owned()),
+                "前提: 移行前には {table} が無い"
+            );
+        }
+        diesel::sql_query(
+            "INSERT INTO songs (id, title, source, license, bundled, in_bank, added_at) \
+             VALUES ('old', 'ふるさと', '本人が持ち込んだ UST', '不明（配布物には含めない）', 0, 1, '2026-09-01T00:00:00Z')",
+        )
+        .execute(&mut conn)
+        .expect("曲を入れられること");
+    }
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let songs = l.all_songs().expect("引けること");
+    assert_eq!(songs.len(), 1, "取り込み済みの曲が残る");
+    assert_eq!(songs[0].0, "old");
+    assert_eq!(
+        l.song_source("old").expect("引けること"),
+        None,
+        "移行より前の曲は原文を持たない（ファイルが残っていない）"
+    );
+
+    // 移行後は取り込みを確定できる。
+    let op = db::OperationId::generate();
+    let new_song = songs[0].1.clone();
+    let result = l
+        .commit_song_import(&db::SongImportRequest {
+            operation: &op,
+            file_name: "ふるさと.ust",
+            bytes: b"x",
+            songs: &[("new".to_owned(), new_song)],
+            imported_at: "2026-10-13T00:00:00Z",
+        })
+        .expect("取り込める");
+    assert!(matches!(result, db::SongImport::Imported(_)));
+    drop(l);
+
+    let mut conn =
+        SqliteConnection::establish(&dir.db_path().to_string_lossy()).expect("開けること");
+    for table in ["song_imports", "song_import_songs"] {
+        assert_eq!(
+            revision_trigger_count(&mut conn, table),
+            3,
+            "{table} に版のトリガーが3本ある"
+        );
+    }
+    // この移行を戻して、当て直せる。
+    while business_tables(&mut conn).contains(&"song_imports".to_owned()) {
+        conn.revert_last_migration(MIGRATIONS)
+            .expect("1つ戻せること");
+    }
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("当て直せること");
+    assert!(business_tables(&mut conn).contains(&"song_imports".to_owned()));
+}
+
 /// 前の版から移行すると、`project_revision` が種を持って現れ、
 /// 既存の全表にちょうど3本ずつ（ins/upd/del）のトリガーが揃うこと（`DEC-PLT-043`）。
 ///

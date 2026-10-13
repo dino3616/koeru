@@ -40,7 +40,6 @@ use koeru_core::db::{
 use koeru_core::fingerprint::Digest;
 use koeru_core::frq;
 use koeru_core::guide::{self, GuideSpec};
-use koeru_core::inventory::UnitSet;
 use koeru_core::leak::{self, LeakCheck};
 use koeru_core::oto::Oto;
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
@@ -56,6 +55,7 @@ use koeru_model::materials::{Role, UseContext};
 use koeru_model::retake::{self, Anchor, Onsets, Pins};
 // 背後の仕事（`DEC-PLT-047`）。 `Receipt` は台帳の受領証（`koeru_core::db::Receipt`）が
 // 名乗っているので、仕事の受領証は `jobs::Receipt` と書く。
+use koeru_runtime::importing;
 use koeru_runtime::jobs::{
     self, CoalesceKey, ComputeError, JobConfig, JobError, JobFailure, JobId, JobKind, JobRuntime,
     JobSpec, OverflowPolicy, Priority, PublishError,
@@ -124,47 +124,48 @@ const CAUSE_THRESHOLD: f64 = 0.5;
 /// （`ReviewQueue::queued`）、成分の主因を出すと並べた理由と食い違う。
 const BRANCH_MISMATCH_CAUSE: &str = "branch.mismatch";
 
-/// 取り込む曲を確かめる（`TR-RCL-12`）。 取り込みと下見が同じものを通る。
-///
-/// 同梱プリセットはすべて Core（`preset::builtin`）。曲を読む側も
-/// Core で読む（`sing_song`、`song_plan`）ので、ここも Core で見る。
-///
-/// **1音符1モーラも見る。** 全体を繋げて読めるかだけ見ていたので、`さく` の
-/// 音符が取り込めてしまい、そこから後ろの音高と長さが1つずつずれて鳴った
-/// （`Song::note_not_one_mora`）。 **音高の範囲も見る**
-/// （`Song::note_out_of_midi_range`）——範囲外の音高は音域の計算で桁あふれする。
+/// 取り込めない曲の理由（`importing::Diagnostic`）を、画面へ出す失敗に写す（`TR-RCL-12`）。
+/// 取り込みと下見が同じものを通る。 何を取り込んでよいかは `koeru_runtime::importing` が決める。
 ///
 /// 伝えるのは何番目の音符かだけ。 歌詞そのものは載せない——この失敗は
 /// トレースにも残る（`AGENTS.md` #3）。
-fn check_song(song: &Song) -> Result<()> {
-    if let Some(i) = song.note_out_of_midi_range() {
-        return Err(AppError::new(
+fn diagnostic_error(d: importing::Diagnostic) -> AppError {
+    match d.problem {
+        importing::Problem::NoteOutOfRange { note } => AppError::new(
             "song.note_out_of_range",
             Class::InvalidInput,
             format!(
                 "{} 番目のノートの音高が、MIDI の範囲（0〜127）の外にある",
-                i + 1
+                note + 1
             ),
-        ));
-    }
-    if song.moras(UnitSet::Core).is_none() {
-        return Err(AppError::new(
+        ),
+        importing::Problem::UnreadableLyrics => AppError::new(
             "app.unreadable_lyrics",
             Class::InvalidInput,
             "歌詞を読めないノートがある。仮名で書かれた UST / USTX を取り込む",
-        ));
-    }
-    if let Some(i) = song.note_not_one_mora(UnitSet::Core) {
-        return Err(AppError::new(
+        ),
+        importing::Problem::NoteNotOneMora { note } => AppError::new(
             "song.note_not_one_mora",
             Class::InvalidInput,
             format!(
                 "{} 番目のノートに、1音ぶんではない歌詞が入っている。1ノートに1音（「きゃ」「ー」「っ」は1音）で書かれた UST / USTX を取り込む",
-                i + 1
+                note + 1
             ),
-        ));
+        ),
     }
-    Ok(())
+}
+
+/// 取り込みを断った理由を、画面へ出す失敗に写す。 台帳は変わっていない。
+fn rejection_error(r: importing::Rejection) -> AppError {
+    match r {
+        importing::Rejection::TitleCount => AppError::new(
+            "song.title_count",
+            Class::InvalidInput,
+            "題の数が曲の数と合わない",
+        ),
+        importing::Rejection::EmptyTitle => empty_title(),
+        importing::Rejection::Unimportable(d) => diagnostic_error(d),
+    }
 }
 
 /// キューの遷移が通らなかったことを、境界の失敗へ畳む。
@@ -1563,35 +1564,22 @@ impl Studio {
         file_name: &str,
         titles: &[String],
     ) -> Result<Vec<(String, Song)>> {
-        let mut songs = ust::parse_file(bytes, file_name).map_err(AppError::from_failure)?;
-
+        let plan = importing::prepare(bytes, file_name)?;
+        let open = self.opened()?;
+        // 識別子はここで振る。 **画面が振って送る形になるまでの仮の置き場**（`DEC-PLT-035` の
+        // `operationId`、T09 / T11）。 いまは押すたびに新しい操作なので、応答が失われた
+        // 送り直しは、まだ二重に取り込む。 取り込みの側（`importing::commit`）は冪等になっている。
+        let operation = OperationId::generate();
         // 題は本人が決める（`TR-RCL-12`）。 ファイル名から採るのは候補まで。
-        if titles.len() != songs.len() {
-            return Err(AppError::new(
-                "song.title_count",
-                Class::InvalidInput,
-                "題の数が曲の数と合わない",
-            ));
+        match importing::commit(&open.runtime, &open.lease, &operation, &plan, titles)? {
+            importing::Outcome::Imported(songs) | importing::Outcome::Replayed(songs) => Ok(songs),
+            importing::Outcome::OperationIdReused(_) => Err(AppError::new(
+                "song.operation_id_reused",
+                Class::Conflict,
+                "同じ操作の識別子で、別の取り込みが来た",
+            )),
+            importing::Outcome::Rejected(r) => Err(rejection_error(r)),
         }
-        for (song, title) in songs.iter_mut().zip(titles) {
-            let title = title.trim();
-            if title.is_empty() {
-                return Err(empty_title());
-            }
-            song.title = title.to_owned();
-        }
-
-        for song in &songs {
-            check_song(song)?;
-        }
-
-        let out: Vec<(String, Song)> = songs
-            .into_iter()
-            .map(|song| (Uuid::new_v4().to_string(), song))
-            .collect();
-        self.writer()?.put_songs(&out, &now_rfc3339())?;
-        tracing::info!(count = out.len(), "曲を取り込んだ");
-        Ok(out)
     }
 
     /// 取り込む前に中身を見る（`TR-RCL-12`）。**台帳へ入れない。**
@@ -1606,11 +1594,11 @@ impl Studio {
     #[tracing::instrument(skip(self, bytes, file_name), fields(len = bytes.len()))]
     pub fn song_file_preview(&mut self, bytes: &[u8], file_name: &str) -> Result<Vec<Song>> {
         self.opened()?;
-        let songs = ust::parse_file(bytes, file_name).map_err(AppError::from_failure)?;
-        for song in &songs {
-            check_song(song)?;
+        let plan = importing::prepare(bytes, file_name)?;
+        if let Some(d) = plan.diagnostics().first() {
+            return Err(diagnostic_error(*d));
         }
-        Ok(songs)
+        Ok(plan.songs().to_vec())
     }
 
     /// 曲の題を変える（`TR-RCL-12`）。

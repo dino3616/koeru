@@ -319,6 +319,26 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// 取り込んだ曲の原文と受領証（`DEC-PLT-054`）。
+    song_imports (operation_id) {
+        operation_id -> Text,
+        file_name -> Text,
+        source_bytes -> Binary,
+        request_digest -> Text,
+        imported_at -> Text,
+    }
+}
+
+diesel::table! {
+    /// 1回の取り込みが作った曲（`DEC-PLT-054`）。
+    song_import_songs (operation_id, ordinal) {
+        operation_id -> Text,
+        ordinal -> Integer,
+        song_id -> Text,
+    }
+}
+
+diesel::table! {
     /// project の版（`DEC-PLT-043`）。 1行だけで、他の全表への AFTER トリガーが進める。
     /// 大小・差分に意味は無い（`specs/application/schema/shared.graphql` の `Revision`）。
     project_revision (id) {
@@ -330,6 +350,8 @@ diesel::table! {
 diesel::joinable!(song_notes -> songs (song_id));
 diesel::joinable!(capture_intents -> sessions (session_id));
 diesel::joinable!(commit_receipts -> takes (take_id));
+diesel::joinable!(song_import_songs -> song_imports (operation_id));
+diesel::joinable!(song_import_songs -> songs (song_id));
 
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(row_aliases -> rows (row_id));
@@ -367,4 +389,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     capture_intents,
     commit_receipts,
     take_gaps,
+    song_imports,
+    song_import_songs,
 );

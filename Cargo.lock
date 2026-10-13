@@ -2351,7 +2351,6 @@ dependencies = [
  "toml_edit 0.25.17+spec-1.1.0",
  "tracing",
  "uuid",
- "yaml_serde",
  "zip",
 ]
 
@@ -2372,6 +2371,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "unicode-normalization",
+ "yaml_serde",
  "zip",
 ]
 
@@ -2405,6 +2405,7 @@ dependencies = [
  "diesel",
  "koeru-core",
  "koeru-failure",
+ "koeru-formats",
  "koeru-model",
  "thiserror 2.0.21",
  "tracing",
