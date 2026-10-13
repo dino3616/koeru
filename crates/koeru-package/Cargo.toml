@@ -6,17 +6,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "KOERU の配布パッケージ生成。音源ルートの組み立てから ZIP の読み戻し検証まで"
+description = "KOERU の配布パッケージの方針。音源ルートの組み立て、書き出し前検証、読み戻しが突き合わせるもの。ファイルは開かない"
 
 [lints]
 workspace = true
 
 [dependencies]
 image.workspace = true
-koeru-audio = { path = "../koeru-audio" }
 koeru-failure = { path = "../koeru-failure" }
 koeru-formats = { path = "../koeru-formats" }
 koeru-model = { path = "../koeru-model" }
 thiserror.workspace = true
 tracing.workspace = true
-zip.workspace = true

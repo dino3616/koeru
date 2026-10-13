@@ -2301,6 +2301,7 @@ dependencies = [
  "koeru-audio",
  "koeru-core",
  "koeru-failure",
+ "koeru-formats",
  "koeru-model",
  "koeru-package",
  "koeru-runtime",
@@ -2327,6 +2328,7 @@ version = "0.0.0"
 dependencies = [
  "block2",
  "koeru-failure",
+ "koeru-formats",
  "loom",
  "objc2",
  "objc2-av-foundation",
@@ -2370,6 +2372,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tracing",
  "unicode-normalization",
+ "zip",
 ]
 
 [[package]]
@@ -2388,13 +2391,11 @@ name = "koeru-package"
 version = "0.0.0"
 dependencies = [
  "image",
- "koeru-audio",
  "koeru-failure",
  "koeru-formats",
  "koeru-model",
  "thiserror 2.0.21",
  "tracing",
- "zip",
 ]
 
 [[package]]

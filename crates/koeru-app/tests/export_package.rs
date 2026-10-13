@@ -14,7 +14,12 @@
 use std::path::PathBuf;
 
 use koeru_app_lib::Studio;
-use koeru_package::archive;
+use koeru_formats::archive;
+
+/// 書き出した ZIP / UAR のエントリ名。
+fn entry_names(path: &std::path::Path) -> Result<Vec<String>, archive::ArchiveError> {
+    archive::entry_names(&mut std::fs::File::open(path)?)
+}
 
 /// 試験ごとに独立したライブラリを作る。
 fn library(tag: &str) -> PathBuf {
@@ -77,7 +82,7 @@ fn 検証を通って_zip_と_uar_が出る() {
     assert_eq!(exported.release.archive_name, "000001-v1.0.zip");
 
     // 音源ルートフォルダ1つを内包する単層構造（`TR-PKG-26`）。
-    let names = archive::entry_names(&exported.written.zip).expect("読める");
+    let names = entry_names(&exported.written.zip).expect("読める");
     let root = format!(
         "{}/",
         studio.package_settings().expect("引ける").distribution_name
@@ -94,7 +99,7 @@ fn 検証を通って_zip_と_uar_が出る() {
     }
 
     // UAR だけが install.txt を持つ（`TR-PKG-09`、`DEC-PKG-010`）。
-    let uar = archive::entry_names(&exported.written.uar).expect("読める");
+    let uar = entry_names(&exported.written.uar).expect("読める");
     assert!(uar.contains(&"install.txt".to_owned()));
     assert!(!names.contains(&"install.txt".to_owned()));
     assert_eq!(names.len() + 1, uar.len(), "中身は同じ");
