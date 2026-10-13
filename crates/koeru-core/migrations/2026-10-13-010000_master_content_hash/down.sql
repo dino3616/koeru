@@ -1,0 +1,1 @@
+ALTER TABLE takes DROP COLUMN master_sha256;

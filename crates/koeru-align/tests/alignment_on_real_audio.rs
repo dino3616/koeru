@@ -28,6 +28,8 @@
 // `MfaAligner::open` が `ModelUnavailable` を返すので、組み立てから外す。
 #![cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
 
+mod common;
+
 use koeru_align::aligner::{AlignRequest, Aligner as _};
 use koeru_align::{mfa::MfaAligner, phoneme, segment::per_mora};
 
@@ -55,7 +57,7 @@ fn voiced_span_ms(samples: &[f64], rate_hz: u32) -> Option<(f64, f64)> {
 }
 
 fn model_dir() -> Option<std::path::PathBuf> {
-    koeru_align::mfa::model_dir()
+    common::model_dir()
 }
 
 /// アライナが置いた発声区間が、パワーで見た発声区間と重なる。
