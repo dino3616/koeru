@@ -842,7 +842,6 @@ mod tests {
         repo.write("empty.txt", "");
         repo.write("日本語 名前.toml", "x = 1\n");
         repo.write("sub/b.txt", "末尾の改行なし");
-        repo.write("改行\nを含む.txt", "名前に改行\n");
         fs::write(repo.root().join("binary.bin"), [0xff, 0xfe, b'\n', 0x00])
             .expect("バイナリを書ける");
         let sha = repo.commit("base");
@@ -852,7 +851,6 @@ mod tests {
             "empty.txt",
             "日本語 名前.toml",
             "sub/b.txt",
-            "改行\nを含む.txt",
             "binary.bin",
             "sub",
             "sub/none.txt",
@@ -870,13 +868,8 @@ mod tests {
         );
         assert_eq!(many[1].as_ref().unwrap(), &None);
         assert_eq!(many[2].as_ref().unwrap(), &Some(String::new()));
-        assert_eq!(
-            many[5].as_ref().unwrap(),
-            &Some("名前に改行\n".to_owned()),
-            "名前に改行を含むものも読める"
-        );
-        assert!(matches!(many[6], Err(ViewError::NotUtf8(_))));
-        assert_eq!(many[9].as_ref().unwrap(), many[0].as_ref().unwrap());
+        assert!(matches!(many[5], Err(ViewError::NotUtf8(_))));
+        assert_eq!(many[8].as_ref().unwrap(), many[0].as_ref().unwrap());
 
         // 作業ツリーとメモリ上も、同じ口で呼べて、1件ずつと同じ。
         assert_same_as_one_by_one(&RepoView::working_tree(repo.root()), &rels);
@@ -886,6 +879,25 @@ mod tests {
         );
         assert_same_as_one_by_one(&memory, &rels);
         assert_eq!(view.read_many(&[]).len(), 0);
+    }
+
+    /// 名前に改行を含むものは `--batch` の行に載らないので、1件ずつ読む側へ回る。
+    /// Windows はこの名前のファイルを作れない。
+    #[cfg(unix)]
+    #[test]
+    fn 名前に改行を含むものもまとめて読める() {
+        let repo = Repo::new("read-many-newline");
+        repo.write("a.txt", "x\n");
+        repo.write("改行\nを含む.txt", "名前に改行\n");
+        let sha = repo.commit("base");
+        let rels: Vec<String> = ["改行\nを含む.txt", "a.txt"].map(str::to_owned).to_vec();
+
+        let view = RepoView::revision(repo.root(), &sha).unwrap();
+        assert_same_as_one_by_one(&view, &rels);
+        let many = view.read_many(&rels);
+        assert_eq!(many[0].as_ref().unwrap(), &Some("名前に改行\n".to_owned()));
+        assert_eq!(many[1].as_ref().unwrap(), &Some("x\n".to_owned()));
+        assert_same_as_one_by_one(&RepoView::working_tree(repo.root()), &rels);
     }
 
     /// 出力が OS の管の大きさを超えても詰まらない。 入力の書き込みと出力の読み出しが、互いを待たない。
