@@ -117,6 +117,11 @@ jobs:
         env:
           RUSTFLAGS: --cfg koeru_force_unsupported_backend
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # 試験の作業場所はキャッシュに入れない。 残すと rust-cache の掃除が中の fixture を
+      # target と取り違え、エラーの注記を出す。
+      - name: 試験の作業場所を消す
+        shell: bash
+        run: rm -rf target/tmp
 
   test-windows:
     name: test (windows)
@@ -152,6 +157,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # 件数の突き合わせは他の OS と同じ（`DEC-PLT-039`）。
       - run: cargo xtask test-receipt
+      # 理由は test ジョブの同じ段。
+      - name: 試験の作業場所を消す
+        shell: bash
+        run: rm -rf target/tmp
 
   specs:
     name: specs (FSL + meta)
