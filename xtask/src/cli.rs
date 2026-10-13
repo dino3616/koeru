@@ -27,7 +27,7 @@ const USAGE: &str = "使い方: cargo xtask <check-meta|check-budgets|check-cove
   context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]
   check-portfolio|test-receipt [--runner cargo|bun]
   portfolio [--receipts <dir>]... [--format human|json]
-  design-debt --human [--format human|json]
+  design-debt [--human | --receipts <dir>...] [--format human|json]
   check-schema>";
 
 /// どのコマンドにも渡すもの。
@@ -150,7 +150,9 @@ fn dispatch(ws: Workspace, args: &[String]) -> ExitCode {
         Some("portfolio") => {
             commands::portfolio(&root, &entries, &snapshot, &args[1..], format, rep)
         }
-        Some("design-debt") => commands::design_debt(&root, &snapshot, &args[1..], format, rep),
+        Some("design-debt") => {
+            commands::design_debt(&root, &entries, &snapshot, &args[1..], format, rep)
+        }
         _ => dispatch_other(&root, &entries, args, rep),
     }
 }

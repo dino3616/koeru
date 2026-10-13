@@ -11,7 +11,8 @@
 //! 待ち行列から消えるのは、次のどれか。 未検証の数を減らすことを目的にしない。
 //! - 人の観察の調査が付いた（支持でも反証でも。 同じ起源は1つと数える）
 //! - その仮説に依存する判断が無くなった（置き換えられた判断は数えない）
-//! - 仮説の `assessment` が `superseded`（人が書いた値を読むだけ）
+//! - 仮説の `assessment` が `superseded`（人が書いた値を読むだけ。 名乗りの定義は D00 の
+//!   `Hypothesis::declares_superseded`）
 //!
 //! 入れていないもの: blast radius・reversibility・同じ session で観察できる他の仮説。
 //! どれも、記録のどこにも持つ欄が無い。 欄を足す判断は D07c / 後続に残す。
@@ -107,7 +108,7 @@ fn item(facts: &Facts, registry: &CapabilityRegistry, h: &Hypothesis) -> Option<
         .into_iter()
         .map(str::to_owned)
         .collect();
-    if h.assessment.as_deref() == Some("superseded") {
+    if h.declares_superseded {
         return None;
     }
     let dependents: Vec<_> = facts

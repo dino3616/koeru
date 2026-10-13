@@ -31,8 +31,8 @@ mod shapes;
 pub(crate) use identity::{IdentityError, Locator, LocatorError, TargetId, check_identity};
 pub(crate) use legacy::{
     Adoption, Allocation, Calculation, Component, Contract, ContractKind, Decision, Evidence,
-    Judgement, LegacyOrigin, Meaning, Object, Part, Probe, Quantity, Question, ReleaseProfile,
-    Requirement, SCHEMAS, SourceFile, UnclassifiedTarget, Workload,
+    Hypothesis, Judgement, LegacyOrigin, Meaning, Object, Part, Probe, Quantity, Question,
+    ReleaseProfile, Requirement, SCHEMAS, SourceFile, UnclassifiedTarget, Workload,
 };
 pub(crate) use lift::{Design, DesignIssue};
 pub(crate) use ontology::{

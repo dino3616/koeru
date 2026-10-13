@@ -30,7 +30,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::graph::{NodeKey, Relation, RelationClass, SemanticGraph};
+use crate::graph::{NodeKey, Relation, SemanticGraph};
 use crate::knowledge::Id;
 use crate::knowledge::design::{Decision, Design, Kind, relation};
 
@@ -245,28 +245,6 @@ impl Pattern {
     }
 }
 
-/// 後継を持たず、DEC なら `superseded` と名乗っていない。
-///
-/// graph の edge（`supersedes` の行き先）と、DEC の欄（`status`・`superseded_by`）の両方を見る。
-/// meta の検査は3つが揃っていることを求める（`check-meta`）が、直している途中の版で
-/// 片方だけが書かれていても、現在有効として数えない。
-fn is_current(design: &Design, graph: &SemanticGraph, key: &NodeKey) -> bool {
-    if graph
-        .incoming(key)
-        .iter()
-        .any(|r| r.class == RelationClass::Supersession)
-    {
-        return false;
-    }
-    let NodeKey::Object(id) = key else {
-        return true;
-    };
-    design
-        .object(id)
-        .and_then(|o| o.as_decision())
-        .is_none_or(|d| d.status() != Some("superseded") && d.superseded_by().is_none())
-}
-
 /// edge の両端が node として実在し、D00 の語彙がその向きと種類を許している。
 /// 許していなければ（宙に浮いた edge・種類違い）`None`。
 fn kinds_of(graph: &SemanticGraph, rel: &Relation) -> Option<(Kind, Kind)> {
@@ -298,8 +276,8 @@ fn shared_by_target(design: &Design, graph: &SemanticGraph) -> Vec<Candidate> {
             continue;
         };
         if kinds_of(graph, rel).is_none()
-            || !is_current(design, graph, &rel.from)
-            || !is_current(design, graph, &rel.to)
+            || !design.is_current(graph, &rel.from)
+            || !design.is_current(graph, &rel.to)
         {
             continue;
         }
@@ -329,7 +307,7 @@ fn shared_by_target(design: &Design, graph: &SemanticGraph) -> Vec<Candidate> {
 fn repeated_shapes(design: &Design, graph: &SemanticGraph) -> Vec<Candidate> {
     let mut by_shape: BTreeMap<Shape, Vec<BTreeSet<Id>>> = BTreeMap::new();
     for node in graph.nodes() {
-        if Kind::of(node) != Some(Kind::Question) || !is_current(design, graph, &node.key) {
+        if Kind::of(node) != Some(Kind::Question) || !design.is_current(graph, &node.key) {
             continue;
         }
         let (shape, members) = reasoning_subgraph(design, graph, &node.key);
@@ -370,7 +348,7 @@ fn reasoning_subgraph(
             let Some((from, to)) = kinds_of(graph, rel) else {
                 continue;
             };
-            if !is_current(design, graph, &rel.to) {
+            if !design.is_current(graph, &rel.to) {
                 continue;
             }
             *edges.entry((from, rel.name, to)).or_default() += 1;
@@ -396,7 +374,7 @@ fn repeated_conditions(design: &Design, graph: &SemanticGraph) -> Vec<Candidate>
         let Some(decision) = object.as_decision() else {
             continue;
         };
-        if !is_current(design, graph, &NodeKey::Object(object.id().clone())) {
+        if !design.is_current(graph, &NodeKey::Object(object.id().clone())) {
             continue;
         }
         for condition in CONDITIONS {

@@ -5,11 +5,13 @@
 //! 失敗は3つに分けて返す——起動できない、終了コードが 0 でない、出力が UTF-8 でない。
 //! 呼び出し側は `match` で分岐でき、`Display` へ畳んで初めて文言になる。
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 /// 外部コマンドの標準出力。 文字列化は [`Output::text`] で行う。
 pub(crate) struct Output {
+    /// bytes のまま。 `git cat-file --batch` のように、複数の本文が並ぶ出力は呼び出し側が切る。
     pub(crate) stdout: Vec<u8>,
 }
 
@@ -48,6 +50,45 @@ pub(crate) fn run(cwd: &Path, program: &str, args: &[&str]) -> Result<Output, Pr
         .args(args)
         .output()
         .map_err(|e| ProcessError::Spawn(e.to_string()))?;
+    if !out.status.success() {
+        return Err(ProcessError::ExitStatus {
+            stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+        });
+    }
+    Ok(Output { stdout: out.stdout })
+}
+
+/// [`run`] に、標準入力を渡す。 1本のプロセスに複数の問いを流して、起動の回数を減らすためのもの
+/// （`git cat-file --batch`）。
+///
+/// 入力は別のスレッドで書く。 出力が溢れるほど大きいとき、書き終えてから読もうとすると、子が
+/// 出力を詰まらせたまま入力を読まなくなって、互いに待ち続ける。
+pub(crate) fn run_with_stdin(
+    cwd: &Path,
+    program: &str,
+    args: &[&str],
+    stdin: &[u8],
+) -> Result<Output, ProcessError> {
+    let mut child = Command::new(program)
+        .current_dir(cwd)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| ProcessError::Spawn(e.to_string()))?;
+    let mut pipe = child
+        .stdin
+        .take()
+        .ok_or_else(|| ProcessError::Spawn("標準入力を開けない".to_owned()))?;
+    let out = std::thread::scope(|scope| {
+        // 子が先に終わって入力を読まなくなると書き込みは失敗するが、その失敗は終了コードに出る。
+        let writer = scope.spawn(move || pipe.write_all(stdin));
+        let out = child.wait_with_output();
+        let _ = writer.join();
+        out
+    })
+    .map_err(|e| ProcessError::Spawn(e.to_string()))?;
     if !out.status.success() {
         return Err(ProcessError::ExitStatus {
             stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),

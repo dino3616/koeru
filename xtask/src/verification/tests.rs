@@ -1022,6 +1022,7 @@ fn 別の_probe_の_receipt_と対象外の仮説は断る() {
         supporting: Vec::new(),
         contradicting: Vec::new(),
         assessment: None,
+        declares_superseded: false,
     };
     let probe = &facts.probes[0];
     let definition = probe.definition().expect("契約");
@@ -1372,4 +1373,24 @@ fn 待ち行列は_id_順で_優先度を持たない() {
         .dec("DEC-D00001", "accepted", &[H_EMOTION, H_COMPREHENSION], &[]);
     let ids: Vec<String> = debt(&fx).into_iter().map(|i| i.hypothesis).collect();
     assert_eq!(ids, [H_EMOTION, H_COMPREHENSION]);
+}
+
+/// 置き換えの名乗りは D00（`Decision::declares_superseded`）が決める。 状態が `accepted` のままでも、
+/// `superseded_by` を持つ判断は仮説に依存していない。 後継の edge は graph の側で、この層は見ない。
+#[test]
+fn superseded_by_を持つ判断は仮説に依存していない() {
+    let fx = Fx::new()
+        .hyp(H_COMPREHENSION, "semantic-comprehension", &[], &[])
+        .dec("DEC-D00001", "accepted", &[H_COMPREHENSION], &[]);
+    assert_eq!(debt(&fx).len(), 1);
+    let named = fx.put(
+        "meta/decisions/DEC-D00001.toml",
+        &format!(
+            "schema = 'decision'\nid = 'DEC-D00001'\ntitle = '判断'\nstatus = 'accepted'\n\
+             owner = 'x'\noptions = ['a']\nselected = 'a'\nrationale = '理由'\n\
+             review_triggers = ['t']\nrelies_on_hypotheses = ['{H_COMPREHENSION}']\n\
+             superseded_by = 'DEC-D00002'\n"
+        ),
+    );
+    assert_eq!(debt(&named), Vec::new());
 }
