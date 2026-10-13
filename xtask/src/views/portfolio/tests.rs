@@ -94,7 +94,6 @@ fn 受領証が無ければ作れる環境のセルは_missing_で作れない�
     assert_eq!(p.summary().cells, 6);
     for (platform, backend) in [
         ("macos", "native"),
-        ("macos", "unsupported"),
         ("linux", "unsupported"),
         ("windows", "unsupported"),
     ] {
@@ -103,17 +102,40 @@ fn 受領証が無ければ作れる環境のセルは_missing_で作れない�
             CellState::Missing
         );
     }
-    // Linux と Windows の native は、どの環境も作らない。
-    assert_eq!(
-        state_of(&p, "SUITE-X-001", "linux", "native"),
-        CellState::NotApplicable
-    );
-    assert_eq!(
-        state_of(&p, "SUITE-X-001", "windows", "native"),
-        CellState::NotApplicable
-    );
+    // Linux と Windows の native は、どの環境も作らない。 macOS で書いていない OS の席を
+    // 強制した組は作れるが、受領証を求めない。
+    for (platform, backend) in [
+        ("linux", "native"),
+        ("windows", "native"),
+        ("macos", "unsupported"),
+    ] {
+        assert_eq!(
+            state_of(&p, "SUITE-X-001", platform, backend),
+            CellState::NotApplicable
+        );
+    }
     let s = p.summary();
-    assert_eq!((s.missing, s.not_applicable, s.passed), (4, 2, 0));
+    assert_eq!((s.missing, s.not_applicable, s.passed), (3, 3, 0));
+}
+
+#[test]
+fn 求めない組でも届いた受領証は判定する() {
+    let mut zero = passed("SUITE-X-001", "macos", "unsupported");
+    zero.actual_work = 0;
+    let p = Portfolio::build(&[everywhere("SUITE-X-001")], &[seen("a.json", zero)]);
+    assert_eq!(
+        state_of(&p, "SUITE-X-001", "macos", "unsupported"),
+        CellState::Insufficient
+    );
+    assert!(p.unplaced.is_empty());
+
+    let mut failed = passed("SUITE-X-001", "macos", "unsupported");
+    failed.status = Status::Failed;
+    let p = Portfolio::build(&[everywhere("SUITE-X-001")], &[seen("a.json", failed)]);
+    assert_eq!(
+        state_of(&p, "SUITE-X-001", "macos", "unsupported"),
+        CellState::Failed
+    );
 }
 
 #[test]
@@ -490,7 +512,8 @@ fn 要約はセルの数を状態ごとに数える() {
         s.cells
     );
     assert!(s.line().contains("executed-and-passed 1"));
-    assert_eq!(s.to_json()["missing"], 3);
+    // Linux と Windows の unsupported。 macOS の unsupported は求めない。
+    assert_eq!(s.to_json()["missing"], 2);
 }
 
 #[test]

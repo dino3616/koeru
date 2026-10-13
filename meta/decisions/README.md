@@ -112,6 +112,7 @@
 | [DEC-PLT-053](DEC-PLT-053.toml) | 指紋の持ち方 | 指紋は内容の SHA-256 で持ち、マスターの内容ハッシュは台帳の列が持つ | accepted |
 | [DEC-PLT-054](DEC-PLT-054.toml) | 曲の取り込みの原文と冪等 | 取り込んだ曲は原文のバイト列を project の台帳に残し、OperationId で冪等にする | accepted |
 | [DEC-PLT-058](DEC-PLT-058.toml) |  | D08 の切り替えは xtask の準備を先に並行で進め、repo 全体の書き換えは止める期間を取って行う。D08 に持ち越していた写し方をここで決める | accepted |
+| [DEC-PLT-059](DEC-PLT-059.toml) |  | CI は macOS を1枠に畳み、書いていない OS の席は macOS では組み立てだけを見る。 Rust のキャッシュは main だけが保存し、警告は build.warnings で落とす | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -156,4 +157,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-146 件。
+147 件。

@@ -116,3 +116,10 @@ unicode-normalization = "0.1.25"
 # unsafe-libyaml の移管先）が、承知で通している。DEC-RCL-012 に理由を書いた。
 yaml_serde = "0.10.7"
 
+# `cargo xtask` の組み方。 release より速く組めるよう dev を継ぎ、`target/xtask/` に出す。
+# `target/debug/` からは走らせない。 `test-receipt` が続けて走らせる `cargo test` が
+# 実行中の `xtask` を張り直し、実行中の exe を消せない Windows で落ちる。
+[profile.xtask]
+inherits = "dev"
+debug = false
+
