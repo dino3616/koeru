@@ -383,7 +383,7 @@ const USAGE: &[&str] = &[
     "  context --root <ID|パス>... [--at <rev>] [--from <rev>] [--format md|json] [--budget <n>]",
     "  check-portfolio|test-receipt [--runner cargo|bun]",
     "  portfolio [--receipts <dir>]... [--format human|json]",
-    "  design-debt --human [--format human|json]",
+    "  design-debt [--human | --receipts <dir>...] [--format human|json]",
     "  check-schema>",
 ];
 
@@ -2588,13 +2588,8 @@ fn portfolio_は読めない受領証のディレクトリと壊れた受領証�
 }
 
 #[test]
-fn design_debt_は_human_を要し_待ち行列が空でも落ちない() {
-    let fx = Fixture::valid("design-debt");
-    fx.run(&["design-debt"]).expect(
-        1,
-        &[],
-        &["使い方: cargo xtask design-debt --human [--format human|json]"],
-    );
+fn design_debt_は_human_で人の観察だけに絞り_待ち行列が空でも落ちない() {
+    let fx = Fixture::valid("design-debt-human");
     let run = fx.run(&["design-debt", "--human"]);
     assert_eq!(run.code, 0, "{run:?}");
     assert!(run.stdout.contains("人の観察が要る仮説 0 件"), "{run:?}");
@@ -2603,4 +2598,90 @@ fn design_debt_は_human_を要し_待ち行列が空でも落ちない() {
     let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
     assert_eq!(v["command"], "design-debt");
     assert_eq!(v["design_debt"]["count"], 0);
+    // `--human` は受領証を読まない。 `--receipts` を付けても黙って無視せず、使い方の誤り。
+    let usage =
+        "使い方: cargo xtask design-debt [--human | --receipts <dir>...] [--format human|json]";
+    fx.run(&["design-debt", "--human", "--receipts", "x"])
+        .expect(1, &[], &[usage]);
+    fx.run(&["design-debt", "--bogus"]).expect(1, &[], &[usage]);
+}
+
+#[test]
+fn design_debt_は_human_が無ければ全種類を種類ごとに出す() {
+    let fx = Fixture::valid("design-debt-all");
+    // macOS の native は通った。 Linux は 0 件を開いて通った。 Windows は渡さない。
+    fx.write(
+        "artifacts/macos/cargo.json",
+        &receipt_json("macos", "native", Some("abc1234"), 3),
+    );
+    fx.write(
+        "artifacts/linux/cargo.json",
+        &receipt_json("linux", "unsupported", Some("abc1234"), 0),
+    );
+    // 環境の欄が無い古い形は、セルに置けない。
+    fx.write(
+        "artifacts/old/cargo.json",
+        &receipt_json("windows", "unsupported", None, 3),
+    );
+    let run = fx.run(&[
+        "design-debt",
+        "--receipts=artifacts/macos",
+        "--receipts",
+        "artifacts/linux",
+        "--receipts",
+        "artifacts/old",
+        "--format",
+        "json",
+    ]);
+    assert_eq!(run.code, 0, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
+    assert_eq!(v["command"], "design-debt");
+    assert_eq!(v["ok"], true);
+    let d = &v["design_debt"];
+    let probes = |kind: &str| -> Vec<String> {
+        d[kind]
+            .as_array()
+            .expect("配列")
+            .iter()
+            .map(|c| {
+                format!(
+                    "{}/{}",
+                    c["platform"].as_str().unwrap_or_default(),
+                    c["backend"].as_str().unwrap_or_default()
+                )
+            })
+            .collect()
+    };
+    // 受領証が無いのは macOS の unsupported と Windows の unsupported。
+    assert_eq!(
+        probes("missing"),
+        ["macos/unsupported", "windows/unsupported"]
+    );
+    assert_eq!(probes("false_green"), ["linux/unsupported"]);
+    assert_eq!(d["false_green"][0]["insufficiencies"][0], "no-actual-work");
+    assert_eq!(d["unplaced"][0]["reason"], "unknown-environment");
+    assert_eq!(d["human"], serde_json::json!([]));
+    assert_eq!(d["count"], 4);
+
+    // 人向けの出力は種類ごとの節に分かれ、最後の行は合否。 優先度は付けない。
+    let run = fx.run(&["design-debt", "--receipts", "artifacts/macos"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    assert!(run.stdout.contains("[missing]"), "{run:?}");
+    assert!(run.stdout.contains("優先度は付けない"), "{run:?}");
+    assert!(run.stdout.ends_with("design-debt: ok\n"), "{run:?}");
+
+    // 受領証が読めなければ、`portfolio` と同じく落ちる。 省略時の `target/receipts/` が
+    // 無いのは、何も走らせていないだけ。
+    assert_eq!(
+        fx.run(&["design-debt", "--receipts", "nowhere"]).code,
+        1,
+        "読めないディレクトリで落ちない"
+    );
+    let run = fx.run(&["design-debt", "--format", "json"]);
+    assert_eq!(run.code, 0, "{run:?}");
+    let v: serde_json::Value = serde_json::from_str(run.stdout.trim()).expect("JSON");
+    assert_eq!(
+        v["design_debt"]["missing"].as_array().map(Vec::len),
+        Some(4)
+    );
 }

@@ -10,7 +10,7 @@
 //! - [`debt`] — 人の観察が要る仮説と、Portfolio の不足を、種類ごとの債務として出す（D07c）
 //!
 //! 出力の形（JSON・端末向け）は D07 が持つ（実装計画 3.2）。 `portfolio` と `debt` は
-//! `cargo xtask portfolio` と `cargo xtask design-debt --human` が呼ぶ。 値を作るのはここで、
+//! `cargo xtask portfolio` と `cargo xtask design-debt [--human]` が呼ぶ。 値を作るのはここで、
 //! 受領証のディレクトリを読むのと、出力の封筒（`command` / `ok` / `diagnostics`）は
 //! `commands` が持つ。
 

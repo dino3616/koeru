@@ -6,7 +6,7 @@ use std::path::Path;
 
 use super::*;
 use crate::diagnostic::Report;
-use crate::graph::{Direction, RelationRule};
+use crate::graph::{Direction, RelationClass, RelationRule};
 use crate::knowledge::design::{Standing, TARGET_SHAPES, registry};
 use crate::knowledge::{KnowledgeSnapshot, load_view_with};
 use crate::repo::RepoView;
@@ -61,7 +61,10 @@ impl Fx {
     }
 
     fn hypothesis(mut self, id: &str) -> Self {
-        let body = format!("schema = 'design-hypothesis'\nid = '{id}'\nstatement = '予測'\n");
+        let body = format!(
+            "schema = 'design-hypothesis'\nid = '{id}'\n\
+             hypothesis_kind = 'mechanical-formal-property'\nstatement = '予測'\n"
+        );
         self.files
             .insert(format!("meta/hypotheses/{id}.toml"), body);
         self
@@ -540,6 +543,27 @@ fn 前提を共有する判断が_superseded_になると候補が消える() {
     assert_eq!(gone.candidates, Vec::new());
 }
 
+/// 共有の対象の仮説が置き換えられたと名乗れば（`assessment = 'superseded'`）、その前提を
+/// 共有する候補は出ない。 後継を書く欄が無い仮説の名乗りは、`assessment` だけ。
+#[test]
+fn 共有の対象の仮説が_superseded_になると候補が消える() {
+    let fx = |assessment: &str| {
+        let mut fx = Fx::default()
+            .hypothesis("HYP-3A1B2C")
+            .dec("DEC-fix-001", &["relies_on_hypotheses = ['HYP-3A1B2C']"])
+            .dec("DEC-fix-002", &["relies_on_hypotheses = ['HYP-3A1B2C']"]);
+        fx.files
+            .entry("meta/hypotheses/HYP-3A1B2C.toml".to_owned())
+            .and_modify(|body| body.push_str(&format!("assessment = '{assessment}'\n")));
+        fx.pattern()
+    };
+    assert_eq!(
+        fx("supported").of_kind(PatternKind::SharedPremise).count(),
+        1
+    );
+    assert_eq!(fx("superseded").candidates, Vec::new());
+}
+
 #[test]
 fn 形の候補は_q_を閉じた判断が_superseded_になると消え_後継で組み直される() {
     let first = || chain(Fx::default(), "Q-fix-001", "DEC-fix-001", "EVID-fix-001");
@@ -809,7 +833,7 @@ fn 実在する_meta_で_view_が回る() {
                 "{c:?} の source {source} が graph に無い"
             );
             assert!(
-                is_current(&design, &graph, &NodeKey::Object(source.clone())),
+                design.is_current(&graph, &NodeKey::Object(source.clone())),
                 "{c:?} の source {source} が現在有効でない"
             );
         }
