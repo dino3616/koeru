@@ -87,15 +87,6 @@ jobs:
       # スタブを指す。 macOS では CoreAudio と Kaldi の経路を見る。
       - name: clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # 「書いていない OS の席」を macOS で強制して組む。 Linux では自然に選ばれるが、
-      # `target_os = "macos"` の下で cfg を書き忘れると、ここでしか分からない。**一度やった。**
-      # 試験は走らせない。 席の振る舞いは ubuntu と Windows が見ていて、ここでしか
-      # 赤くならないのは「組み立たない」ことだけ（`DEC-PLT-059`）。
-      - name: clippy（書いていない OS の席）
-        if: runner.os == 'macOS'
-        env:
-          RUSTFLAGS: --cfg koeru_force_unsupported_backend
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # MFA のモデルは submodule ＋ LFS で入る。 実体が来ていないと実モデルの
       # 試験が中身を実行せずに ok と出るので、走らせる前にここで落とす。
       # LFS を引けていないときは 130 バイト程度のポインタが置かれるだけで、
@@ -113,6 +104,19 @@ jobs:
       # マイクや実音声が要るハーネスは `#[ignore]` で、ここでは無視として数える。
       # 一度は自分で戻っていて、マイクの無いランナーで「通過」と数えられていた。
       - run: cargo xtask test-receipt
+      # 「書いていない OS の席」を macOS で強制して組む。 Linux では自然に選ばれるが、
+      # `target_os = "macos"` の下で cfg を書き忘れると、ここでしか分からない。**一度やった。**
+      # 試験は走らせない。 席の振る舞いは ubuntu と Windows が見ていて、ここでしか
+      # 赤くならないのは「組み立たない」ことだけ（`DEC-PLT-059`）。
+      #
+      # 最後に置く。 `RUSTFLAGS` を変えると build.rs も組み直されて走り直し、
+      # koeru-align が Kaldi を最初からコンパイルし直す。 試験より前に置くと、
+      # 試験の組み立てでもう一度 Kaldi を組むことになる。
+      - name: clippy（書いていない OS の席）
+        if: runner.os == 'macOS'
+        env:
+          RUSTFLAGS: --cfg koeru_force_unsupported_backend
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test-windows:
     name: test (windows)
