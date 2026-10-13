@@ -34,10 +34,17 @@
 //!
 //! `workers.rs` の置き換えと `Studio` への接続は T07b-2。 判断は `DEC-PLT-047`。
 //!
+//! # T08 のどこにあたるか
+//!
+//! 曲の取り込み（T08d）は [`importing`]。 [`importing::prepare`] が何も書かずに読み、
+//! [`importing::commit`] が原文と一緒に1回の短い書き手のトランザクションで確定する。
+//! 判断は `DEC-PLT-054`。
+//!
 //! `editor`（T13 で既存契約の移行を検証。M6新機能は別計画）と `distribution`（WAV 走査が要る。T08 / T09）の facet は
 //! まだここに無い。 `session` モジュールに理由を書いてある。
 
 pub mod error;
+pub mod importing;
 pub mod jobs;
 pub mod lease;
 pub mod review;

@@ -66,7 +66,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 168
+min_cases = 149
 
 [[suite]]
 id = 'SUITE-CORE-002'
@@ -324,6 +324,16 @@ target = 'jobs'
 platforms = ['macos', 'linux', 'windows']
 min_cases = 47
 contracts = ['DEC-PLT-047', 'DEC-PLT-051', 'DEC-PLT-034']
+
+[[suite]]
+id = 'SUITE-RUNTIME-005'
+title = '曲の取り込みを、本物のプロジェクトと SQLite で確かめる（下見は書かない、原文を残す、OperationId で冪等）'
+runner = 'cargo'
+package = 'koeru-runtime'
+target = 'importing'
+platforms = ['macos', 'linux', 'windows']
+min_cases = 11
+contracts = ['DEC-PLT-054', 'DEC-PLT-035', 'DEC-PLT-038', 'TR-RCL-12']
 
 # ## koeru-app
 

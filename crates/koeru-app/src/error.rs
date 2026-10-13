@@ -173,6 +173,7 @@ from_failure!(
     koeru_package::tree::BuildError,
     koeru_package::archive::ArchiveError,
     koeru_runtime::RuntimeError,
+    koeru_runtime::importing::ImportError,
     // 背後の仕事の失敗（`DEC-PLT-038`、`DEC-PLT-047`）。 投入・待ち・公開の断りが
     // `jobs.*` の code のまま画面へ出る。
     koeru_runtime::jobs::JobError,

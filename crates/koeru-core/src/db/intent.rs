@@ -56,7 +56,7 @@ macro_rules! uuid_id {
             }
 
             /// 台帳に書いてあった表記。 書くときに揃えてあるので、読み直さない。
-            fn stored(s: String) -> Self {
+            pub(super) fn stored(s: String) -> Self {
                 Self(s)
             }
         }
