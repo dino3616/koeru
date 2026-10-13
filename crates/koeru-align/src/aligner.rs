@@ -184,6 +184,35 @@ pub trait Aligner {
     fn align(&self, req: &AlignRequest<'_>) -> Result<Alignment, AlignError>;
 }
 
+/// 計算器が使えるかどうか。 失敗ではなく値で持つ（`DEC-PLT-038`）。
+///
+/// 使えない理由は、固定の code と分類（`koeru_failure::Failure` の語彙）だけを持つ。
+/// 呼び出し側が文字列を読まずに次の手を選べる。 起動で止めるかどうか（`DEC-ALN-016`）は
+/// 呼び出し側の方針で、ここでは決めない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Availability {
+    Available,
+    Unavailable(Unavailable),
+}
+
+/// 使えない理由。 code は送信してよい固定の文字列（`AGENTS.md` の禁止事項3）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unavailable {
+    pub code: &'static str,
+    pub class: koeru_failure::Class,
+}
+
+impl Availability {
+    /// 使えない理由。 使えるなら `None`。
+    #[must_use]
+    pub const fn reason(&self) -> Option<Unavailable> {
+        match self {
+            Self::Available => None,
+            Self::Unavailable(u) => Some(*u),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

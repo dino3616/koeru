@@ -37,6 +37,17 @@ pub const MODEL_SAMPLE_RATE_HZ: u32 = 16_000;
 /// フレーム進み幅（ミリ秒）。`TR-ALN-06` の 2ms はサブフレーム補間で作る。
 pub const FRAME_SHIFT_MS: f64 = 10.0;
 
+/// この OS で MFA を動かせるか（`DEC-PLT-038`）。 Kaldi を組んである OS では動かせる。
+///
+/// モデルが置いてあるかは、ここでは見ない。 置き場所を探すのは呼び出し側で、
+/// 見つからなければ呼び出し側が別の理由で使えないと言う。
+///
+/// `unsupported.rs` にも同じ名前で置いてある。 **片方だけに足さない。**
+#[must_use]
+pub const fn availability() -> crate::aligner::Availability {
+    crate::aligner::Availability::Available
+}
+
 #[repr(C)]
 struct KoeruKaldi {
     _private: [u8; 0],
@@ -465,25 +476,30 @@ impl Drop for MfaAligner {
     }
 }
 
+// 置き場所を探すのは試験だけ。 製品のコードは探さない（`mfa/mod.rs`）。
+#[cfg(test)]
+#[path = "../../tests/common/mod.rs"]
+mod common;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::aligner::Aligner;
 
-    /// 実モデルの置き場所。 探す順は [`super::super::model_dir`] が持つ。
-    ///
-    /// ここで環境変数だけを見ない。 submodule を同梱したあとも見つけられず、
-    /// 実モデルの試験が1件も走らないまま `ok` と出ていた。
-    ///
-    /// submodule を取っていない環境では戻る（`koeru-audio` の実機ハーネスと同じ形）。
     /// 同梱のモデル（`DEC-ALN-012`）。 **無ければ落とす。**
     ///
     /// 無いときに戻っていたので、LFS の実体が来ていない手元では 12 本が
     /// 中身を実行せずに「通過」と数えられていた（`DEC-PLT-039`）。 CI は大きさを見て
     /// 先に落としているが、手元にはその関門が無い。
     fn model_dir() -> std::path::PathBuf {
-        crate::mfa::model_dir()
+        super::common::model_dir()
             .expect("MFA のモデルが無い。submodule と LFS を取り込む（setup-koeru）")
+    }
+
+    /// Kaldi を組んである OS では使える。 組んでいない OS の側は `unsupported.rs` が持つ。
+    #[test]
+    fn 組んである_os_では使えると値で言う() {
+        assert_eq!(availability(), crate::aligner::Availability::Available);
     }
 
     #[test]
