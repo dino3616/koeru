@@ -16,6 +16,7 @@ pub mod channel;
 pub mod confidence;
 pub mod coverage;
 pub mod downgrade;
+pub mod fingerprint;
 pub mod guide;
 pub mod id;
 pub mod inventory;

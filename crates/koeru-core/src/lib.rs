@@ -8,8 +8,8 @@
 //! `text` と `frq` はファイルに触る口だけを持って残りを再輸出する。
 
 pub use koeru_model::{
-    alias, calibration, channel, guide, inventory, leak, mora, names, order, oto, pace, plan,
-    presamp, preset, reclist, song, tone, voice, waveform,
+    alias, calibration, channel, fingerprint, guide, inventory, leak, mora, names, order, oto,
+    pace, plan, presamp, preset, reclist, song, tone, voice, waveform,
 };
 
 pub mod analysis;
@@ -17,6 +17,7 @@ pub mod capture;
 pub mod db;
 pub mod frq;
 pub mod handoff;
+pub mod master;
 pub mod project;
 pub mod release;
 pub mod schema;

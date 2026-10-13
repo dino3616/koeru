@@ -15,6 +15,7 @@ pub mod align;
 pub mod capture_lease;
 pub mod commands;
 pub mod error;
+pub mod export_io;
 pub mod external;
 pub mod latency;
 pub mod packaging;

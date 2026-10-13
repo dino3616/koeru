@@ -43,26 +43,24 @@ const DEPENDENCIES_FORBIDDEN: [&str; 14] = [
 
 /// 本体のコードがどのファイルでも触ってはいけない標準ライブラリの口と時計。
 ///
+/// ファイルと環境変数も入れる。 モデルの置き場所を探すのは呼び出し側（`koeru-app`）で、
+/// エンジンが受け取るのは見つかったディレクトリと `meta.json` の中身の文字列だけ。
+/// 置き場所を探す口がエンジンにあると、同じ入力から同じ答えを返す計算の外に、
+/// 環境という入力が混ざる。
+///
 /// 時計も入れる。 同じ入力から同じ決定を返す計算が現在時刻を読むと、
-/// 再実行で答えが割れる（`TR-ALN-29`）。
-const STD_FORBIDDEN: [&str; 6] = [
+/// 再実行で答えが割れる（`TR-ALN-29`）。 `std::path` は名前の組み替えだけなので通す
+/// （`MfaAligner::open` が `&Path` を受ける）。
+const STD_FORBIDDEN: [&str; 8] = [
+    "std::fs",
     "std::io",
     "std::net",
     "std::process",
     "std::thread",
+    "std::env",
     "Instant",
     "SystemTime",
 ];
-
-/// 本体のコードが、下の例外を除いて触ってはいけない口。
-const STD_FS_ENV: [&str; 2] = ["std::fs", "std::env"];
-
-/// `STD_FS_ENV` を今は許しているファイル（`src` からの相対）。
-///
-/// `mfa/mod.rs` が同梱モデルの置き場を環境変数と `std::fs` で探している
-/// （`model_dir` と、`meta.json` から版を読むところ）。 エンジンが探すのではなく、
-/// 呼び出し側が見つけたモデルの場所を渡す形へ移す（T08b）。 移したらここを空にする。
-const STD_FS_ENV_EXEMPT: [&str; 1] = ["mfa/mod.rs"];
 
 #[test]
 fn 許可した_workspace_crate_しか引かない() {
@@ -99,13 +97,9 @@ fn 本体のコードが外へ出る口と時計に触らない() {
     walk(&src, &mut |path, text| {
         files += 1;
         let relative = relative_to(&src, path);
-        let fs_env_allowed = STD_FS_ENV_EXEMPT.contains(&relative.as_str());
         for (i, line) in product_lines(text).enumerate() {
             let code = line.split("//").next().unwrap_or_default();
-            let forbidden = STD_FORBIDDEN
-                .iter()
-                .chain(STD_FS_ENV.iter().filter(|_| !fs_env_allowed));
-            for name in forbidden {
+            for name in STD_FORBIDDEN {
                 if code.contains(name) {
                     found.push(format!("{relative}:{}: {name}", i + 1));
                 }
@@ -137,11 +131,13 @@ fn 依存とソースの読み方が壊れていない() {
     );
     let path = "use std::path::Path;";
     assert!(
-        !STD_FORBIDDEN
-            .iter()
-            .chain(STD_FS_ENV.iter())
-            .any(|f| path.contains(f)),
+        !STD_FORBIDDEN.iter().any(|f| path.contains(f)),
         "名前の組み替えだけの `std::path` は通す"
+    );
+    let env = "let d = std::env::var(\"X\");";
+    assert!(
+        STD_FORBIDDEN.iter().any(|f| env.contains(f)),
+        "環境変数を拾う"
     );
 
     assert_eq!(

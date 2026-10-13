@@ -1,12 +1,17 @@
 //! 配布パッケージの生成（`PROFILE-M4`）。
 //!
 //! 入口は [`tree::build`]（音源ルートを組み立てる）、[`validate::validate`]
-//! （書き出し前検証）、[`archive::write`]（ZIP と UAR）、
-//! [`archive::verify`]（読み戻し検証）の4つ。
+//! （書き出し前検証）、[`archive::expect`]（読み戻しが突き合わせるもの）の3つ。
+//!
+//! 方針だけを持ち、ファイルは開かない（`tests/purity.rs`）。 素材の事実
+//! （[`validate::MasterFact`]）は呼び出し側が先に調べて渡し、ZIP の符号化と読み戻しは
+//! `koeru-formats` の [`koeru_formats::archive`]、WAV の符号化は
+//! [`koeru_formats::wav`] が持つ。 書いて、読み戻して、通らなければ消す、までの
+//! ファイルの手順は呼び出し側（`koeru-app` の `export_io`）。
 //!
 //! 形式的な契約は `specs/requirements/packaging-export.fsl` が持つ。
 //! 検証 → ZIP → 読み戻しの順序と、失敗したら ZIP を残さないことは
-//! そちらが正本で、ここはその実装。
+//! そちらが正本で、ここはその方針の部分。
 //!
 //! # 何をしないか
 //!

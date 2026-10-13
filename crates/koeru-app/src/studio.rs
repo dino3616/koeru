@@ -37,6 +37,7 @@ use koeru_core::db::{
     Answer, CaptureId, Commit, CommitRequest, Ledger, NewIntent, OperationId, Receipt,
     SessionSnapshot, koeru_oto,
 };
+use koeru_core::fingerprint::Digest;
 use koeru_core::frq;
 use koeru_core::guide::{self, GuideSpec};
 use koeru_core::inventory::UnitSet;
@@ -2897,6 +2898,7 @@ impl Studio {
             }
         };
         let take_id = receipt.take_id;
+        self.seal_master_digest(take_id);
 
         // ## ここから先は派生物。落ちてもテイクは確定している
         //
@@ -2954,6 +2956,24 @@ impl Studio {
             result: Box::new(result),
             receipt,
         })
+    }
+
+    /// 確定したマスターの内容の指紋を、台帳へ1度だけ記録する（`DEC-PLT-053`）。
+    ///
+    /// ファイルは確定のあとに読む。 台帳の行と同じトランザクションには入れられない。
+    /// **落ちても録音は確定している**ので、失敗は返さず記録だけ残す——空のまま残った指紋は、
+    /// 要るときに [`Self::master_digest`] が計算して置く。
+    fn seal_master_digest(&mut self, take_id: i32) {
+        let rel_path = self
+            .writer()
+            .and_then(|mut w| w.take(take_id).map_err(AppError::from))
+            .and_then(|t| t.ok_or_else(unknown_take))
+            .map(|t| t.rel_path);
+        let sealed = rel_path.and_then(|rel| self.master_digest(take_id, &rel));
+        if let Err(e) = sealed {
+            e.with_outcome(koeru_failure::Outcome::Committed)
+                .record("capture.master_digest");
+        }
     }
 
     /// テイクの派生物を作る。 入力を集め、`JobRuntime` で計算し、受理して置く。
@@ -4190,17 +4210,60 @@ impl Studio {
         row_id: &str,
         rel_path: &str,
     ) -> jobs::BasedOn {
-        let wav = self.wav_stamp(rel_path);
+        let wav = self.master_stamp(take_id, rel_path);
         let row = self.read_row(row_id);
         take_analysis::re_estimate_based_on(take_id, &wav, &row)
     }
 
-    /// テイクの WAV の指紋。 開いていなければ空（読んだ標本が無いので、突き合わせは別の
-    /// 入力が断る）。
-    fn wav_stamp(&self, rel_path: &str) -> String {
-        self.open.as_ref().map_or_else(String::new, |open| {
-            format!("{:016x}", hash_of(Some(&open.dir().root().join(rel_path))))
-        })
+    /// テイクの WAV の指紋の印（`DEC-PLT-053`）。 開いていなければ空（読んだ標本が無いので、
+    /// 突き合わせは別の入力が断る）。 読めなかったことも入力の一部で、読めた印とは別になる。
+    fn master_stamp(&mut self, take_id: i32, rel_path: &str) -> String {
+        if self.open.is_none() {
+            return String::new();
+        }
+        match self.master_digest(take_id, rel_path) {
+            Ok(digest) => digest.to_hex(),
+            Err(e) => format!("unreadable:{}", e.code),
+        }
+    }
+
+    /// マスターの内容の指紋。 台帳に記録してあればそれを返し、無ければ（この列を足す前に録った
+    /// テイク、確定の直後に落ちたテイク）ファイルから計算して記録する（`DEC-PLT-053`）。
+    ///
+    /// 記録したあとはファイルを読み直さない。 マスターは確定したら変えない
+    /// （`TR-REC-21`）ので、台帳の値を信じる。 ファイルが後から変わっていても気づかない——
+    /// それを見るのは、マスターと台帳の整合を確かめる側（T04 の manifest）。
+    fn master_digest(&mut self, take_id: i32, rel_path: &str) -> Result<Digest> {
+        if let Some(digest) = self.writer()?.master_digest_of(take_id)? {
+            return Ok(digest);
+        }
+        let path = self.opened()?.dir().root().join(rel_path);
+        let digest = koeru_core::master::digest_file(&path)?;
+        Ok(self.writer()?.record_master_digest(take_id, &digest)?)
+    }
+
+    /// 素材（採用テイクの WAV）の内容の指紋。 試唱の合成結果の鍵に混ぜる（`TR-SYN-02`）。
+    ///
+    /// パスと更新時刻を混ぜない。 同じ中身が別の場所にあれば同じ鍵、同じ場所で中身が変われば
+    /// 別の鍵になる。 **以前は場所・大きさ・更新時刻から作っていた**ので、中身が変わっても
+    /// 大きさと時刻が同じなら鍵が動かず、古い合成結果が鳴った。
+    ///
+    /// プロジェクトの外か、台帳に無い場所のファイルは、中身から直接計算する。
+    fn material_digest(&mut self, path: Option<&PathBuf>) -> Result<Option<Digest>> {
+        let Some(path) = path else { return Ok(None) };
+        let root = self.opened()?.dir().root().to_path_buf();
+        let rel = path
+            .strip_prefix(&root)
+            .ok()
+            .map(|r| r.to_string_lossy().into_owned());
+        let take_id = match &rel {
+            Some(rel) => self.writer()?.master_digest_at(rel)?.map(|(id, _)| id),
+            None => None,
+        };
+        match (take_id, rel) {
+            (Some(take_id), Some(rel)) => self.master_digest(take_id, &rel).map(Some),
+            _ => Ok(Some(koeru_core::master::digest_file(path)?)),
+        }
     }
 
     /// 推定し直しの入力を集める。 台帳と WAV を読むだけで、何も書かない。
@@ -4210,7 +4273,7 @@ impl Studio {
         let w = wav::read(root.join(&take.rel_path))?;
         Ok(ReEstimateInput {
             take_id,
-            wav: self.wav_stamp(&take.rel_path),
+            wav: self.master_stamp(take_id, &take.rel_path),
             rel_path: take.rel_path.clone(),
             rate: w.rate_hz,
             samples: Arc::new(w.samples),
@@ -4899,7 +4962,7 @@ impl Studio {
                     current.push(koeru_synth::phrase::NoteSpec {
                         alias: res.alias.clone(),
                         sample_path: m.paths.get(&res.alias).cloned().unwrap_or_default(),
-                        sample_hash: hash_of(m.paths.get(&res.alias)),
+                        sample_hash: self.material_digest(m.paths.get(&res.alias))?,
                         oto: *oto,
                         midi,
                         duration_ms: length_ms,
@@ -5896,26 +5959,6 @@ impl Drop for Studio {
     }
 }
 
-/// 素材の内容ハッシュ（`TR-SYN-02`）。
-///
-/// 録り直したら変わる。 変われば鍵が変わり、古い合成結果は使われない。
-/// 中身を読み直さずに済むよう、更新時刻と大きさから作る。
-fn hash_of(path: Option<&PathBuf>) -> u64 {
-    use std::hash::{Hash as _, Hasher as _};
-    let Some(p) = path else { return 0 };
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    p.hash(&mut h);
-    if let Ok(m) = std::fs::metadata(p) {
-        m.len().hash(&mut h);
-        if let Ok(t) = m.modified()
-            && let Ok(d) = t.duration_since(std::time::UNIX_EPOCH)
-        {
-            d.as_nanos().hash(&mut h);
-        }
-    }
-    h.finish()
-}
-
 /// `device_transition` の純粋な分岐を試験する。
 ///
 /// `Studio::open` を要らない——`Session::device()` の3値と生死の2値の
@@ -6810,5 +6853,181 @@ mod material_tests {
         // 画面が出す書き出しの数と、解決が配ると決めた数が一致する。
         let state = s.package_state().expect("引ける");
         assert_eq!(state.alias_count, exported.len(), "配る綴りは解決のとおり");
+    }
+}
+
+/// マスターの内容の指紋（`DEC-PLT-053`）が、試唱の素材の鍵とジョブの入力の印になる。
+///
+/// `Studio::open` はアライナを読むので、Kaldi を組んである OS だけで走る。
+#[cfg(all(test, target_os = "macos", not(koeru_force_unsupported_backend)))]
+mod master_digest_tests {
+    use super::*;
+
+    fn opened(tag: &str) -> (Studio, PathBuf) {
+        let root = std::env::temp_dir().join(format!("koeru-digest-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("指紋").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        (studio, root)
+    }
+
+    /// 次に録る行へ素材を置き、そのテイクの ID と WAV の場所を返す。
+    fn seed(studio: &mut Studio) -> (i32, PathBuf) {
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        let take = studio.seed_material_for_test(&row).expect("素材を置ける");
+        let path = studio
+            .opened()
+            .expect("開いている")
+            .dir()
+            .audio_dir()
+            .join(format!("{row}_1.wav"));
+        (take, path)
+    }
+
+    /// テイクの WAV の、プロジェクトの中での場所。
+    fn rel_of(studio: &mut Studio, take: i32) -> String {
+        studio
+            .writer()
+            .expect("書き手")
+            .take(take)
+            .expect("読める")
+            .expect("テイクがある")
+            .rel_path
+    }
+
+    fn overwrite(path: &std::path::Path, amplitude: f32) {
+        std::fs::remove_file(path).expect("消せる");
+        let mut part = koeru_audio::wav::PartialTake::create(path, MASTER_RATE_HZ).expect("作れる");
+        part.write(&vec![amplitude; MASTER_RATE_HZ as usize])
+            .expect("書ける");
+        part.finalize().expect("確定できる");
+    }
+
+    /// 同じ中身は場所が違っても同じ鍵、中身が違えば別の鍵（`TR-SYN-02`）。
+    #[test]
+    fn 同じ中身は別の場所でも同じ鍵になり_中身が違えば別の鍵になる() {
+        let (mut studio, root) = opened("material");
+        let (_, a) = seed(&mut studio);
+        let (_, b) = seed(&mut studio);
+        let (_, c) = seed(&mut studio);
+        assert_ne!(a, b, "前提: 場所が違う");
+        // 試験の素材は同じ中身（一定振幅）で作られる。 c だけ、まだ誰も指紋を見ていない
+        // うちに中身を変える。
+        overwrite(&c, 0.9);
+
+        let key = |studio: &mut Studio, p: &PathBuf| {
+            studio
+                .material_digest(Some(p))
+                .expect("計算できる")
+                .expect("素材がある")
+        };
+        let (ka, kb, kc) = (
+            key(&mut studio, &a),
+            key(&mut studio, &b),
+            key(&mut studio, &c),
+        );
+        assert_eq!(ka, kb, "同じ中身は別のパスでも同じ鍵");
+        assert_ne!(ka, kc, "中身が違えば別の鍵");
+        assert_eq!(
+            ka,
+            koeru_core::master::digest_file(&a).expect("読める"),
+            "鍵はファイルの中身の SHA-256"
+        );
+        assert_eq!(studio.material_digest(None).expect("素材なしは値"), None);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 台帳の外のファイルは、同じ場所で中身が変われば別の鍵になる。 更新時刻と大きさが
+    /// 同じでも見落とさない（以前の鍵は場所・大きさ・更新時刻だった）。
+    #[test]
+    fn 台帳の外のファイルは中身だけで決まる() {
+        let (mut studio, root) = opened("outside");
+        let dir = root.join("outside");
+        std::fs::create_dir_all(&dir).expect("作れる");
+        let (x, y) = (dir.join("x.bin"), dir.join("y.bin"));
+        std::fs::write(&x, b"AAAA").expect("書ける");
+        std::fs::write(&y, b"AAAA").expect("書ける");
+        let before = studio.material_digest(Some(&x)).expect("計算できる");
+        assert_eq!(
+            before,
+            studio.material_digest(Some(&y)).expect("計算できる"),
+            "別の場所の同じ中身"
+        );
+
+        // 大きさも更新時刻も変えずに、中身だけ変える。
+        let mtime = std::fs::metadata(&x)
+            .and_then(|m| m.modified())
+            .expect("時刻");
+        std::fs::write(&x, b"BBBB").expect("書ける");
+        std::fs::File::options()
+            .write(true)
+            .open(&x)
+            .and_then(|f| f.set_modified(mtime))
+            .expect("時刻を戻せる");
+        assert_eq!(
+            std::fs::metadata(&x).map(|m| m.len()).expect("大きさ"),
+            4,
+            "前提: 大きさは同じ"
+        );
+        assert_ne!(
+            before,
+            studio.material_digest(Some(&x)).expect("計算できる"),
+            "同じ場所・同じ大きさ・同じ時刻でも、中身が変われば別の鍵"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 台帳に記録した指紋は、確定の直後に1度だけ置かれ、そのあとはファイルを読み直さない。
+    /// 列を足す前に録ったテイク（空のまま）は、要るときにファイルから計算して置く。
+    #[test]
+    fn 記録した指紋を使い_空なら要るときに埋める() {
+        let (mut studio, root) = opened("seal");
+        let (take, path) = seed(&mut studio);
+        let rel = rel_of(&mut studio, take);
+        let stored = |studio: &mut Studio| {
+            studio
+                .writer()
+                .expect("書き手")
+                .master_digest_of(take)
+                .expect("読める")
+        };
+        // 空のまま（試験の素材は確定の経路を通らない）。
+        assert_eq!(stored(&mut studio), None);
+
+        // 確定の直後の記録。
+        studio.seal_master_digest(take);
+        let want = koeru_core::master::digest_file(&path).expect("読める");
+        assert_eq!(stored(&mut studio), Some(want));
+        assert_eq!(
+            studio.master_stamp(take, &rel),
+            want.to_hex(),
+            "ジョブの入力の印は指紋の16進"
+        );
+
+        // 記録したあとは、ファイルが変わっても読み直さない（確定したマスターは変えない）。
+        overwrite(&path, 0.9);
+        assert_eq!(studio.master_digest(take, &rel).expect("引ける"), want);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 読めなかったことも入力の一部で、読めた印とは別になる。
+    #[test]
+    fn 指紋を作れなければ読めなかった印になる() {
+        let (mut studio, root) = opened("unreadable");
+        let (take, path) = seed(&mut studio);
+        let rel = rel_of(&mut studio, take);
+        std::fs::remove_file(&path).expect("消せる");
+        let stamp = studio.master_stamp(take, &rel);
+        assert!(stamp.starts_with("unreadable:"), "{stamp}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

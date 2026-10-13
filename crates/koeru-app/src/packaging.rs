@@ -29,6 +29,7 @@ use koeru_package::tree::{self, Content, PackagedFile};
 use koeru_package::validate::{self, Finding, Unencodable};
 
 use crate::error::{AppError, Result};
+use crate::export_io;
 
 /// 書き出しの手前で分かること（`TR-PKG-49`, `TR-PKG-51`）。
 #[derive(Debug, Clone)]
@@ -306,7 +307,7 @@ pub fn state(
     let bank = bank_of(dir, ledger, rules, manifest, &distribution, None)?;
 
     let coverage = coverage_of(&covered, &material.tones, rules, manifest)?;
-    let report = validate::validate(&bank, profile);
+    let report = validate::validate(&bank, profile, &export_io::master_facts(&bank));
     // 要求表は方式ごとの綴り（`coverage::required`）。 仮名で突き合わせると、
     // 単独音以外はどの方式も「出せる」に入らない。
     let set = koeru_core::inventory::UnitSet::Core;
@@ -522,7 +523,7 @@ fn write_package(
     }
 
     let bank = bank_of(dir, ledger, rules, manifest, &distribution, down)?;
-    let report = validate::validate(&bank, profile);
+    let report = validate::validate(&bank, profile, &export_io::master_facts(&bank));
     if !report.may_export() {
         // 件数を添える。 種別文字列だけだと、画面を開き直して
         // `package_state` を引くまで何が引っかかったのか分からない。
@@ -549,7 +550,7 @@ fn write_package(
         let _ = std::fs::remove_file(exports.join(format!("{PENDING}.{ext}")));
     }
 
-    let written = archive::write_and_verify(&bank, &files, profile, &exports, PENDING)
+    let written = export_io::write_and_verify(&bank, &files, profile, &exports, PENDING)
         .map_err(AppError::from_failure)?;
 
     // 番号を先に見て、最終名まで作ってから台帳へ書く。
