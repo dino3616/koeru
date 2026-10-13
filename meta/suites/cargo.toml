@@ -150,7 +150,7 @@ title = 'リングの端点は共有した参照から書けも読めもせず�
 runner = 'cargo'
 package = 'koeru-audio'
 target = 'doc'
-platforms = ['macos', 'linux', 'windows']
+platforms = ['macos', 'linux']
 min_cases = 7
 contracts = ['DEC-REC-007']
 

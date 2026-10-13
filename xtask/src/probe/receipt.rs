@@ -517,6 +517,24 @@ fn doctest_receipts(
     seen: &mut BTreeSet<String>,
     rep: &mut Report,
 ) -> Vec<Receipt> {
+    // Windows ではワークスペースの doctest をまとめて組めない。 tauri-build が VC ランタイムを
+    // 静的に結ぶために中身の無い `msvcrt.lib` を検索パスに置き、cargo はその検索パスを全 crate の
+    // doctest に渡すので、どの doctest も CRT を引けずにリンクで落ちる。 koeru-app を外して
+    // 走らせると feature の統合が変わり、依存を組み直す。 doctest は OS に依らない型の検査なので、
+    // macOS と Linux で数える。
+    if ctx.platform == "windows" {
+        for probe in by_key
+            .values()
+            .filter(|p| p.target == DOCTEST_TARGET && p.applies(ctx))
+        {
+            seen.insert(probe.id.clone());
+            rep.error(format!(
+                "{}: Windows では doctest を走らせない。 platforms から windows を外す",
+                probe.id
+            ));
+        }
+        return Vec::new();
+    }
     let (sections, ok) = match run_doctests(root) {
         Ok(r) => r,
         Err(e) => {

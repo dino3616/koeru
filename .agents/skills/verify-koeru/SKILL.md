@@ -48,6 +48,8 @@ cargo xtask check-portfolio            # 登録の漏れだけを見る。組み
 doctest も数える。 `--no-run` の組み立てには出てこないので、`cargo test --workspace --doc`
 を別に1回走らせ、crate ごとに `target = 'doc'` の suite と突き合わせる。 doctest を足した
 crate に登録が無ければ落ちる。 以前は CI で doctest が1件も走っていなかった。
+Windows では走らせない。 tauri-build が検索パスに置く空の `msvcrt.lib` を、cargo が
+全 crate の doctest に渡してしまい、リンクで落ちる。
 
 試験ファイルを足したら、`meta/suites/` にも1件足す。 `min_cases` は、その試験が
 件数を求められるどの環境でも下回らない数にする（書いていない OS では cfg で外れる

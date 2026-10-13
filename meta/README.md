@@ -126,7 +126,7 @@ cargo xtask test-receipt     # 試験を走らせ、件数を suite と突き合
 
 doctest は試験 binary にならないので、crate ごとに `target = 'doc'` の suite として数える。 登録を求めるのは doctest を持つ crate だけで、持つのに登録が無いものは `test-receipt` が落とす（`check-portfolio` は組み立てないので、doctest の有無が分からない）。
 
-`test-receipt` は試験 binary を1本ずつ走らせ、libtest の要約行から件数を数える。 doctest はワークスペースを1回で走らせ、crate の見出しごとに数える。 登録と合わないものは落とす。
+`test-receipt` は試験 binary を1本ずつ走らせ、libtest の要約行から件数を数える。 doctest はワークスペースを1回で走らせ、crate の見出しごとに数える。 Windows では doctest を組めないので走らせず、doc の suite の `platforms` に `windows` を書かない（理由は `xtask/src/probe/receipt.rs`）。 登録と合わないものは落とす。
 
 - `min_cases` — 実行した件数の下限。 これを割ると落ちる。 数え方が壊れて 0 件になったり、cfg で丸ごと外れたりしたのを見つけるための床で、正確な件数ではない
 - `manual` — `#[ignore]` にしてある手動のハーネスの数。 これより多く無視すると落ちる。 黙って外した試験を見つける
