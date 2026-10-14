@@ -1,0 +1,7 @@
+# `bun run` から起動したものは、PATH に Node があっても bun で走らせる（`DEC-PLT-060`）。
+#
+# 既定の bun は、PATH に `node` が無いときだけ自分を差し込む。 手元の proto や
+# CI の runner に Node があると、`#!/usr/bin/env node` の `vp` はそちらで走り、
+# 機械ごとに別の実行系で検査することになる。
+[run]
+bun = true
