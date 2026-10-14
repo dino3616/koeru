@@ -8,6 +8,9 @@ description: KOERU の開発環境を用意する手順。Nix を第一級の前
 **開発ツールは `flake.nix` が供給する**（`DEC-PLT-033`）。 rustup も Homebrew も
 apt も要らない。何をどの順に走らせるかは `verify-koeru` が持つ。
 
+Node も要らない。 bun が node を兼ねる（`DEC-PLT-060`）。 手元に Node が入っていても、
+`bun run` の配下では使われない。
+
 Nix が供給するのは「OS 固有の SDK 以外の開発ツール」。 供給しないものは
 [覆えないもの](#覆えないもの)に挙げてある。
 

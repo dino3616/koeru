@@ -1,0 +1,56 @@
+schema = 'decision'
+id = 'DEC-PLT-060'
+constraint_label = 'JavaScript の実行系'
+constraint = '画面と発表資料の検査を、開発機と CI で同じ実行系で走らせること'
+title = 'Node を道具に含めない。bun が node を兼ね、bunfig.toml の run.bun で常にそうさせる'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'Node を道具に含めず、bun に node を兼ねさせる（run.bun = true）',
+  'Node を devShell に足す（nixpkgs の nodejs）',
+  '何もしない（ホストの PATH にある Node を使う）',
+]
+selected = 'Node を道具に含めず、bun に node を兼ねさせる（run.bun = true）'
+rationale = '''
+## 何が起きていたか
+
+`vp` も `tsc` も `#!/usr/bin/env node` で始まる。 devShell は Node を供給しておらず、
+`nix develop` はホストの PATH を引き継ぐので、手元では proto や Homebrew の Node が、
+CI では runner に入っている Node が走っていた。**`DEC-PLT-033` が揃えたはずの道具の版が、
+JavaScript の実行系だけ機械ごとに違っていた。** 版の宣言はどこにも無かった。
+
+bun は、PATH に `node` が無いときだけ自分を `node` として差し込む。 だから
+Node を消せば揃うが、消し忘れた機械では黙って Node に戻る。
+
+## bun で足りることを確かめた
+
+PATH から Node を外した devShell で、`bun run check:static`（整形・lint・型検査・story の網羅・
+IPC の呼び方）、story の試験（受領証つき）、`bun run build`（`tsc --build` と npm の
+ライセンス検査を含む）、`vp dev`（TanStack Start の SSR 環境を含む）、`storybook dev`、
+`talks/` の `bun run check` がどれも通った。 bun は `process.versions.node` を 26 系と名乗るので、
+道具が宣言する Node の下限にも当たらない。
+
+## なぜ Node を devShell に足さないか
+
+足すと、bun と Node の2つの実行系を持つことになる。 どちらで走ったかは shebang と PATH の
+順で決まり、読む側からは見えない。 足りているものを2つにする理由が無い。
+
+## run.bun を置く
+
+`bunfig.toml` の `[run]` に `bun = true` を書くと、Node が PATH にあっても、`bun run` から
+起動したものは常に bun で走る。 置くのは bun のプロジェクトごと（`crates/koeru-app/ui` と
+`talks`）。 xtask の受領証は ui のディレクトリで `bun run` を起動するので、同じ設定が効く。
+
+bun を経ずに `node_modules/.bin/vp` を直接叩くと、この設定は効かない。 検査の入口は
+`package.json` の scripts なので、そこを通る限り揃う。
+'''
+review_triggers = [
+  'bun で動かない道具を入れる必要が出たとき。 Node を devShell に足すか、その道具を諦めるかを決める',
+  '道具が `process.versions.node` を見て、bun が名乗る版を拒むようになったとき',
+  'bun の Node 互換の欠けで、Node なら通る検査が落ちたとき',
+]
+affects_decisions = [
+  'DEC-PLT-015',
+  'DEC-PLT-022',
+  'DEC-PLT-033',
+]
