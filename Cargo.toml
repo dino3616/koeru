@@ -96,7 +96,7 @@ sha2 = "0.11.0"
 # ライブラリ書き出し（TR-PKG-47）と配布パッケージ（M4）。
 # zip-rs は Organization、MIT、活発。deflate だけに絞り、
 # bzip2 / lzma / zstd / AES は引かない（配布 ZIP は UTAU が読める必要がある）。
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
 # 音源アイコンの元画像を読み、100×100 の BMP へ縮める（TR-PKG-07, DEC-PKG-012）。
 # image-rs は Organization。読むのは png / jpeg、書くのは bmp だけに絞る。

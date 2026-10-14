@@ -30,7 +30,8 @@ central directory・data descriptor・ZIP64 の境界を自分で保守するこ
 同じ問題を解いたので、ここで覆す理由が無い。
 
 **`zip` crate はエントリ名をバイト列として渡す口を持たない。** `TR-PKG-14` は
-「バイト列として扱う」と書いていたが、8.6 の公開 API は `String` だけを受ける。
+「バイト列として扱う」と書いていたが、公開 API は文字列だけを受ける。 8.6 でも
+9.0 でも同じ（`start_file<S: ToString>`）。
 ASCII に閉じたので実害は無いが、要件の前提が部品と食い違っていた。
 '''
 review_triggers = [

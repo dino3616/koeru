@@ -142,8 +142,8 @@ pub fn scan_external_folder(folder: &Path) -> Result<Option<Vec<u8>>> {
 pub fn archive_library(lib: &Library, dest: &Path) -> Result<u64> {
     let file = fs::File::create(dest)?;
     let mut zip = zip::ZipWriter::new(file);
-    let opts: zip::write::FileOptions<'_, ()> =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     let mut count = 0_u64;
     let mut stack = vec![lib.root().to_path_buf()];
@@ -369,7 +369,7 @@ mod tests {
         let archive = tmp("evil").join("evil.koerulib");
         {
             let mut z = zip::ZipWriter::new(fs::File::create(&archive).expect("作れること"));
-            let opts: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+            let opts = zip::write::SimpleFileOptions::default();
             z.start_file("../../逃げ出す.txt", opts)
                 .expect("書けること");
             z.write_all(b"x").expect("書けること");
