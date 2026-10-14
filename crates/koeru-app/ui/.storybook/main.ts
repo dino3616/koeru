@@ -13,7 +13,7 @@ import type { StorybookConfig } from "@storybook/react-vite";
  * 外すと iframe が起動しないまま 60 秒で諦める。一度そうなった。
  *
  * ビルダは `vite-plus`。 Storybook 10 の optional peer は `^0.1.15 || ^0.2.0` で、
- * このリポジトリは 0.3.0。動くことを確かめて採っている。
+ * このリポジトリの版はその外にある。動くことを確かめて採っている（`DEC-PLT-022`）。
  */
 const config: StorybookConfig = {
   stories: ["../src/**/*.story.tsx"],
