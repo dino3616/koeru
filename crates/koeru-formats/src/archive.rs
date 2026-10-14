@@ -257,7 +257,7 @@ pub fn verify<R: Read + Seek>(
     let mut seen: Vec<String> = Vec::new();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let name = entry.name().to_owned();
+        let name = entry.name()?.into_owned();
         seen.push(name.clone());
 
         if name.contains("..") {
@@ -551,12 +551,13 @@ mod tests {
         let mut zip = ZipArchive::new(Cursor::new(bytes)).expect("読める");
         for i in 0..zip.len() {
             let e = zip.by_index(i).expect("エントリを読める");
-            let want = if e.name().ends_with(".wav") || e.name().ends_with(".frq") {
+            let name = e.name().expect("名前を読める");
+            let want = if name.ends_with(".wav") || name.ends_with(".frq") {
                 CompressionMethod::Stored
             } else {
                 CompressionMethod::Deflated
             };
-            assert_eq!(e.compression(), want, "{}", e.name());
+            assert_eq!(e.compression(), want, "{name}");
         }
     }
 
