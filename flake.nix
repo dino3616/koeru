@@ -272,7 +272,7 @@
               if [ "$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON" != "$KOERU_PLAYWRIGHT_FROM_NIXPKGS" ]; then
                 echo "警告: Playwright の版がずれている。" >&2
                 echo "      package.json: $KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON / nixpkgs: $KOERU_PLAYWRIGHT_FROM_NIXPKGS" >&2
-                echo "      story の検査が落ちる。nixpkgs が追いつくまで npm 側を上げない。" >&2
+                echo "      story の検査が落ちる。npm 側を nixpkgs の版に揃える。" >&2
               fi
             '';
           };

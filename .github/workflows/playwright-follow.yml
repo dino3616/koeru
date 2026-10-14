@@ -1,0 +1,86 @@
+name: playwright follow
+
+# Playwright のブラウザは nixpkgs の `playwright-driver` から出る（`DEC-PLT-033`）。
+# npm の版はそれに揃っていないと、入っていないブラウザを探して落ちる。
+# 揃える先は nixpkgs が決めるので、ここに判断は無い。だから人にやらせない。
+#
+# npm 側だけを上げる PR は出さない（`.github/renovate.json`）。 nixpkgs は
+# Renovate の lock file maintenance が `flake.lock` を作り直して上げ、
+# その PR の中でここが npm 側を追わせる——両方が同じ PR に入る。
+# Renovate は lock file maintenance を他の更新と同じ PR に束ねられない。
+#
+# push の資格情報は `nix-hash-fix` と同じ `HASH_FIX_TOKEN`。 `GITHUB_TOKEN` で
+# push すると新しい CI が起きず、落ちた check が残って automerge が発火しない。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    # nixpkgs の版を持っているのはここだけ。
+    paths:
+      - flake.lock
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  follow:
+    name: follow nixpkgs
+    # Renovate の枝だけを触る。 理由は `nix-hash-fix` と同じ——fork に
+    # `renovate/` の枝を作られると、そこを checkout してしまう。
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        # bun の版は `packageManager` が決める。devShell の bun を使う。
+        shell: nix develop ${{ github.workspace }} --command bash -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.HASH_FIX_TOKEN }}
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+      - name: npm 側を nixpkgs の版に揃える
+        env:
+          # Playwright を持つ bun のプロジェクト。 足したらここへ並べる——漏れると
+          # そこだけ古いまま残り、CI の版の突き合わせで落ちる。
+          TARGETS: >-
+            crates/koeru-app/ui
+            talks
+        run: |
+          want="$KOERU_PLAYWRIGHT_FROM_NIXPKGS"
+          for dir in $TARGETS; do
+            have=$(bun -e "console.log((await Bun.file('$dir/package.json').json()).devDependencies.playwright)")
+            if [ "$have" = "$want" ]; then
+              echo "$dir: Playwright $want で揃っている"
+              continue
+            fi
+            echo "$dir: Playwright $have -> $want"
+            (cd "$dir" && bun add --dev --exact "playwright@$want")
+          done
+      - name: 変わっていたら push
+        env:
+          TARGETS: >-
+            crates/koeru-app/ui/package.json
+            crates/koeru-app/ui/bun.lock
+            talks/package.json
+            talks/bun.lock
+        run: |
+          # shellcheck disable=SC2086
+          if git diff --quiet -- $TARGETS; then
+            exit 0
+          fi
+          git diff -- $TARGETS
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $TARGETS
+          # DCO は全コミットを検査する（`AGENTS.md` の禁止事項5）。
+          git commit -s -m "chore(deps): Playwright を nixpkgs の版に揃える"
+          git push

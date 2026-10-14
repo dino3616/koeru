@@ -165,7 +165,8 @@ nixpkgs の `playwright-driver.browsers` を指しているので、
 **`playwright install` を走らせない**——入れ直すと NixOS と NixOS-WSL で動かない。
 
 `package.json` の版と nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
-CI が突き合わせて落とす。揃うまで npm 側を上げない（`DEC-PLT-033`）。
+CI が突き合わせて落とす。npm 側を単独で上げない——nixpkgs が上がった PR の中で
+`playwright-follow` ワークフローが揃える（`DEC-PLT-033`）。
 
 ```bash
 echo "$KOERU_PLAYWRIGHT_FROM_PACKAGE_JSON / $KOERU_PLAYWRIGHT_FROM_NIXPKGS"

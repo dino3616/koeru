@@ -82,6 +82,15 @@ secret が2つ要り、App の作成も要る。**PAT の期限切れでこの�
 Renovate を self-host して `postUpgradeTasks` で同じコミットに入れる案もあったが、
 Mend ホストの App から自前運用へ移る代償のほうが大きいと判断した。
 
+**Playwright の npm 側も機械が揃える。** ブラウザは nixpkgs の `playwright-driver` から
+出るので、npm の版はそれに従うしかなく、ここにも判断は無い。npm 側だけを上げる PR は
+必ず落ちるので出さない。nixpkgs は lock file maintenance が `flake.lock` を作り直して
+上げ、その PR の中で `playwright-follow` が `package.json` と `bun.lock` を揃える。
+Renovate は lock file maintenance を他の更新と同じ PR に束ねられないので、
+Renovate だけでは両方を1つの PR に入れられない。nixpkgs の input を
+`git+https` の rev 固定にして digest 更新で束ねる案は、取得が tarball から
+git clone に変わり CI の全ジョブが重くなるので採らなかった。
+
 **`fetchurl` の `name` に版を入れる。** fixed-output derivation の同一性は hash だけで
 決まるので、版を上げて hash が古いままだと、Nix が同じ store path を見て
 「取得済み」と判断し、**古いバイナリを黙って使う**。落ちるより悪い。

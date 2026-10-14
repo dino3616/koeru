@@ -126,7 +126,9 @@ nix develop --command cargo test --workspace --all-features
 
 **Playwright だけは制約がある。** `package.json` の版と nixpkgs の
 `playwright-driver` の版が揃っていないと、入っていないブラウザを探して落ちる。
-**nixpkgs が追いつくまで npm 側を上げない。** CI が両者を突き合わせて落とす。
+CI が両者を突き合わせて落とす。**npm 側を単独で上げない。** Renovate も npm 側の
+PR を出さない。nixpkgs が上がった lock file maintenance の PR の中で、
+`playwright-follow` ワークフローが npm 側を nixpkgs の版に揃える（`DEC-PLT-033`）。
 
 **hash は機械が直す。** `flake.nix` の `fslc` と bun は SHA-256 で固定しているので、
 版だけが上がると合わなくなる。上流が digest を公開しているので、
