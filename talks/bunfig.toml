@@ -1,0 +1,6 @@
+# `bun run` から起動したものは、PATH に Node があっても bun で走らせる（`DEC-PLT-060`）。
+#
+# `dekc` は元から bun の shebang を持つ。 `tsc` は `#!/usr/bin/env node` なので、
+# これが無いとホストの Node で走る。
+[run]
+bun = true
