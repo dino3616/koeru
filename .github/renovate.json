@@ -45,6 +45,11 @@
     },
     { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" },
     {
+      "description": "vite-plus は同梱の vitest と同じ版の vitest と @vitest/browser-playwright を peer に求め、vite の別名も同じ版の core を指す。1つだけ上がると install が解けない（DEC-PLT-022）。major でも束で出す。",
+      "matchPackageNames": ["vite-plus", "@voidzero-dev/vite-plus-core", "vitest", "@vitest/browser-playwright"],
+      "groupName": "vite-plus"
+    },
+    {
       "description": "OpenUtau の alpha は prerelease（DEC-SYN-010 の層B）。既定の stable とは別に追う——綴りが変わるならそちらに先に出る。",
       "matchDepTypes": ["alpha"],
       "matchPackageNames": ["stakira/OpenUtau"],
