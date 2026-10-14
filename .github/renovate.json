@@ -7,6 +7,7 @@
   "commitBody": "Signed-off-by: shio <dino3616@gmail.com>",
   "enabledManagers": ["cargo", "bun", "github-actions", "git-submodules", "nix", "custom.regex"],
   "git-submodules": { "enabled": true },
+  "nix": { "enabled": true },
   "lockFileMaintenance": { "enabled": true, "schedule": ["at any time"] },
   "packageRules": [
     {
@@ -37,9 +38,10 @@
     },
     { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
     {
-      "description": "Playwright のブラウザは nixpkgs から出る（DEC-PLT-033）。ui と talks の片方だけが上がると、CI の版の突き合わせで落ちる。",
-      "matchPackageNames": ["playwright"],
-      "groupName": "playwright"
+      "description": "Playwright のブラウザは nixpkgs から出る（DEC-PLT-033）。npm 側だけを上げると CI の版の突き合わせで必ず落ちるので、PR を出さない。nixpkgs が上がった lock file maintenance の PR の中で、playwright-follow ワークフローが npm 側を揃える。",
+      "matchManagers": ["bun"],
+      "matchDepNames": ["playwright"],
+      "enabled": false
     },
     { "matchPackageNames": ["/^@tanstack//"], "groupName": "tanstack" },
     {

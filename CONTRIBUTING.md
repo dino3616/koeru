@@ -64,7 +64,8 @@ KOERU は AGPL-3.0-or-later です。ここから2つの制約が出ます。
 
 既存の依存の版上げは、major 以外を自動でマージします（`meta/decisions/DEC-PLT-033.toml`）。
 ライセンスは `cargo deny check` が機械判定し、挙動は CI が見ます。**落ちた PR は人が直します**
-（`flake.nix` の SHA-256 だけは例外で、`nix-hash-fix` ワークフローが機械的に当てます）。
+（例外が2つあります。`flake.nix` の SHA-256 は `nix-hash-fix` ワークフローが、
+npm の Playwright の版は `playwright-follow` ワークフローが nixpkgs に合わせて、機械的に当てます）。
 **major は PR になりません。** Dependency Dashboard に載るので、着手するものを選んでください。
 **submodule（WORLD・Kaldi・音響モデル）も自動でマージしません。**
 アライメントと合成の劣化は CI で捕まらないためです（`meta/evidence/EVID-ALN-001.toml`）。

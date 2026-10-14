@@ -256,7 +256,7 @@ jobs:
       # story は実ブラウザに描いて axe を当てる（TR-PLT-25、DEC-PLT-022）。
       # ブラウザは nixpkgs の playwright-driver から出す。 npm の版と
       # nixpkgs の版が揃っていないと、入っていないブラウザを探して落ちる。
-      # 揃わないときは、nixpkgs が追いつくまで npm 側を上げない。
+      # npm 側は nixpkgs が上がった PR の中で `playwright-follow` が揃える。
       - name: Playwright の版が揃っているか
         run: |
           set -euo pipefail
