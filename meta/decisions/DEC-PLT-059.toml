@@ -69,6 +69,11 @@ Actions のキャッシュはリポジトリで 10 GB まで。 PR で保存し�
   （`TR-ALN-29`）。
 - **`Cargo.lock` が変わると鍵が変わる。** 前のものを前方一致で読むが、build.rs が使う crate
   （cc など）が変わると依存の大半を組み直す。 その1回は遅い。
+- **Nix で組む鍵は `flake.lock` が変わると前方一致でも読まない。** `prefix-key` に入れる。
+  build.rs の実行ファイルは nixpkgs の glibc のローダを指していて、nixpkgs が上がると
+  そのローダはランナーに無い。 rustc の版が同じだと cargo は古い実行ファイルを使い回し、
+  環境変数が変わって build.rs を走らせ直す crate（`glib-sys` など）で起動できずに落ちる。
+  Lock file maintenance の PR で実際に落ちた。 nixpkgs を上げる PR は依存を全部組み直す。
 - **配分の目安は Rust で 6 GB、Nix（使うなら）で 3 GB。**
 
 ## 採らなかったもの

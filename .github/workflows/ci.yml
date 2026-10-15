@@ -56,8 +56,16 @@ jobs:
       # Rust の組み立ては OS ごとに1つの鍵で持つ。 保存は main だけで、PR は main のものを読む。
       # PR で保存したものはその PR からしか読めず、10 GB の枠を食い合う（`DEC-PLT-059`）。
       # 鍵に入れる rustc の版は devShell のものを読む。
+      #
+      # `flake.lock` は鍵の先頭に入れる。 build.rs の実行ファイルは nixpkgs の glibc の
+      # ローダを指していて、nixpkgs が上がるとそのローダはランナーに無い。 rustc の版が
+      # 同じなら cargo は古い実行ファイルを使い回し、pkg-config の環境変数が変わった
+      # `glib-sys` などで build.rs を走らせ直そうとして「No such file」で落ちる。
+      # 末尾に入れると前方一致で古いものを読むので効かない。 `key` は `shared-key` と
+      # 併せると無視される。
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
           cmd-format: nix develop .#ci -c {0}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -183,9 +191,11 @@ jobs:
         with:
           fetch-depth: 0
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
-      # 組むのは xtask だけで、ui ジョブと同じ鍵を使う。
+      # 組むのは xtask だけで、ui ジョブと同じ鍵を使う。 `flake.lock` を鍵に入れる理由は
+      # test ジョブと同じ。
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: xtask
           cmd-format: nix develop .#ci -c {0}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -250,6 +260,7 @@ jobs:
       # 受領証を作る xtask だけを組む。 specs ジョブと同じ鍵を使う。
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: xtask
           cmd-format: nix develop -c {0}
           save-if: ${{ github.ref == 'refs/heads/main' }}
