@@ -128,19 +128,19 @@
           # hash は `.github/scripts/update-hashes.sh` が上流の `.sha256` から作り直す。
           # 手で書き換えない（`DEC-PLT-033`）。
           # ---------------------------------------------------------------
-          fslcVersion = "v4.10.0";
+          fslcVersion = "v4.11.0";
           fslcAssets = {
             aarch64-darwin = {
               name = "fslc-macos-arm64";
-              hash = "sha256-mDke5MxIXXJPja5VnPyQRiEnnu1ff65PYqMdY+zDw6k=";
+              hash = "sha256-3gy+RIgYbLjB6IC7/vhSUFaQWF/8qiOyLOi7lOloSkY=";
             };
             x86_64-linux = {
               name = "fslc-linux-x64";
-              hash = "sha256-H7Co5eDR6aAaUfVcl2NgZ8MpGMquFT9YeeFfnVeHXQI=";
+              hash = "sha256-L9wdCxQ6ACTMkw0mfAwzW6p8JcbJWe+eS9ECFhpgBeI=";
             };
             aarch64-linux = {
               name = "fslc-linux-arm64";
-              hash = "sha256-kx5vMhrxE09DO5hQwjUzO0G8a2/UHynpR/aF41AWhh0=";
+              hash = "sha256-A/rEvogCo7xq3ly45sQFxx7EJEkGQB5fVJf8bo41XsA=";
             };
           };
           # system を足して資産を足し忘れたら、ここで評価が落ちる。
