@@ -374,7 +374,7 @@ jobs:
           WANT: ${{ steps.pin.outputs.sha256 }}
         run: |
           mkdir -p .openutau/dll
-          url="https://github.com/stakira/OpenUtau/releases/download/$VERSION/$ASSET"
+          url="https://github.com/openutau/OpenUtau/releases/download/$VERSION/$ASSET"
           curl -fsSL "$url" -o "/tmp/$ASSET"
           got=$(sha256sum "/tmp/$ASSET" | cut -d' ' -f1)
           if [ "$got" != "$WANT" ]; then

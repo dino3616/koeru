@@ -12,7 +12,7 @@ options = [
 ]
 selected = 'WORLD の上に自前で書く'
 rationale = '''
-`worldline` は `stakira/OpenUtau/cpp` の中にある。OpenUtau のコードである。
+`worldline` は `openutau/OpenUtau/cpp` の中にある。OpenUtau のコードである。
 DEC-PLT-011 で「OpenUtau は仕様として参照するだけで、コードを取り込まない」と決めており、
 これは取れない。決めた時点では見えていなかった帰結。
 
