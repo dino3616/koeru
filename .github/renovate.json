@@ -52,12 +52,12 @@
     {
       "description": "OpenUtau の alpha は prerelease（DEC-SYN-010 の層B）。既定の stable とは別に追う——綴りが変わるならそちらに先に出る。",
       "matchDepTypes": ["alpha"],
-      "matchPackageNames": ["stakira/OpenUtau"],
+      "matchPackageNames": ["openutau/OpenUtau"],
       "ignoreUnstable": false
     },
     {
       "description": "OpenUtau は phonemizer の突合相手（DEC-SYN-010 の層B）。版が上がると期待値のキャッシュが作り直され、綴りが変われば CI が落ちる。通れば automerge してよい。指紋は nix-hash-fix ワークフローが当てる。",
-      "matchPackageNames": ["stakira/OpenUtau"],
+      "matchPackageNames": ["openutau/OpenUtau"],
       "automerge": true,
       "groupName": null,
       "labels": ["dependencies", "phonemizer"]
@@ -78,7 +78,7 @@
       "managerFilePatterns": ["/^crates/koeru-core/fixtures/phonemizer-parity/openutau\\.toml$/"],
       "matchStrings": ["name = \"(?<depType>[a-z]+)\"\\nversion = \"(?<currentValue>[^\"]+)\""],
       "datasourceTemplate": "github-releases",
-      "depNameTemplate": "stakira/OpenUtau"
+      "depNameTemplate": "openutau/OpenUtau"
     }
   ],
   "ignoreDeps": [],
