@@ -1312,7 +1312,7 @@ decided_by = 'DEC-PLT-011'
 domains = [
   'synth',
 ]
-note = '取れない。`stakira/OpenUtau/cpp` の中にあり、OpenUtau のコードである（DEC-PLT-011: OpenUtau は仕様として参照するだけで、コードを取り込まない）。DEC-PLT-011 を決めた時点では見えていなかった帰結。UTAU 互換 resampler は WORLD の上に自前で書く（TR-SYN-08 が引数一式を定義済み）'
+note = '取れない。`openutau/OpenUtau/cpp` の中にあり、OpenUtau のコードである（DEC-PLT-011: OpenUtau は仕様として参照するだけで、コードを取り込まない）。DEC-PLT-011 を決めた時点では見えていなかった帰結。UTAU 互換 resampler は WORLD の上に自前で書く（TR-SYN-08 が引数一式を定義済み）'
 
 [[component]]
 id = 'CMP-096'

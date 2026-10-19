@@ -81,7 +81,7 @@ for channel in stable alpha; do
   hex=$(curl -fsSL \
       -H 'Accept: application/vnd.github+json' \
       -H 'User-Agent: koeru-hash-fix' \
-      "https://api.github.com/repos/stakira/OpenUtau/releases/tags/$v" \
+      "https://api.github.com/repos/openutau/OpenUtau/releases/tags/$v" \
     | python3 -c "
 import json, sys
 want = sys.argv[1]
