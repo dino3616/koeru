@@ -41,7 +41,7 @@ allow-wildcard-paths = true
 
 [advisories]
 # すべて unmaintained で、脆弱性は1件も無い（`cargo deny check advisories` で確認）。
-# 出どころは Tauri の Linux バックエンド（GTK3 系）と、手続きマクロ。
+# 出どころは Tauri の Linux バックエンド（GTK3 系と D-Bus）と、手続きマクロ。
 # Tauri と specta を採ると決めた以上（`TR-PLT-03`、`DEC-PLT-019`）、
 # ここは差し替えられない。
 # Tauri 側は Servo / CEF での置き換えを進めており、そこが動けばこの一覧は消える
@@ -71,6 +71,12 @@ ignore = [
   # paste（specta 経由）。識別子を繋ぐだけの手続きマクロで、
   # 展開結果に paste 自身のコードは残らない。配布物には入らない。
   "RUSTSEC-2024-0436",
+  # zbus_names / zvariant / zvariant_derive（tauri-plugin-opener 経由、Linux の D-Bus）。
+  # zbus 6 に吸収されて単体では保守されなくなっただけ。tauri-plugin-opener が
+  # zbus 5 を指している間は差し替えられない。zbus 6 に上がればこの3件は消える。
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
 ]
 yanked = "deny"
 
