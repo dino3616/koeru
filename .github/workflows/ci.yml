@@ -63,7 +63,7 @@ jobs:
       # `glib-sys` などで build.rs を走らせ直そうとして「No such file」で落ちる。
       # 末尾に入れると前方一致で古いものを読むので効かない。 `key` は `shared-key` と
       # 併せると無視される。
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
@@ -161,7 +161,7 @@ jobs:
           test "$n" -gt 1000000 || { echo "LFS のポインタのまま: $f ($n バイト)"; exit 1; }
       # ツールチェーンはランナーの rustup が `rust-toolchain.toml` を読んで揃える。
       # キャッシュの扱いは test ジョブと同じ。 Nix を通らないので、rustc もそのまま呼ぶ。
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: windows
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -193,7 +193,7 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
       # 組むのは xtask だけで、ui ジョブと同じ鍵を使う。 `flake.lock` を鍵に入れる理由は
       # test ジョブと同じ。
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: xtask
@@ -258,7 +258,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
       # 受領証を作る xtask だけを組む。 specs ジョブと同じ鍵を使う。
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: v0-rust-${{ hashFiles('flake.lock') }}
           shared-key: xtask
