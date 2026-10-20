@@ -97,6 +97,13 @@ jobs:
       # スタブを指す。 macOS では CoreAudio と Kaldi の経路を見る。
       - name: clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # 既定の feature で組む。 製品はこの構成で組むが、上の clippy も試験も
+      # `--all-features` で走るので `test-hooks` が常に入り、ここ以外では組まれない。
+      # `test-hooks` の内側にしか無いものを外から呼ぶと、ここでしか分からない。**一度やった。**
+      # 試験は組まない。 `test-hooks` を前提にした試験があり、そちらは上の段が見ている。
+      # feature を持つのは koeru-app だけなので、組み直すのもここだけ。
+      - name: clippy（既定の feature）
+        run: cargo clippy -p koeru-app --lib --bins -- -D warnings
       # MFA のモデルは submodule ＋ LFS で入る。 実体が来ていないと実モデルの
       # 試験が中身を実行せずに ok と出るので、走らせる前にここで落とす。
       # LFS を引けていないときは 130 バイト程度のポインタが置かれるだけで、
