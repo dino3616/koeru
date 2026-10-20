@@ -5570,6 +5570,7 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、WAV か台帳を書けない。 派生物の失敗は `followup` に載る。
+    #[cfg(any(test, feature = "test-hooks"))]
     pub fn test_derive_take(
         &mut self,
         row_id: &str,
