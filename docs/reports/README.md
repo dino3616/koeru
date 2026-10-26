@@ -4,7 +4,7 @@
 
 | 場所 | 内容 |
 |---|---|
-| [ux/](ux/) | 画面の設計。ディレクション、オブジェクトモデル、リデザインの対応方針 |
+| [ux/](ux/) | 画面の設計。ディレクション、オブジェクトモデル、リデザインの対応方針、画面デザインのキャンバス（[ux/redesign-canvas/](ux/redesign-canvas/)） |
 | [design-system/](design-system/) | デザインシステムの調査・Reference Architecture |
 | [market-landscape/](market-landscape/) | デザインシステムと知識管理アーキテクチャの市場地図 |
 | [architecture/](architecture/) | リポジトリ構造の外部レビュー（バンドル） |

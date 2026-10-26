@@ -1,0 +1,371 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Main.dc.html": {
+      "h": 900,
+      "page": "process",
+      "title": "00 表紙 — プロセス全体",
+      "w": 1440,
+      "x": 0,
+      "y": -346
+    },
+    "P1-Strategy.dc.html": {
+      "h": 1957,
+      "page": "process",
+      "title": "01 戦略",
+      "w": 1440,
+      "x": 1520,
+      "y": -346
+    },
+    "P2-Scope.dc.html": {
+      "h": 1957,
+      "page": "process",
+      "title": "02 要件",
+      "w": 1440,
+      "x": 3040,
+      "y": -346
+    },
+    "P3-Structure.dc.html": {
+      "h": 1400,
+      "page": "process",
+      "title": "03 構造",
+      "w": 1440,
+      "x": 0,
+      "y": 1800
+    },
+    "P4-Skeleton.dc.html": {
+      "h": 1400,
+      "page": "process",
+      "title": "04 骨格",
+      "w": 1920,
+      "x": 1520,
+      "y": 1800
+    },
+    "P4b-SkeletonNewVoice.dc.html": {
+      "h": 2540,
+      "page": "process",
+      "title": "04+ 骨格 — 新しい音源から収録まで（サブバンク）",
+      "w": 1920,
+      "x": 6560,
+      "y": 1800
+    },
+    "P4c-PitchPicker.dc.html": {
+      "h": 2060,
+      "page": "process",
+      "title": "04+ 骨格 — 音階ピッカー（レーン鍵盤）",
+      "w": 1920,
+      "x": 8560,
+      "y": 1800
+    },
+    "P4d-SingInRecord.dc.html": {
+      "h": 2380,
+      "page": "process",
+      "title": "04+ 骨格 — 収録の中で歌う（S05 を S04 に統合）",
+      "w": 1920,
+      "x": 10560,
+      "y": 1800
+    },
+    "P4e-VoiceAndSubbank.dc.html": {
+      "h": 7860,
+      "page": "process",
+      "title": "04+ 骨格 — 音源のページとサブバンクのページ（S06 を分ける）",
+      "w": 1920,
+      "x": 12560,
+      "y": 1800
+    },
+    "P4f-PitchChart.dc.html": {
+      "h": 3760,
+      "page": "process",
+      "title": "05+ 収録した音高のグラフ — 調べたことと考察",
+      "w": 1920,
+      "x": 14560,
+      "y": 1800
+    },
+    "P4g-Handoff.dc.html": {
+      "h": 4540,
+      "page": "process",
+      "title": "04+ 骨格 — 手渡す（S10 · S11 を考え直す）",
+      "w": 1920,
+      "x": 16560,
+      "y": 1800
+    },
+    "P4h-Distribute.dc.html": {
+      "h": 8000,
+      "page": "process",
+      "title": "05+ 配る — 調べたことと体験の見直し（1つが基本、増やすと棚）",
+      "w": 1920,
+      "x": 18560,
+      "y": 1800
+    },
+    "P5-Surface.dc.html": {
+      "h": 1838,
+      "page": "process",
+      "title": "05 表層 — アートディレクション",
+      "w": 1440,
+      "x": 3520,
+      "y": 1800
+    },
+    "P6-System.dc.html": {
+      "h": 1400,
+      "page": "process",
+      "title": "05 表層 — トークンと部品",
+      "w": 1440,
+      "x": 5040,
+      "y": 1800
+    },
+    "P7-Adversarial.dc.html": {
+      "h": 3116,
+      "page": "process",
+      "title": "05+ 敵対的検証 — 存在声域",
+      "w": 1920,
+      "x": 0,
+      "y": 4672
+    },
+    "S02-Method.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S02 音源の設定 — サブバンクの枠を並べた状態（レーン鍵盤）",
+      "w": 1440,
+      "x": 0,
+      "y": -89
+    },
+    "S04-Listening.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S04 録る — 歌えるようになった曲を聴いている（⇧Space）",
+      "w": 1440,
+      "x": 3040,
+      "y": 1300
+    },
+    "S04-Record.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S04 録る",
+      "w": 1440,
+      "x": 0,
+      "y": 1300
+    },
+    "S04-Unlocked.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S04 録る — 曲が歌えるようになった直後（解放の知らせ）",
+      "w": 1440,
+      "x": 1520,
+      "y": 1300
+    },
+    "S06-Voice.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S06 音源のページ — ナギ（音域はいつでも触れる・Normal C5 にカーソル）",
+      "w": 1440,
+      "x": 4560,
+      "y": 1300
+    },
+    "S06b-RenriOverlay.dc.html": {
+      "h": 1200,
+      "page": "screens",
+      "title": "S06b サブバンクのページ — 闇音レンリ（グラフとすべての枠を縦に積む · Normal D4 を重ねている）",
+      "w": 1440,
+      "x": 7600,
+      "y": 1300
+    },
+    "S06b-Subbank.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S06b サブバンクのページ — Normal A3 CVVC（担当音域・試聴・音高を重ねる）",
+      "w": 1440,
+      "x": 6080,
+      "y": 1300
+    },
+    "S07-Songs.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S07 曲バンク — 曲を選び、試唱する範囲をピアノロールで選ぶ（S13 を統合）",
+      "w": 1440,
+      "x": 0,
+      "y": 2600
+    },
+    "S08-Review.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S08 原音設定 — 要確認を見る",
+      "w": 1440,
+      "x": 1520,
+      "y": 2600
+    },
+    "S10-Handoff.dc.html": {
+      "h": 1286,
+      "page": "screens",
+      "title": "S10 配布 — すべて · 1.0.1（下書き · バージョンは自分で決める）",
+      "w": 1440,
+      "x": 0,
+      "y": 3900
+    },
+    "S10-Shelf.dc.html": {
+      "h": 1034,
+      "page": "screens",
+      "title": "S10 配布 — 配布物が4つ · 多音階 Normal 0.9.1（下書き）",
+      "w": 1440,
+      "x": 1520,
+      "y": 3900
+    },
+    "S10-Versions.dc.html": {
+      "h": 1286,
+      "page": "screens",
+      "title": "S10 配布 — バージョンを選ぶ（⋮ から複製 · 削除）",
+      "w": 1440,
+      "x": 3040,
+      "y": 3900
+    },
+    "S11-Released.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S11 手渡せる状態になった",
+      "w": 1440,
+      "x": 0,
+      "y": 9459
+    },
+    "S14-Settings.dc.html": {
+      "h": 900,
+      "page": "screens",
+      "title": "S14 設定 — プライバシー（⌘,）",
+      "w": 1440,
+      "x": 4560,
+      "y": 3900
+    },
+    "P13-Model.dc.html": {
+      "h": 5260,
+      "page": "process",
+      "title": "06 モデル — オブジェクトとリレーション（schema.graphql · 構造）",
+      "w": 1920,
+      "x": 20560,
+      "y": 1800
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-20T15:10:00+09:00",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "page": "process",
+    "view": "canvas"
+  },
+  "notes": {
+    "memoS06bPitch": {
+      "fill": "gray",
+      "page": "screens",
+      "text": "S06b 収録した音高 — グラフの出し方\n\n■ 数えるもの\n・有声フレーム（5 ms ごと）のうち、原音設定の「使われる区間」（左ブランク〜右ブランク）に入るものだけ\n・息や無音で拾う低い雑音は、ほぼこの区間の外にある（レンリの ↑ で D3 より下 6.8 % → 0.3 %）\n・自動の原音設定はテイクの解析と同時にできるので、録った直後から使える\n\n■ 上のグラフ（この枠）\n・横：実際の音高。範囲は録った音高の 10〜99 % に左右1半音の余白を足して自動で決める。はみ出した分は端に「← 3 %」\n・縦：発声時間の割合（10 ¢ あたりの %）。±4.5 ¢ でならす\n・この枠だけアクセントカラーで塗る。重ねた枠は灰の線、名前は山の横に直接\n・中央値＝白い縦線＋「中央値 A3 +9 ¢」\n・収録音階＝灰の縦線。ラベルは付けず、目盛りの音名をアクセントカラーにする\n・下の短い線＝行ごとの中央値（1本＝1行）\n\n■ 下の一覧（すべての枠）\n・全部の枠を同じ横軸に並べる。範囲は G3〜C#5（いちばん低い枠の少し手前〜C5 の少し先）\n・目盛りは C と各枠の収録音階だけ\n・点＝中央値、太い帯＝中央 50 %、細い線＝90 %、短い縦線＝収録音階\n・灰の帯＝上のグラフの範囲\n・右の列は中央値だけ。音名 · 数 · ¢ を列で縦にそろえる\n・見出しは「中央値」だけ\n\n■ 操作\n・チェックで重ねる。重ねると上のグラフの範囲が広がる\n・乗せただけでは重ならない\n・名前を押すとその枠のページへ\n\n■ データ\n闇音レンリ 連続音 Ver1.5 の実測（12枠 · 1,868 行）。基本 = Normal · C = Clear · W = Whisper · ↑ として読み込んだと仮定",
+      "w": 720,
+      "x": 9120,
+      "y": 1300
+    },
+    "rowA": {
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "screens",
+      "text": "入口 — つくる・選ぶ・準備する",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "rowB": {
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "screens",
+      "text": "録る・出会う・育てる",
+      "w": 240,
+      "x": 0,
+      "y": 1000
+    },
+    "rowC": {
+      "kind": "title1",
+      "maxW": 6000,
+      "page": "screens",
+      "text": "歌わせる・整える",
+      "w": 240,
+      "x": 0,
+      "y": 2300
+    },
+    "rowD": {
+      "kind": "title1",
+      "maxW": 6000,
+      "page": "screens",
+      "text": "手渡す・呼び出す",
+      "w": 240,
+      "x": 0,
+      "y": 3600
+    },
+    "rowProcessA": {
+      "kind": "title1",
+      "maxW": 4480,
+      "page": "process",
+      "text": "UX 5段階 — 戦略・要件",
+      "w": 240,
+      "x": 0,
+      "y": -711
+    },
+    "rowProcessB": {
+      "kind": "title1",
+      "maxW": 6480,
+      "page": "process",
+      "text": "UX 5段階 — 構造・骨格・表層",
+      "w": 240,
+      "x": 0,
+      "y": 1500
+    },
+    "rowProcessC": {
+      "kind": "title1",
+      "maxW": 8000,
+      "page": "process",
+      "text": "敵対的検証 — キャラクターの舞台",
+      "w": 240,
+      "x": 0,
+      "y": 4229
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "P1-Strategy.dc.html",
+    "P2-Scope.dc.html",
+    "P3-Structure.dc.html",
+    "P4-Skeleton.dc.html",
+    "P4b-SkeletonNewVoice.dc.html",
+    "P4c-PitchPicker.dc.html",
+    "P4d-SingInRecord.dc.html",
+    "P4e-VoiceAndSubbank.dc.html",
+    "P4f-PitchChart.dc.html",
+    "P4g-Handoff.dc.html",
+    "P4h-Distribute.dc.html",
+    "P5-Surface.dc.html",
+    "P6-System.dc.html",
+    "P7-Adversarial.dc.html",
+    "P13-Model.dc.html",
+    "S04-Record.dc.html",
+    "S04-Unlocked.dc.html",
+    "S04-Listening.dc.html",
+    "S06-Voice.dc.html",
+    "S06b-Subbank.dc.html",
+    "S06b-RenriOverlay.dc.html",
+    "S07-Songs.dc.html",
+    "S08-Review.dc.html",
+    "S10-Handoff.dc.html",
+    "S10-Shelf.dc.html",
+    "S10-Versions.dc.html",
+    "S11-Released.dc.html",
+    "S14-Settings.dc.html",
+    "S02-Method.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "process",
+      "name": "プロセス（5段階）"
+    },
+    {
+      "id": "screens",
+      "name": "画面"
+    }
+  ],
+  "title": "KOERU 画面デザイン刷新"
+}

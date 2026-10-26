@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>03 構造</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1440px; min-height: 1400px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 36px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #2A2C33; padding-bottom: 24px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">03 / STRUCTURE</div>
+      <h1 style="margin: 8px 0 0; font-family: 'Dela Gothic One', sans-serif; font-weight: 400; font-size: 48px;">構造 — 名詞から組む</h1>
+    </div>
+    <div style="font-size: 14px; color: #A9ABB2; max-width: 560px; line-height: 1.7;">OOUI（オブジェクト指向 UI）で、まず画面に出る名詞を抜き出し、それぞれに「一覧」と「ひとつ」の見え方を与える。名詞は UTAU コミュニティの標準語彙をそのまま使う。</div>
+  </div>
+
+  <div>
+    <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2; margin-bottom: 14px;">オブジェクト — 属性と操作</div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;">
+      <div style="background: var(--v); color: #0C0D10; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">音源</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600;">Voicebank</span></div>
+        <div style="font-size: 12px; line-height: 1.7; font-weight: 500;">音源名／フォルダ名（ASCII）／方式／収録音階／声の色／キャラクター画像（アイコン・立ち絵）／カバレッジ／試唱できる曲の数／完成 × 書き出し</div>
+        <div style="font-size: 12px; font-weight: 900; border-top: 1px solid rgba(12,13,16,0.25); padding-top: 8px;">収録・試唱・名前を変える・画像を置く・書き出す</div>
+      </div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">行</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #878A93;">録音リスト</span></div>
+        <div style="font-size: 12px; line-height: 1.7; color: #C9CBD0;">読み（例「か か き く け こ ん が」）／含むエイリアス／状態：未収録・収録済み・要録り直し・除外／テイク</div>
+        <div style="font-size: 12px; font-weight: 700; border-top: 1px solid #2A2C33; padding-top: 8px;">録る・録り直す・聴く</div>
+      </div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">テイク</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #878A93;">Take</span></div>
+        <div style="font-size: 12px; line-height: 1.7; color: #C9CBD0;">何テイク目／ピーク（dBFS）／長さ／録った時刻／無効の理由（音飛び・デバイス消失）</div>
+        <div style="font-size: 12px; font-weight: 700; border-top: 1px solid #2A2C33; padding-top: 8px;">聴く・採用する</div>
+      </div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">曲</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #878A93;">Song</span></div>
+        <div style="font-size: 12px; line-height: 1.7; color: #C9CBD0;">題／由来（同梱・UST・USTX）／ノート数／音域／テンポ／キー（移調）／試唱：できる・代替あり・まだ／あと何行</div>
+        <div style="font-size: 12px; font-weight: 700; border-top: 1px solid #2A2C33; padding-top: 8px;">試唱・足りない行を録る・曲バンクから外す</div>
+      </div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">エイリアス</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #878A93;">oto entry</span></div>
+        <div style="font-size: 12px; line-height: 1.7; color: #C9CBD0;">エイリアス（例「か」「a か」）／原音設定の5値／確信度 0–1 と主な理由／状態：自動確定・要確認・保留</div>
+        <div style="font-size: 12px; font-weight: 700; border-top: 1px solid #2A2C33; padding-top: 8px;">聴く・確定・直す・自動に戻す</div>
+      </div>
+      <div style="background: #141519; border: 1px solid #FFD43B; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-size: 24px; font-weight: 900;">配布パッケージ</span></div>
+        <div style="font-size: 12px; line-height: 1.7; color: #C9CBD0;">バージョン（1.0.0）／方式／エイリアス数／検証（通過・注意つき）／nagi-1.0.0.zip／書き出した日時</div>
+        <div style="font-size: 12px; font-weight: 700; border-top: 1px solid #2A2C33; padding-top: 8px;">書き出す・ファイラで表示</div>
+      </div>
+    </div>
+    <div style="margin-top: 12px; font-size: 13px; color: #A9ABB2; line-height: 1.7;">関係：音源 1—n 行 1—n テイク ／ 行 n—n エイリアス（1行は複数のエイリアスを含む）／ 曲 n—n エイリアス（曲はエイリアスを必要とする → 「あと何行」が計算できる）／ 音源 1—n 曲（曲バンク）／ 音源 1—n 配布パッケージ。<span style="color: #F1F1EE;">内部 ID（s001・c047）は画面に出さない。</span></div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">ナビゲーション — ウィンドウの骨組み</div>
+      <div style="display: flex; gap: 14px; margin-top: 18px;">
+        <div style="width: 220px; flex-shrink: 0; background: #0C0D10; border: 1px solid #2A2C33; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+          <div style="display: flex; gap: 6px;" aria-hidden="true"><span style="width: 10px; height: 10px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #3A3D45;"></span></div>
+          <div style="font-size: 11px; color: #878A93; margin-top: 6px;">音源（Arc の Space のように切り替え）</div>
+          <div style="display: flex; align-items: center; gap: 8px; background: #1B1C21; border-radius: 8px; padding: 6px 8px;"><span style="width: 22px; height: 22px; border-radius: 6px; background: var(--v); color: #0C0D10; font-family: 'Dela Gothic One', sans-serif; font-size: 12px; display: inline-flex; align-items: center; justify-content: center;">ナ</span>ナギ</div>
+          <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: #A9ABB2;"><span style="width: 22px; height: 22px; border-radius: 6px; background: #B98CFF;"></span>ハルカゼ</div>
+          <div style="font-size: 11px; color: #878A93; margin-top: 8px;">音源の中の場</div>
+          <div style="padding: 4px 8px;">音源のページ</div>
+          <div style="padding: 4px 8px;">収録</div>
+          <div style="padding: 4px 8px;">曲バンク</div>
+          <div style="padding: 4px 8px;">原音設定 <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">12</span></div>
+          <div style="padding: 4px 8px;">配布</div>
+          <div style="margin-top: 8px; border: 1px solid #2A2C33; border-radius: 8px; padding: 6px 8px; color: #A9ABB2; display: flex; justify-content: space-between;"><span>検索・コマンド</span><span style="font-family: 'IBM Plex Mono', monospace;">⌘K</span></div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.7; color: #C9CBD0;">
+          <div><span style="color: #F1F1EE; font-weight: 700;">左のサイドバー＝音源の棚。</span>上段で音源を切り替えると、サイドバーとアクセントがその声の色に染まる（Arc の Space、Spotify のアートワーク色）。道具を持ち替える感覚ではなく、部屋を移る感覚。</div>
+          <div><span style="color: #F1F1EE; font-weight: 700;">中段＝音源の中の4つの場。</span>UTAU の工程名（収録・曲バンク・原音設定・配布）をそのまま使い、体験の弧（出会う・育てる・作り込む・手渡す）と同じ順で並べる。順番に進むことは強制しない。</div>
+          <div><span style="color: #F1F1EE; font-weight: 700;">収録はサイドバーを畳む。</span>読む行と声だけが残る集中のための表示。Esc で戻る。</div>
+          <div><span style="color: #F1F1EE; font-weight: 700;">⌘K はすべての操作の入口。</span>「さくら」と打てば、試唱・足りない行を録る・曲バンクから外す、が並ぶ（Raycast / Linear）。</div>
+          <div><span style="color: #F1F1EE; font-weight: 700;">ネイティブの作法。</span>macOS のメニューバーに全コマンドを持たせ、UST/USTX とキャラクター画像はウィンドウのどこにドロップしても受ける。長い処理の完了は OS 通知、配布パッケージは「Finder で表示」。</div>
+        </div>
+      </div>
+    </div>
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">画面の木</div>
+      <div style="margin-top: 16px; font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 2; color: #C9CBD0;">
+        <div><span style="color: #FFD43B;">S01</span> 起動 ＝ 新しい音源をつくる ＋ 既存の音源</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S02</span> 方式と収録音階を選ぶ</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S03</span> 入力デバイスの準備（1画面・1操作）</div>
+        <div><span style="color: var(--v);">音源</span></div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S06</span> 音源のページ（ホーム）</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S04</span> 収録 ─ <span style="color: #FFD43B;">S05</span> はじめての試唱</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S07</span> 曲バンク（UST 取り込み・足りない行）</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S08</span> 原音設定 ─ <span style="color: #FFD43B;">S09</span> 上級モード</div>
+        <div style="padding-left: 18px;"><span style="color: #FFD43B;">S10</span> 配布 ─ <span style="color: #FFD43B;">S11</span> 書き出し完了</div>
+        <div><span style="color: #FFD43B;">S12</span> ⌘K（どこからでも）</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">音源の状態 — 完成と書き出しは独立した2軸</div>
+      <div style="display: grid; grid-template-columns: 120px repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 16px; font-size: 13px; line-height: 1.6;">
+        <div></div>
+        <div style="color: #878A93; font-weight: 700;">未書き出し</div>
+        <div style="color: #878A93; font-weight: 700;">書き出し済み</div>
+        <div style="color: #878A93; font-weight: 700;">収録中</div>
+        <div style="background: #1B1C21; border-radius: 10px; padding: 12px;">「あと38行・約8分。試唱できる曲 2」</div>
+        <div style="background: #1B1C21; border-radius: 10px; padding: 12px;">前のバージョンは残る。「1.0.0 のあと 12行収録」</div>
+        <div style="color: #878A93; font-weight: 700;">原音設定の確認待ち</div>
+        <div style="background: #1B1C21; border-radius: 10px; padding: 12px;">「要確認のエイリアス 12件・約2分」</div>
+        <div style="background: #1B1C21; border-radius: 10px; padding: 12px;">同上。次のバージョンの準備として出す</div>
+        <div style="color: #878A93; font-weight: 700;">完成</div>
+        <div style="background: color-mix(in oklch, var(--v) 22%, #141519); border-radius: 10px; padding: 12px; font-weight: 700;">完成。配布できる状態。<br><span style="font-weight: 400; color: #C9CBD0;">公開しなくてもこれで完成</span></div>
+        <div style="background: color-mix(in oklch, var(--v) 22%, #141519); border-radius: 10px; padding: 12px; font-weight: 700;">完成・1.0.0 を書き出し済み</div>
+      </div>
+      <div style="margin-top: 12px; font-size: 12px; color: #878A93;">完成の条件：カバレッジ 100% ＋ すべてのエイリアスが検証を通る ＋ 音源名がある。書き出したかどうかは完成の判定に使わない。</div>
+    </div>
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">音源の顔 — キャラクター画像と代替</div>
+      <div style="display: flex; gap: 12px; align-items: flex-end;">
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+          <div style="width: 72px; height: 72px; border-radius: 16px; background: repeating-linear-gradient(135deg, #2A2C33 0 6px, #1B1C21 6px 12px); border: 1px solid #3A3D45; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #A9ABB2;">icon.png</div>
+          <span style="font-size: 11px; color: #A9ABB2;">① アイコン</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+          <div style="width: 72px; height: 72px; border-radius: 16px; background: var(--v); color: #0C0D10; font-family: 'Dela Gothic One', sans-serif; font-size: 34px; display: flex; align-items: center; justify-content: center;">ナ</div>
+          <span style="font-size: 11px; color: #A9ABB2;">② 色 ＋ 頭文字</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+          <div style="width: 72px; height: 72px; border-radius: 16px; background: #1B1C21; border: 1.5px dashed #3A3D45; color: #A9ABB2; font-family: 'Dela Gothic One', sans-serif; font-size: 34px; display: flex; align-items: center; justify-content: center;">新</div>
+          <span style="font-size: 11px; color: #A9ABB2;">③ 色がまだ無い</span>
+        </div>
+      </div>
+      <div style="font-size: 13px; color: #C9CBD0; line-height: 1.7;">UTAU では配布物にキャラクター画像（icon.bmp 100×100、OpenUtau では立ち絵も）を同梱する文化がある。画像は「配布」で初めて求めるのではなく、どの段階でも音源の顔として置ける。無いあいだは ②（声の色は1テイク目から決まり、録るほど落ち着く）、それも無いうちは ③。立ち絵の代替は、声の色の面に大きな頭文字を置いた紙面で、どこにでも画像をドロップできる。</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>

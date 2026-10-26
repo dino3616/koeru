@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>05 表層 — トークンと部品</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1440px; min-height: 1400px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 32px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #2A2C33; padding-bottom: 24px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">05 / SURFACE — TOKENS &amp; PARTS</div>
+      <h1 style="margin: 8px 0 0; font-family: 'Dela Gothic One', sans-serif; font-weight: 400; font-size: 48px;">トークンと部品</h1>
+    </div>
+    <div style="font-size: 14px; color: #A9ABB2; max-width: 560px; line-height: 1.7;">主要画面はすべてこの値で組んでいる。新しい画面を起こすときはここから取る。文字のコントラストはすべて面に対して 4.5:1 以上。</div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">色トークン</div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; font-size: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #0C0D10; border: 1px solid #3A3D45;"></span><span>bg<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#0C0D10</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #141519; border: 1px solid #3A3D45;"></span><span>surface-1<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#141519</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #1B1C21; border: 1px solid #3A3D45;"></span><span>surface-2<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#1B1C21</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #24262C;"></span><span>surface-3<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#24262C</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #2A2C33;"></span><span>line<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#2A2C33</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #3A3D45;"></span><span>line-strong<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#3A3D45</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #F1F1EE;"></span><span>text-1<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#F1F1EE</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #A9ABB2;"></span><span>text-2<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#A9ABB2</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #878A93;"></span><span>text-3<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#878A93</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: var(--v);"></span><span>voice<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">音源ごと</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #FF5A4E;"></span><span>rec<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#FF5A4E</span></span></div>
+        <div style="display: flex; gap: 8px; align-items: center;"><span style="width: 32px; height: 32px; border-radius: 8px; background: #FFD43B;"></span><span>brand / attention<br><span style="font-family: 'IBM Plex Mono', monospace; color: #878A93;">#FFD43B</span></span></div>
+      </div>
+      <div style="margin-top: 14px; font-size: 12px; color: #A9ABB2; line-height: 1.7;">voice の派生：voice-wash = voice 14% on surface-1（選択中の行）、voice-ink = #0C0D10（voice の面に乗る文字）。text-3 は surface-2 まで（それより明るい面では text-2）。</div>
+    </div>
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">寸法</div>
+      <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 8px 14px; font-size: 13px;">
+        <span style="color: #878A93;">間隔</span><span style="font-family: 'IBM Plex Mono', monospace;">4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 56</span>
+        <span style="color: #878A93;">角丸</span><span style="font-family: 'IBM Plex Mono', monospace;">6 · 10 · 14 · 18 · 999</span>
+        <span style="color: #878A93;">文字</span><span style="font-family: 'IBM Plex Mono', monospace;">12 · 13 · 14 · 16 · 20 · 24 · 32 · 48 · 72（行 88）</span>
+        <span style="color: #878A93;">押せる所</span><span style="font-family: 'IBM Plex Mono', monospace;">最小 32px（マウス）· 主要 44px</span>
+        <span style="color: #878A93;">サイドバー</span><span style="font-family: 'IBM Plex Mono', monospace;">248 · 畳むと 64</span>
+        <span style="color: #878A93;">ツールバー</span><span style="font-family: 'IBM Plex Mono', monospace;">52（ドラッグ領域）</span>
+        <span style="color: #878A93;">フォーカス</span><span style="font-family: 'IBM Plex Mono', monospace;">2px #F1F1EE ＋ 2px オフセット</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">ボタン</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+        <button type="button" style="height: 44px; padding: 0 20px; border: none; border-radius: 10px; background: var(--v); color: #0C0D10; font-family: inherit; font-size: 15px; font-weight: 900;">収録をはじめる</button>
+        <button type="button" style="height: 44px; padding: 0 18px; border: 1px solid #3A3D45; border-radius: 10px; background: transparent; color: #F1F1EE; font-family: inherit; font-size: 15px; font-weight: 700;">あとで</button>
+        <button type="button" style="height: 36px; padding: 0 12px; border: none; border-radius: 8px; background: #1B1C21; color: #F1F1EE; font-family: inherit; font-size: 13px; font-weight: 700; display: inline-flex; gap: 8px; align-items: center;">聴く <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #A9ABB2; border: 1px solid #3A3D45; border-radius: 4px; padding: 0 5px;">L</span></button>
+      </div>
+      <div style="display: flex; gap: 18px; align-items: center; margin-top: 4px;">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><button type="button" aria-label="録音" style="width: 64px; height: 64px; border-radius: 50%; border: 2px solid #3A3D45; background: transparent; display: flex; align-items: center; justify-content: center;"><span style="width: 28px; height: 28px; border-radius: 50%; background: #FF5A4E;"></span></button><span style="font-size: 12px; color: #A9ABB2;">待機</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><button type="button" aria-label="カウント中" style="width: 64px; height: 64px; border-radius: 50%; border: 2px solid #FF5A4E; background: transparent; color: #FF5A4E; font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600;">2</button><span style="font-size: 12px; color: #A9ABB2;">カウント</span></div>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;"><button type="button" aria-label="停止" style="width: 64px; height: 64px; border-radius: 50%; border: none; background: #FF5A4E; display: flex; align-items: center; justify-content: center;"><span style="width: 20px; height: 20px; border-radius: 4px; background: #0C0D10;"></span></button><span style="font-size: 12px; color: #A9ABB2;">録音中</span></div>
+      </div>
+      <div style="font-size: 12px; color: #A9ABB2; line-height: 1.6;">主ボタンは1画面に1つ、声の色。録音ボタンだけは赤で、形（丸→四角）と文字でも状態を示す。</div>
+    </div>
+
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">状態のしるし — 色だけに頼らない</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; border: 1px solid #3A3D45; border-radius: 999px; padding: 4px 10px; font-size: 13px; color: #A9ABB2;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"></circle></svg>未収録</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: color-mix(in oklch, var(--v) 18%, #141519); border-radius: 999px; padding: 4px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" style="fill: var(--v);"></circle></svg>収録済み</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; border: 1px solid #FFD43B; border-radius: 999px; padding: 4px 10px; font-size: 13px; color: #FFD43B;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1 L11 10 H1 Z" fill="none" stroke="currentColor" stroke-width="1.5"></path></svg>要録り直し</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; border: 1px dashed #3A3D45; border-radius: 999px; padding: 4px 10px; font-size: 13px; color: #878A93;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6 H10" stroke="currentColor" stroke-width="1.5"></path></svg>除外</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: var(--v); color: #0C0D10; border-radius: 6px; padding: 4px 10px; font-size: 13px; font-weight: 700;">試唱できる</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--v); color: var(--v); border-radius: 6px; padding: 3px 10px; font-size: 13px; font-weight: 700;">代替ありで試唱できる</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: #24262C; color: #F1F1EE; border-radius: 6px; padding: 4px 10px; font-size: 13px; font-weight: 700;">あと 4行</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: #24262C; color: #A9ABB2; border-radius: 6px; padding: 4px 10px; font-size: 13px;">音域外</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: #1B1C21; border-radius: 6px; padding: 4px 10px; font-size: 13px;">自動確定</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: #FFD43B; color: #0C0D10; border-radius: 6px; padding: 4px 10px; font-size: 13px; font-weight: 700;">要確認</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; border: 1px solid #FF5A4E; color: #FF8A80; border-radius: 6px; padding: 3px 10px; font-size: 13px;">保留：検証エラー</span>
+        <span style="display: inline-flex; align-items: center; gap: 6px; background: #1B1C21; border-radius: 6px; padding: 4px 10px; font-size: 13px;"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 1 H8 V5 L10 7 H2 L4 5 Z M6 7 V11" fill="none" stroke="currentColor" stroke-width="1.3"></path></svg>手で固定</span>
+      </div>
+    </div>
+
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">音源の顔（アバター）</div>
+      <div style="display: flex; gap: 14px; align-items: flex-end;">
+        <div style="width: 72px; height: 72px; border-radius: 16px; background: repeating-linear-gradient(135deg, #24262C 0 6px, #1B1C21 6px 12px); border: 1px solid #3A3D45; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #878A93;">icon</div>
+        <div style="width: 72px; height: 72px; border-radius: 16px; background: var(--v); color: #0C0D10; font-family: 'Dela Gothic One', sans-serif; font-size: 34px; display: flex; align-items: center; justify-content: center;">ナ</div>
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: var(--v); color: #0C0D10; font-family: 'Dela Gothic One', sans-serif; font-size: 19px; display: flex; align-items: center; justify-content: center;">ナ</div>
+        <div style="width: 24px; height: 24px; border-radius: 7px; background: var(--v); color: #0C0D10; font-family: 'Dela Gothic One', sans-serif; font-size: 12px; display: flex; align-items: center; justify-content: center;">ナ</div>
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: #1B1C21; border: 1.5px dashed #3A3D45; color: #A9ABB2; font-family: 'Dela Gothic One', sans-serif; font-size: 19px; display: flex; align-items: center; justify-content: center;">新</div>
+      </div>
+      <div style="font-size: 12px; color: #A9ABB2; line-height: 1.65;">72 / 40 / 24。角丸は一辺の 22%。頭文字は音源名の最初の1文字（英字なら大文字1字）。画像は中央で正方形に切り抜いて見せ、書き出し時の 100×100 BMP 変換とは別に保持する。</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 16px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">録音リストの行と入力レベル</div>
+      <div style="background: #0C0D10; border: 1px solid #2A2C33; border-radius: 14px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+        <div style="display: flex; gap: 22px; font-size: 52px; font-weight: 900; letter-spacing: 0.02em;">
+          <span style="color: #878A93;">か</span><span style="color: #878A93;">か</span><span>き</span><span style="color: #A9ABB2;">く</span><span style="color: #A9ABB2;">け</span><span style="color: #A9ABB2;">こ</span><span style="color: #A9ABB2;">ん</span><span style="color: #A9ABB2;">が</span>
+        </div>
+        <div style="display: flex; gap: 46px;" aria-hidden="true">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--v);"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--v);"></span><span style="width: 10px; height: 10px; border-radius: 50%; background: #F1F1EE;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 8px; height: 8px; border-radius: 50%; background: #3A3D45;"></span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #A9ABB2;"><span>入力</span><span style="font-family: 'IBM Plex Mono', monospace;">ピーク −9.4 dBFS</span></div>
+        <div style="height: 10px; border-radius: 5px; background: #24262C; position: relative; overflow: hidden;"><div style="position: absolute; left: 0; top: 0; bottom: 0; width: 64%; background: #F1F1EE; border-radius: 5px;"></div><div style="position: absolute; left: 70%; top: 0; bottom: 0; width: 2px; background: #A9ABB2;"></div></div>
+        <div style="font-size: 12px; color: #878A93;">いちばん右まで届くと、音が割れます。縦線は直前のピーク。</div>
+      </div>
+      <div style="font-size: 12px; color: #A9ABB2; line-height: 1.65;">行は Zen Kaku Gothic New 900、録音リストの行のまま（区切りは空白）。拍の点はガイドBGM の拍で進む。メーターは単色で、緑・黄・赤の帯を持たない（評価しない）。</div>
+    </div>
+
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">用語の説明（ⓘ）— 言い換えずに添える</div>
+      <div style="background: #24262C; border-radius: 12px; padding: 14px 16px; box-shadow: 0 12px 32px rgba(0,0,0,0.45); max-width: 360px;">
+        <div style="font-size: 14px; font-weight: 900;">先行発声</div>
+        <div style="font-size: 13px; color: #C9CBD0; line-height: 1.65; margin-top: 4px;">ノートの始まりより前に鳴らす長さ。子音を拍より先に出して、母音を拍に合わせるために使う。</div>
+        <div style="font-size: 12px; color: #A9ABB2; margin-top: 8px;">oto.ini の4番目の値 · 単位 ms</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.6; color: #C9CBD0; margin-top: 4px;">
+        <div><span style="color: #F1F1EE; font-weight: 700;">原音設定</span>　録った音のどこを使うかを決めること。oto.ini に書かれる</div>
+        <div><span style="color: #F1F1EE; font-weight: 700;">エイリアス</span>　UST の歌詞から呼ばれる音の名前（例「a か」）</div>
+        <div><span style="color: #F1F1EE; font-weight: 700;">CVVC</span>　「か」のような音と「a k」のようなつなぎ目を録る方式</div>
+        <div><span style="color: #F1F1EE; font-weight: 700;">多音階</span>　複数の高さで録り、歌う高さで使い分ける</div>
+        <div><span style="color: #F1F1EE; font-weight: 700;">ガイドBGM</span>　テンポと音程の目安になる伴奏</div>
+      </div>
+      <div style="font-size: 12px; color: #878A93; line-height: 1.6;">初出の場所に ⓘ を置き、ホバー・フォーカス・読み上げで同じ文を出す。2回目以降は ⓘ を薄くする。</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>

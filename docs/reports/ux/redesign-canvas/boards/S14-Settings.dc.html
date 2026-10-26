@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>設定 — プライバシー</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1440px; height: 900px; box-sizing: border-box; background: #111216; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; position: relative; overflow: hidden;">
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex; opacity: 0.35;">
+    <div style="width: 248px;"></div>
+    <div data-arc="" data-band="" style="flex: 1; padding: 102px 64px; display: flex; flex-direction: column; gap: 20px; margin: 52px 8px 8px 0; border-radius: 12px; background: #0C0D10; box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 12px rgba(0,0,0,0.35); overflow: hidden;"><div style="width: 520px; height: 56px; border-radius: 10px; background: #1B1C21;"></div><div style="width: 560px; height: 52px; border-radius: 12px; background: #1B1C21;"></div></div>
+  </div>
+  <div role="dialog" aria-labelledby="settings-title" style="position: absolute; left: 280px; top: 150px; width: 880px; height: 600px; border-radius: 12px; background: #16171B; border: 1px solid #3A3D45; box-shadow: 0 30px 80px rgba(0,0,0,0.6); display: flex; overflow: hidden;">
+    <nav aria-label="設定の項目" style="width: 210px; flex-shrink: 0; background: transparent; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; box-sizing: border-box;">
+      <div aria-hidden="true" style="display: flex; gap: 8px; padding: 2px 6px 18px;"><span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57;"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E;"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840;"></span></div>
+      <a href="S14-Settings.dc.html" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; color: #C9CBD0;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.6"></circle><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"></path></svg>一般</a><a href="S14-Settings.dc.html" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; color: #C9CBD0;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"></rect><path d="M4.5 10a5.5 5.5 0 0 0 11 0M10 15.5V18"></path></svg>収録</a><a href="S14-Settings.dc.html" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; color: #C9CBD0;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5Z M3 6.5l7 3.5 7-3.5 M10 10v7"></path></svg>書き出し</a><a href="S14-Settings.dc.html" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; color: #C9CBD0;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3h6v6M17 3l-8 8M14 11v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>外部ツール</a><a href="S14-Settings.dc.html" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; color: #C9CBD0;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4" width="15" height="10" rx="1.5"></rect><path d="M7 17h6"></path></svg>表示</a><a href="S14-Settings.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: 8px; text-decoration: none; font-size: 13px; background: #2A2C33; color: #F1F1EE; font-weight: 700;"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="9" width="12" height="8" rx="2"></rect><path d="M7 9V6.5a3 3 0 0 1 6 0V9"></path></svg>プライバシー</a>
+    </nav>
+    <div style="flex: 1; min-width: 0; padding: 18px 24px; display: flex; flex-direction: column; gap: 20px; margin: 6px 6px 6px 0; border-radius: 9px; background: #0C0D10; box-shadow: 0 0 0 1px rgba(255,255,255,0.06); overflow: hidden;">
+      <div style="display: flex; align-items: baseline; gap: 12px;"><h1 id="settings-title" style="margin: 0; font-size: 22px; font-weight: 900;">プライバシー</h1><span style="font-size: 12px; color: #878A93;">既定はどちらもオフ</span></div>
+      <section style="display: flex; flex-direction: column; gap: 8px;"><h2 style="margin: 0; font-size: 12px; font-weight: 700; color: #A9ABB2; padding-left: 4px;">送るもの</h2><div style="background: #1B1C21; border: 1px solid #2A2C33; border-radius: 12px;"><div style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-bottom: 1px solid #24262C;"><div style="flex: 1; min-width: 0;"><div style="font-size: 14px;">利用状況</div><div style="font-size: 12px; color: #878A93; margin-top: 2px;">画面への到達・離脱した場所</div></div><span role="switch" aria-checked="false" aria-label="利用状況" style="width: 38px; height: 22px; border-radius: 999px; background: #3A3D45; position: relative; flex-shrink: 0;"><span style="position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #A9ABB2;"></span></span></div><div style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; "><div style="flex: 1; min-width: 0;"><div style="font-size: 14px;">クラッシュ報告</div></div><span role="switch" aria-checked="false" aria-label="クラッシュ報告" style="width: 38px; height: 22px; border-radius: 999px; background: #3A3D45; position: relative; flex-shrink: 0;"><span style="position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #A9ABB2;"></span></span></div></div></section><section style="display: flex; flex-direction: column; gap: 8px;"></section><section style="display: flex; flex-direction: column; gap: 8px;"><h2 style="margin: 0; font-size: 12px; font-weight: 700; color: #A9ABB2; padding-left: 4px;">記録</h2><div style="background: #1B1C21; border: 1px solid #2A2C33; border-radius: 12px;"><div style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-bottom: 1px solid #24262C;"><div style="flex: 1; min-width: 0;"><div style="font-size: 14px;">最後に送った日時</div></div><span style="font-size: 13px; color: #A9ABB2;">まだ送っていません</span></div><div style="display: flex; align-items: center; gap: 16px; padding: 14px 16px; "><div style="flex: 1; min-width: 0;"><div style="font-size: 14px;">送った内容</div></div><button type="button" style="height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid #3A3D45; background: transparent; color: #F1F1EE; font-family: inherit; font-size: 12px;">記録を開く…</button></div></div></section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>

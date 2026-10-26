@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>KOERU 画面デザイン刷新 — 表紙</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1440px; height: 900px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; position: relative; overflow: hidden; display: flex; flex-direction: column; padding: 56px 64px 48px;">
+
+  <div aria-hidden="true" style="position: absolute; right: -120px; top: -60px; width: 620px; height: 620px; opacity: 0.95;">
+    <svg viewBox="0 0 200 200" width="620" height="620">
+      <g style="stroke: #F1F1EE; stroke-opacity: 0.08; stroke-width: 10; stroke-linecap: round;"><line x1="100.0" y1="64.0" x2="100.0" y2="10.0"></line><line x1="114.6" y1="67.1" x2="136.6" y2="17.8"></line><line x1="126.8" y1="75.9" x2="166.9" y2="39.8"></line><line x1="134.2" y1="88.9" x2="185.6" y2="72.2"></line><line x1="135.8" y1="103.8" x2="189.5" y2="109.4"></line><line x1="131.2" y1="118.0" x2="177.9" y2="145.0"></line><line x1="121.2" y1="129.1" x2="152.9" y2="172.8"></line><line x1="107.5" y1="135.2" x2="118.7" y2="188.0"></line><line x1="92.5" y1="135.2" x2="81.3" y2="188.0"></line><line x1="78.8" y1="129.1" x2="47.1" y2="172.8"></line><line x1="68.8" y1="118.0" x2="22.1" y2="145.0"></line><line x1="64.2" y1="103.8" x2="10.5" y2="109.4"></line><line x1="65.8" y1="88.9" x2="14.4" y2="72.2"></line><line x1="73.2" y1="75.9" x2="33.1" y2="39.8"></line><line x1="85.4" y1="67.1" x2="63.4" y2="17.8"></line></g>
+      <g style="stroke: var(--v); stroke-width: 10; stroke-linecap: round;"><line x1="100.0" y1="64.0" x2="100.0" y2="10.0"></line><line x1="114.6" y1="67.1" x2="136.6" y2="17.8"></line><line x1="126.8" y1="75.9" x2="151.8" y2="53.3"></line><line x1="134.2" y1="88.9" x2="185.6" y2="72.2"></line><line x1="135.8" y1="103.8" x2="155.9" y2="105.9"></line><line x1="131.2" y1="118.0" x2="172.1" y2="141.6"></line><line x1="121.2" y1="129.1" x2="131.7" y2="143.7"></line><line x1="107.5" y1="135.2" x2="118.7" y2="188.0"></line><line x1="92.5" y1="135.2" x2="84.1" y2="174.8"></line><line x1="78.8" y1="129.1" x2="70.9" y2="140.0"></line><line x1="64.2" y1="103.8" x2="10.5" y2="109.4"></line><line x1="65.8" y1="88.9" x2="14.4" y2="72.2"></line><line x1="73.2" y1="75.9" x2="38.1" y2="44.3"></line><line x1="85.4" y1="67.1" x2="63.4" y2="17.8"></line></g>
+      <circle cx="100" cy="100" r="25" style="fill: var(--v);"></circle>
+    </svg>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 16px; position: relative;">
+    <span style="font-family: 'Dela Gothic One', sans-serif; font-size: 28px; letter-spacing: 0.04em;">KOERU</span>
+    <span style="background: #FFD43B; color: #0C0D10; font-weight: 900; font-size: 13px; padding: 4px 10px; transform: skewX(-12deg); display: inline-block;">REDESIGN 2026.10</span>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #A9ABB2;">desktop · 1440×900 · dark</span>
+  </div>
+
+  <div style="margin-top: 72px; position: relative; max-width: 860px;">
+    <div style="font-size: 15px; color: #A9ABB2; font-weight: 500; letter-spacing: 0.08em;">画面デザイン刷新 — プロセスと主要画面</div>
+    <h1 style="margin: 16px 0 0; font-family: 'Dela Gothic One', sans-serif; font-weight: 400; font-size: 76px; line-height: 1.12; letter-spacing: -0.01em;">声と、<br>はじめて会う場所。</h1>
+    <p style="margin: 24px 0 0; font-size: 18px; line-height: 1.75; color: #C9CBD0; max-width: 700px;">録る作業を「声を育てる時間」に、原音設定を「その声の人格を作り込む工程」に、配布の準備を「手渡せる状態をつくること」に置き換える。既存のデザインと画面実装は参照せず、ビジョン・リアーキテクト文書・バックエンド実装・調査資料からゼロで組み直した。</p>
+  </div>
+
+  <div style="margin-top: auto; position: relative; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;">
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">01</span><span style="font-size: 12px; color: #878A93;">Strategy</span></div>
+      <div style="font-size: 22px; font-weight: 900;">戦略</div>
+      <div style="font-size: 13px; line-height: 1.65; color: #A9ABB2;">誰の、どんな痛みを、どの順に背負うか。調査 n=600 と3原則から体験の主張を1つに絞る。</div>
+      <div style="font-size: 12px; color: #F1F1EE; border-top: 1px solid #2A2C33; padding-top: 10px;">体験仮説・JTBD・成功指標・体験原則</div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">02</span><span style="font-size: 12px; color: #878A93;">Scope</span></div>
+      <div style="font-size: 22px; font-weight: 900;">要件</div>
+      <div style="font-size: 13px; line-height: 1.65; color: #A9ABB2;">バックエンドが持つ能力を棚卸しし、画面が背負う機能・内容・非目標と、まだ無い能力を分ける。</div>
+      <div style="font-size: 12px; color: #F1F1EE; border-top: 1px solid #2A2C33; padding-top: 10px;">機能要件・内容要件・ギャップ一覧</div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">03</span><span style="font-size: 12px; color: #878A93;">Structure</span></div>
+      <div style="font-size: 22px; font-weight: 900;">構造</div>
+      <div style="font-size: 13px; line-height: 1.65; color: #A9ABB2;">オブジェクト（音源・行・テイク・曲・エイリアス・配布パッケージ）を UTAU の標準語彙のまま抽出し、ナビゲーションと体験の弧を決める。</div>
+      <div style="font-size: 12px; color: #F1F1EE; border-top: 1px solid #2A2C33; padding-top: 10px;">OOUI モデル・IA・体験の弧・状態</div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">04</span><span style="font-size: 12px; color: #878A93;">Skeleton</span></div>
+      <div style="font-size: 22px; font-weight: 900;">骨格</div>
+      <div style="font-size: 13px; line-height: 1.65; color: #A9ABB2;">画面の領域割りとキーボード操作を先に固める。4操作で最初のフレーズに届くか歩いて確かめる。</div>
+      <div style="font-size: 12px; color: #F1F1EE; border-top: 1px solid #2A2C33; padding-top: 10px;">ワイヤー・フロー・キー割り当て</div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: baseline;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">05</span><span style="font-size: 12px; color: #878A93;">Surface</span></div>
+      <div style="font-size: 22px; font-weight: 900;">表層</div>
+      <div style="font-size: 13px; line-height: 1.65; color: #A9ABB2;">「二つの声域」のアートディレクション、声から生まれる色、トークン、部品、そして12画面。</div>
+      <div style="font-size: 12px; color: #F1F1EE; border-top: 1px solid #2A2C33; padding-top: 10px;">AD・トークン・部品・主要画面</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 20px; position: relative; display: flex; flex-wrap: wrap; gap: 8px 28px; font-size: 12px; color: #878A93; line-height: 1.6;">
+    <span><span style="color: #C9CBD0; font-weight: 700;">参照した一次情報</span>　product-vision.md ／ docs/reports/architecture ／ crates/*（UI を除く）／ specs ／ meta ／ 調査レポート（UTAU ユーザー調査 n=600）</span>
+    <span><span style="color: #C9CBD0; font-weight: 700;">外部調査</span>　RecStar・vLabeler・OpenUtau・Personal Voice・ModelTalker ほか 16 ツール、コミュニティ記事、自声知覚・ゴール勾配の研究</span>
+    <span><span style="color: #C9CBD0; font-weight: 700;">参照しなかったもの</span>　既存のデザイン文書・UX レポート・ペルソナ／JM・UI 実装</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>

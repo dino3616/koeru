@@ -1,0 +1,363 @@
+# KOERU — proto schema（Phase 1 構造。Mutation は Phase 2）
+# 語彙は UTAU / OpenUtau の標準語をそのまま型にする。
+
+scalar DateTime
+# 音名（C-1〜G9。例 A3, F#4）
+scalar NoteName
+
+# ---------- enum ----------
+
+# 単独音 / 連続音 / CVVC
+enum RecordingMethod {
+  CV
+  VCV
+  CVVC
+}
+
+# 音源の色をどこから決めたか（声から・立ち絵から・自分で）
+enum VoiceColorSource {
+  VOICE
+  PORTRAIT
+  MANUAL
+}
+
+# 収録順（曲バンク優先 / 被覆効率）
+enum RecordingOrder {
+  SONG_BANK_FIRST
+  COVERAGE_EFFICIENCY
+}
+
+enum LineStatus {
+  UNRECORDED
+  RECORDED
+  NEEDS_RETAKE
+  EXCLUDED
+}
+
+# テイクが無効になった理由（音飛び・デバイス消失）
+enum TakeInvalidReason {
+  DROPOUT
+  DEVICE_LOST
+}
+
+# 原音設定の状態（自動確定・要確認・保留・確定）
+enum OtoStatus {
+  AUTO_CONFIRMED
+  NEEDS_REVIEW
+  ON_HOLD
+  CONFIRMED
+}
+
+enum ImageKind {
+  PORTRAIT
+  ICON
+  NAME_LOGO
+}
+
+enum SongSource {
+  BUNDLED
+  UST
+  USTX
+}
+
+# 歌える / あと N 行 / 音域外
+enum Singability {
+  SINGABLE
+  NEEDS_LINES
+  OUT_OF_RANGE
+}
+
+enum PackageFormat {
+  UTAU
+  OPENUTAU
+  BOTH
+}
+
+enum VersionState {
+  DRAFT
+  EXPORTED
+}
+
+# 読み戻し検証
+enum Verification {
+  PASSED
+  PASSED_WITH_NOTES
+  FAILED
+}
+
+# 書き出せるまで（音源名がある・CP932 で表せる・同名エイリアスが無い・未収録が無い）
+enum ReleaseCheckKind {
+  HAS_NAME
+  CP932_ENCODABLE
+  UNIQUE_ALIASES
+  ALL_ALIASES_RECORDED
+}
+
+# ---------- 音源 ----------
+
+# 音源。サイドバーの棚の1つ。部屋を移る単位
+type Voicebank {
+  id: ID!
+  name: String!
+  folderName: String!
+  # 1テイク目から決まる。null のあいだは「新」の破線
+  color: String
+  colorSource: VoiceColorSource!
+  images: [CharacterImage!]!
+  icon: CharacterImage
+  portrait: CharacterImage
+  voiceColors: [VoiceColor!]!
+  songBank: [SongBankEntry!]!
+  distributions: [Distribution!]!
+  recordingOrder: RecordingOrder!
+  guideBpm: Int!
+  coverage: Float!
+  recordedLineCount: Int!
+  lineCount: Int!
+  completedSubbankCount: Int!
+  singableSongCount: Int!
+  lastRecordedAt: DateTime
+  createdAt: DateTime!
+}
+
+# 立ち絵・アイコン・名前ロゴ。差分（口「あ」, v2）は1枚ずつ
+type CharacterImage {
+  id: ID!
+  voicebank: Voicebank!
+  kind: ImageKind!
+  fileName: String!
+  label: String
+  width: Int!
+  height: Int!
+}
+
+# 声色（Normal / Whisper / Growl …）。name が null ＝ 声色なし
+type VoiceColor {
+  id: ID!
+  voicebank: Voicebank!
+  name: String
+  subbanks: [Subbank!]!
+}
+
+# サブバンク（枠）＝ 声色 × 収録音階 × 方式。prefix.map の1行に当たる
+type Subbank {
+  id: ID!
+  voiceColor: VoiceColor!
+  # null ＝ 音階を持たない枠（↑ など）
+  pitch: NoteName
+  method: RecordingMethod!
+  prefix: String!
+  suffix: String!
+  # 担当音域（S06b）。配布物ごとの上書きは PackagedSubbank
+  toneRangeLow: NoteName!
+  toneRangeHigh: NoteName!
+  lines: [ReclistLine!]!
+  aliases: [Alias!]!
+  coverage: Float!
+  recordedLineCount: Int!
+  lineCount: Int!
+  needsReviewCount: Int!
+  recordedPitch: PitchDistribution
+}
+
+# 録音リストの行（「な な に ぬ ね の ん は」）
+type ReclistLine {
+  id: ID!
+  subbank: Subbank!
+  position: Int!
+  reading: String!
+  status: LineStatus!
+  aliases: [Alias!]!
+  takes: [Take!]!
+  adoptedTake: Take
+}
+
+# テイク。上書きせず積む
+type Take {
+  id: ID!
+  line: ReclistLine!
+  number: Int!
+  peakDbfs: Float!
+  durationMs: Int!
+  recordedAt: DateTime!
+  invalidReason: TakeInvalidReason
+  medianPitch: NoteName
+  medianCents: Int
+}
+
+# 収録した音高（S06b のグラフ）。使われる区間の有声フレームから
+type PitchDistribution {
+  id: ID!
+  subbank: Subbank!
+  median: NoteName!
+  medianCents: Int!
+  centralLow: NoteName!
+  centralHigh: NoteName!
+  outerLow: NoteName!
+  outerHigh: NoteName!
+}
+
+# エイリアス。録る前から行に含まれ、録ると原音設定が付く
+# 行 n—n エイリアス（1行は複数のエイリアスを含み、母音などは複数の行で録られる）
+type Alias {
+  id: ID!
+  name: String!
+  subbank: Subbank!
+  lines: [ReclistLine!]!
+  oto: OtoEntry
+}
+
+# 原音設定（oto.ini の1エントリ）。take ＝ どの行のどのテイクから切るか（S08 の行 · テイク）
+type OtoEntry {
+  id: ID!
+  alias: Alias!
+  take: Take!
+  offsetMs: Float!
+  overlapMs: Float!
+  preutteranceMs: Float!
+  consonantMs: Float!
+  cutoffMs: Float!
+  confidence: Float!
+  confidenceReason: String
+  status: OtoStatus!
+  manuallyEdited: Boolean!
+  seen: Boolean!
+}
+
+# ---------- 曲 ----------
+
+# 曲。同梱・UST・USTX。音源をまたいで同じもの
+type Song {
+  id: ID!
+  title: String!
+  credit: String
+  source: SongSource!
+  bpm: Float!
+  timeSignature: String!
+  tracks: [SongTrack!]!
+}
+
+type SongTrack {
+  id: ID!
+  song: Song!
+  name: String!
+  rangeLow: NoteName!
+  rangeHigh: NoteName!
+  notes: [Note!]!
+}
+
+type Note {
+  id: ID!
+  track: SongTrack!
+  lyric: String!
+  pitch: NoteName!
+  startTick: Int!
+  durationTick: Int!
+}
+
+# 曲バンクの1曲 ＝ 音源 × 曲。キー・使う声・試唱する範囲・歌えるか
+type SongBankEntry {
+  id: ID!
+  voicebank: Voicebank!
+  song: Song!
+  track: SongTrack!
+  voiceColor: VoiceColor
+  subbanks: [Subbank!]!
+  keyShift: Int!
+  rangeStartTick: Int
+  rangeEndTick: Int
+  singability: Singability!
+  missingLineCount: Int!
+  missingAliasNames: [String!]!
+  requiredAliasCount: Int!
+}
+
+# 記録：曲が歌えるようになった（S04「〜が歌えるようになりました」）
+type SongUnlock {
+  id: ID!
+  entry: SongBankEntry!
+  occurredAt: DateTime!
+}
+
+# ---------- 配布 ----------
+
+# 配布物（すべて / 多音階 Normal / 単独音 A3 …）。音源 1—n
+type Distribution {
+  id: ID!
+  voicebank: Voicebank!
+  name: String!
+  versions: [DistributionVersion!]!
+  latestExport: ExportRecord
+  recordedLinesSinceExport: Int!
+}
+
+# バージョン。番号は自分で決める。中身と character.yaml の項目はバージョンが持つ
+type DistributionVersion {
+  id: ID!
+  distribution: Distribution!
+  version: String!
+  state: VersionState!
+  characterName: String!
+  author: String
+  voiceProvider: String
+  web: String
+  sampleSong: SongBankEntry
+  portrait: CharacterImage
+  icon: CharacterImage
+  terms: String!
+  format: PackageFormat!
+  subbanks: [PackagedSubbank!]!
+  sizeMegabytes: Float!
+  checks: [ReleaseCheck!]!
+  exports: [ExportRecord!]!
+}
+
+# 配布物に入れるサブバンク。担当音域はこの配布物だけ上書きできる
+type PackagedSubbank {
+  id: ID!
+  version: DistributionVersion!
+  subbank: Subbank!
+  toneRangeLow: NoteName!
+  toneRangeHigh: NoteName!
+}
+
+type ReleaseCheck {
+  id: ID!
+  version: DistributionVersion!
+  kind: ReleaseCheckKind!
+  passed: Boolean!
+  count: Int!
+}
+
+# 記録：書き出した（上書きして書き出すと1件増える）
+type ExportRecord {
+  id: ID!
+  version: DistributionVersion!
+  exportedAt: DateTime!
+  archiveName: String!
+  sizeMegabytes: Float!
+  aliasCount: Int!
+  wavCount: Int!
+  verification: Verification!
+}
+
+# ---------- アプリ ----------
+
+type InputDevice {
+  id: ID!
+  name: String!
+}
+
+# 設定（⌘,）。送るものは既定オフ
+type Preferences {
+  id: ID!
+  inputDevice: InputDevice
+  usageReporting: Boolean!
+  crashReporting: Boolean!
+  lastReportSentAt: DateTime
+  defaultFormat: PackageFormat!
+}
+
+type Query {
+  _empty: String
+}
