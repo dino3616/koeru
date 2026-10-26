@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>敵対的検証 — 存在声域</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="width: 1920px; min-height: 2200px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 40px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #2A2C33; padding-bottom: 24px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">05+ / ADVERSARIAL REVIEW</div>
+      <h1 style="margin: 8px 0 0; font-size: 44px; font-weight: 900;">敵対的検証 — 存在声域は、どのキャラクターにも敬意を払えるか</h1>
+    </div>
+    <div style="font-size: 14px; color: #A9ABB2; max-width: 640px; line-height: 1.7;">UTAU には年齢・性別・種族・画風がまったく違うキャラクターがいて、キャラクターを持たない音源もある。立ち絵は絵師に依頼したものも多く、規約で改変・加工・加筆を禁じている例もある（トリミングや拡大縮小は許す、など）。性質の違う8体の架空キャラクターで「はじめての試唱」の瞬間を描き、UI がキャラクターを上書きしていないかを確かめる。</div>
+  </div>
+
+  <div>
+    <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2; margin-bottom: 14px;">検証の基準</div>
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px;">
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C1</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">絵に手を入れない</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">切り欠き・角丸・網点・重ね描き・ぼかしをしない。比率と透過を保つ。拡大縮小だけ。</div></div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C2</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">色の主導権はキャラ</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">イメージカラー（本人が選ぶ）＞声の色。面は塗らず、線と光の1点だけ。</div></div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C3</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">名前に人格を足さない</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">名前は UI 書体で組む。ロゴ画像があればそれを変形せずに置く。</div></div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C4</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">祝福の温度は中立</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">煽る文言・ステッカー・跳ねる動きを使わない。表情は歌と立ち絵に任せる。</div></div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C5</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">キャラが無くても成立</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">画像が無い音源を「未設定」に見せない。キャラクターを勝手に作らない。</div></div>
+      <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 14px; padding: 16px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">C6</div><div style="font-size: 16px; font-weight: 900; margin-top: 4px;">属性を前提にしない</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 6px;">性別・年齢・種族で分けた語やプリセットを置かない（S02 の音域プリセットは撤去済み）。</div></div>
+    </div>
+  </div>
+
+  <div>
+    <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px;"><span style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">A. いまの存在声域を当ててみる</span><span style="font-size: 13px; color: #878A93;">S05 の様式（声の色の面・切り欠き・網点・極太書体・ステッカー）をそのまま3体に適用</span></div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;">
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="position: relative; height: 262px; border-radius: 12px; overflow: hidden; background: #0C0D10; border: 1px solid #2A2C33;">
+          <div aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 240px; background: #3FE0C0; clip-path: polygon(0 0, 100% 0, 82% 100%, 0 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 240px; background-image: radial-gradient(circle, rgba(12,13,16,0.22) 1px, transparent 1.3px); background-size: 6px 6px; clip-path: polygon(46% 0, 100% 0, 82% 100%, 30% 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 34px; top: 40px; width: 150px; height: 200px; background: repeating-linear-gradient(135deg, #B5452F 0 6px, #2B2420 6px 12px); clip-path: polygon(0 0, 78% 0, 100% 14%, 100% 100%, 0 100%); display: flex; align-items: center; justify-content: center;"><span style="background: rgba(12,13,16,0.75); font-size: 11px; padding: 2px 6px;">［立ち絵：和装・背景付き］</span></div>
+          <div aria-hidden="true" style="position: absolute; left: 34px; top: 40px; width: 150px; height: 200px; background-image: radial-gradient(circle, rgba(12,13,16,0.35) 1px, transparent 1.3px); background-size: 6px 6px;"></div>
+          <span style="position: absolute; left: 16px; top: 14px; background: #0C0D10; color: #3FE0C0; font-family: 'Dela Gothic One', sans-serif; font-size: 13px; padding: 3px 8px; transform: skewX(-12deg);">はじめまして</span>
+          <span style="position: absolute; left: 20px; bottom: 14px; background: #0C0D10; color: #3FE0C0; font-family: 'Dela Gothic One', sans-serif; font-size: 22px; padding: 2px 10px; transform: skewX(-12deg);">宗右衛門</span>
+          <div style="position: absolute; left: 262px; right: 16px; top: 40px; font-size: 13px; color: #C9CBD0; line-height: 1.6;">さくらさくら<br><span style="color: #3FE0C0; font-weight: 900; font-size: 18px;">さくら</span> <span style="font-size: 18px; font-weight: 900;">さくら</span></div>
+          <span aria-hidden="true" style="position: absolute; left: 160px; top: 34px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">1</span>
+          <span aria-hidden="true" style="position: absolute; left: 90px; top: 120px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">2</span>
+          <span aria-hidden="true" style="position: absolute; left: 200px; top: 200px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">3</span>
+          <span aria-hidden="true" style="position: absolute; left: 132px; top: 8px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">4</span>
+        </div>
+        <div style="font-size: 15px; font-weight: 900;">宗右衛門 <span style="font-size: 12px; color: #A9ABB2; font-weight: 400;">老年・低音・和装・静か · イメージカラー 朱</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #C9CBD0; line-height: 1.55;">
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">1 C1</span>　立ち絵の右上を切り落としている。背景付きの一枚絵ごと欠ける</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">2 C1</span>　網点を絵の上に重ねている＝加工</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">3 C2/C3</span>　朱の人物を青緑の面で囲み、名前を極太のポップ書体で組む</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">4 C4</span>　「はじめまして」のステッカーが人物像（静かな老人）と温度が合わない</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="position: relative; height: 262px; border-radius: 12px; overflow: hidden; background: #0C0D10; border: 1px solid #2A2C33;">
+          <div aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 240px; background: #B98CFF; clip-path: polygon(0 0, 100% 0, 82% 100%, 0 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 240px; background-image: radial-gradient(circle, rgba(12,13,16,0.22) 1px, transparent 1.3px); background-size: 6px 6px; clip-path: polygon(46% 0, 100% 0, 82% 100%, 30% 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 60px; top: 34px; width: 100px; height: 206px; border-radius: 999px 999px 10px 10px; background: repeating-linear-gradient(135deg, #E8E2D0 0 6px, #3A3A3A 6px 12px); clip-path: polygon(0 0, 78% 0, 100% 14%, 100% 100%, 0 100%); display: flex; align-items: center; justify-content: center;"><span style="background: rgba(12,13,16,0.75); font-size: 11px; padding: 2px 6px;">［白黒］</span></div>
+          <span style="position: absolute; left: 16px; top: 14px; background: #0C0D10; color: #B98CFF; font-family: 'Dela Gothic One', sans-serif; font-size: 13px; padding: 3px 8px; transform: skewX(-12deg);">はじめまして</span>
+          <span style="position: absolute; left: 20px; bottom: 14px; background: #0C0D10; color: #B98CFF; font-family: 'Dela Gothic One', sans-serif; font-size: 22px; padding: 2px 10px; transform: skewX(-12deg);">ノクタ</span>
+          <div style="position: absolute; left: 262px; right: 16px; top: 40px; font-size: 13px; color: #C9CBD0; line-height: 1.6;">さくらさくら<br><span style="color: #B98CFF; font-weight: 900; font-size: 18px;">さくら</span> <span style="font-size: 18px; font-weight: 900;">さくら</span></div>
+          <span aria-hidden="true" style="position: absolute; left: 30px; top: 120px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">1</span>
+          <span aria-hidden="true" style="position: absolute; left: 140px; top: 30px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">2</span>
+        </div>
+        <div style="font-size: 15px; font-weight: 900;">ノクタ <span style="font-size: 12px; color: #A9ABB2; font-weight: 400;">年齢・性別不明・ゴシック · 白黒</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #C9CBD0; line-height: 1.55;">
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">1 C2</span>　色を持たないことが個性なのに、声から作った紫で舞台を塗っている</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">2 C1</span>　透過の全身立ち絵でも、髪や帽子の先が切り欠きで欠ける</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">— C3</span>　ゴシックの名前がストリート調の書体と斜体で別人に見える</span>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="position: relative; height: 262px; border-radius: 12px; overflow: hidden; background: #0C0D10; border: 1px solid #2A2C33;">
+          <div aria-hidden="true" style="position: absolute; left: 0; top: 0; bottom: 0; width: 240px; background: #7AA2FF; clip-path: polygon(0 0, 100% 0, 82% 100%, 0 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 42px; top: 46px; width: 144px; height: 192px; background: repeating-conic-gradient(#7FD36B 0 25%, #1F3B1A 0 50%) 0 0 / 24px 24px; filter: blur(2px); clip-path: polygon(0 0, 78% 0, 100% 14%, 100% 100%, 0 100%);"></div>
+          <div aria-hidden="true" style="position: absolute; left: 42px; top: 46px; width: 144px; height: 192px; background-image: radial-gradient(circle, rgba(12,13,16,0.35) 1px, transparent 1.3px); background-size: 6px 6px;"></div>
+          <span style="position: absolute; left: 16px; top: 14px; background: #0C0D10; color: #7AA2FF; font-family: 'Dela Gothic One', sans-serif; font-size: 13px; padding: 3px 8px; transform: skewX(-12deg);">はじめまして</span>
+          <span style="position: absolute; left: 20px; bottom: 14px; background: #0C0D10; color: #7AA2FF; font-family: 'Dela Gothic One', sans-serif; font-size: 22px; padding: 2px 10px; transform: skewX(-12deg);">B1T</span>
+          <div style="position: absolute; left: 262px; right: 16px; top: 40px; font-size: 13px; color: #C9CBD0; line-height: 1.6;">さくらさくら<br><span style="color: #7AA2FF; font-weight: 900; font-size: 18px;">さくら</span> <span style="font-size: 18px; font-weight: 900;">さくら</span></div>
+          <span aria-hidden="true" style="position: absolute; left: 100px; top: 130px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">1</span>
+          <span aria-hidden="true" style="position: absolute; left: 170px; top: 40px; width: 22px; height: 22px; border-radius: 50%; background: #FFD43B; color: #0C0D10; font-size: 12px; font-weight: 900; display: flex; align-items: center; justify-content: center;">2</span>
+        </div>
+        <div style="font-size: 15px; font-weight: 900;">B1T <span style="font-size: 12px; color: #A9ABB2; font-weight: 400;">性別なし・機械・ドット絵 48×64</span></div>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #C9CBD0; line-height: 1.55;">
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">1 C1</span>　拡大でドットがにじみ、網点が画素の上に乗る。ドット絵の作法が壊れる</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">2 C1</span>　切り欠きが画素のグリッドを斜めに切る</span>
+          <span><span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">— C4</span>　機械のキャラに「はじめまして」と喋らせている（キャラの口調は作者のもの）</span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 16px; background: #141519; border: 1px solid #FFD43B; border-radius: 12px; padding: 14px 18px; font-size: 14px; line-height: 1.7;"><span style="font-weight: 900; color: #FFD43B;">判定：通らない。</span>3体とも C1〜C4 のどれかに当たる。いまの存在声域は「KOERU の衣装をキャラクターに着せる」設計になっていて、元気な少女キャラ以外では人物像を上書きする。加工を禁じる規約の立ち絵では、表示そのものが規約違反になりかねない。</div>
+  </div>
+
+  <div>
+    <div style="display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px;"><span style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">B. 修正案 — 舞台を空ける</span><span style="font-size: 13px; color: #878A93;">無彩の舞台に立ち絵をそのまま置き、キャラクターの色は線と進行の1点だけ。8体すべてに同じ規則を当てる</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 18px;">
+      <sc-for list="{{chars}}" as="c" hint-placeholder-count="8">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="height: 262px; border-radius: 12px; background: #0C0D10; border: 1px solid #2A2C33; display: flex; gap: 12px; padding: 16px 16px 0; box-sizing: border-box; overflow: hidden;">
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding-bottom: 16px;">
+              <span style="font-size: 11px; color: #A9ABB2;">はじめての試唱</span>
+              <sc-if value="{{c.logo}}" hint-placeholder-val="{{ false }}">
+                <span style="align-self: flex-start; border: 1px dashed #3A3D45; padding: 6px 10px; font-size: 11px; color: #C9CBD0;">［ロゴ画像］</span>
+              </sc-if>
+              <sc-if value="{{c.plain}}" hint-placeholder-val="{{ true }}">
+                <span style="font-size: 22px; font-weight: 900; line-height: 1.2;">{{c.name}}</span>
+              </sc-if>
+              <span style="font-size: 11px; color: #878A93;">CVVC · {{c.tone}}</span>
+              <span style="margin-top: auto; font-size: 11px; color: #A9ABB2;">さくらさくら</span>
+              <span style="font-size: 16px; font-weight: 900;"><span style="color: {{c.accent}};">さくら</span> さくら</span>
+              <span style="height: 3px; border-radius: 2px; background: #24262C; position: relative; overflow: hidden;"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: 40%; background: {{c.accent}};"></span></span>
+              <span style="display: flex; align-items: center; gap: 8px;"><span style="width: 26px; height: 26px; border-radius: 50%; background: #F1F1EE; display: flex; align-items: center; justify-content: center;"><svg width="10" height="10" viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="4" width="3.5" height="12" rx="1" fill="#0C0D10"></rect><rect x="11.5" y="4" width="3.5" height="12" rx="1" fill="#0C0D10"></rect></svg></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #878A93;">0:03 / 0:08</span></span>
+            </div>
+            <div style="width: {{c.boxw}}px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center;">
+              <sc-if value="{{c.isT}}" hint-placeholder-val="{{ true }}">
+                <div role="img" aria-label="{{c.alt}}" style="width: {{c.w}}px; height: {{c.h}}px; border-radius: 999px 999px 14px 14px; background: repeating-linear-gradient(135deg, {{c.c1}} 0 6px, {{c.c2}} 6px 12px); display: flex; align-items: center; justify-content: center;"><span style="background: rgba(12,13,16,0.78); font-size: 10px; padding: 2px 5px; color: #C9CBD0;">［透過］</span></div>
+              </sc-if>
+              <sc-if value="{{c.isF}}" hint-placeholder-val="{{ false }}">
+                <div role="img" aria-label="{{c.alt}}" style="width: {{c.w}}px; height: {{c.h}}px; margin-bottom: 14px; border: 1px solid #3A3D45; background: repeating-linear-gradient(135deg, {{c.c1}} 0 6px, {{c.c2}} 6px 12px); display: flex; align-items: center; justify-content: center;"><span style="background: rgba(12,13,16,0.78); font-size: 10px; padding: 2px 5px; color: #C9CBD0;">［背景付き］</span></div>
+              </sc-if>
+              <sc-if value="{{c.isP}}" hint-placeholder-val="{{ false }}">
+                <div role="img" aria-label="{{c.alt}}" style="width: {{c.w}}px; height: {{c.h}}px; background: repeating-conic-gradient({{c.c1}} 0 25%, {{c.c2}} 0 50%) 0 0 / 24px 24px; display: flex; align-items: center; justify-content: center;"><span style="background: rgba(12,13,16,0.78); font-size: 10px; padding: 2px 5px; color: #C9CBD0;">［3× 整数倍］</span></div>
+              </sc-if>
+              <sc-if value="{{c.isN}}" hint-placeholder-val="{{ false }}">
+                <div role="img" aria-label="{{c.alt}}" style="width: 112px; height: 112px; margin-bottom: 40px; border-radius: 22px; background: #141519; border: 1px solid #2A2C33; color: {{c.accent}}; font-size: 52px; font-weight: 900; display: flex; align-items: center; justify-content: center;">{{c.initial}}</div>
+              </sc-if>
+              <span aria-hidden="true" style="width: 100%; height: 2px; background: {{c.accent}}; opacity: 0.55;"></span>
+            </div>
+          </div>
+          <div style="font-size: 15px; font-weight: 900;">{{c.name}} <span style="font-size: 12px; color: #A9ABB2; font-weight: 400;">{{c.attr}}</span></div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #A9ABB2;">
+            <span style="width: 16px; height: 16px; border-radius: 4px; background: {{c.imgc}}; border: 1px solid #3A3D45;"></span><span>{{c.imgLabel}}</span>
+            <span aria-hidden="true">→</span>
+            <span style="width: 16px; height: 16px; border-radius: 4px; background: {{c.accent}};"></span><span>UI のアクセント</span>
+          </div>
+          <div style="font-size: 12px; color: #C9CBD0; line-height: 1.6;">{{c.note}}</div>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid #3A3D45; border-radius: 4px; padding: 0 5px; color: #C9CBD0;">C1 ○</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid #3A3D45; border-radius: 4px; padding: 0 5px; color: #C9CBD0;">C2 ○</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid #3A3D45; border-radius: 4px; padding: 0 5px; color: #C9CBD0;">C3 ○</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid #3A3D45; border-radius: 4px; padding: 0 5px; color: #C9CBD0;">C4 ○</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: #FFD43B; color: #0C0D10; border-radius: 4px; padding: 0 5px;">{{c.stress}}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">C. 小さな顔（サイドバー 24px）でも同じ規則</div>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <sc-for list="{{chars}}" as="c" hint-placeholder-count="8">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 64px;">
+            <sc-if value="{{c.hasIcon}}" hint-placeholder-val="{{ true }}">
+              <span role="img" aria-label="{{c.name}} のアイコン" style="width: 40px; height: 40px; background: repeating-linear-gradient(135deg, {{c.c1}} 0 4px, {{c.c2}} 4px 8px); border: 1px solid #3A3D45; box-sizing: border-box;"></span>
+            </sc-if>
+            <sc-if value="{{c.noIcon}}" hint-placeholder-val="{{ false }}">
+              <span role="img" aria-label="{{c.name}} の代替" style="width: 40px; height: 40px; border-radius: 10px; background: #1B1C21; border: 1px solid {{c.accent}}; color: {{c.accent}}; font-size: 18px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-sizing: border-box;">{{c.initial}}</span>
+            </sc-if>
+            <span style="font-size: 11px; color: #A9ABB2; text-align: center;">{{c.short}}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size: 12px; color: #C9CBD0; line-height: 1.65;">アイコン（UTAU では 100×100 の正方形）があればそのまま縮小し、角丸もかけない。アイコンが無いときに、立ち絵から顔を自動で切り出すことはしない（勝手なトリミングになる）。代わりに、イメージカラーの細い枠と頭文字を UI 書体で置く。</div>
+    </div>
+
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">D. 判定と、修正案に残るリスク</div>
+      <div style="display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px 14px; margin-top: 14px; font-size: 13px; line-height: 1.55;">
+        <span style="color: #878A93; font-weight: 700;"></span><span style="color: #878A93; font-weight: 700;">いまの存在声域</span><span style="color: #878A93; font-weight: 700;">修正案</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C1</span><span>✕ 切り欠き・網点・ステッカーが絵に乗る</span><span>○ 拡大縮小だけ。ドット絵は整数倍、背景付きは角丸なしの枠</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C2</span><span>✕ 声の色で面を塗る</span><span>○ 本人が選ぶイメージカラーを線と進行にだけ。暗い色は明度だけ上げる</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C3</span><span>✕ 名前を Dela Gothic と斜体で組む</span><span>○ UI 書体、ロゴ画像があれば変形せずに置く</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C4</span><span>✕ 「はじめまして」「完成」の高揚</span><span>○ 「はじめての試唱」と事実だけ。表情は歌と立ち絵に任せる</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C5</span><span>△ 代替が KOERU 風の網点の紙面</span><span>○ 無彩のタイルに頭文字。キャラ風の演出をしない</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: #FFD43B;">C6</span><span>✕ 女声／男声のプリセット</span><span>○ 方式と音階を直接選ぶだけ（S02 修正済み）</span>
+      </div>
+      <div style="margin-top: 16px; border-top: 1px solid #2A2C33; padding-top: 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #C9CBD0; line-height: 1.6;">
+        <span><span style="color: #F1F1EE; font-weight: 700;">表情差分が多い立ち絵</span> — どの1枚を使うかは本人が選ぶ。KOERU は場面ごとに表情を選ばない。</span>
+        <span><span style="color: #F1F1EE; font-weight: 700;">イメージカラーの自動候補</span> — 立ち絵から候補を出すのは補助まで。誤った抽出で人物像を塗り替えないよう、確定は本人。</span>
+        <span><span style="color: #F1F1EE; font-weight: 700;">KOERU の印象が弱くなる</span> — 引き換えに、ブランドは ⌘K・キー操作・精度・ワードマークで出す（Arc / Linear と同じ置き方）。</span>
+        <span><span style="color: #F1F1EE; font-weight: 700;">ダークの舞台が合わない画風</span> — 白背景前提の淡い水彩などは沈む。舞台の明るさ（ダーク／グレー／ライト）だけは本人が選べるようにする案を次に検証する。</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1920,"height":2200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = (o) => Object.assign({
+      logo: false, plain: true, isT: false, isF: false, isP: false, isN: false,
+      hasIcon: true, noIcon: false, tone: 'A3', initial: ''
+    }, o);
+    const chars = [
+      base({ name: '柊ヨル', short: '柊ヨル', attr: '成人・低音 C2–C4・アンドロイド・穏やか', isT: true, w: 92, h: 226, boxw: 120, c1: '#3B4A6B', c2: '#1E2433', imgc: '#3B4A6B', imgLabel: 'イメージカラー 紺', accent: '#8FA3D1', tone: 'D3', alt: '柊ヨルの立ち絵（全身・透過）', note: '暗い紺は黒い舞台に沈む。色相を保ったまま明度だけ上げて、線に 4.5:1 を確保する。', stress: '暗い色' }),
+      base({ name: 'ぽぷら', short: 'ぽぷら', attr: '十代・高音・明るい・ロゴあり', logo: true, plain: false, isT: true, w: 140, h: 190, boxw: 150, c1: '#FF6FA8', c2: '#FFD1E3', imgc: '#FF6FA8', imgLabel: 'イメージカラー ピンク', accent: '#FF6FA8', tone: 'A4', alt: 'ぽぷらの立ち絵（バストアップ・透過）', note: 'ロゴ画像があれば名前の代わりにそのまま置く。元気なキャラでも、元気さを足すのは KOERU ではなく本人の絵とロゴ。', stress: 'ロゴ' }),
+      base({ name: '宗右衛門', short: '宗右衛門', attr: '老年・低音・和装・静か', isF: true, w: 132, h: 176, boxw: 140, c1: '#B5452F', c2: '#2B2420', imgc: '#B5452F', imgLabel: 'イメージカラー 朱', accent: '#E07A5F', tone: 'G2', alt: '宗右衛門の立ち絵（全身・背景付き）', note: '朱は録音中の赤に近い。収録画面ではキャラの色を状態表示に使わず、録音は赤丸・四角への変形・「録音中」の文字で示す。', stress: '赤と近い' }),
+      base({ name: 'ノクタ', short: 'ノクタ', attr: '年齢・性別不明・ゴシック・白黒', isT: true, w: 88, h: 226, boxw: 110, c1: '#E8E2D0', c2: '#3A3A3A', imgc: '#E8E2D0', imgLabel: 'イメージカラー 無彩', accent: '#E8E2D0', tone: 'E4', alt: 'ノクタの立ち絵（全身・透過・白黒）', note: '色を持たないこと自体が人物像。アクセントも無彩のまま。声の色で塗り替えない。', stress: '無彩' }),
+      base({ name: 'こん', short: 'こん', attr: '狐・人外・幼い・甘い声', isT: true, w: 160, h: 160, boxw: 160, c1: '#F29A38', c2: '#FFF1DD', imgc: '#F29A38', imgLabel: 'イメージカラー 橙', accent: '#F29A38', tone: 'C5', alt: 'こんの立ち絵（ちびキャラ・透過・正方形）', note: '橙は KOERU の注意色（琥珀）と近い。注意表示は必ずアイコンと文言を伴うので、色が近くても意味は混ざらない。', stress: '注意色と近い' }),
+      base({ name: 'B1T', short: 'B1T', attr: '性別なし・機械・ドット絵 48×64', isP: true, w: 144, h: 192, boxw: 150, c1: '#7FD36B', c2: '#1F3B1A', imgc: '#7FD36B', imgLabel: 'イメージカラー 緑', accent: '#7FD36B', tone: 'A3', alt: 'B1T の立ち絵（ドット絵を3倍に拡大）', note: 'ドット絵は nearest-neighbor の整数倍で拡大し、にじませない。収まらないときは倍率を下げ、切り取らない。', stress: 'ドット絵' }),
+      base({ name: '水無月澪', short: '水無月澪', attr: '成人・写実寄りの一枚絵・横長 4:3', isF: true, w: 196, h: 147, boxw: 196, c1: '#5FB8C2', c2: '#1C3438', imgc: '#5FB8C2', imgLabel: 'イメージカラー 青緑', accent: '#5FB8C2', tone: 'G3', alt: '水無月澪の立ち絵（背景付き・横長）', note: '横長・背景付きの一枚絵は枠に収めるだけ。角丸もかけない（角を切ることになる）。文字の欄が狭くなるのは許す。', stress: '横長・背景' }),
+      base({ name: 'しおの声', short: 'しおの声', attr: 'キャラクターなし・画像なし', isN: true, hasIcon: false, noIcon: true, initial: 'し', boxw: 130, c1: '#1B1C21', c2: '#1B1C21', imgc: '#1B1C21', imgLabel: 'イメージカラー なし', accent: '#3FE0C0', alt: 'しおの声（画像なし・代替のタイル）', note: '画像もイメージカラーも無いときだけ声の色を使う。タイルは静かに保ち、キャラクター風の演出で人格を捏造しない。', stress: 'キャラなし' })
+    ];
+    chars[0].hasIcon = false; chars[0].noIcon = true; chars[0].initial = '柊';
+    return { chars: chars };
+  }
+}
+</script>
+</body>
+</html>

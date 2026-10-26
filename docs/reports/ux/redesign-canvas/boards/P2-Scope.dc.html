@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>02 要件</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1440px; min-height: 1400px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 36px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #2A2C33; padding-bottom: 24px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">02 / SCOPE</div>
+      <h1 style="margin: 8px 0 0; font-family: 'Dela Gothic One', sans-serif; font-weight: 400; font-size: 48px;">要件 — 画面が背負うもの</h1>
+    </div>
+    <div style="display: flex; gap: 18px; font-size: 13px; color: #A9ABB2; align-items: center;">
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="font-family: 'IBM Plex Mono', monospace; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 6px; font-weight: 600;">有</span>バックエンドにある</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="font-family: 'IBM Plex Mono', monospace; color: var(--v); border: 1px solid var(--v); border-radius: 4px; padding: 0 6px; font-weight: 600;">型</span>スキーマのみ（M6）</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="font-family: 'IBM Plex Mono', monospace; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 6px; font-weight: 600;">無</span>まだ無い・提案</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px;">
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 900;">入口</div>
+      <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13px; line-height: 1.5;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>音源をつくる。音源名は既定のまま通過できる</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>方式3種と収録音階。行数・エイリアス数・所要時間を併記</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>入力デバイスの固定・ゲイン調整・ガイドBGM の回り込み確認・残量見積もり</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>マイク許可の要求と、拒否からの復帰手順</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>中断したテイクの復旧候補を採る／捨てる</span></div>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 900;">収録</div>
+      <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13px; line-height: 1.5;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>録音リストの次の行を大きく出す。基準音を鳴らす</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>テイクは上書きせず積み、新しいものを採用。いつでも戻せる</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>収録順「曲バンク優先／被覆効率」。可逆、常に表示</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>カバレッジと試唱できる曲数、残りの時間と行数</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>収録中のガイドBGM（クリックと持続音）、連続収録の自動送り</span></div>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 900;">試唱・曲バンク</div>
+      <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13px; line-height: 1.5;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>4秒以上つながれば試唱できる。最初の音は6秒以内（中央値）</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>UST / USTX を2段で取り込む（中身を見てから題を決める）</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>曲に合わせて録音リストを詰め直し「あと録る行」を出す。ノート範囲でも可</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>キーは手動で ±12。自動移調はしない</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>試唱を短い動画・音声として書き出して共有する</span></div>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 900;">原音設定</div>
+      <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13px; line-height: 1.5;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>自動原音設定のあと、確認が要るエイリアスだけを並べる。合計5分まで、1件約10秒</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>通常モードは「これで良い／ずれている」と境界1本</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>手で直した値は固定。再推定しても上書きしない</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--v); border: 1px solid var(--v); border-radius: 4px; padding: 0 5px; height: fit-content; font-weight: 600;">型</span><span>上級モード：5値、スペクトログラム、一括編集12種、undo</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>そのエイリアスが鳴る曲の一節で試唱する（試唱して気づく、を前に倒す）</span></div>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="font-size: 20px; font-weight: 900;">配布</div>
+      <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13px; line-height: 1.5;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>character.txt / yaml の項目・アイコン・立ち絵・規約・readme を1か所で</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>書き出せない理由を全件、該当の行・エイリアスへ1操作で飛べる</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>UTAU / OpenUtau / 両方。ZIP と UAR。読み戻し検証</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>リリース記録と、連続音から単独音版を別に出す</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>規約の章立てテンプレート（自由記述欄の入力補助）</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px;">
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 24px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">横断する要件</div>
+      <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; font-size: 14px; line-height: 1.6;">
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>コマンドパレット（⌘K）。すべての操作を名前で呼べる</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>利用計測とクラッシュ報告の同意。別々、既定オフ、最初のテイクの後に1回だけ</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>失敗の型 → 次の一手（class → action）。文言を解析しない</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>壊す操作の前の自動スナップショット（直近20件）</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: var(--v); border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">有</span><span>音源の顔：キャラクター画像（アイコン・立ち絵）を最初から登録でき、無いあいだは声の色と頭文字で代替する。声の色は OKLCH、赤と琥珀を除く</span></div>
+        <div style="display: flex; gap: 8px;"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C0D10; background: #FFD43B; border-radius: 4px; padding: 1px 5px; height: fit-content; font-weight: 600;">無</span><span>ネイティブの作法：メニューバー、ファイルのドロップ、OS 通知、ファイラで表示、ウィンドウの最小サイズ</span></div>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 24px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">内容要件 — UTAU の標準語彙をそのまま使う</div>
+      <div style="margin-top: 12px; font-size: 13px; color: #C9CBD0; line-height: 1.7;">言い換えると、KOERU の外（wiki・配布ページ・OpenUtau）で通じない言葉を覚えさせてしまう。標準の語彙は曲げずに使い、初めて出る場所で短い説明を添える（ⓘ・ホバー・読み上げ）。</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;">
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">音源</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">収録</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">録音リスト</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">単独音／CVVC／連続音</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">多音階・収録音階</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">ガイドBGM</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">テイク</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">原音設定</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">エイリアス</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">oto.ini</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">左ブランク・固定範囲・右ブランク・先行発声・オーバーラップ</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">試唱</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">配布パッケージ</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">character.txt・readme.txt・規約</span>
+        <span style="border: 1px solid var(--v); color: var(--v); border-radius: 999px; padding: 3px 10px; font-size: 13px;">アイコン・立ち絵</span>
+      </div>
+      <div style="margin-top: 12px; font-size: 13px; color: #A9ABB2; line-height: 1.7;">KOERU 固有の語は2つだけ：<span style="color: #F1F1EE;">カバレッジ</span>（必要なエイリアスのうち録れた割合）と<span style="color: #F1F1EE;">曲バンク</span>（目標にする UST の集まり）。<br>通常モードと上級モードの違いは語彙ではなく、触れる値の数（境界1本 ⇔ 5値すべて）。<br>使わない語：「小さすぎます」「割れています」などの評価、「全自動」の断言。</div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 24px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">非目標</div>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 14px; font-size: 14px; line-height: 1.6; color: #C9CBD0;">
+        <span>— 配布の場・音源を見つける機能（手渡しは ZIP まで）</span>
+        <span>— 公開したかどうかで完成や進み具合を判定する</span>
+        <span>— 声をサーバへ送る処理、アカウント</span>
+        <span>— ニューラル音源のデータセット形式</span>
+        <span>— DAW のような曲の編集（歌わせる確認に留める）</span>
+        <span>— 自動移調、自動でのマイク切り替え</span>
+        <span>— 日本語以外の UI（初期スコープ外）</span>
+        <span>— 機材や場所がない人への解決（要件として外に置く）</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="background: #141519; border: 1px solid #FFD43B; border-radius: 16px; padding: 24px 28px;">
+    <div style="display: flex; align-items: center; gap: 10px;"><span style="background: #FFD43B; color: #0C0D10; font-weight: 900; font-size: 12px; padding: 3px 8px; transform: skewX(-12deg); display: inline-block;">要判断</span><span style="font-size: 18px; font-weight: 900;">実装とビジョンの食い違い・未決事項（この案での扱い）</span></div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; margin-top: 16px; font-size: 14px; line-height: 1.65;">
+      <div><span style="font-weight: 700;">単独音の所要時間</span> — ビジョンは約8分、生成器は 847 秒（約14分）。画面は生成器の値を出す（S02）。</div>
+      <div><span style="font-weight: 700;">マイク準備の手数</span> — 「4操作で最初のフレーズ」と、録音開始の前提（選択・調整・生死・残量）が衝突。準備を1画面・1操作に畳み、調整は最初のひと声で兼ねる（S03）。</div>
+      <div><span style="font-weight: 700;">収録音階は録り始めたら増やせない</span> — 選ぶ時点で「あとで増やせない」と明記し、単音階で始める推奨を最上段に置く（S02）。</div>
+      <div><span style="font-weight: 700;">「作り込む」に当たる方式が無い</span> — 方式としては出さず、原音設定の上級モードへの入口として表現する（S02 / S09）。</div>
+      <div><span style="font-weight: 700;">上位の方式へ移る経路</span> — 未決。音源のページに場所だけ確保し、今回は描かない。</div>
+      <div><span style="font-weight: 700;">計測の同意</span> — バックエンドに無い。最初のテイク後の小さな通知として描く（S04）。</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>

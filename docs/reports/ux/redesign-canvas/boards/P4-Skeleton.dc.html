@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>04 骨格</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0C0D10}
+a{color:#F1F1EE}a:hover{color:#FFD43B}
+</style>
+</helmet>
+<div style="--v: {{voice}}; width: 1920px; min-height: 1400px; box-sizing: border-box; background: #0C0D10; color: #F1F1EE; font-family: 'Zen Kaku Gothic New', sans-serif; padding: 56px 64px 64px; display: flex; flex-direction: column; gap: 36px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border-bottom: 1px solid #2A2C33; padding-bottom: 24px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #FFD43B;">04 / SKELETON</div>
+      <h1 style="margin: 8px 0 0; font-family: 'Dela Gothic One', sans-serif; font-weight: 400; font-size: 48px;">骨格 — 領域と手順を先に固める</h1>
+    </div>
+    <div style="font-size: 14px; color: #A9ABB2; max-width: 640px; line-height: 1.7;">macOS のネイティブウィンドウ（1440×900、最小 1120×720）。信号機ボタンはサイドバーに重ねる。Windows / Linux では右上にウィンドウ操作、メニューはサイドバー上端の「≡」に収める。</div>
+  </div>
+
+  <div>
+    <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2; margin-bottom: 14px;">主要な4つの骨格（縮尺 0.3）</div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="height: 270px; border: 1px solid #3A3D45; border-radius: 10px; display: flex; overflow: hidden; background: #111216;">
+          <div style="width: 74px; border-right: 1px solid #2A2C33; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="height: 6px; width: 30px; background: #3A3D45; border-radius: 3px;"></div>
+            <div style="height: 18px; background: color-mix(in oklch, var(--v) 40%, #1B1C21); border-radius: 4px; margin-top: 6px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 4px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 4px;"></div>
+            <div style="height: 1px; background: #2A2C33; margin: 4px 0;"></div>
+            <div style="height: 10px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 10px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 10px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 10px; background: #24262C; border-radius: 3px;"></div>
+            <div style="margin-top: auto; height: 14px; border: 1px solid #3A3D45; border-radius: 4px;"></div>
+          </div>
+          <div style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="height: 16px; background: #1B1C21; border-radius: 4px;"></div>
+            <div style="flex: 1; border: 1px dashed #3A3D45; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #878A93;">場ごとの内容</div>
+          </div>
+        </div>
+        <div style="font-size: 16px; font-weight: 900;">ウィンドウの骨組み</div>
+        <div style="font-size: 13px; color: #A9ABB2; line-height: 1.65;">サイドバー 248px（音源の棚／4つの場／⌘K）＋ 内容。上端 52px はドラッグ領域を兼ねたツールバー。サイドバーは ⌘\ で畳める。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="height: 270px; border: 1px solid #3A3D45; border-radius: 10px; display: flex; overflow: hidden; background: #111216;">
+          <div style="width: 20px; border-right: 1px solid #2A2C33;"></div>
+          <div style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="height: 14px; background: #1B1C21; border-radius: 4px;"></div>
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+              <div style="width: 70%; height: 34px; background: #2A2C33; border-radius: 6px;"></div>
+              <div style="display: flex; gap: 6px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 6px; height: 6px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 6px; height: 6px; border-radius: 50%; background: #3A3D45;"></span><span style="width: 6px; height: 6px; border-radius: 50%; background: #3A3D45;"></span></div>
+              <div style="width: 85%; height: 40px; border: 1px dashed #3A3D45; border-radius: 6px;"></div>
+              <div style="width: 40px; height: 40px; border-radius: 50%; background: #FF5A4E;"></div>
+            </div>
+          </div>
+          <div style="width: 86px; border-left: 1px solid #2A2C33; padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="height: 38px; background: color-mix(in oklch, var(--v) 30%, #1B1C21); border-radius: 4px;"></div>
+            <div style="height: 12px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 12px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 12px; background: #24262C; border-radius: 3px;"></div>
+            <div style="margin-top: auto; height: 30px; background: #1B1C21; border-radius: 4px;"></div>
+          </div>
+        </div>
+        <div style="font-size: 16px; font-weight: 900;">収録（集中表示）</div>
+        <div style="font-size: 13px; color: #A9ABB2; line-height: 1.65;">中央に読む行、その下に拍の点・入力の波形・録音ボタン。右の細い列に「近いゴール」と次の行。マイクの情報は上端の1行だけ。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="height: 270px; border: 1px solid #3A3D45; border-radius: 10px; display: flex; overflow: hidden; background: #111216;">
+          <div style="width: 74px; border-right: 1px solid #2A2C33;"></div>
+          <div style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;"><div style="width: 64px; height: 84px; background: color-mix(in oklch, var(--v) 40%, #1B1C21); border-radius: 6px;"></div><div style="flex: 1; display: flex; flex-direction: column; gap: 5px;"><div style="height: 14px; width: 50%; background: #2A2C33; border-radius: 3px;"></div><div style="height: 10px; width: 80%; background: #24262C; border-radius: 3px;"></div><div style="height: 10px; width: 70%; background: #24262C; border-radius: 3px;"></div></div></div>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;"><div style="height: 40px; background: #1B1C21; border-radius: 4px;"></div><div style="height: 40px; background: #1B1C21; border-radius: 4px;"></div><div style="height: 40px; background: #1B1C21; border-radius: 4px;"></div></div>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; flex: 1;"><div style="background: #1B1C21; border-radius: 4px;"></div><div style="background: #1B1C21; border-radius: 4px;"></div><div style="background: #1B1C21; border-radius: 4px;"></div><div style="background: #1B1C21; border-radius: 4px;"></div></div>
+          </div>
+        </div>
+        <div style="font-size: 16px; font-weight: 900;">音源のページ</div>
+        <div style="font-size: 13px; color: #A9ABB2; line-height: 1.65;">上段に立ち絵（または代替）と名前・数字。中段に「次にやること」3枚。下段に歌える曲のカード。Instagram のプロフィールの重心。</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="height: 270px; border: 1px solid #3A3D45; border-radius: 10px; display: flex; overflow: hidden; background: #111216;">
+          <div style="width: 74px; border-right: 1px solid #2A2C33;"></div>
+          <div style="width: 96px; border-right: 1px solid #2A2C33; padding: 8px; display: flex; flex-direction: column; gap: 5px;">
+            <div style="height: 14px; background: color-mix(in oklch, var(--v) 40%, #1B1C21); border-radius: 3px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 3px;"></div>
+            <div style="height: 14px; background: #24262C; border-radius: 3px;"></div>
+          </div>
+          <div style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="height: 14px; width: 60%; background: #2A2C33; border-radius: 3px;"></div>
+            <div style="flex: 1; border: 1px dashed #3A3D45; border-radius: 6px; position: relative;"><div style="position: absolute; left: 45%; top: 0; bottom: 0; width: 2px; background: var(--v);"></div></div>
+            <div style="display: flex; gap: 6px;"><div style="flex: 1; height: 22px; background: color-mix(in oklch, var(--v) 40%, #1B1C21); border-radius: 4px;"></div><div style="flex: 1; height: 22px; border: 1px solid #3A3D45; border-radius: 4px;"></div></div>
+          </div>
+        </div>
+        <div style="font-size: 16px; font-weight: 900;">原音設定（通常モード）</div>
+        <div style="font-size: 13px; color: #A9ABB2; line-height: 1.65;">左に確認が要るエイリアスの列、中央に1つのエイリアスと境界1本、下に2択。上級モードは同じ場所で切り替わり、データも undo 履歴も変わらない。</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;">
+    <div style="grid-column: span 7; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">歩いて確かめる — 起動から最初の歌まで</div>
+      <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; margin-top: 20px;">
+        <div style="border-left: 2px solid #FFD43B; padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">操作 1</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">音源をつくる</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">S01。音源名は「新しい音源 3」のまま Enter で進める</div></div>
+        <div style="border-left: 2px solid #FFD43B; padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">操作 2</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">方式を選ぶ</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">S02。カードを選ぶと確定。収録音階は「1つで始める」が既定</div></div>
+        <div style="border-left: 2px solid #FFD43B; padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">操作 3</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">このマイクで録る</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">S03。OS のマイク許可はここで1回だけ</div></div>
+        <div style="border-left: 2px solid #FFD43B; padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #FFD43B;">操作 4</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">最初の行を収録</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">S04。最初のひと声で入力ゲインも合わせる</div></div>
+        <div style="border-left: 2px solid var(--v); padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--v);">約 1分</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">3行録る</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">さくらさくらに合わせて録音リストを詰め直すと、CVVC で3行・約40秒</div></div>
+        <div style="border-left: 2px solid var(--v); padding: 0 12px 0 14px;"><div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--v);">+6秒</div><div style="font-size: 15px; font-weight: 900; margin-top: 4px;">はじめての試唱</div><div style="font-size: 12px; color: #A9ABB2; line-height: 1.6; margin-top: 4px;">S05。最初の音までの目標は中央値 6秒・p95 10秒</div></div>
+      </div>
+      <div style="margin-top: 20px; font-size: 13px; color: #C9CBD0; line-height: 1.7; border-top: 1px solid #2A2C33; padding-top: 14px;">衝突の解き方：収録開始の前提（デバイス選択・ゲイン調整・無音の検出・ディスク残量）は S03 の1画面に集め、ゲイン調整は「最初のひと声」で兼ねる。調整が収束しなくても録れる（関門にしない）。ガイドBGM の回り込み確認は、ガイドBGM を使う方式（CVVC・連続音）だけで行う。</div>
+    </div>
+    <div style="grid-column: span 5; background: #141519; border: 1px solid #2A2C33; border-radius: 18px; padding: 26px 28px;">
+      <div style="font-size: 13px; font-weight: 900; letter-spacing: 0.1em; color: #A9ABB2;">メニューバー（macOS）</div>
+      <div style="margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; font-size: 13px; line-height: 1.85;">
+        <div><div style="font-weight: 900;">ファイル</div><div style="color: #C9CBD0;">新しい音源 <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘N</span><br>UST を取り込む… <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘O</span><br>キャラクター画像…<br>配布パッケージを書き出す… <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘E</span><br>Finder で表示</div></div>
+        <div><div style="font-weight: 900;">収録</div><div style="color: #C9CBD0;">録音／停止 <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">Space</span><br>録り直す <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">R</span><br>基準音 <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">P</span><br>収録順 ▸<br>入力デバイス… <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌥⌘M</span></div></div>
+        <div><div style="font-weight: 900;">表示</div><div style="color: #C9CBD0;">音源のページ <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘0</span><br>収録〜配布 <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘1–4</span><br>サイドバー <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌘\</span><br>原音設定の上級モード <span style="color: #878A93; font-family: 'IBM Plex Mono', monospace;">⌥⌘E</span><br>UD フォント</div></div>
+      </div>
+      <div style="margin-top: 16px; font-size: 13px; color: #A9ABB2; line-height: 1.7;">ネイティブとして守ること：⌘Z / ⇧⌘Z は全画面で効く、ウィンドウを閉じても録音中なら確認する、長い処理（解析・書き出し）の完了は OS 通知、ファイル選択は OS のダイアログ、キャラクター画像と UST / USTX はウィンドウ全体がドロップを受ける。</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;">
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px;">
+      <div style="font-size: 15px; font-weight: 900;">収録</div>
+      <div style="margin-top: 10px; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 10px; font-size: 13px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">Space</span><span>録音／停止</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">→ ←</span><span>次の行／前の行</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">R</span><span>この行を録り直す</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">L</span><span>いま録ったものを聴く</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">P</span><span>基準音を鳴らす</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">Esc</span><span>集中表示を出る</span>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px;">
+      <div style="font-size: 15px; font-weight: 900;">原音設定（通常モード）</div>
+      <div style="margin-top: 10px; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 10px; font-size: 13px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">Y</span><span>これで良い</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">N</span><span>ずれている（境界を動かす）</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">← →</span><span>境界を 1ms、⇧で 10ms</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">Space</span><span>このエイリアスを聴く</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">S</span><span>曲の一節で試唱</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">↑ ↓</span><span>前／次のエイリアス</span>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px;">
+      <div style="font-size: 15px; font-weight: 900;">原音設定（上級モード・setParam 準拠）</div>
+      <div style="margin-top: 10px; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 10px; font-size: 13px;">
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">F1–F5</span><span>カーソル位置に各値を置く</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">F8</span><span>発声タイミングで試聴</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">⌘G</span><span>エントリへ移動</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">⌘M</span><span>一括編集</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; color: var(--v);">⌘Z</span><span>元に戻す（100件以上）</span>
+      </div>
+    </div>
+    <div style="background: #141519; border: 1px solid #2A2C33; border-radius: 16px; padding: 22px 24px;">
+      <div style="font-size: 15px; font-weight: 900;">読み上げ（スクリーンリーダー）</div>
+      <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.6; color: #C9CBD0;">
+        <span>「録音を始めました。か か き く け こ ん が」</span>
+        <span>「2テイク目を保存。ピーク −7.2 dBFS。前後の無音あり」</span>
+        <span>「先行発声 62 ミリ秒。1 ミリ秒右へ」</span>
+        <span>「さくらさくらが試唱できるようになりました」</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"voice":{"editor":"color","default":"#3FE0C0","options":["#3FE0C0","#B98CFF","#7AA2FF","#9BE15D"]},"$preview":{"width":1920,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { voice: this.props.voice ?? '#3FE0C0' };
+  }
+}
+</script>
+</body>
+</html>
