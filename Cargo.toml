@@ -83,7 +83,7 @@ diesel = { version = "2.3.13", default-features = false, features = [
   "32-column-tables",
 ] }
 diesel_migrations = { version = "2.3.2", default-features = false, features = ["sqlite"] }
-libsqlite3-sys = { version = "0.38.2", features = ["bundled"] }
+libsqlite3-sys = { version = "0.39.0", features = ["bundled"] }
 
 # プロジェクトディレクトリ名（TR-PKG-37）。uuid-rs は Organization、Apache-2.0/MIT。
 uuid = { version = "1.26.1", default-features = false, features = ["v4", "std"] }
