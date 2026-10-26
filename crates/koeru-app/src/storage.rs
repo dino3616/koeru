@@ -448,6 +448,11 @@ mod tests {
             FsKind::Unknown,
             "FUSE は分からない扱い"
         );
+        assert_eq!(
+            fskind_from_linux_magic(0x0102_1994),
+            FsKind::Unknown,
+            "tmpfs は電源断で消えるので約束の外"
+        );
     }
 
     #[test]
@@ -460,13 +465,16 @@ mod tests {
         assert_eq!(fskind_from_windows_name("ReFS"), FsKind::Unknown);
     }
 
-    /// 手元の一時ディレクトリが、この OS で「約束の内」に入るファイルシステムに
+    /// 手元のディスクが、この OS で「約束の内」に入るファイルシステムに
     /// あることを確かめる。 CI の macOS runner は APFS、Linux runner は ext4 系の
     /// はず。分からない扱いになる環境があれば、値をそのまま記録して報告する
     /// （見なかったことにして試験から除外しない）。
+    ///
+    /// 一時ディレクトリでは測らない。 Ubuntu 25.10 以降は `/tmp` が tmpfs で、
+    /// ライブラリを置く場所（ホーム配下）とは別のファイルシステムになる。
     #[test]
-    fn 手元の一時ディレクトリのファイルシステムを見る() {
-        let kind = filesystem_kind(&std::env::temp_dir());
+    fn 手元のディスクのファイルシステムを見る() {
+        let kind = filesystem_kind(Path::new(env!("CARGO_MANIFEST_DIR")));
         // 出力は `println!` 系を禁じているので残さない（`AGENTS.md` #2）。
         // 分からない扱いになった環境があれば、この assert のメッセージで実測値を残す。
         #[cfg(any(target_os = "macos", target_os = "linux"))]
