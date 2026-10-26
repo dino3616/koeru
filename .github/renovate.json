@@ -43,6 +43,14 @@
       "dependencyDashboardApproval": true,
       "automerge": false
     },
+    {
+      "description": "libsqlite3-sys の版の範囲は diesel が決める（`links = \"sqlite3\"` は依存木に1つしか置けない）。diesel が受けない 0.x の段上げは解けない PR になる。diesel の要求が上がったことを確かめてから、Dependency Dashboard で人が着手する。patch は通す。",
+      "matchPackageNames": ["libsqlite3-sys"],
+      "matchUpdateTypes": ["minor"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "groupName": null
+    },
     { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
     {
       "description": "Playwright のブラウザは nixpkgs から出る（DEC-PLT-033）。npm 側だけを上げると CI の版の突き合わせで必ず落ちるので、PR を出さない。nixpkgs が上がった lock file maintenance の PR の中で、playwright-follow ワークフローが npm 側を揃える。",
