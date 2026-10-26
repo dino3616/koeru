@@ -37,9 +37,11 @@
       "groupName": "tauri"
     },
     {
-      "description": "specta・specta-typescript・tauri-specta は上流が同じ世代で版を揃えて出し、互いを `=` で固定している。別々の PR で上げると必ず解けない。上の tauri の組より後ろに置いて、tauri-specta をこちらへ寄せる。",
+      "description": "specta・specta-typescript・tauri-specta は上流が同じ世代で版を揃えて出し、互いを `=` で固定している。別々の PR で上げると必ず解けない。上の tauri の組より後ろに置いて、tauri-specta をこちらへ寄せる。組にしても、specta が先に出て tauri-specta が追いつくまでの間は片方だけの更新になり、解けない PR が出る。3つの版が揃ったことを crates.io で確かめてから、Dependency Dashboard で人が着手する。",
       "matchPackageNames": ["specta", "specta-typescript", "tauri-specta"],
-      "groupName": "specta"
+      "groupName": "specta",
+      "dependencyDashboardApproval": true,
+      "automerge": false
     },
     { "matchPackageNames": ["/^@radix-ui//"], "groupName": "radix" },
     {
