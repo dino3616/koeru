@@ -19,6 +19,9 @@ koeru-core = { path = "../koeru-core" }
 koeru-failure = { path = "../koeru-failure" }
 koeru-formats = { path = "../koeru-formats" }
 koeru-model = { path = "../koeru-model" }
+# アプリの設定（同意）をファイルへ書く。 `privacy` だけが使う。
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true

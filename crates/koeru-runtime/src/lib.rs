@@ -47,6 +47,7 @@ pub mod error;
 pub mod importing;
 pub mod jobs;
 pub mod lease;
+pub mod privacy;
 pub mod review;
 pub mod runtime;
 pub mod session;

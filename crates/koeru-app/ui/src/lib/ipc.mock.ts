@@ -38,8 +38,37 @@ export class Channel<T> {
  */
 export type * from "./ipc";
 
-/** 既定は「呼ばれたら黙って待ち続ける」。story が明示したものだけ答える。 */
+/** 既定は「呼ばれたら黙って待ち続ける」。story が明示したものと、下の `answers` だけ答える。 */
 const pending = () => new Promise<never>(() => {});
+
+type Api = typeof actual.api;
+
+/** 同意の既定。 どちらも訊いておらず、まだ送っていない（`TR-PKG-54`）。 */
+const privacy: actual.PrivacySettings = {
+  usage: "NOT_ASKED",
+  crashReports: "NOT_ASKED",
+  lastSentAt: null,
+};
+
+/**
+ * 待たずに答える口。 製品の既定がそのまま絵になるものだけを置く。
+ *
+ * 選んだ同意は既定から1つだけ動かして返す。 訊く前のオフは撤回にならないので、
+ * オフを選んでも `NOT_ASKED` のまま。
+ */
+const answers: Partial<Api> = {
+  privacy: async () => privacy,
+  choosePrivacyConsent: async ({ subject, granted }) => {
+    const state: actual.ConsentState = granted ? "GRANTED" : "NOT_ASKED";
+    return {
+      outcome: {
+        __typename: "PrivacyConsentChosen",
+        privacy:
+          subject === "USAGE" ? { ...privacy, usage: state } : { ...privacy, crashReports: state },
+      },
+    };
+  },
+};
 
 /**
  * 本物の口をすべて `fn()` に置き換える。
@@ -48,5 +77,8 @@ const pending = () => new Promise<never>(() => {});
  * story だけが「そんな関数は無い」で落ちる。
  */
 export const api = Object.fromEntries(
-  Object.keys(actual.api).map((k) => [k, fn(pending).mockName(`api.${k}`)]),
-) as unknown as typeof actual.api;
+  Object.keys(actual.api).map((k) => [
+    k,
+    fn(answers[k as keyof Api] ?? pending).mockName(`api.${k}`),
+  ]),
+) as unknown as Api;

@@ -42,6 +42,7 @@ use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 
 pub mod guide_tempo;
+pub mod privacy;
 pub mod takes;
 
 /// 件数を画面へ渡せる幅へ落とす。

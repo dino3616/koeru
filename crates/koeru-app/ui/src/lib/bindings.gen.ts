@@ -383,6 +383,10 @@ export const commands = {
 	guideTempo: () => typedError<GuideTempo, AppError>(__TAURI_INVOKE("guide_tempo")),
 	/**  ガイドのテンポを変える（`Mutation.setGuideTempo`）。 録ったテイクは変えない。 */
 	setGuideTempo: (input: SetGuideTempoInput) => typedError<SetGuideTempoPayload, AppError>(__TAURI_INVOKE("set_guide_tempo", { input })),
+	/**  同意と送った記録（`Query.privacy`）。 project を開かずに読める。 */
+	privacy: () => typedError<PrivacySettings, AppError>(__TAURI_INVOKE("privacy")),
+	/**  1つの同意を本人が選ぶ（`Mutation.choosePrivacyConsent`）。 もう片方は動かない。 */
+	choosePrivacyConsent: (input: ChoosePrivacyConsentInput) => __TAURI_INVOKE<ChoosePrivacyConsentPayload>("choose_privacy_consent", { input }),
 };
 
 /* Types */
@@ -425,6 +429,20 @@ export type CalibrationView = {
 	settled: boolean,
 };
 
+export type ChoosePrivacyConsentInput = {
+	subject: ConsentSubject,
+	granted: boolean,
+};
+
+/**  `ChoosePrivacyConsentOutcome` の union。 枝の名前は `__typename` に載る。 */
+export type ChoosePrivacyConsentOutcome = { __typename: "PrivacyConsentChosen"; privacy: PrivacySettings } | {
+	__typename: "StorageProblem",
+} & StorageProblem;
+
+export type ChoosePrivacyConsentPayload = {
+	outcome: ChoosePrivacyConsentOutcome,
+};
+
 /**  この音源で選ばれているマイク（`TR-REC-03`）。 */
 export type ChosenDeviceView = {
 	/**  選ばれているマイクの識別子。一度も選んでいなければ `None`。 */
@@ -434,6 +452,12 @@ export type ChosenDeviceView = {
 	/**  いま収録中か。面を移った先でも「止める」を出すのに要る。 */
 	recording: boolean,
 };
+
+/**  同意の状態（`ConsentState`）。 送るのは `GRANTED` のときだけ。 */
+export type ConsentState = "NOT_ASKED" | "GRANTED" | "REVOKED";
+
+/**  同意の単位（`ConsentSubject`）。 */
+export type ConsentSubject = "USAGE" | "CRASH_REPORTS";
 
 /**  画面へ返すデバイス。 */
 export type DeviceView = {
@@ -807,6 +831,14 @@ export type PreflightView = {
 	may_export: boolean,
 };
 
+/**  同意と送った記録（`PrivacySettings`）。 */
+export type PrivacySettings = {
+	usage: ConsentState,
+	crashReports: ConsentState,
+	/**  RFC 3339。 `null` なら一度も送っていない。 送る経路がまだ無いので、今は常に `null`。 */
+	lastSentAt: string | null,
+};
+
 /**
  *  予期できる失敗（`Problem`）。 欄の名前は SDL に合わせる。 分類・確定の状態・次の手の値は
  *  [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
@@ -1161,6 +1193,20 @@ export type SpectrogramView = {
 	columns: number,
 	/**  1列あたりの高さ（周波数方向）。 */
 	rows: number,
+};
+
+/**
+ *  保存できなかった（`StorageProblem`）。 書けなかったとき、同意は前のまま。
+ * 
+ *  欄の名前は SDL の `Problem` に合わせる。 分類・確定の状態・次の手の値は
+ *  [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
+ */
+export type StorageProblem = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
 };
 
 /**  区画が切り替わった1箇所（`TR-SYN-16`）。 */
