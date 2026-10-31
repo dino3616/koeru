@@ -31,6 +31,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// 枠（サブバンク、`DEC-RCL-018`）。 行はちょうど1つの枠に属する。
+    subbanks (id) {
+        id -> Integer,
+        voice_color -> Nullable<Text>,
+        method -> Text,
+        preset_id -> Nullable<Text>,
+        tone -> Integer,
+        ordinal -> Integer,
+        range_low -> Nullable<Integer>,
+        range_high -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
     /// 録音リストの行（`TR-RCL-18`）。
     rows (id) {
         id -> Text,
@@ -40,6 +54,7 @@ diesel::table! {
         state -> Text,
         ordinal -> Integer,
         origin -> Text,
+        subbank_id -> Integer,
     }
 }
 
@@ -364,6 +379,7 @@ diesel::joinable!(commit_receipts -> takes (take_id));
 diesel::joinable!(song_import_songs -> song_imports (operation_id));
 diesel::joinable!(song_import_songs -> songs (song_id));
 
+diesel::joinable!(rows -> subbanks (subbank_id));
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(row_aliases -> rows (row_id));
 diesel::joinable!(take_boundaries -> takes (take_id));
@@ -379,6 +395,7 @@ diesel::joinable!(take_gaps -> takes (take_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     sessions,
+    subbanks,
     rows,
     row_units,
     recording_order,

@@ -43,13 +43,14 @@ use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use koeru_model::id::{RowId, TakeId};
+use koeru_model::id::{RowId, SubbankId, TakeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub mod guide;
 pub mod intent;
 pub mod song_import;
+pub mod subbank;
 
 pub use intent::{
     Answer, CaptureId, CaptureIntent, Commit, CommitRequest, IntentState, Leftover, NewIntent,
@@ -202,6 +203,14 @@ pub enum LedgerError {
     /// 計算し直して上書きしない——何が起きたかを隠す。
     #[error("マスターの指紋が読めない")]
     MalformedMasterDigest,
+
+    /// 指定した枠が台帳に無い（`DEC-RCL-018`）。
+    #[error("枠が台帳に無い")]
+    UnknownSubbank,
+
+    /// 枠の方式の表記を知らない（`subbanks.method`）。 推し量って読まない。
+    #[error("枠の方式が読めない")]
+    UnknownSubbankMethod,
 }
 
 impl koeru_failure::Failure for LedgerError {
@@ -222,6 +231,8 @@ impl koeru_failure::Failure for LedgerError {
             Self::UnknownIntentState => "ledger.unknown_intent_state",
             Self::UnknownGapKind => "ledger.unknown_gap_kind",
             Self::MalformedMasterDigest => "ledger.malformed_master_digest",
+            Self::UnknownSubbank => "ledger.unknown_subbank",
+            Self::UnknownSubbankMethod => "ledger.unknown_subbank_method",
         }
     }
 
@@ -254,7 +265,8 @@ impl koeru_failure::Failure for LedgerError {
             | Self::MigrationValidation
             | Self::UnknownIntentState
             | Self::UnknownGapKind
-            | Self::MalformedMasterDigest => Class::Corrupt,
+            | Self::MalformedMasterDigest
+            | Self::UnknownSubbankMethod => Class::Corrupt,
             // 移行すれば開けるので「今は受けられない」。 `ProjectDir::migrate_ledger` を
             // 先に呼ぶのが次の手（`DEC-PLT-041`）。
             Self::MigrationPending => Class::Rejected,
@@ -262,9 +274,11 @@ impl koeru_failure::Failure for LedgerError {
             // （`ProjectError::ManifestVersion` と同じ扱い）。
             Self::MigrationNewer => Class::Unsupported,
             // 指した行やテイクが無いのは、読んだものが古い。
-            Self::UnknownRow | Self::UnknownTake | Self::UnknownCapture | Self::CaptureNotOpen => {
-                Class::Conflict
-            }
+            Self::UnknownRow
+            | Self::UnknownTake
+            | Self::UnknownCapture
+            | Self::CaptureNotOpen
+            | Self::UnknownSubbank => Class::Conflict,
             // 録音を終えてから始める。 書きかけしか無いものは、回復を経ないとテイクにできない。
             Self::CaptureAlreadyOpen | Self::CaptureNotFinalized => Class::Rejected,
         }
@@ -356,31 +370,48 @@ fn insert_song(
     Ok(())
 }
 
-/// 行を1つの収録音高へ入れる。 [`Ledger::install_rows`] と
+/// 行を1つの枠へ入れる。 [`Ledger::install_rows`] と
 /// [`Ledger::replace_untaken_rows`] が同じトランザクションの中で呼ぶ。
+/// 行の音高は枠の収録音階。
 ///
 /// 並び順は台帳の末尾から続ける。 一度は呼ぶたびに 0 から振っていたので、
 /// 詰め直した行がフルリストの行と同じ番号を持ち、並びが同点で決まらなかった。
+///
+/// 行 ID は台帳全体で一意。 同じ ID を別の枠の行が持っていれば、枠の番号を足して分ける
+/// ——声色だけ違う同じ音階の枠は、同じリストから同じ ID を作る。
 fn insert_rows(
     c: &mut SqliteConnection,
     list: &[ReclistRow],
     rules: &crate::presamp::Rules,
     method: crate::alias::Method,
-    tone: i32,
+    subbank: SubbankId,
     suffixed: bool,
     origin: RowOrigin,
 ) -> QueryResult<usize> {
+    use crate::schema::subbanks;
+    let tone: i32 = subbanks::table
+        .find(subbank.get())
+        .select(subbanks::tone)
+        .first(c)?;
     let base = rows::table
         .select(diesel::dsl::max(rows::ordinal))
         .first::<Option<i32>>(c)?
         .map_or(0, |m| m + 1);
     let mut inserted = 0_usize;
     for (ordinal, r) in (base..).zip(list) {
-        let id = if suffixed {
+        let mut id = if suffixed {
             format!("{}@{}", r.id, crate::tone::name(tone))
         } else {
             r.id.clone()
         };
+        let owner: Option<i32> = rows::table
+            .find(&id)
+            .select(rows::subbank_id)
+            .first(c)
+            .optional()?;
+        if owner.is_some_and(|o| o != subbank.get()) {
+            id = format!("{id}-{subbank}");
+        }
         let added = diesel::insert_into(rows::table)
             .values((
                 rows::id.eq(&id),
@@ -390,6 +421,7 @@ fn insert_rows(
                 rows::state.eq(RowState::Unrecorded.as_str()),
                 rows::ordinal.eq(ordinal),
                 rows::origin.eq(origin.as_str()),
+                rows::subbank_id.eq(subbank.get()),
             ))
             .on_conflict(rows::id)
             .do_nothing()
@@ -716,6 +748,40 @@ pub fn checkpoint_wal(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 移行の migration が読む manifest の中身（[`migrate_and_validate`]）。
+///
+/// 既存の台帳に枠を作る migration（`DEC-RCL-018`）が、枠の方式とプリセットをここから読む。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationManifest {
+    /// 枠の方式。 音階は枠ごとに1つなので、多音階連続音も連続音として置く。
+    pub method: crate::alias::Method,
+    pub preset_id: Option<String>,
+}
+
+impl MigrationManifest {
+    /// 写しへ1行だけ置く。 前の行が残っていれば置き換える。
+    fn place(&self, conn: &mut SqliteConnection) -> Result<()> {
+        use diesel::sql_types::{Nullable, Text};
+        diesel::sql_query(
+            "CREATE TABLE IF NOT EXISTS migration_manifest (
+                id        INTEGER PRIMARY KEY CHECK (id = 1),
+                method    TEXT    NOT NULL,
+                preset_id TEXT
+            ) STRICT",
+        )
+        .execute(conn)
+        .map_err(db("migration_manifest.create"))?;
+        diesel::sql_query(
+            "INSERT OR REPLACE INTO migration_manifest (id, method, preset_id) VALUES (1, ?, ?)",
+        )
+        .bind::<Text, _>(subbank::method_str(self.method))
+        .bind::<Nullable<Text>, _>(self.preset_id.as_deref())
+        .execute(conn)
+        .map_err(db("migration_manifest.place"))?;
+        Ok(())
+    }
+}
+
 /// 「別の世代」の写し（`path`）へ migration を当て、確かめる。
 ///
 /// 呼び出し側が用意した写しにだけ当てる。 稼働中の台帳は直接触らない——ここで失敗しても、
@@ -728,19 +794,26 @@ pub fn checkpoint_wal(path: &Path) -> Result<()> {
 /// 最後に `wal_checkpoint(TRUNCATE)` → `journal_mode = DELETE` にしてから閉じる。
 /// `-wal` / `-shm` を残さない。
 ///
+/// `manifest` は SQL から読めない manifest の中身。 当てる前に写しへ置き
+/// （`migration_manifest`）、当て終えたら消す。 置いた行を読む migration だけが使う。
+///
 /// # Errors
 ///
 /// migration の適用が失敗する（[`LedgerError::Migration`]）、`integrity_check` /
 /// `foreign_key_check` が違反を報告する（[`LedgerError::MigrationValidation`]）。
-pub fn migrate_and_validate(path: &Path) -> Result<()> {
+pub fn migrate_and_validate(path: &Path, manifest: &MigrationManifest) -> Result<()> {
     let url = path.to_string_lossy().into_owned();
     let mut conn =
         SqliteConnection::establish(&url).map_err(|source| LedgerError::Open { source })?;
     diesel::sql_query("PRAGMA foreign_keys = ON")
         .execute(&mut conn)
         .map_err(db("foreign_keys"))?;
+    manifest.place(&mut conn)?;
     conn.run_pending_migrations(MIGRATIONS)
         .map_err(|source| LedgerError::Migration { source })?;
+    diesel::sql_query("DROP TABLE IF EXISTS migration_manifest")
+        .execute(&mut conn)
+        .map_err(db("migration_manifest.drop"))?;
 
     use migration_introspection::{pragma_foreign_key_check, pragma_integrity_check};
     let bad_integrity: i64 = pragma_integrity_check::table
@@ -1006,12 +1079,12 @@ fn covered_units(conn: &mut SqliteConnection) -> Result<BTreeSet<String>> {
 
 /// このプロジェクトの収録音高（MIDI、`TR-REC-25`）。
 ///
-/// 行が名乗っている音高の集合。 プロジェクト作成時に確定し、途中で増減しない
-/// （`TR-REC-25` の「1プロジェクトで収録する音高の集合はプロジェクト作成時に
-/// 確定させ、収録途中に増減させない」）。単音階なら1つ。
+/// 枠が持つ音階の集合（`DEC-RCL-018`）。 声色の違う枠が同じ音階を持てるので、
+/// 枠の数とは限らない。 枠を足す・付け替える・消すと変わる。
 fn recording_tones(conn: &mut SqliteConnection) -> Result<Vec<i32>> {
-    let mut v = rows::table
-        .select(rows::tone)
+    use crate::schema::subbanks;
+    let mut v = subbanks::table
+        .select(subbanks::tone)
         .distinct()
         .load::<i32>(conn)
         .map_err(db("recording_tones"))?;
@@ -1703,31 +1776,41 @@ impl Ledger {
     /// 録音リストを台帳へ書き込む（`TR-RCL-18`）。 出どころはフルリスト。
     ///
     /// 生成が決定的なので、並び順もそのまま持つ（`TR-RCL-27`）。
-    /// 単音階なら `tones` は1つ。多音階は同じリストを音高の数だけ入れる
-    /// （`TR-RCL-26`。音高ごとに独立した行集合を持つ）。
+    /// 収録音階ごとに声色なしの枠を1つ作り、同じリストを枠の数だけ入れる
+    /// （`DEC-RCL-018`、`TR-RCL-26`。枠ごとに独立した行集合を持つ）。 枠の並びは
+    /// `tones` の並び。 同じ組の枠がもうあれば、作らずにそこへ入れる。
     ///
     /// 行 ID は音高ごとに分ける。 同じ ID を共有すると、どの音高の行を
     /// 録ったのかが台帳から分からなくなる。
     ///
     /// 返すのは実際に入った行の数（[`install_rows`](Self::install_rows)）。
-    #[tracing::instrument(skip(self, list, rules), fields(rows = list.len(), tones = tones.len()))]
+    #[tracing::instrument(
+        skip(self, list, rules, preset_id),
+        fields(rows = list.len(), tones = tones.len())
+    )]
     pub fn install_reclist_for_tones(
         &mut self,
         list: &[ReclistRow],
         rules: &crate::presamp::Rules,
         method: crate::alias::Method,
+        preset_id: Option<&str>,
         tones: &[i32],
     ) -> Result<usize> {
         let suffixed = tones.len() > 1;
-        let mut inserted = 0;
-        for tone in tones {
-            inserted +=
-                self.install_rows(list, rules, method, *tone, suffixed, RowOrigin::Preset)?;
-        }
-        Ok(inserted)
+        self.conn
+            .transaction(|c| {
+                let mut inserted = 0;
+                for tone in tones {
+                    let id = subbank::ensure_plain(c, method, preset_id, *tone)?;
+                    inserted +=
+                        insert_rows(c, list, rules, method, id, suffixed, RowOrigin::Preset)?;
+                }
+                Ok(inserted)
+            })
+            .map_err(db("install_reclist_for_tones"))
     }
 
-    /// 1つの収録音高へ行を足す（`TR-RCL-18`）。
+    /// 1つの枠へ行を足す（`TR-RCL-18`）。
     ///
     /// `suffixed` は行 ID に音高名を付けるか。 多音階では付ける——付けないと、
     /// 同じ中身の行が音高を跨いで同じ ID になる。
@@ -1743,24 +1826,24 @@ impl Ledger {
     /// 飛ばすので、同じ範囲を2度詰め直すと 0 になる。渡した数を
     /// 「足しました」と出すと、台帳が増えていないのに増えたと言うことになる。
     #[tracing::instrument(
-        skip(self, list, rules, suffixed, origin),
-        fields(rows = list.len(), tone)
+        skip(self, list, rules, subbank, suffixed, origin),
+        fields(rows = list.len())
     )]
     pub fn install_rows(
         &mut self,
         list: &[ReclistRow],
         rules: &crate::presamp::Rules,
         method: crate::alias::Method,
-        tone: i32,
+        subbank: SubbankId,
         suffixed: bool,
         origin: RowOrigin,
     ) -> Result<usize> {
         self.conn
-            .transaction(|c| insert_rows(c, list, rules, method, tone, suffixed, origin))
+            .transaction(|c| insert_rows(c, list, rules, method, subbank, suffixed, origin))
             .map_err(db("install_rows"))
     }
 
-    /// その音高・出どころの、テイクを1本も持たない行（`DEC-RCL-016`）。
+    /// その枠・出どころの、テイクを1本も持たない行（`DEC-RCL-016`）。
     ///
     /// 返すのは `(行 ID, その行が生むエイリアス)`。 除外した行は入らない——
     /// 本人が外したものを組み直しで戻さない。
@@ -1769,12 +1852,12 @@ impl Ledger {
     /// 組み直しで消すと、孤児がどの行の録音だったかを示せなくなる（`DEC-REC-010`）。
     pub fn untaken_rows(
         &mut self,
-        tone: i32,
+        subbank: SubbankId,
         origin: RowOrigin,
     ) -> Result<Vec<(String, BTreeSet<String>)>> {
         use crate::schema::capture_intents;
         let ids: Vec<String> = rows::table
-            .filter(rows::tone.eq(tone))
+            .filter(rows::subbank_id.eq(subbank.get()))
             .filter(rows::origin.eq(origin.as_str()))
             .filter(rows::state.eq(RowState::Unrecorded.as_str()))
             .filter(diesel::dsl::not(diesel::dsl::exists(
@@ -1797,7 +1880,7 @@ impl Ledger {
         Ok(out)
     }
 
-    /// その音高・出どころの、テイクを1本も持たない行を入れ替える（`DEC-RCL-016`）。
+    /// その枠・出どころの、テイクを1本も持たない行を入れ替える（`DEC-RCL-016`）。
     ///
     /// 消すのは [`untaken_rows`](Self::untaken_rows) が返す行だけ。 **録った行は
     /// 消さない**——テイクを1本でも持つ行は、無効のテイクしか無くても残す
@@ -1807,20 +1890,20 @@ impl Ledger {
     /// 消すのと足すのを1つのトランザクションで行う。 途中で落ちると、
     /// 録る行が消えたまま足されない。返すのは足した行の数。
     #[tracing::instrument(
-        skip(self, list, rules, suffixed, origin),
-        fields(rows = list.len(), tone)
+        skip(self, list, rules, subbank, suffixed, origin),
+        fields(rows = list.len())
     )]
     pub fn replace_untaken_rows(
         &mut self,
         list: &[ReclistRow],
         rules: &crate::presamp::Rules,
         method: crate::alias::Method,
-        tone: i32,
+        subbank: SubbankId,
         suffixed: bool,
         origin: RowOrigin,
     ) -> Result<usize> {
         let gone: Vec<String> = self
-            .untaken_rows(tone, origin)?
+            .untaken_rows(subbank, origin)?
             .into_iter()
             .map(|(id, _)| id)
             .collect();
@@ -1831,7 +1914,7 @@ impl Ledger {
                 diesel::delete(row_units::table.filter(row_units::row_id.eq_any(&gone)))
                     .execute(c)?;
                 diesel::delete(rows::table.filter(rows::id.eq_any(&gone))).execute(c)?;
-                insert_rows(c, list, rules, method, tone, suffixed, origin)
+                insert_rows(c, list, rules, method, subbank, suffixed, origin)
             })
             .map_err(db("replace_untaken_rows"))
     }
@@ -1888,6 +1971,7 @@ impl Ledger {
             list,
             &crate::presamp::Rules::builtin(crate::inventory::UnitSet::Core),
             crate::alias::Method::Single,
+            None,
             &[tone],
         )
         .map(|_| ())
@@ -2352,9 +2436,7 @@ impl Ledger {
 
     /// このプロジェクトの収録音高（MIDI、`TR-REC-25`）。
     ///
-    /// 行が名乗っている音高の集合。 プロジェクト作成時に確定し、途中で増減しない
-    /// （`TR-REC-25` の「1プロジェクトで収録する音高の集合はプロジェクト作成時に
-    /// 確定させ、収録途中に増減させない」）。単音階なら1つ。
+    /// 枠が持つ音階の集合（`DEC-RCL-018`）。 枠を足す・付け替える・消すと変わる。
     pub fn recording_tones(&mut self) -> Result<Vec<i32>> {
         recording_tones(&mut self.conn)
     }
@@ -5102,8 +5184,14 @@ mod m5_tests {
     fn 音高を跨ぐ同じ綴りは衝突にしない() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, &[60, 62])
-            .expect("書き込める");
+        l.install_reclist_for_tones(
+            &list,
+            &builtin_rules(),
+            AliasMethod::Single,
+            None,
+            &[60, 62],
+        )
+        .expect("書き込める");
         let sid = l.start_session(&session()).expect("始められる");
 
         for suffix in ["@C4", "@D4"] {
@@ -5126,8 +5214,14 @@ mod m5_tests {
     fn 重なった綴りは先に録った行が持つ() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
-            .expect("書き込める");
+        l.install_reclist_for_tones(
+            &list,
+            &builtin_rules(),
+            AliasMethod::Sequential,
+            None,
+            &[60],
+        )
+        .expect("書き込める");
         let sid = l.start_session(&session()).expect("始められる");
 
         // 生成器は重複を出したままでよい。 誰が持つかは録った順で決まる。
@@ -5174,8 +5268,14 @@ mod m5_tests {
     /// （本番の解析と同じ）。
     fn record_two_producers(l: &mut Ledger, hi_first: bool) -> (String, String) {
         let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
-            .expect("書き込める");
+        l.install_reclist_for_tones(
+            &list,
+            &builtin_rules(),
+            AliasMethod::Sequential,
+            None,
+            &[60],
+        )
+        .expect("書き込める");
         let sid = l.start_session(&session()).expect("始められる");
         let producers: Vec<(i32, String)> = row_aliases::table
             .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
@@ -5265,8 +5365,14 @@ mod m5_tests {
     fn 連続音の台帳はエイリアスで被覆を持つ() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Sequential, &[60])
-            .expect("書き込める");
+        l.install_reclist_for_tones(
+            &list,
+            &builtin_rules(),
+            AliasMethod::Sequential,
+            None,
+            &[60],
+        )
+        .expect("書き込める");
         let sid = l.start_session(&session()).expect("始められる");
 
         assert!(l.covered_aliases().expect("引ける").is_empty());
@@ -5296,6 +5402,7 @@ mod m5_tests {
             std::slice::from_ref(repeated),
             &builtin_rules(),
             AliasMethod::Sequential,
+            None,
             &[60],
         )
         .expect("書き込める");
@@ -5307,7 +5414,7 @@ mod m5_tests {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
         let tones = [55, 62, 69];
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, &tones)
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, None, &tones)
             .expect("書き込める");
         assert_eq!(l.recording_tones().expect("引ける"), tones);
 
@@ -5331,8 +5438,14 @@ mod m5_tests {
     fn 一音高だけ録り終えても被覆は満ちない() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_single(UnitSet::Core, 5).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Single, &[55, 62])
-            .expect("書き込める");
+        l.install_reclist_for_tones(
+            &list,
+            &builtin_rules(),
+            AliasMethod::Single,
+            None,
+            &[55, 62],
+        )
+        .expect("書き込める");
         let sid = l.start_session(&session()).expect("始められる");
 
         // G3 を全行録る。 D4 は1行も録らない。
@@ -5363,7 +5476,7 @@ mod m5_tests {
     fn 不足エイリアスは全件返る() {
         let mut l = Ledger::open_in_memory().expect("開ける");
         let list = generate_cvvc(&builtin_rules(), UnitSet::Core, 8).expect("生成できる");
-        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Cvvc, &[60])
+        l.install_reclist_for_tones(&list, &builtin_rules(), AliasMethod::Cvvc, None, &[60])
             .expect("書き込める");
         let required: BTreeSet<String> = ["- か".to_owned(), "a k".to_owned()].into();
         let missing = l.missing_aliases(&required).expect("引ける");

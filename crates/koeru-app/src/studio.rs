@@ -1001,7 +1001,7 @@ impl Studio {
         let mut ledger = Ledger::open(dir.db_path())?;
         ledger.put_presamp_snapshot(&snapshot)?;
         dir.write_presamp(&snapshot)?;
-        ledger.install_reclist_for_tones(&list, &rules, preset.method, &tones)?;
+        ledger.install_reclist_for_tones(&list, &rules, preset.method, Some(preset.id), &tones)?;
 
         // 初回のとっかかりに要る最小限だけ入れる（`TR-RCL-12`）。
         // 曲バンクではない。本人が外せる。
@@ -1710,9 +1710,13 @@ impl Studio {
         // ——既にある行は飛ばすので、台帳は増えていない。
         let mut added = 0;
         for t in &tones {
+            // 被覆は音階で数える。 同じ音階の枠が2つあれば、並びの先頭の枠へ入れる。
+            let Some(subbank) = self.writer()?.subbank_for_tone(*t)? else {
+                continue;
+            };
             let waiting: std::collections::BTreeSet<String> = self
                 .writer()?
-                .untaken_rows(*t, koeru_core::db::RowOrigin::Repack)?
+                .untaken_rows(subbank, koeru_core::db::RowOrigin::Repack)?
                 .into_iter()
                 .flat_map(|(_, a)| a)
                 .collect();
@@ -1735,7 +1739,7 @@ impl Studio {
                 &rows,
                 &rules,
                 preset.method,
-                *t,
+                subbank,
                 suffixed,
                 koeru_core::db::RowOrigin::Repack,
             )?;
@@ -1754,12 +1758,15 @@ impl Studio {
     /// 録っている側は組み直さない。 本人が読み進めている並びが、読むたびに
     /// 足元で変わる。組み直すのはテイクを1本も持たない行だけ（`Ledger::untaken_rows`）。
     fn reconcile_other_origin(&mut self, row_id: &str) -> Result<()> {
-        let preset = self.current_preset()?;
+        let project_preset = self.current_preset()?;
         let rules = self.current_rules()?;
         let ledger = &mut *self.writer()?;
         let origin = ledger.row_origin(row_id)?.other();
         let tone = ledger.row_tone(row_id)?;
-        let waiting = ledger.untaken_rows(tone, origin)?;
+        // 組み直すのは録った行の枠だけ。 同じ音階でも、声色の違う枠の行は動かさない。
+        let subbank = ledger.row_subbank(row_id)?;
+        let preset = subbank_preset(ledger, subbank)?.unwrap_or(project_preset);
+        let waiting = ledger.untaken_rows(subbank, origin)?;
         let covered = ledger
             .covered_aliases_by_tone()?
             .remove(&tone)
@@ -1785,7 +1792,7 @@ impl Studio {
                 .map_err(AppError::from_failure)?
         };
         let suffixed = ledger.recording_tones()?.len() > 1;
-        ledger.replace_untaken_rows(&rows, &rules, preset.method, tone, suffixed, origin)?;
+        ledger.replace_untaken_rows(&rows, &rules, preset.method, subbank, suffixed, origin)?;
         tracing::info!(
             rows = rows.len(),
             count = waiting.len(),
@@ -5862,6 +5869,20 @@ fn delete_capture_file(root: &std::path::Path, rel: &str) {
             }
         }
     }
+}
+
+/// 枠が作られたときの方式プリセット（`DEC-RCL-018`）。 プリセットを持たない枠（移行前の
+/// 古い project から作った枠）は `None` で、呼び出し側が project のプリセットへ倒す。
+fn subbank_preset(
+    ledger: &mut Ledger,
+    subbank: koeru_model::id::SubbankId,
+) -> Result<Option<koeru_core::preset::MethodPreset>> {
+    Ok(ledger
+        .subbanks()?
+        .into_iter()
+        .find(|s| s.id == subbank)
+        .and_then(|s| s.preset_id)
+        .and_then(|p| koeru_core::preset::by_id(&p)))
 }
 
 /// プロジェクトのエイリアス規則（`TR-SYN-36`, `DEC-SYN-010`, `DEC-SYN-013`）。

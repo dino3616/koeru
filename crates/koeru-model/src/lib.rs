@@ -38,6 +38,7 @@ pub mod retake;
 pub mod review;
 pub mod selection;
 pub mod song;
+pub mod subbank;
 pub mod target;
 pub mod text;
 pub mod tone;

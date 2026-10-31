@@ -401,7 +401,7 @@ fn seed_overlapping_rows(rt: &ProjectRuntime) -> (String, String, i32) {
     let rules = koeru_core::presamp::Rules::builtin(UnitSet::Core);
     let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
     let mut w = rt.writer(rt.lease()).expect("書ける");
-    w.install_reclist_for_tones(&list, &rules, AliasMethod::Sequential, &[60])
+    w.install_reclist_for_tones(&list, &rules, AliasMethod::Sequential, None, &[60])
         .expect("書き込める");
     let sid = w
         .start_session(&SessionSnapshot {

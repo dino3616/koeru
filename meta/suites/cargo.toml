@@ -14,7 +14,7 @@ runner = 'cargo'
 package = 'koeru-model'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 307
+min_cases = 338
 
 [[suite]]
 id = 'SUITE-MODEL-002'
@@ -66,7 +66,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'lib'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 149
+min_cases = 164
 
 [[suite]]
 id = 'SUITE-CORE-002'
@@ -95,8 +95,8 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'ledger_migration'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 13
-contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043']
+min_cases = 18
+contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043', 'DEC-RCL-018']
 
 [[suite]]
 id = 'SUITE-CORE-005'

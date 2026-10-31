@@ -1007,8 +1007,9 @@ mod tests {
         let capture = declare(&mut l, &rows[0], sid, "audio/a_1.wav");
         l.mark_leftover(&capture, Leftover::Orphaned, "2026-09-26T00:00:03Z")
             .expect("印を付けられる");
+        let subbank = l.subbank_for_tone(60).expect("読める").expect("枠がある");
         let untaken: Vec<String> = l
-            .untaken_rows(60, crate::db::RowOrigin::Preset)
+            .untaken_rows(subbank, crate::db::RowOrigin::Preset)
             .expect("読める")
             .into_iter()
             .map(|(id, _)| id)
@@ -1020,7 +1021,7 @@ mod tests {
         l.discard_capture(&capture, "2026-09-26T00:00:04Z")
             .expect("閉じられる");
         let untaken = l
-            .untaken_rows(60, crate::db::RowOrigin::Preset)
+            .untaken_rows(subbank, crate::db::RowOrigin::Preset)
             .expect("読める");
         assert!(untaken.iter().any(|(id, _)| id == &rows[0]));
     }

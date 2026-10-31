@@ -1,0 +1,4 @@
+# 行の表を作り直す。 外部キーを切ってから作り直さないと、古い表を消したときに
+# 子（row_units・takes・adopted_takes・row_aliases）が連鎖で消える。
+# `PRAGMA foreign_keys` はトランザクションの中では効かないので、自分で囲む。
+run_in_transaction = false

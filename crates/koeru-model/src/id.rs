@@ -41,6 +41,33 @@ impl fmt::Display for RowId {
     }
 }
 
+/// サブバンクの枠（`DEC-RCL-018`）。
+///
+/// 声色・方式・収録音階を付け替えても変わらない。 消して足し直した枠は別の値になる
+/// ——台帳が自動採番で振り、消した番号を使い直さない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SubbankId(i32);
+
+impl SubbankId {
+    /// 台帳が振った番号から。
+    #[must_use]
+    pub const fn new(id: i32) -> Self {
+        Self(id)
+    }
+
+    /// 台帳へ渡す番号。
+    #[must_use]
+    pub const fn get(self) -> i32 {
+        self.0
+    }
+}
+
+impl fmt::Display for SubbankId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// 確定したテイク（`TR-REC-28`, `TR-RCL-25`）。
 ///
 /// **確定した順に増える。** 台帳が自動採番で振るので、小さいほど先に確定した。

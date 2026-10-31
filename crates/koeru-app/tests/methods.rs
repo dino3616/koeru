@@ -522,11 +522,12 @@ fn 詰め直した行を録るとフルリストの残りを組み直す() {
     assert!(!covered.is_empty());
 
     // まだ録っていないフルリストの行は、録った綴りを1つも作らない。
+    let subbank = l
+        .subbank_for_tone(koeru_core::preset::DEFAULT_TONE_MIDI)
+        .expect("引ける")
+        .expect("枠がある");
     let untaken = l
-        .untaken_rows(
-            koeru_core::preset::DEFAULT_TONE_MIDI,
-            koeru_core::db::RowOrigin::Preset,
-        )
+        .untaken_rows(subbank, koeru_core::db::RowOrigin::Preset)
         .expect("引ける");
     assert!(!untaken.is_empty(), "残りがある");
     for (row, aliases) in &untaken {
