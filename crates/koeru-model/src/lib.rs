@@ -27,6 +27,7 @@ pub mod names;
 pub mod order;
 pub mod oto;
 pub mod pace;
+pub mod pitch;
 pub mod plan;
 pub mod presamp;
 pub mod preset;
