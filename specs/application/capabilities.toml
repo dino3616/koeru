@@ -35,6 +35,9 @@ capabilities = [
   'distribution.prepare',
   'distribution.export',
   'analysis.control',
+  # 同意は本人が選ぶもので、自動化の consumer に代わりに選ばせない（`TR-PKG-54`）。
+  # 読みは `application.read` で足りる。
+  'privacy.consent',
 ]
 # `light-write` と `durable-write` は §11 の例に無い。 貸与や区間のような揮発する状態を
 # 変えるものと、project へ確定するものを分けるために足した。
@@ -59,6 +62,7 @@ costs = [
 'Query.waveformWindow' = { capability = 'recording.read', cost = 'compute-heavy' }
 'Query.spectrogramWindow' = { capability = 'recording.read', cost = 'compute-heavy' }
 'Query.songFileDrafts' = { capability = 'repertoire.import', cost = 'compute-heavy' }
+'Query.privacy' = { capability = 'application.read', cost = 'cheap-read' }
 
 # ## project の面
 'Project.recording' = { capability = 'recording.read', cost = 'cheap-read' }
@@ -133,6 +137,7 @@ costs = [
 'Mutation.exportSettingsFile' = { capability = 'distribution.export', cost = 'durable-write' }
 'Mutation.retryAnalysis' = { capability = 'analysis.control', cost = 'job-creating' }
 'Mutation.cancelJob' = { capability = 'analysis.control', cost = 'light-write' }
+'Mutation.choosePrivacyConsent' = { capability = 'privacy.consent', cost = 'durable-write' }
 
 # ## Subscription
 'Subscription.projectEvents' = { capability = 'project.read', cost = 'cheap-read' }

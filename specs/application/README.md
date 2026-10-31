@@ -72,7 +72,7 @@ operation の名前・正規化した文書の hash・種類・契約の hash �
 
 ## 旧コマンドからの移行
 
-tauri-specta の 82 のコマンド（`crates/koeru-app/src/lib.rs` の登録）が、どこへ行くか。
+tauri-specta の 84 のコマンド（`crates/koeru-app/src/lib.rs` の登録）が、どこへ行くか。
 新しい操作を tauri-specta に足さない（`DEC-PLT-035`）。 刷新のあいだの例外は `DEC-PLT-061` で、
 足したものも表の末尾に並ぶ。
 
@@ -160,6 +160,9 @@ tauri-specta の 82 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 | `take_pitch` | `Take.pitch`（`DEC-PLT-061` の例外で足した）。 口は `Query.project` の `lease` を取らない。 テイクが無ければ `ledger.unknown_take` の失敗 | Query |
 | `guide_tempo` | `RecordingFacet.guideTempo`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Query |
 | `set_guide_tempo` | `Mutation.setGuideTempo`。 刷新のあいだの例外で足した（`DEC-PLT-061`）。 入力の `lease`・`operationId` は運ばず、それを照合する枝（`ProjectLeaseExpired`・`OperationIdReused`）と `receipt` も返さない | Mutation |
+| `privacy` | `Query.privacy`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Query |
+| `choose_privacy_consent` | `Mutation.choosePrivacyConsent`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Mutation |
+
 コマンドの外で消えるもの。 `finish_take` が返していた波形のサムネイルは
 `Query.waveformWindow` を小さい画素数で読む。 行と確認の `key`（結合した文字列）は
 `RowId` / `EntryId` / `TargetId` に分かれる。

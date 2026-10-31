@@ -1,0 +1,31 @@
+# 同意の読みと、本人の選択。
+#
+# 設定のプライバシーの面が読む。 project を開かずに読める。
+
+query Privacy {
+  privacy {
+    ...PrivacyPanel_PrivacySettings
+  }
+}
+
+fragment PrivacyPanel_PrivacySettings on PrivacySettings {
+  usage
+  crashReports
+  lastSentAt
+}
+
+mutation ChoosePrivacyConsent($subject: ConsentSubject!, $granted: Boolean!) {
+  choosePrivacyConsent(input: { subject: $subject, granted: $granted }) {
+    outcome {
+      __typename
+      ... on PrivacyConsentChosen {
+        privacy {
+          ...PrivacyPanel_PrivacySettings
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

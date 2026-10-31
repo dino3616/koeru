@@ -1,0 +1,54 @@
+# privacy。 利用状況とクラッシュ報告の同意と、送った記録（`TR-PKG-54`, `TR-PKG-57`）。
+#
+# project に属さない。 同意は製品全体で1つで、project が1つも無いうちから在る
+# （`specs/requirements/telemetry-consent.fsl`）。 送る経路はまだ無い（`Q-TEL-001`）。
+
+extend type Query {
+  "同意と送った記録。 project を開かずに読める。"
+  privacy: PrivacySettings!
+}
+
+type PrivacySettings {
+  "利用状況。 既定は `NOT_ASKED`（`TR-PKG-54`）。"
+  usage: ConsentState!
+  "クラッシュ報告。 利用状況とは別の同意で、既定は `NOT_ASKED`（`TR-PKG-57`）。"
+  crashReports: ConsentState!
+  "最後に送った日時。 null なら一度も送っていない。 送る経路がまだ無いので、今は常に null。"
+  lastSentAt: DateTime
+}
+
+"同意の状態。 送るのは `GRANTED` のときだけ。"
+enum ConsentState {
+  "訊いておらず、同意も無い。"
+  NOT_ASKED
+  GRANTED
+  "同意を撤回した。"
+  REVOKED
+}
+
+"同意の単位。"
+enum ConsentSubject {
+  USAGE
+  CRASH_REPORTS
+}
+
+extend type Mutation {
+  "1つの同意を本人が選ぶ。 もう片方は動かない（`TR-PKG-57`）。"
+  choosePrivacyConsent(input: ChoosePrivacyConsentInput!): ChoosePrivacyConsentPayload!
+}
+
+input ChoosePrivacyConsentInput {
+  subject: ConsentSubject!
+  "false は、同意していたものを撤回する。 訊いていないものは `NOT_ASKED` のまま。"
+  granted: Boolean!
+}
+
+type ChoosePrivacyConsentPayload {
+  outcome: ChoosePrivacyConsentOutcome!
+}
+
+union ChoosePrivacyConsentOutcome = PrivacyConsentChosen | StorageProblem
+
+type PrivacyConsentChosen {
+  privacy: PrivacySettings!
+}
