@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Suspense, useState } from "react";
 
 import { AppMark } from "~/components/app-mark";
@@ -62,10 +62,42 @@ export const LibraryScreen = () => {
             }
           >
             <Gallery creating={creating} onCreating={setCreating} />
+            {import.meta.env.DEV && <DraftEntrance />}
           </Suspense>
         </div>
       </div>
     </main>
+  );
+};
+
+/**
+ * 刷新した画面への入口。 開発中だけ出す。
+ *
+ * 刷新した画面が旧い画面を置き換えたら、この画面ごと消える。
+ */
+const DraftEntrance = () => {
+  const { data: projects } = useSuspenseQuery(projectsQuery());
+  return (
+    <nav aria-label="作りかけの画面">
+      <ul className="flex flex-col gap-2">
+        {projects.map((p) => (
+          <li key={p.id}>
+            <Link
+              to="/voicebank"
+              search={{ id: p.id }}
+              className="text-sm text-slate-12 underline underline-offset-4"
+            >
+              {p.display_name}を新しい画面で開く
+            </Link>
+          </li>
+        ))}
+        <li>
+          <Link to="/new" className="text-sm text-slate-12 underline underline-offset-4">
+            新しい画面で音源を作る
+          </Link>
+        </li>
+      </ul>
+    </nav>
   );
 };
 
