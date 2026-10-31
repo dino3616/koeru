@@ -8,6 +8,7 @@ import {
 import type { ReactNode } from "react";
 
 import { RouteError } from "~/components/route-error";
+import { STUDIO_PATHS } from "~/lib/screen-names";
 
 /*
  * story にルータの文脈を与える。
@@ -48,8 +49,18 @@ export const withRouter = (children: ReactNode, path = "/") => {
     }),
   });
 
+  // 刷新した画面の経路。 検索引数は何でも通す。
+  const studio = STUDIO_PATHS.map((path) =>
+    createRoute({
+      getParentRoute: () => root,
+      path,
+      component: () => children,
+      validateSearch: (search: Record<string, unknown>) => search,
+    }),
+  );
+
   const router = createRouter({
-    routeTree: root.addChildren([index, voice, take]),
+    routeTree: root.addChildren([index, voice, take, ...studio]),
     history: createMemoryHistory({ initialEntries: [path] }),
     /*
      * 本物と同じ失敗の面を出す（`~/router`）。

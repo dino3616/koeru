@@ -1,12 +1,7 @@
 import { useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-/** 経路から画面の名前へ。内部表現をそのまま読ませない（`TR-PKG-45`）。 */
-const SCREEN_NAMES: Record<string, string> = {
-  "/": "声",
-  "/voice": "音源",
-  "/take": "録った回",
-};
+import { SCREEN_NAMES } from "~/lib/screen-names";
 
 /**
  * 常設の読み上げ領域。

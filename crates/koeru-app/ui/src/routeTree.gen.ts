@@ -10,12 +10,26 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as StudioRouteImport } from './routes/_studio'
 import { Route as TakeRouteImport } from './routes/take'
 import { Route as VoiceRouteImport } from './routes/voice'
+import { Route as StudioDistributeRouteImport } from './routes/_studio/distribute'
+import { Route as StudioNewRouteImport } from './routes/_studio/new'
+import { Route as StudioRecordRouteImport } from './routes/_studio/record'
+import { Route as StudioReleasedRouteImport } from './routes/_studio/released'
+import { Route as StudioReviewRouteImport } from './routes/_studio/review'
+import { Route as StudioSettingsRouteImport } from './routes/_studio/settings'
+import { Route as StudioSongsRouteImport } from './routes/_studio/songs'
+import { Route as StudioSubbankRouteImport } from './routes/_studio/subbank'
+import { Route as StudioVoicebankRouteImport } from './routes/_studio/voicebank'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioRoute = StudioRouteImport.update({
+  id: '/_studio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TakeRoute = TakeRouteImport.update({
@@ -28,33 +42,145 @@ const VoiceRoute = VoiceRouteImport.update({
   path: '/voice',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioDistributeRoute = StudioDistributeRouteImport.update({
+  id: '/distribute',
+  path: '/distribute',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioNewRoute = StudioNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioRecordRoute = StudioRecordRouteImport.update({
+  id: '/record',
+  path: '/record',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioReleasedRoute = StudioReleasedRouteImport.update({
+  id: '/released',
+  path: '/released',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioReviewRoute = StudioReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioSettingsRoute = StudioSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioSongsRoute = StudioSongsRouteImport.update({
+  id: '/songs',
+  path: '/songs',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioSubbankRoute = StudioSubbankRouteImport.update({
+  id: '/subbank',
+  path: '/subbank',
+  getParentRoute: () => StudioRoute,
+} as any)
+const StudioVoicebankRoute = StudioVoicebankRouteImport.update({
+  id: '/voicebank',
+  path: '/voicebank',
+  getParentRoute: () => StudioRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/take': typeof TakeRoute
   '/voice': typeof VoiceRoute
+  '/distribute': typeof StudioDistributeRoute
+  '/new': typeof StudioNewRoute
+  '/record': typeof StudioRecordRoute
+  '/released': typeof StudioReleasedRoute
+  '/review': typeof StudioReviewRoute
+  '/settings': typeof StudioSettingsRoute
+  '/songs': typeof StudioSongsRoute
+  '/subbank': typeof StudioSubbankRoute
+  '/voicebank': typeof StudioVoicebankRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/take': typeof TakeRoute
   '/voice': typeof VoiceRoute
+  '/distribute': typeof StudioDistributeRoute
+  '/new': typeof StudioNewRoute
+  '/record': typeof StudioRecordRoute
+  '/released': typeof StudioReleasedRoute
+  '/review': typeof StudioReviewRoute
+  '/settings': typeof StudioSettingsRoute
+  '/songs': typeof StudioSongsRoute
+  '/subbank': typeof StudioSubbankRoute
+  '/voicebank': typeof StudioVoicebankRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_studio': typeof StudioRouteWithChildren
   '/take': typeof TakeRoute
   '/voice': typeof VoiceRoute
+  '/_studio/distribute': typeof StudioDistributeRoute
+  '/_studio/new': typeof StudioNewRoute
+  '/_studio/record': typeof StudioRecordRoute
+  '/_studio/released': typeof StudioReleasedRoute
+  '/_studio/review': typeof StudioReviewRoute
+  '/_studio/settings': typeof StudioSettingsRoute
+  '/_studio/songs': typeof StudioSongsRoute
+  '/_studio/subbank': typeof StudioSubbankRoute
+  '/_studio/voicebank': typeof StudioVoicebankRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/take' | '/voice'
+  fullPaths:
+    | '/'
+    | '/take'
+    | '/voice'
+    | '/distribute'
+    | '/new'
+    | '/record'
+    | '/released'
+    | '/review'
+    | '/settings'
+    | '/songs'
+    | '/subbank'
+    | '/voicebank'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/take' | '/voice'
-  id: '__root__' | '/' | '/take' | '/voice'
+  to:
+    | '/'
+    | '/take'
+    | '/voice'
+    | '/distribute'
+    | '/new'
+    | '/record'
+    | '/released'
+    | '/review'
+    | '/settings'
+    | '/songs'
+    | '/subbank'
+    | '/voicebank'
+  id:
+    | '__root__'
+    | '/'
+    | '/_studio'
+    | '/take'
+    | '/voice'
+    | '/_studio/distribute'
+    | '/_studio/new'
+    | '/_studio/record'
+    | '/_studio/released'
+    | '/_studio/review'
+    | '/_studio/settings'
+    | '/_studio/songs'
+    | '/_studio/subbank'
+    | '/_studio/voicebank'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  StudioRoute: typeof StudioRouteWithChildren
   TakeRoute: typeof TakeRoute
   VoiceRoute: typeof VoiceRoute
 }
@@ -66,6 +192,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_studio': {
+      id: '/_studio'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof StudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/take': {
@@ -82,11 +215,102 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VoiceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_studio/distribute': {
+      id: '/_studio/distribute'
+      path: '/distribute'
+      fullPath: '/distribute'
+      preLoaderRoute: typeof StudioDistributeRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/new': {
+      id: '/_studio/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof StudioNewRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/record': {
+      id: '/_studio/record'
+      path: '/record'
+      fullPath: '/record'
+      preLoaderRoute: typeof StudioRecordRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/released': {
+      id: '/_studio/released'
+      path: '/released'
+      fullPath: '/released'
+      preLoaderRoute: typeof StudioReleasedRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/review': {
+      id: '/_studio/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof StudioReviewRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/settings': {
+      id: '/_studio/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof StudioSettingsRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/songs': {
+      id: '/_studio/songs'
+      path: '/songs'
+      fullPath: '/songs'
+      preLoaderRoute: typeof StudioSongsRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/subbank': {
+      id: '/_studio/subbank'
+      path: '/subbank'
+      fullPath: '/subbank'
+      preLoaderRoute: typeof StudioSubbankRouteImport
+      parentRoute: typeof StudioRoute
+    }
+    '/_studio/voicebank': {
+      id: '/_studio/voicebank'
+      path: '/voicebank'
+      fullPath: '/voicebank'
+      preLoaderRoute: typeof StudioVoicebankRouteImport
+      parentRoute: typeof StudioRoute
+    }
   }
 }
 
+interface StudioRouteChildren {
+  StudioDistributeRoute: typeof StudioDistributeRoute
+  StudioNewRoute: typeof StudioNewRoute
+  StudioRecordRoute: typeof StudioRecordRoute
+  StudioReleasedRoute: typeof StudioReleasedRoute
+  StudioReviewRoute: typeof StudioReviewRoute
+  StudioSettingsRoute: typeof StudioSettingsRoute
+  StudioSongsRoute: typeof StudioSongsRoute
+  StudioSubbankRoute: typeof StudioSubbankRoute
+  StudioVoicebankRoute: typeof StudioVoicebankRoute
+}
+
+const StudioRouteChildren: StudioRouteChildren = {
+  StudioDistributeRoute: StudioDistributeRoute,
+  StudioNewRoute: StudioNewRoute,
+  StudioRecordRoute: StudioRecordRoute,
+  StudioReleasedRoute: StudioReleasedRoute,
+  StudioReviewRoute: StudioReviewRoute,
+  StudioSettingsRoute: StudioSettingsRoute,
+  StudioSongsRoute: StudioSongsRoute,
+  StudioSubbankRoute: StudioSubbankRoute,
+  StudioVoicebankRoute: StudioVoicebankRoute,
+}
+
+const StudioRouteWithChildren =
+  StudioRoute._addFileChildren(StudioRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  StudioRoute: StudioRouteWithChildren,
   TakeRoute: TakeRoute,
   VoiceRoute: VoiceRoute,
 }

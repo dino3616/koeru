@@ -10,7 +10,14 @@
    * `types: ["bun"]` はあちらが持つので、ここでは書かない。
    */
   "extends": ["@tsconfig/bun/tsconfig.json", "@tsconfig/strictest/tsconfig.json"],
-  "include": ["scripts/**/*.ts", "vite.config.ts", "vitest.story.config.ts"],
+  "include": [
+    "scripts/**/*.ts",
+    "vite.config.ts",
+    "vitest.story.config.ts",
+    // 経路の一覧は、殻を出す設定と story の検査も読む。 値だけのファイルで
+    // ブラウザにも Bun にも依らないので、画面の側と両方に入れてよい。
+    "src/lib/screen-names.ts"
+  ],
   "compilerOptions": {
     // `@tsconfig/strictest` が後に来るので、Bun 側の設定を書き戻す。
     // 順序を入れ替えると strictest の厳しさが緩む。

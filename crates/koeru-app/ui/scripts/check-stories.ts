@@ -8,6 +8,8 @@
  * 部品とみなすのは、大文字で始まる名前を輸出している `.tsx`。
  * `~/lib` の関数やフックは対象外——描くものではないので story を持てない。
  */
+import { STUDIO_PATHS } from "../src/lib/screen-names";
+
 // `pathname` にしない。空白や非 ASCII が `%20` のまま残る。
 const SRC = Bun.fileURLToPath(new URL("../src", import.meta.url));
 
@@ -17,6 +19,14 @@ const EXEMPT = new Map([
   ["src/routes/index.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
   ["src/routes/voice.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
   ["src/routes/take.tsx", "経路の宣言だけ。画面は screens 側の story が見る"],
+  [
+    "src/routes/_studio.tsx",
+    "経路の宣言と、開く境界を挟むだけ。境界は components/project-gate の story が見る",
+  ],
+  ...STUDIO_PATHS.map((path): [string, string] => [
+    `src/routes/_studio${path}.tsx`,
+    "経路の宣言だけ。画面は screens 側の story が見る",
+  ]),
   ["src/lib/story-router.tsx", "story のための道具。それ自身は部品ではない"],
 ]);
 
