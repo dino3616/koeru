@@ -26,6 +26,7 @@ diesel::table! {
         master_rate_hz -> Integer,
         resampler -> Text,
         upstream_conversion -> Text,
+        guide_tempo_bpm -> Nullable<Integer>,
     }
 }
 
@@ -341,6 +342,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    /// ガイドのテンポ（`TR-REC-23`, `DEC-REC-012`）。 音源に1行。 無ければ既定。
+    guide_settings (id) {
+        id -> Integer,
+        tempo_bpm -> Integer,
+    }
+}
+
+diesel::table! {
     /// project の版（`DEC-PLT-043`）。 1行だけで、他の全表への AFTER トリガーが進める。
     /// 大小・差分に意味は無い（`specs/application/schema/shared.graphql` の `Revision`）。
     project_revision (id) {
@@ -393,4 +402,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     take_gaps,
     song_imports,
     song_import_songs,
+    guide_settings,
 );

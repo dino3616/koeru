@@ -129,6 +129,8 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::reveal_release,
             commands::takes::rename_take,
             commands::takes::take_pitch,
+            commands::guide_tempo::guide_tempo,
+            commands::guide_tempo::set_guide_tempo,
         ])
         // 位相ごとの書き出しを切る。既定のままだと、送る型と受ける型で形が違うものが
         // `X_Serialize` / `X_Deserialize` に割れ、画面が `X` で参照できなくなる。

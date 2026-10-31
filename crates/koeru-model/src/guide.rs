@@ -20,7 +20,48 @@
 use std::f64::consts::TAU;
 
 /// 既定のテンポ（BPM、`TR-REC-23`）。
-pub const DEFAULT_TEMPO_BPM: f64 = 120.0;
+pub const DEFAULT_TEMPO_BPM: f64 = GuideTempo::DEFAULT.0 as f64;
+
+/// ガイドのテンポ（`TR-REC-23`）。 音源ごとに本人が変えられる。
+///
+/// 範囲・刻み・持つ単位は `DEC-REC-012`。 規則はここにしか置かない。
+/// 画面は読みで範囲と刻みを受け取り、数を写さない。
+///
+/// 作れるのは範囲と刻みに収まる値だけ。 持っていれば、そのまま使える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GuideTempo(u16);
+
+impl GuideTempo {
+    pub const MIN_BPM: u16 = 60;
+    pub const MAX_BPM: u16 = 180;
+    pub const STEP_BPM: u16 = 5;
+    pub const DEFAULT: Self = Self(120);
+
+    /// 範囲の外か、刻みに乗らなければ `None`。
+    #[must_use]
+    pub fn new(bpm: i32) -> Option<Self> {
+        let bpm = u16::try_from(bpm).ok()?;
+        let in_range = (Self::MIN_BPM..=Self::MAX_BPM).contains(&bpm);
+        (in_range && (bpm - Self::MIN_BPM) % Self::STEP_BPM == 0).then_some(Self(bpm))
+    }
+
+    #[must_use]
+    pub const fn bpm(self) -> u16 {
+        self.0
+    }
+
+    /// 1拍の長さ（ミリ秒）。 1モーラ＝1拍。
+    #[must_use]
+    pub fn beat_ms(self) -> f64 {
+        60_000.0 / f64::from(self.0)
+    }
+}
+
+impl Default for GuideTempo {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
 
 /// 発声開始までの助走（ミリ秒、`TR-REC-23`）。
 pub const DEFAULT_LEAD_IN_MS: f64 = 1250.0;
@@ -78,6 +119,19 @@ impl Default for GuideSpec {
 }
 
 impl GuideSpec {
+    /// 録るフレーズのガイド（`TR-REC-23`）。
+    ///
+    /// テンポだけを音源の設定から取る。 助走はミリ秒のままで、テンポを変えると
+    /// 助走に入る拍の数が変わる（`DEC-REC-012`）。
+    #[must_use]
+    pub fn phrase(tempo: GuideTempo, moras: u32) -> Self {
+        Self {
+            tempo_bpm: f64::from(tempo.bpm()),
+            moras,
+            ..Self::default()
+        }
+    }
+
     /// 多音階の基準音（`TR-REC-25`）。
     ///
     /// > フレーズの収録開始前に対象音高の基準音を必ず鳴らす
@@ -461,6 +515,105 @@ mod tests {
             ..GuideSpec::default()
         };
         assert!((advance_ms(Some(&s)) - s.total_ms()).abs() < 1e-9);
+    }
+}
+
+#[cfg(test)]
+mod tempo_tests {
+    use super::*;
+
+    /// クリックの鳴り始め（標本の位置）。 前の 100 ms が無音のところを1つと数える。
+    fn click_onsets(y: &[f32], rate: u32) -> Vec<usize> {
+        let gap = rate as usize / 10;
+        let mut onsets = Vec::new();
+        let mut last_loud: Option<usize> = None;
+        for (i, v) in y.iter().enumerate() {
+            if v.abs() > 1e-6 {
+                if last_loud.is_none_or(|l| i - l > gap) {
+                    onsets.push(i);
+                }
+                last_loud = Some(i);
+            }
+        }
+        onsets
+    }
+
+    fn clicks_only(tempo: GuideTempo, moras: u32) -> GuideSpec {
+        GuideSpec {
+            tone_level: 0.0,
+            ..GuideSpec::phrase(tempo, moras)
+        }
+    }
+
+    /// 既定は 120 BPM のまま（`TR-REC-23`）。
+    #[test]
+    fn 既定は_120_bpm() {
+        assert_eq!(GuideTempo::default().bpm(), 120);
+        assert!((GuideTempo::default().beat_ms() - 500.0).abs() < 1e-9);
+        assert!((DEFAULT_TEMPO_BPM - 120.0).abs() < f64::EPSILON);
+        let spec = GuideSpec::phrase(GuideTempo::default(), 8);
+        assert!((spec.beat_ms() - GuideSpec::default().beat_ms()).abs() < 1e-9);
+    }
+
+    /// 範囲と刻みに乗らない値は作れない（`DEC-REC-012`）。
+    #[test]
+    fn 範囲と刻みの外は作れない() {
+        for bpm in [
+            i32::from(GuideTempo::MIN_BPM),
+            125,
+            i32::from(GuideTempo::MAX_BPM),
+        ] {
+            assert!(GuideTempo::new(bpm).is_some(), "{bpm} は作れる");
+        }
+        for bpm in [
+            i32::from(GuideTempo::MIN_BPM) - i32::from(GuideTempo::STEP_BPM),
+            i32::from(GuideTempo::MAX_BPM) + i32::from(GuideTempo::STEP_BPM),
+            121,
+            0,
+            -120,
+            i32::MAX,
+        ] {
+            assert!(GuideTempo::new(bpm).is_none(), "{bpm} は作れない");
+        }
+        assert!(GuideTempo::new(i32::from(GuideTempo::DEFAULT.bpm())).is_some());
+    }
+
+    /// テンポを変えると、ガイドの拍がその間隔で鳴る（`TR-REC-23`）。
+    #[test]
+    fn テンポを変えるとクリックの間隔がその拍長になる() {
+        let rate = 44_100;
+        for bpm in [60, 90, 120, 180] {
+            let tempo = GuideTempo::new(bpm).expect("範囲の中");
+            let spec = clicks_only(tempo, 4);
+            let onsets = click_onsets(&render(&spec, 60, rate), rate);
+
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "助走の拍数は非負"
+            )]
+            let lead_beats = (spec.lead_in_ms / tempo.beat_ms()).floor() as usize;
+            assert_eq!(onsets.len(), lead_beats + 4, "{bpm} BPM のクリックの数");
+
+            let beat = tempo.beat_ms() / 1000.0 * f64::from(rate);
+            for w in onsets.windows(2) {
+                let got = (w[1] - w[0]) as f64;
+                assert!(
+                    (got - beat).abs() <= 2.0,
+                    "{bpm} BPM: 間隔 {got}（期待 {beat}）"
+                );
+            }
+        }
+    }
+
+    /// 助走はミリ秒のまま。 テンポを変えても発声の位置は動かない（`DEC-REC-012`）。
+    #[test]
+    fn テンポを変えても助走の長さは変わらない() {
+        let slow = GuideSpec::phrase(GuideTempo::new(60).expect("範囲の中"), 8);
+        let fast = GuideSpec::phrase(GuideTempo::new(180).expect("範囲の中"), 8);
+        assert!((slow.voice_start_ms() - DEFAULT_LEAD_IN_MS).abs() < 1e-9);
+        assert!((fast.voice_start_ms() - DEFAULT_LEAD_IN_MS).abs() < 1e-9);
+        assert!(slow.total_ms() > fast.total_ms());
     }
 }
 

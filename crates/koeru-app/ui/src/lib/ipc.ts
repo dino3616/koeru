@@ -67,6 +67,7 @@ import type {
   EnvelopeView,
   MicModeView,
   PackageSettingsView,
+  SetGuideTempoInput,
   SongSelection,
 } from "~/lib/bindings.gen";
 import type { RenameTakeInput } from "~/lib/bindings.gen";
@@ -334,6 +335,11 @@ export const api = {
     columns: number;
     rows: number;
   }) => unwrap(commands.spectrogramWindow(takeId, fromMs, toMs, columns, rows)),
+
+  /** ガイドのテンポ（`TR-REC-23`）。 範囲と刻みも返る（`DEC-REC-012`）。 */
+  guideTempo: () => unwrap(commands.guideTempo()),
+  /** ガイドのテンポを変える（`DEC-REC-012`）。 選べない値と録っている途中は結果の枝で返る。 */
+  setGuideTempo: (input: SetGuideTempoInput) => unwrap(commands.setGuideTempo(input)),
 };
 
 /**
@@ -360,3 +366,14 @@ export const micModeLabel = (m: MicModeView): string =>
     WideSpectrum: "周囲音を広く拾う処理",
     Unknown: "判定できません",
   })[m];
+
+/* ガイドのテンポ。 刷新のあいだ SDL の型名のまま運ぶ（`DEC-PLT-061`）。 */
+export type {
+  GuideTempo,
+  InputViolation,
+  InvalidRequest,
+  Problem,
+  SetGuideTempoInput,
+  SetGuideTempoOutcome,
+  SetGuideTempoPayload,
+} from "~/lib/bindings.gen";

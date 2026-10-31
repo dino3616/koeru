@@ -39,7 +39,7 @@ use koeru_core::db::{
 };
 use koeru_core::fingerprint::Digest;
 use koeru_core::frq;
-use koeru_core::guide::{self, GuideSpec};
+use koeru_core::guide::{self, GuideSpec, GuideTempo};
 use koeru_core::leak::{self, LeakCheck};
 use koeru_core::oto::Oto;
 use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method, ProjectDir};
@@ -805,6 +805,15 @@ pub struct TakePitch {
     pub hop: u32,
     /// 格子ごとの F0（Hz）。 テイクの全長を覆う。 無声・無音は [`koeru_core::frq::UNVOICED`]。
     pub f0: Vec<f64>,
+}
+
+/// ガイドのテンポを変えた結果（`DEC-REC-012`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuideTempoChange {
+    /// 変えた。 値が前と同じなら何も書いていない。
+    Set(GuideTempo),
+    /// 録っている途中なので変えていない。 そのテイクは録り始めたセッションに属する。
+    Recording,
 }
 
 /// 継ぎ足し先。
@@ -2570,6 +2579,50 @@ impl Studio {
     #[tracing::instrument(skip(self), fields(mode = mode.as_str()))]
     pub fn set_recording_order(&mut self, mode: koeru_core::order::Mode) -> Result<()> {
         Ok(self.writer()?.set_recording_order(mode, true)?)
+    }
+
+    /// ガイドのテンポ（`TR-REC-23`、`DEC-REC-012`）。 本人が変えていなければ既定。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self))]
+    pub fn guide_tempo(&self) -> Result<GuideTempo> {
+        Ok(self.writer()?.guide_tempo()?)
+    }
+
+    /// ガイドのテンポを変える（`DEC-REC-012`）。 録ったテイクは変えない。
+    ///
+    /// 収録セッションを始めていれば切って始め直す（`TR-REC-30`）。 テイクは属する
+    /// セッションのテンポで録られたことになるので、1つのセッションの中でテンポを変えない。
+    /// 録っている途中は変えない——そのテイクは録り始めたセッションに属する。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を書けない。
+    #[tracing::instrument(skip(self, tempo))]
+    pub fn set_guide_tempo(&mut self, tempo: GuideTempo) -> Result<GuideTempoChange> {
+        if self.recording.is_some() {
+            return Ok(GuideTempoChange::Recording);
+        }
+        let open = self.opened_mut()?;
+        let session = (open.session_id != 0).then_some(open.session_id);
+        let started = open
+            .writer()?
+            .set_guide_tempo(tempo, session, &now_rfc3339())?;
+        if let Some(started) = started {
+            open.session_id = started;
+        }
+        Ok(GuideTempoChange::Set(tempo))
+    }
+
+    /// 1フレーズぶんのガイド。 テンポは台帳にある本人の値（`TR-REC-23`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    pub fn phrase_guide(&self, moras: u32) -> Result<GuideSpec> {
+        Ok(GuideSpec::phrase(self.guide_tempo()?, moras))
     }
 
     /// 採用テイクを切り替える（`TR-RCL-25`）。
@@ -7187,6 +7240,119 @@ mod master_digest_tests {
         std::fs::remove_file(&path).expect("消せる");
         let stamp = studio.master_stamp(take, &rel);
         assert!(stamp.starts_with("unreadable:"), "{stamp}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+/// ガイドのテンポ（`TR-REC-23`、`DEC-REC-012`）が、フレーズのガイドとテイクの録音条件に届く。
+///
+/// `Studio::open` はアライナを読むので、Kaldi を組んである OS だけで走る。
+#[cfg(all(test, target_os = "macos", not(koeru_force_unsupported_backend)))]
+mod guide_tempo_tests {
+    use super::*;
+
+    fn opened(tag: &str) -> (Studio, PathBuf, Uuid) {
+        let root = std::env::temp_dir().join(format!("koeru-tempo-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("テンポ").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        (studio, root, id)
+    }
+
+    fn tempo(bpm: i32) -> GuideTempo {
+        GuideTempo::new(bpm).expect("選べるテンポ")
+    }
+
+    /// 次に録る行へテイクを1つ置き、その ID を返す。
+    fn record_next(studio: &mut Studio) -> i32 {
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.seed_material_for_test(&row).expect("素材を置ける")
+    }
+
+    fn take_tempo(studio: &Studio, take: i32) -> Option<i32> {
+        studio
+            .writer()
+            .expect("書き手")
+            .take_guide_tempo(take)
+            .expect("読める")
+    }
+
+    #[test]
+    fn 変えていなければ_120_bpm_で鳴らして記録する() {
+        let (mut studio, root, _) = opened("default");
+        assert_eq!(studio.guide_tempo().expect("読める").bpm(), 120);
+        let spec = studio.phrase_guide(8).expect("組める");
+        assert!((spec.beat_ms() - 500.0).abs() < 1e-9);
+
+        let take = record_next(&mut studio);
+        assert_eq!(take_tempo(&studio, take), Some(120));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 変えたテンポでフレーズのガイドの拍が刻まれる() {
+        let (mut studio, root, _) = opened("phrase");
+        let before = guide::render(&studio.phrase_guide(4).expect("組める"), 60, MASTER_RATE_HZ);
+
+        assert_eq!(
+            studio.set_guide_tempo(tempo(90)).expect("変えられる"),
+            GuideTempoChange::Set(tempo(90))
+        );
+        let spec = studio.phrase_guide(4).expect("組める");
+        assert!((spec.beat_ms() - 60_000.0 / 90.0).abs() < 1e-9);
+        assert_eq!(spec.moras, 4, "モーラ数は行の構造のまま");
+        assert_eq!(
+            spec.lead_in_ms,
+            koeru_core::guide::DEFAULT_LEAD_IN_MS,
+            "助走の長さは変えない"
+        );
+        let after = guide::render(&spec, 60, MASTER_RATE_HZ);
+        assert_eq!(
+            after,
+            guide::render(&GuideSpec::phrase(tempo(90), 4), 60, MASTER_RATE_HZ)
+        );
+        assert!(after.len() > before.len(), "遅くした拍のぶん長くなる");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn 録ったテイクは録ったときのテンポを持ち続ける() {
+        let (mut studio, root, _) = opened("take");
+        let first = record_next(&mut studio);
+        let session = studio.test_session_id().expect("始めてある");
+
+        studio.set_guide_tempo(tempo(90)).expect("変えられる");
+        assert_ne!(
+            studio.test_session_id().expect("始めてある"),
+            session,
+            "テンポを変えたらセッションを切る"
+        );
+        let second = record_next(&mut studio);
+
+        assert_eq!(
+            take_tempo(&studio, first),
+            Some(120),
+            "前のテイクは変えない"
+        );
+        assert_eq!(take_tempo(&studio, second), Some(90));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn テンポは音源に残り_開き直しても変わらない() {
+        let (mut studio, root, id) = opened("reopen");
+        studio.set_guide_tempo(tempo(150)).expect("変えられる");
+        studio.open_project(id).expect("開き直せる");
+        assert_eq!(studio.guide_tempo().expect("読める"), tempo(150));
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -379,6 +379,10 @@ export const commands = {
 	 *  解析がまだ置いていなければ `null`。 録っている途中には引かない（`DEC-PLT-036`）。
 	 */
 	takePitch: (take: number) => typedError<PitchTrack | null, AppError>(__TAURI_INVOKE("take_pitch", { take })),
+	/**  ガイドのテンポ（`RecordingFacet.guideTempo`）。 */
+	guideTempo: () => typedError<GuideTempo, AppError>(__TAURI_INVOKE("guide_tempo")),
+	/**  ガイドのテンポを変える（`Mutation.setGuideTempo`）。 録ったテイクは変えない。 */
+	setGuideTempo: (input: SetGuideTempoInput) => typedError<SetGuideTempoPayload, AppError>(__TAURI_INVOKE("set_guide_tempo", { input })),
 };
 
 /* Types */
@@ -552,6 +556,19 @@ export type GainControlView =
 "Unavailable";
 
 /**
+ *  ガイドのテンポ（`GuideTempo`）。 範囲と刻みも渡すので、画面は数を写さない
+ *  （`DEC-REC-012`）。
+ */
+export type GuideTempo = {
+	bpm: number,
+	beatMs: Finite,
+	defaultBpm: number,
+	minBpm: number,
+	maxBpm: number,
+	stepBpm: number,
+};
+
+/**
  *  取り込んだ曲（`TR-RCL-12`）。
  * 
  *  題をそのまま返す。 取り込んだ直後に本人が直せるようにするため、
@@ -562,6 +579,21 @@ export type ImportedSongView = {
 	title: string,
 	/**  ノートの数。休符は入らない。 */
 	notes: number,
+};
+
+export type InputViolation = {
+	field: string,
+	code: string,
+};
+
+/**  入力が形の上で受けられない（`InvalidRequest`）。 */
+export type InvalidRequest = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+	violations: InputViolation[],
 };
 
 /**  試唱の待ち時間の実測（`TR-SYN-33`）。 */
@@ -775,6 +807,18 @@ export type PreflightView = {
 	may_export: boolean,
 };
 
+/**
+ *  予期できる失敗（`Problem`）。 欄の名前は SDL に合わせる。 分類・確定の状態・次の手の値は
+ *  [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
+ */
+export type Problem = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+};
+
 /**  画面へ返す進み具合。 */
 export type ProgressView = {
 	/**  次に録る行の ID。 */
@@ -979,6 +1023,28 @@ export type RowTakesView = {
 	 *  絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
 	 */
 	risk_hard: number,
+};
+
+export type SetGuideTempoInput = {
+	bpm: number,
+};
+
+/**
+ *  `SetGuideTempoOutcome` の union。 枝の名前は `__typename` に載る。
+ * 
+ *  SDL の `ProjectLeaseExpired` と `OperationIdReused` は、照合する入力を運ばないので枝も無い。
+ *  プロジェクトを開いていないときは、ほかのコマンドと同じく失敗で返す。
+ */
+export type SetGuideTempoOutcome = { __typename: "GuideTempoSet"; tempo: GuideTempo } | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "StorageProblem",
+} & Problem;
+
+export type SetGuideTempoPayload = {
+	outcome: SetGuideTempoOutcome,
 };
 
 /**  取り込む前の1曲（`TR-RCL-12`）。まだ台帳に無い。 */
