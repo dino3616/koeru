@@ -57,6 +57,7 @@
 | [DEC-PKG-015](DEC-PKG-015.toml) | 配布物の方式の名乗り | readme の収録方式と収録音高を別の節に分け、収録音高は単音階でも出す | accepted |
 | [DEC-PKG-016](DEC-PKG-016.toml) | 壊れないと約束できる置き場所 | 耐障害を約束するのは内蔵ドライブのファイルシステムに限り、Windows ではライブラリを Local の app data へ置く | accepted |
 | [DEC-PKG-017](DEC-PKG-017.toml) | 控えが際限なく増えない | スナップショットは1プロジェクトにつき直近 20 件を残し、移行前の控えは次の移行が成功するまで1つ残す | accepted |
+| [DEC-PKG-018](DEC-PKG-018.toml) | 同じ音源を、形を変えて何度も配る | 配布は名前を付けた配布物として残し、版は配布物ごとに数える。 担当音域はその配布物の書き出しに限って直せる | accepted |
 | [DEC-PLT-001](DEC-PLT-001.toml) | 形態 | 実装スタックを Rust + Tauri にする | accepted |
 | [DEC-PLT-002](DEC-PLT-002.toml) | ライセンス | ライセンスを AGPL-3.0-or-later にする | accepted |
 | [DEC-PLT-003](DEC-PLT-003.toml) | 配布 | 配布は直接ダウンロードを主経路とし、Microsoft Store を取らない | accepted |
@@ -114,6 +115,8 @@
 | [DEC-PLT-058](DEC-PLT-058.toml) |  | D08 の切り替えは xtask の準備を先に並行で進め、repo 全体の書き換えは止める期間を取って行う。D08 に持ち越していた写し方をここで決める | accepted |
 | [DEC-PLT-059](DEC-PLT-059.toml) |  | CI は macOS を1枠に畳み、書いていない OS の席は macOS では組み立てだけを見る。 Rust のキャッシュは main だけが保存し、警告は build.warnings で落とす | accepted |
 | [DEC-PLT-060](DEC-PLT-060.toml) | JavaScript の実行系 | Node を道具に含めない。bun が node を兼ね、bunfig.toml の run.bun で常にそうさせる | accepted |
+| [DEC-PLT-061](DEC-PLT-061.toml) | 画面の刷新で足す操作の運び方 | 刷新のあいだは、新しい操作を SDL に先に書き、運ぶのは tauri-specta にする。リアーキテクトは T09 以降を止める | accepted |
+| [DEC-PLT-062](DEC-PLT-062.toml) | 刷新の表層を、色の段の規律の上に載せる | 刷新の表層は P6 の役割を Radix の段へ写す。 主ボタンだけ声の色で塗り、本人が選んだイメージカラーが声の色に勝つ。 立ち絵には手を入れない | accepted |
 | [DEC-RCL-001](DEC-RCL-001.toml) | 方式選択 | 方式は最初に選ばせ、選択肢は「手作業が必要かどうか」を主軸に見せる | accepted |
 | [DEC-RCL-002](DEC-RCL-002.toml) | 方式変換 | 方式変換は上位から下位への書き出しだけを見込み、逆は採らない | accepted |
 | [DEC-RCL-003](DEC-RCL-003.toml) | 進捗と課題曲 | カバレッジと歌える曲を常時両方見せ、曲は入口としてだけ使う | accepted |
@@ -131,6 +134,7 @@
 | [DEC-RCL-015](DEC-RCL-015.toml) | 下位方式への移行 | 下位方式の書き出しから素材の由来を落とす。声質の推測材料も置かない | accepted |
 | [DEC-RCL-016](DEC-RCL-016.toml) | 一度録った綴りを二度読ませない | 未収録の行を録った綴りに合わせて組み直し、重なった綴りは先に録った行が持つ | accepted |
 | [DEC-RCL-017](DEC-RCL-017.toml) | 綴りを改名しても録ったものが外れない | 録る対象の identity は音高・役割・音素の文脈から導く構造の鍵にし、エイリアスはそれを固定した rules で描いた表現にする | accepted |
+| [DEC-RCL-018](DEC-RCL-018.toml) | 1つの音源の中の録る単位 | 音源はサブバンクの枠（声色・方式・収録音階）を並べて持ち、作ったあとも足し、付け替え、消せる | accepted |
 | [DEC-REC-001](DEC-REC-001.toml) | 音声 I/O | 音声 I/O は各 OS の API を直接叩く。抽象レイヤを挟まない | accepted |
 | [DEC-REC-002](DEC-REC-002.toml) | 録音条件 | 録音条件は、ある程度の品質のマイクと通常の声量を前提にする | accepted |
 | [DEC-REC-003](DEC-REC-003.toml) | 前処理 | 録音直後のオフライン前処理を、試唱と配布に同じく適用する | accepted |
@@ -158,4 +162,4 @@
 | [DEC-SYN-014](DEC-SYN-014.toml) | 多音階の解決順 | 多音階ではノートごとに使える収録音高の中で解き、同じ高さの中の代用を下の高さより先に試す | accepted |
 | [DEC-TEL-001](DEC-TEL-001.toml) | 利用計測 | 利用計測は既定オフのオプトインとし、SaaS 経由でホワイトリスト送信する | accepted |
 
-148 件。
+152 件。
