@@ -95,7 +95,7 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'ledger_migration'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 9
+min_cases = 13
 contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043']
 
 [[suite]]
