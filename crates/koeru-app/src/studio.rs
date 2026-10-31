@@ -82,6 +82,12 @@ use crate::take_analysis::{
     TakeAnalysisInput, TakeAnalysisOutput, TakeFacts, consistency_reading,
 };
 
+mod subbank;
+pub use subbank::{
+    AddSubbank, ReviseSubbank, SubbankAnswer, SubbankDenied, SubbankRemoval, SubbankSummary,
+    Violation,
+};
+
 /// 単独音の収録音高。A3 を既定にする（`TR-RCL` の音階既定）。
 pub const DEFAULT_TONE_MIDI: i32 = 57;
 

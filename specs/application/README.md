@@ -72,9 +72,9 @@ operation の名前・正規化した文書の hash・種類・契約の hash �
 
 ## 旧コマンドからの移行
 
-tauri-specta の 84 のコマンド（`crates/koeru-app/src/lib.rs` の登録）が、どこへ行くか。
+tauri-specta の 91 のコマンド（`crates/koeru-app/src/lib.rs` の登録）が、どこへ行くか。
 新しい操作を tauri-specta に足さない（`DEC-PLT-035`）。 刷新のあいだの例外は `DEC-PLT-061` で、
-足したものも表の末尾に並ぶ。
+足したものは表の末尾か、下の節に並ぶ。
 
 | コマンド | 行き先 | 種類 |
 |---|---|---|
@@ -166,6 +166,22 @@ tauri-specta の 84 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 コマンドの外で消えるもの。 `finish_take` が返していた波形のサムネイルは
 `Query.waveformWindow` を小さい画素数で読む。 行と確認の `key`（結合した文字列）は
 `RowId` / `EntryId` / `TargetId` に分かれる。
+
+### サブバンクの枠（`DEC-PLT-061` の例外）
+
+SDL に先にあり、刷新のあいだ tauri-specta で運ぶコマンド。 型と欄の名前は SDL のまま。
+貸与・操作の識別子・読んだ版は運ばないので、入力から落とし、payload の `receipt` も持たない。
+`OperationIdReused` は返らない。 開いていないときは `ProjectLeaseExpired` を返す。
+
+| コマンド | 行き先 | 種類 | 落とした欄 |
+|---|---|---|---|
+| `subbanks` | `RecordingFacet.subbanks` | Query | — |
+| `voice_colors` | `RecordingFacet.voiceColors` | Query | — |
+| `add_subbank` | `Mutation.addSubbank` | Mutation | `lease`・`operationId`・`receipt` |
+| `revise_subbank` | `Mutation.reviseSubbank` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
+| `reorder_subbanks` | `Mutation.reorderSubbanks` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
+| `set_subbank_tone_range` | `Mutation.setSubbankToneRange` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
+| `remove_subbank` | `Mutation.removeSubbank` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
 
 ## 語彙の判断
 

@@ -325,6 +325,84 @@ mutation RemoveSubbank($input: RemoveSubbankInput!) {
   }
 }
 
+mutation ReviseSubbank($input: ReviseSubbankInput!) {
+  reviseSubbank(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SubbankRevised {
+        subbank {
+          ...SubbankRow_Subbank
+        }
+      }
+      ... on SubbankConflict {
+        existing
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation ReorderSubbanks($input: ReorderSubbanksInput!) {
+  reorderSubbanks(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SubbanksReordered {
+        subbanks {
+          ...SubbankRow_Subbank
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on InvalidRequest {
+        violations {
+          field
+          code
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation SetSubbankToneRange($input: SetSubbankToneRangeInput!) {
+  setSubbankToneRange(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SubbankToneRangeSet {
+        subbanks {
+          ...SubbankRow_Subbank
+        }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
 subscription WatchInputEnvelope($input: InputLeaseId!) {
   inputEnvelope(input: $input) {
     __typename
