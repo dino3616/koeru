@@ -22,5 +22,3 @@ git submodule update --init --recursive
 nix develop --command git lfs pull
 
 nix develop --command bash -c 'cd crates/koeru-app/ui && bun install && bun run build'
-
-nix develop --command cargo fetch
