@@ -31,7 +31,7 @@ query Library {
 fragment ProjectCard_ProjectSummary on ProjectSummary {
   id
   displayName
-  method
+  subbankCount
   rowCount
   voice {
     ...VoiceRings_VoiceSummary
@@ -100,7 +100,11 @@ mutation OpenProject($project: ProjectId!) {
         project {
           revision
           displayName
-          method
+          recording {
+            subbanks {
+              ...SubbankRow_Subbank
+            }
+          }
           notices {
             kind
             ... on RulesFileRestored {

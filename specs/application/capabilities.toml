@@ -90,6 +90,11 @@ costs = [
 'Mutation.finishTake' = { capability = 'recording.capture', cost = 'job-creating' }
 'Mutation.chooseRecordingOrder' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.adoptTake' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.addSubbank' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.reviseSubbank' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.reorderSubbanks' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.setSubbankToneRange' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.removeSubbank' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.playTake' = { capability = 'playback.control', cost = 'native-resource' }
 'Mutation.auditionTake' = { capability = 'playback.control', cost = 'compute-heavy' }
 'Mutation.stopPlayback' = { capability = 'playback.control', cost = 'native-resource' }
@@ -116,6 +121,9 @@ costs = [
 'Mutation.saveDistributionSettings' = { capability = 'distribution.modify', cost = 'durable-write' }
 'Mutation.replaceDistributionImage' = { capability = 'distribution.modify', cost = 'durable-write' }
 'Mutation.removeDistributionImage' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.duplicateDistribution' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.reviseDistribution' = { capability = 'distribution.modify', cost = 'durable-write' }
+'Mutation.removeDistribution' = { capability = 'distribution.modify', cost = 'durable-write' }
 'Mutation.prepareExport' = { capability = 'distribution.prepare', cost = 'compute-heavy' }
 'Mutation.commitExport' = { capability = 'distribution.export', cost = 'durable-write' }
 'Mutation.exportSettingsFile' = { capability = 'distribution.export', cost = 'durable-write' }

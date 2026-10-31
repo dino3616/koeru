@@ -9,13 +9,14 @@ query DistributionOverview($lease: ProjectLease!) {
       revision
       distribution {
         settings {
-          distributionName
           profile
           author
-          version
           portraitOpacity
           portraitHeight
           terms
+        }
+        distributions {
+          ...DistributionShelf_Distribution
         }
         icon {
           byteLength
@@ -28,20 +29,56 @@ query DistributionOverview($lease: ProjectLease!) {
         readiness {
           ...ExportGate_ExportReadiness
         }
-        releases {
-          id
-          version
-          method
-          aliasCount
-          validation
-          archiveName
-          releasedAt
-        }
       }
     }
     ... on ProjectLeaseExpired {
       ...ProblemNotice_Problem
     }
+  }
+}
+
+fragment DistributionShelf_Distribution on Distribution {
+  id
+  name
+  archiveName
+  subbanks {
+    subbank {
+      id
+      voiceColor
+      tone {
+        midi
+      }
+    }
+    toneRange {
+      low {
+        midi
+      }
+      high {
+        midi
+      }
+      edited
+    }
+  }
+  uncovered {
+    voiceColor
+    low {
+      midi
+    }
+    high {
+      midi
+    }
+  }
+  terms
+  draftVersion
+  rowsChangedSinceRelease
+  releases {
+    id
+    version
+    method
+    aliasCount
+    validation
+    archiveName
+    releasedAt
   }
 }
 
@@ -111,9 +148,54 @@ mutation SaveDistributionSettings($input: SaveDistributionSettingsInput!) {
       __typename
       ... on DistributionSettingsSaved {
         settings {
-          distributionName
           profile
+          author
         }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation DuplicateDistribution($input: DuplicateDistributionInput!) {
+  duplicateDistribution(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on DistributionAdded {
+        distribution {
+          ...DistributionShelf_Distribution
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation ReviseDistribution($input: ReviseDistributionInput!) {
+  reviseDistribution(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on DistributionRevised {
+        distribution {
+          ...DistributionShelf_Distribution
+        }
+      }
+      ... on DistributionConflict {
+        existing
+      }
+      ... on RevisionConflict {
+        expected
+        actual
       }
       ... on Problem {
         ...ProblemNotice_Problem
@@ -130,6 +212,8 @@ mutation PrepareExport($input: PrepareExportInput!) {
         plan {
           id
           basedOn
+          distribution
+          version
           method
           profile
           fileCount

@@ -56,12 +56,11 @@ fragment RecordingHeader_RecordingFacet on RecordingFacet {
     seconds
     rows
   }
-  byTone {
-    tone {
-      name
+  voiceColors {
+    name
+    subbanks {
+      ...SubbankRow_Subbank
     }
-    done
-    total
   }
   chosenDevice
   input {
@@ -245,6 +244,74 @@ mutation AdoptTake($input: AdoptTakeInput!) {
           id
           adoptedTake
         }
+      }
+      ... on RevisionConflict {
+        expected
+        actual
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+fragment SubbankRow_Subbank on Subbank {
+  id
+  voiceColor
+  method
+  tone {
+    name
+  }
+  toneRange {
+    low {
+      name
+    }
+    high {
+      name
+    }
+    edited
+  }
+  progress {
+    recordedRows
+    rows
+    remainingSeconds
+  }
+  hasTakes
+}
+
+mutation AddSubbank($input: AddSubbankInput!) {
+  addSubbank(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SubbankAdded {
+        subbank {
+          ...SubbankRow_Subbank
+        }
+      }
+      ... on SubbankConflict {
+        existing
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
+mutation RemoveSubbank($input: RemoveSubbankInput!) {
+  removeSubbank(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on SubbankRemoved {
+        subbank
+        removedTakes
       }
       ... on RevisionConflict {
         expected

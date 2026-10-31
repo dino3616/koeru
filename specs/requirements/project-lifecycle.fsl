@@ -7,12 +7,17 @@
 //           **これが単一の真実。** 完成もカバレッジもここから機械的に決まる（TR-REC-31、TR-PKG-33）。
 // ASSUME-2: テイクは世代として積み、削除も上書きもしない（TR-REC-21）。
 //           採用テイクは切り替えられるが、過去のテイクは残る。
+//           **例外は本人がサブバンクの枠を消したときだけで、その枠のテイクが消える**（TR-RCL-29）。
 // ASSUME-3: 項目数とテイク数は検証用に小さい有限値へ閉じる（表現上の仮定）。
 //           容量閾値を超えたときの削除候補の提示は、自動削除ではないので状態を変えない。
 // ASSUME-4: 検証範囲ではクラッシュを有限回に閉じる（表現上の仮定）。
 // ASSUME-5: クラッシュは、進行中のテイクを失うか、**復旧候補を1つ残すか**のどちらか（TR-REC-28）。
 //           どちらになるかは書き込みがどこまで進んでいたかで決まるが、それは設計層の話。
 //           **要求層が言うのは「復旧候補は本人が選ぶまで消えない」まで**（TR-REC-31）。
+// ASSUME-6: 項目はサブバンクの枠に属し、枠は作ったあとに足せて、消せる（TR-RCL-28、TR-RCL-29）。
+//           ここでは1項目を1枠として扱い、`present` で枠が音源にあるかを持つ。
+//           1つの枠の項目が束になって足され、消えることは設計層の話で、要求層は言わない。
+// ASSUME-7: 枠を消す回数は検証用に小さい有限値へ閉じる（表現上の仮定）。
 
 requirements KoeruProjectLifecycle {
   entity ListItem
@@ -20,6 +25,7 @@ requirements KoeruProjectLifecycle {
 
   const MAX_TAKES = 2
   const MAX_CRASHES = 1
+  const MAX_REMOVALS = 1
 
   enum ItemState { Unrecorded, Adopted, AllInvalid }
   enum Handoff   { NotExported, Exported }
@@ -30,6 +36,8 @@ requirements KoeruProjectLifecycle {
     invalid:   Map<ListItem, Count>,
     recoverable: Map<ListItem, Count>,
     discarded:   Map<ListItem, Count>,
+    present:   Map<ListItem, Bool>,
+    removed:   Map<ListItem, Count>,
     recording: Option<ListItem>,
     handoff:   Handoff,
     crashes:   Count
@@ -41,17 +49,23 @@ requirements KoeruProjectLifecycle {
     forall i: ListItem { invalid[i] = 0 }
     forall i: ListItem { recoverable[i] = 0 }
     forall i: ListItem { discarded[i] = 0 }
+    forall i: ListItem { present[i] = true }
+    forall i: ListItem { removed[i] = 0 }
     recording = none
     handoff = NotExported
     crashes = 0
   }
 
   // 完成は項目の状態からだけ決まる。書き出し履歴を一切参照しない。
-  def complete() = forall i: ListItem { item[i] == Adopted }
+  // 枠が1つも無い音源は完成していない。 無いと、中身の無い音源が書き出せる。
+  def complete() =
+    (exists i: ListItem { present[i] })
+    and forall i: ListItem { present[i] => item[i] == Adopted }
 
   @requirement("REQ-REC-001", "録音を開始すると、確定するまで進行中の項目が1つある")
   fair action start_take(i: ListItem) {
     requires recording == none
+    requires present[i]
     requires takes[i] < MAX_TAKES
     requires invalid[i] < MAX_TAKES
     recording = some(i)
@@ -76,6 +90,7 @@ requirements KoeruProjectLifecycle {
   @requirement("REQ-REC-005", "録り直しても過去のテイクは残り、採用をいつでも戻せる")
   action readopt_earlier_take(i: ListItem) {
     requires recording == none
+    requires present[i]
     requires takes[i] >= 2
     item[i] = Adopted
   }
@@ -91,6 +106,7 @@ requirements KoeruProjectLifecycle {
   action record_more_after_complete(i: ListItem) {
     requires complete()
     requires recording == none
+    requires present[i]
     requires invalid[i] < MAX_TAKES
     invalid[i] = invalid[i] + 1
   }
@@ -115,6 +131,7 @@ requirements KoeruProjectLifecycle {
   @requirement("REQ-REC-007", "復旧候補は本人が採ることができる")
   action recover_take(i: ListItem) {
     requires recording == none
+    requires present[i]
     requires recoverable[i] > 0
     requires takes[i] < MAX_TAKES
     recoverable[i] = recoverable[i] - 1
@@ -130,6 +147,27 @@ requirements KoeruProjectLifecycle {
     discarded[i] = discarded[i] + 1
   }
 
+  @requirement("REQ-RCL-101", "作ったあとでも、サブバンクの枠を足せる。足した枠は未収録から始まる")
+  action add_subbank(i: ListItem) {
+    requires not present[i]
+    present[i] = true
+  }
+
+  // 復旧候補が残っている枠は消せない。 先に採るか捨てる（REQ-REC-007）。
+  // 消したことを復旧候補の「捨てた」に数えると、本人が選んでいない候補が消える。
+  @requirement("REQ-RCL-102", "本人はサブバンクの枠を消せる。消すと、その枠のテイクも消える")
+  action remove_subbank(i: ListItem) {
+    requires recording == none
+    requires present[i]
+    requires recoverable[i] == 0
+    requires removed[i] < MAX_REMOVALS
+    present[i] = false
+    item[i] = Unrecorded
+    takes[i] = 0
+    invalid[i] = 0
+    removed[i] = removed[i] + 1
+  }
+
   @requirement("MODEL-REC-002", "ASSUME-3: 収録中の項目は、まだ録り足せる余地がある")
   invariant RecordingImpliesRoom {
     forall i: ListItem {
@@ -139,7 +177,19 @@ requirements KoeruProjectLifecycle {
 
   @requirement("INV-PKG-001", "完成は項目の状態だけで決まり、書き出し履歴を一切参照しない")
   invariant CompletionIgnoresHandoff {
-    complete() => forall i: ListItem { item[i] == Adopted }
+    complete() => forall i: ListItem { present[i] => item[i] == Adopted }
+  }
+
+  @requirement("INV-RCL-103", "録っている項目の枠は、音源にある")
+  invariant RecordingIsPresent {
+    forall i: ListItem { recording == some(i) => present[i] }
+  }
+
+  @requirement("INV-RCL-101", "音源に無い枠の項目は、テイクも無効テイクも復旧候補も持たない")
+  invariant AbsentHasNothing {
+    forall i: ListItem {
+      (not present[i]) => (item[i] == Unrecorded and takes[i] == 0 and invalid[i] == 0 and recoverable[i] == 0)
+    }
   }
 
   @requirement("INV-REC-001", "採用テイクを持つ項目は、確定したテイクを1件以上持つ")
@@ -157,9 +207,14 @@ requirements KoeruProjectLifecycle {
     forall i: ListItem { item[i] == Unrecorded => (takes[i] == 0 and invalid[i] == 0) }
   }
 
-  @requirement("INV-REC-005", "確定したテイクは、削除も上書きもされない")
+  @requirement("INV-REC-005", "確定したテイクが減るのは、本人がその枠を消したときだけ")
   trans TakesAreNeverLost {
-    forall i: ListItem { takes[i] >= old(takes[i]) }
+    forall i: ListItem { takes[i] >= old(takes[i]) or removed[i] > old(removed[i]) }
+  }
+
+  @requirement("INV-RCL-102", "枠を消しても、ほかの枠のテイクは減らない")
+  trans RemovalTouchesOnlyItsSubbank {
+    forall i: ListItem { removed[i] == old(removed[i]) => takes[i] >= old(takes[i]) }
   }
 
   @requirement("INV-PKG-002", "書き出せるのは完成しているときだけ")
@@ -206,6 +261,16 @@ requirements KoeruProjectLifecycle {
     exists i: ListItem { item[i] == AllInvalid }
   }
 
+  @requirement("REQ-RCL-101", "書き出したあとに枠を足すと未完成に戻り、手渡しの状態は残る")
+  reachable SubbankAddedAfterExport {
+    handoff == Exported and not complete()
+  }
+
+  @requirement("REQ-RCL-102", "枠を消して足し直すと、また録れる")
+  reachable RecordedAgainAfterRemoval {
+    exists i: ListItem { removed[i] > 0 and takes[i] > 0 }
+  }
+
   forbidden FB-PKG-001 "完成していない音源は書き出せない" {
     start_take(0)
     finalize_valid_take()
@@ -222,6 +287,13 @@ requirements KoeruProjectLifecycle {
     expect rejected
   }
 
+  forbidden FB-RCL-101 "枠をすべて消した音源は書き出せない" {
+    remove_subbank(0)
+    remove_subbank(1)
+    export_zip()
+    expect rejected
+  }
+
   // 停止してよい状態。完成して書き出したあとに加えて、
   // **検証用の有限化で「これ以上録れない」に達した状態**も含める。
   // 実際には録り直しに上限は無い（ASSUME-3）ので、後者はモデルの縁であって製品の状態ではない。
@@ -229,7 +301,10 @@ requirements KoeruProjectLifecycle {
     recording == none
     and (
       (complete() and handoff == Exported)
-      or forall i: ListItem { takes[i] >= MAX_TAKES or invalid[i] >= MAX_TAKES }
+      or forall i: ListItem {
+        (not present[i] and removed[i] >= MAX_REMOVALS)
+        or takes[i] >= MAX_TAKES or invalid[i] >= MAX_TAKES
+      }
     )
   }
 }

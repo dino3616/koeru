@@ -13,23 +13,29 @@ type DistributionFacet {
   readiness: ExportReadiness!
   "配布物に入るファイル（`TR-PKG-28`）。"
   contents: [PackageFile!]!
-  "書き出しの履歴（`TR-PKG-44`）。 新しい順。"
+  "名前を付けて残す配布物（`TR-PKG-58`）。 少なくとも1つ。 足した順。"
+  distributions: [Distribution!]!
+  "すべての配布物の書き出し（`TR-PKG-44`）。 消した配布物のものも残る。 新しい順。"
   releases: [Release!]!
 }
 
+"音源で1つの値。 配布物ごとに変わるものは `Distribution` が持つ。"
 type DistributionSettings {
   "音源ルートフォルダ名（`DEC-PKG-008`）。"
   distributionName: String!
+    @deprecated(reason: "配布物ごとに持つ（`TR-PKG-58`）。 `Distribution.archiveName` を読む。")
   profile: ExportProfile!
   author: String
   voice: String
   sample: String
   web: String
   version: String
+    @deprecated(reason: "配布物ごとに数える（`TR-PKG-60`）。 `Distribution.draftVersion` を読む。")
   portraitOpacity: Float!
   "立ち絵から決まる。 設定しない。"
   portraitHeight: Int!
   toneRangeNote: String
+  "音源の利用規約。 配布物ごとに上書きできる（`Distribution.terms`）。"
   terms: String
   creditExample: String
   contact: String
@@ -130,9 +136,48 @@ type PackageFile {
   bytes: ByteCount!
 }
 
+"""
+名前を付けて残す配布物（`TR-PKG-58`）。 1つの配布物は1つの ZIP になる。
+画像・名義・声の提供者・web・サンプル音声は音源で1つで、ここには持たない。
+"""
+type Distribution {
+  id: DistributionId!
+  name: String!
+  "音源ルートフォルダ名（`DEC-PKG-008`）。 配布物のあいだで重ならない。"
+  archiveName: String!
+  "入れる枠。 並びは `RecordingFacet.subbanks` と同じ。"
+  subbanks: [PackagedSubbank!]!
+  "声色ごとに、入れた枠のどれも受け持たない高さ（`TR-PKG-59`）。 埋めるかは本人が決める。"
+  uncovered: [UncoveredRange!]!
+  "この配布物だけの利用規約。 null なら音源の規約（`DistributionSettings.terms`）。"
+  terms: String
+  "次に書き出す版の番号（`TR-PKG-60`）。 下書きが無ければ null。"
+  draftVersion: String
+  "この配布物の書き出し。 新しい順。"
+  releases: [Release!]!
+  "最後に書き出したあとに採用が変わった、入れた枠の行（`TR-PKG-61`）。 書き出していなければ null。"
+  rowsChangedSinceRelease: Int
+}
+
+type PackagedSubbank {
+  subbank: Subbank!
+  "この配布物で書く担当音域（`TR-PKG-59`）。 `edited` はこの配布物で直したときだけ true。"
+  toneRange: ToneRange!
+}
+
+type UncoveredRange {
+  "null は声色なし。"
+  voiceColor: String
+  low: Tone!
+  high: Tone!
+}
+
 "在り処は持たない（`TR-PKG-45`）。 見せるのは desktop host の役目。"
 type Release {
   id: ReleaseId!
+  "書き出した配布物。 配布物を消しても記録は残る（`TR-PKG-44`）。"
+  distribution: DistributionId!
+  "同じ配布物の中で、同じ番号の記録が並ぶことがある（`TR-PKG-60`）。"
   version: String!
   method: RecordingMethod!
   aliasCount: Int!
@@ -151,6 +196,8 @@ enum ReleaseValidation {
 type ExportPlan {
   id: ExportPlanId!
   basedOn: Revision!
+  distribution: DistributionId!
+  version: String!
   method: RecordingMethod!
   profile: ExportProfile!
   fileCount: Int!
@@ -172,6 +219,12 @@ extend type Mutation {
   "アイコンか立ち絵を入れ替える（`TR-PKG-07`）。 受け取った時点で使える画像かを確かめる。"
   replaceDistributionImage(input: ReplaceDistributionImageInput!): ReplaceDistributionImagePayload!
   removeDistributionImage(input: RemoveDistributionImageInput!): RemoveDistributionImagePayload!
+  "配布物を写して足す（`TR-PKG-58`）。 名前は「〇〇 のコピー」。"
+  duplicateDistribution(input: DuplicateDistributionInput!): DuplicateDistributionPayload!
+  "配布物の名前・入れる枠・担当音域・規約・下書きの番号を直す。 渡したものだけ変える。"
+  reviseDistribution(input: ReviseDistributionInput!): ReviseDistributionPayload!
+  "配布物を消す。 書き出しの記録と ZIP は残す（`TR-PKG-44`）。 最後の1つは消せない。"
+  removeDistribution(input: RemoveDistributionInput!): RemoveDistributionPayload!
   "書き出しの計画を作る。 project を変えない。"
   prepareExport(input: PrepareExportInput!): PrepareExportPayload!
   "計画どおりに書き出して、履歴に1件足す（`TR-PKG-44`）。"
@@ -188,6 +241,7 @@ input SaveDistributionSettingsInput {
 
 "画像と、画像から決まる値はここで触らない。"
 input DistributionSettingsInput {
+  "先頭の配布物のフォルダ名に書く。 配布物ごとの名前は `reviseDistribution`（`TR-PKG-58`）。"
   distributionName: String!
   profile: ExportProfile!
   author: String
@@ -195,6 +249,7 @@ input DistributionSettingsInput {
   sample: String
   web: String
   version: String
+    @deprecated(reason: "配布物ごとに数える（`TR-PKG-60`）。 `reviseDistribution` の `draftVersion` で書く。")
   portraitOpacity: Float!
   toneRangeNote: String
   terms: String
@@ -268,8 +323,111 @@ type DistributionImageRemoved {
   role: ImageRole!
 }
 
+input DuplicateDistributionInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  source: DistributionId!
+}
+
+type DuplicateDistributionPayload {
+  receipt: MutationReceipt!
+  outcome: DuplicateDistributionOutcome!
+}
+
+union DuplicateDistributionOutcome =
+  | DistributionAdded
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionAdded {
+  distribution: Distribution!
+}
+
+input ReviseDistributionInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  distribution: DistributionId!
+  name: String
+  "配布物のあいだで重なると `DistributionConflict`。"
+  archiveName: String
+  "渡すと入れる枠をこれに置き換える。 空にはできない。"
+  subbanks: [PackagedSubbankInput!]
+  terms: String
+  "この配布物の規約を消し、音源の規約に戻す。"
+  clearTerms: Boolean
+  "書き出し済みの番号とは重ねない。 同じ番号で出し直すのは `prepareExport` の `version`。"
+  draftVersion: String
+  "下書きを消す。 書き出し済みの版は消えない。"
+  clearDraftVersion: Boolean
+}
+
+input PackagedSubbankInput {
+  subbank: SubbankId!
+  "省くと枠の担当音域（`TR-RCL-31`）。 直してもこの配布物にだけ効く（`TR-PKG-59`）。"
+  toneRange: ToneRangeInput
+}
+
+type ReviseDistributionPayload {
+  receipt: MutationReceipt!
+  outcome: ReviseDistributionOutcome!
+}
+
+union ReviseDistributionOutcome =
+  | DistributionRevised
+  | DistributionConflict
+  | ActionRejected
+  | InvalidRequest
+  | ReferenceNotFound
+  | RevisionConflict
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionRevised {
+  distribution: Distribution!
+}
+
+"フォルダ名が別の配布物と重なった。"
+type DistributionConflict implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  existing: DistributionId!
+}
+
+input RemoveDistributionInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  distribution: DistributionId!
+}
+
+type RemoveDistributionPayload {
+  receipt: MutationReceipt!
+  outcome: RemoveDistributionOutcome!
+}
+
+"最後の1つを消そうとすると `ActionRejected`。"
+union RemoveDistributionOutcome =
+  | DistributionRemoved
+  | ActionRejected
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type DistributionRemoved {
+  distribution: DistributionId!
+}
+
 input PrepareExportInput {
   lease: ProjectLease!
+  "省くと先頭の配布物（`TR-PKG-58`）。"
+  distribution: DistributionId
+  "省くと下書きの番号。 下書きが無ければ、最後の版の末尾を1つ上げた番号。 書き出し済みの番号なら、同じ番号で記録を1件足す（`TR-PKG-60`）。"
+  version: String
   "省くと音源の方式。 下位の方式なら独立した音源として出す（`TR-PKG-24`）。"
   method: RecordingMethod
   "省くと保存してあるプロファイル。"
