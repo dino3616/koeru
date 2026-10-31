@@ -46,7 +46,7 @@ use koeru_core::project::{CoverageState, HandoffState, Library, Manifest, Method
 use koeru_core::song::{self, Song, SongStatus};
 use koeru_core::text::TextEncoding;
 use koeru_core::ust;
-use koeru_core::voice::{self, VoiceColor};
+use koeru_core::voice::{self, VoiceTint};
 use koeru_core::waveform;
 // `Outcome` は収録の校正（`calibration::Outcome`）が名乗っているので、確定の状態は
 // `koeru_failure::Outcome` と書く。
@@ -661,7 +661,7 @@ pub struct VoiceState {
     /// 五十音の行ごとの `(収録済み, 全体)`。環1本につき1組（`DEC-PLT-025`）。
     pub rings: Vec<(u32, u32)>,
     /// 声から作った色。1つも録れていなければ `None`（`DEC-PLT-027`）。
-    pub color: Option<VoiceColor>,
+    pub color: Option<VoiceTint>,
 }
 
 /// 縦切りの本体。
@@ -5992,7 +5992,7 @@ fn voice_state(
         singable_songs: song::singable_count(&songs),
         songs_in_bank: songs.len(),
         rings,
-        color: traits.as_ref().map(VoiceColor::from_traits),
+        color: traits.as_ref().map(VoiceTint::from_traits),
     })
 }
 
