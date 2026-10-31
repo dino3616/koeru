@@ -798,6 +798,15 @@ pub struct SubbankSwitch {
     pub to: Option<i32>,
 }
 
+/// 確定したテイクの音高の記録（[`Studio::take_pitch`]）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct TakePitch {
+    /// 格子の間隔（マスターの標本数）。
+    pub hop: u32,
+    /// 格子ごとの F0（Hz）。 テイクの全長を覆う。 無声・無音は [`koeru_core::frq::UNVOICED`]。
+    pub f0: Vec<f64>,
+}
+
 /// 継ぎ足し先。
 ///
 /// 合成スレッドが持つのは `Feed` だけ。 `AudioUnit` には触らない。
@@ -4677,6 +4686,48 @@ impl Studio {
         Ok(self.writer()?.otos_of(take_id)?)
     }
 
+    /// テイクに名前を付ける・変える・消す（収録の画面のテイクの切り替え）。
+    ///
+    /// 前後の空白を除いて空なら消し、画面は既定の表示（何本目か）へ戻る。 長さも字も
+    /// 制限しない——曲の題（[`Self::rename_song`]）と同じで、表示のためだけの文字列。
+    /// 録音もエントリも触らない。
+    ///
+    /// 付け直したテイクを返す。 そのテイクが無ければ `None`。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を書けない。
+    #[tracing::instrument(skip(self, label))]
+    pub fn rename_take(
+        &mut self,
+        take_id: i32,
+        label: Option<&str>,
+    ) -> Result<Option<koeru_core::db::Take>> {
+        let label = label.map(str::trim).filter(|l| !l.is_empty());
+        Ok(self.writer()?.set_take_label(take_id, label)?)
+    }
+
+    /// 確定のあとの解析が出した音高の記録（`TR-PKG-05`）。
+    ///
+    /// 周波数表と同じ系列を、テイクの全長で返す。 切り出さない（`DEC-SYN-008`）。
+    /// 解析がまだ置いていなければ `None`——保留・失敗・取消のどれでも同じで、
+    /// どれなのかは解析の状態が持つ。 録っている途中には読まない（`DEC-PLT-036`）。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、そのテイクが無い、台帳を読めない。
+    #[tracing::instrument(skip(self))]
+    pub fn take_pitch(&mut self, take_id: i32) -> Result<Option<TakePitch>> {
+        let mut w = self.writer()?;
+        if w.take(take_id)?.is_none() {
+            return Err(unknown_take());
+        }
+        Ok(w.analysis_of(take_id)?.map(|a| TakePitch {
+            hop: a.hop_size(),
+            f0: a.frq.f0,
+        }))
+    }
+
     /// 録れたものをそのまま鳴らす（`TR-REC-43`）。
     ///
     /// 合成を通さない。 `preview` は oto で切り出して目標音高へ寄せた音で、
@@ -6046,6 +6097,126 @@ mod tests {
             started,
             "同じ音源を開き直したら、セッションは同じであること"
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// テイクの名前は付け、変え、消せる。 空白だけの名前は消すのと同じで、既定の表示へ戻る。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn テイクに名前を付け_変え_消せる() {
+        let root = std::env::temp_dir().join(format!("koeru-take-label-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("名前").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let (row, _) = studio
+            .progress()
+            .expect("進み具合を引ける")
+            .next_row
+            .expect("次に録る行がある");
+        studio.mark_recorded_for_test(&row).expect("印を付けられる");
+        let label_of = |s: &mut Studio| {
+            let rows = s.rows_with_takes().expect("行を引ける");
+            let r = rows
+                .into_iter()
+                .find(|r| r.row_id == row)
+                .expect("行がある");
+            r.takes
+                .into_iter()
+                .map(|t| (t.id, t.label))
+                .next()
+                .expect("テイクがある")
+        };
+        let (take, before) = label_of(&mut studio);
+        assert_eq!(before, None, "付けるまでは名前を持たない");
+
+        let named = studio
+            .rename_take(take, Some("  ちょい明め "))
+            .expect("付けられる")
+            .expect("テイクがある");
+        assert_eq!(
+            named.label.as_deref(),
+            Some("ちょい明め"),
+            "前後の空白は落とす"
+        );
+        assert_eq!(label_of(&mut studio).1.as_deref(), Some("ちょい明め"));
+
+        studio.rename_take(take, Some("本命")).expect("変えられる");
+        assert_eq!(label_of(&mut studio).1.as_deref(), Some("本命"));
+
+        let cleared = studio
+            .rename_take(take, Some("   "))
+            .expect("消せる")
+            .expect("テイクがある");
+        assert_eq!(cleared.label, None, "空白だけは消すのと同じ");
+        studio.rename_take(take, Some("本命")).expect("付け直せる");
+        studio.rename_take(take, None).expect("消せる");
+        assert_eq!(label_of(&mut studio).1, None);
+
+        assert!(
+            studio
+                .rename_take(take + 1000, Some("無い"))
+                .expect("失敗にしない")
+                .is_none(),
+            "無いテイクは値で返す"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 確定のあとの解析が置いた F0 を、`.frq` の格子のまま読める。 解析がまだ置いていない
+    /// テイクは値で「無い」と返し、無いテイクは失敗にする。
+    #[cfg(all(target_os = "macos", not(koeru_force_unsupported_backend)))]
+    #[test]
+    fn 確定したテイクの音高の記録を読める() {
+        let root = std::env::temp_dir().join(format!("koeru-take-pitch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut studio = Studio::open(root.clone()).expect("ライブラリを開ける");
+        let id = studio.create_project("音高").expect("作れる");
+        studio.open_project(id).expect("開ける");
+        let rows = studio.rows_with_takes().expect("行を引ける");
+
+        let analysed = studio
+            .seed_material_for_test(&rows[0].row_id)
+            .expect("置ける");
+        let pitch = studio
+            .take_pitch(analysed)
+            .expect("読める")
+            .expect("解析が置いてある");
+        assert_eq!(pitch.hop, koeru_core::frq::HOP_SIZE);
+        let frames = usize::try_from(MASTER_RATE_HZ).unwrap_or(0) * 3 / 2;
+        assert_eq!(
+            pitch.f0.len(),
+            frames.div_ceil(256),
+            "テイク全体を格子で覆う"
+        );
+        assert!(
+            pitch.f0.iter().any(|&f| (f - 220.0).abs() < 1e-9),
+            "{:?}",
+            &pitch.f0[..4]
+        );
+
+        studio
+            .mark_recorded_for_test(&rows[1].row_id)
+            .expect("印を付けられる");
+        let pending = studio
+            .rows_with_takes()
+            .expect("行を引ける")
+            .into_iter()
+            .find(|r| r.row_id == rows[1].row_id)
+            .and_then(|r| r.takes.into_iter().next())
+            .expect("テイクがある");
+        assert!(
+            studio
+                .take_pitch(pending.id)
+                .expect("失敗にしない")
+                .is_none(),
+            "解析がまだ置いていなければ無い"
+        );
+
+        let missing = studio.take_pitch(analysed + 1000).expect_err("無いテイク");
+        assert_eq!(missing.code, "ledger.unknown_take");
 
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -51,6 +51,7 @@ const row = (id: string, text: string, takes: number): RowTakesView => ({
     duration_ms: 3100,
     invalid: false,
     recorded_at: "2026-09-21T18:24:00Z",
+    label: null,
   })),
   adopted: takes > 0 ? takes : null,
 });

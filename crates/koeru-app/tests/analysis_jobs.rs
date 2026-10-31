@@ -287,6 +287,13 @@ fn 期限切れは失敗で返り_テイクは残り_やり直さない() {
     studio
         .waveform_window(result.take_id, 0.0, 100.0, 8)
         .expect("確定したテイクを引ける");
+    assert!(
+        studio
+            .take_pitch(result.take_id)
+            .expect("失敗にしない")
+            .is_none(),
+        "解析が落ちたテイクの音高の記録は値で無いと返す"
+    );
     let _ = release.send(());
 
     let _ = std::fs::remove_dir_all(&root);
