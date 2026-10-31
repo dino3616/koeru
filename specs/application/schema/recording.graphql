@@ -184,6 +184,13 @@ type Take {
   analysis: AnalysisState!
   "このテイクから作ったエントリ（`TR-ALN-33`）。"
   entries: [SettingEntry!]!
+  "本人が付けた名前。 付けていなければ null で、画面は既定の表示（何本目か）を出す。 鍵にしない。"
+  label: String
+  """
+  確定のあとの解析が出した音高の記録。 解析がまだ置いていない（保留・失敗・取消）あいだは null。
+  録っている途中には流さない（`DEC-PLT-036`）。
+  """
+  pitch: PitchTrack
 }
 
 enum TakeValidity {
@@ -617,4 +624,46 @@ union RemoveSubbankOutcome =
 type SubbankRemoved {
   subbank: SubbankId!
   removedTakes: Int!
+}
+
+# ### テイクの名前と音高の記録
+
+"""
+テイクの音高の記録（F0）。 周波数表（`.frq`）と同じ系列で、テイクの先頭から末尾までを
+等間隔の格子で覆う（`TR-PKG-05`, `DEC-SYN-008`）。 `hz` の `i` 番目は、テイクの先頭から
+`hop` × `i` 標本の位置の音高。
+"""
+type PitchTrack {
+  "格子の間隔。"
+  hop: SampleCount!
+  "格子ごとの F0（Hz）。 無声・無音のところは null で、前後の値で埋めない。"
+  hz: [Float]!
+}
+
+extend type Mutation {
+  "テイクに名前を付ける。 付け直せ、消すと既定の表示へ戻る。 録音もエントリも変えない。"
+  renameTake(input: RenameTakeInput!): RenameTakePayload!
+}
+
+input RenameTakeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  take: TakeId!
+  "省くか、前後の空白を除いて空なら、名前を消す。"
+  label: String
+}
+
+type RenameTakePayload {
+  receipt: MutationReceipt!
+  outcome: RenameTakeOutcome!
+}
+
+union RenameTakeOutcome =
+  | TakeRenamed
+  | ReferenceNotFound
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type TakeRenamed {
+  take: Take!
 }
