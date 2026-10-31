@@ -667,3 +667,59 @@ union RenameTakeOutcome =
 type TakeRenamed {
   take: Take!
 }
+
+# ### ガイドのテンポ（`TR-REC-23`, `DEC-REC-012`）
+
+extend type RecordingFacet {
+  "ガイドのテンポ。 音源に1つ。 変えていなければ既定。"
+  guideTempo: GuideTempo!
+}
+
+"""
+ガイドのテンポ。 1モーラ＝1拍。 範囲と刻みも返すので、画面は数を写さずに上げ下げを決める
+（`DEC-REC-012`）。
+"""
+type GuideTempo {
+  "1分あたりの拍の数。"
+  bpm: Int!
+  "1拍の長さ（ミリ秒）。"
+  beatMs: Float!
+  defaultBpm: Int!
+  minBpm: Int!
+  maxBpm: Int!
+  "上げ下げの刻み。 `minBpm` から数えて、この倍数だけが選べる。"
+  stepBpm: Int!
+}
+
+extend type Mutation {
+  """
+  ガイドのテンポを変える。 録ったテイクは変えない。 開いている収録の区間は切って始め直し、
+  テイクはどのテンポで録ったかを区間の記録で持つ（`TR-REC-30`）。
+  """
+  setGuideTempo(input: SetGuideTempoInput!): SetGuideTempoPayload!
+}
+
+input SetGuideTempoInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "範囲と刻みは `GuideTempo` が返す。 外れたら `InvalidRequest` で、何も変えない。"
+  bpm: Int!
+}
+
+type SetGuideTempoPayload {
+  receipt: MutationReceipt!
+  outcome: SetGuideTempoOutcome!
+}
+
+"録っている途中は変えない（`ActionRejected`）。 テイクは録り始めた区間に属する。"
+union SetGuideTempoOutcome =
+  | GuideTempoSet
+  | InvalidRequest
+  | ActionRejected
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type GuideTempoSet {
+  tempo: GuideTempo!
+}

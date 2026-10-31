@@ -98,6 +98,7 @@ costs = [
 'Mutation.setSubbankToneRange' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.removeSubbank' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.renameTake' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.setGuideTempo' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.playTake' = { capability = 'playback.control', cost = 'native-resource' }
 'Mutation.auditionTake' = { capability = 'playback.control', cost = 'compute-heavy' }
 'Mutation.stopPlayback' = { capability = 'playback.control', cost = 'native-resource' }
