@@ -14,6 +14,10 @@ refinement ProjectDesignRefinesRequirements {
   map recoverable[i: ListItem] = orphans[i]
   map discarded[i: ListItem]   = dismissed[i]
 
+  // この層はまだ枠を足すことも消すこともしない。 項目はいつも音源にある
+  map present[i: ListItem] = true
+  map removed[i: ListItem] = 0
+
   // ファイル確定は、要求層から見れば何も起きていない
   action finalize_file() -> stutter
 

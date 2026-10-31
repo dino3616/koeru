@@ -4,6 +4,8 @@
 
 最終的に単一の新runtimeと単一のconsumer contractへ切り替える。productionで旧Specta/Tauri application surfaceと新GraphQL surfaceを恒久併用しない。旧data reader/migration fixture/read-only backupは互換・復旧のため残してよいが、旧write pathとapplication-specific Channel contractを残さない。
 
+T09 以降の着手は、画面の刷新が済むまで止めている（`DEC-PLT-061`）。刷新のあいだに足した操作は、`specs/application/README.md` の「旧コマンドからの移行」の表に載り、再開したら T09〜T11 の対象に入る。
+
 T00–T17のみをarchitecture refactoring deliverablesとする。M6/M7の新規機能実装、未完了要求の充足、milestone固有の品質・配布判定は本DAGの対象外とし、別の実装計画で管理する。ここでは既存機能の新contractへの移行、互換性・回帰検証、architecture boundaryの検証を行う。T13は既存のreview/edit経路を代表としてGraphQL/WASM/read modelの接続を検証し、M6の新規機能実装は行わない。T16のcutoverまでは既存機能の等価性とsafe rollback pathを維持する。
 
 ```text

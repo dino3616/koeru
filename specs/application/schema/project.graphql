@@ -43,7 +43,9 @@ union ProjectListing = ProjectSummary | UnreadableProject
 type ProjectSummary {
   id: ProjectId!
   displayName: String!
-  method: RecordingMethod!
+  method: RecordingMethod! @deprecated(reason: "方式は枠ごとに持つ（`DEC-RCL-018`）。 `subbankCount` を読み、方式は開いてから `RecordingFacet.subbanks` で読む")
+  "サブバンクの枠の数。 0 もありうる（`TR-RCL-28`）。"
+  subbankCount: Int!
   rowCount: Int!
   voice: VoiceSummary!
 }
@@ -76,7 +78,7 @@ type VoiceSummary {
   "内側から順。 五十音の行ごとの被覆。"
   rings: [CoverageRing!]!
   "声から作った色。 1つも録れていなければ null。"
-  color: VoiceColor
+  color: VoiceTint
 }
 
 enum CompletionState {
@@ -95,8 +97,11 @@ type CoverageRing {
   total: Int!
 }
 
-"彩度と明度は 0〜1 の位置。 面ごとの幅への写しは画面が持つ（`DEC-PLT-027`）。"
-type VoiceColor {
+"""
+声から作った画面の色。 彩度と明度は 0〜1 の位置。 面ごとの幅への写しは画面が持つ（`DEC-PLT-027`）。
+声の出し方の「声色」は `VoiceColor` で、これとは別のもの（`DEC-RCL-018`）。
+"""
+type VoiceTint {
   hue: Float!
   chroma: Float!
   lightness: Float!
@@ -144,8 +149,8 @@ type Project {
   "この読みが観測した版。"
   revision: Revision!
   displayName: String!
-  method: RecordingMethod!
-  tones: [Tone!]!
+  method: RecordingMethod! @deprecated(reason: "方式は枠ごとに持つ（`DEC-RCL-018`）。 `recording.subbanks` の `method` を読む")
+  tones: [Tone!]! @deprecated(reason: "収録音階は枠ごとに持つ（`DEC-RCL-018`）。 `recording.subbanks` の `tone` を読む")
   notices: [ProjectNotice!]!
   voice: VoiceSummary!
   recording: RecordingFacet!
@@ -194,7 +199,7 @@ input CreateProjectInput {
   displayName: String!
   "`Catalog.methodPresets` の `id`。"
   preset: MethodPresetId!
-  "収録音高（MIDI）。"
+  "収録音高（MIDI）。 声色なしの枠を、音高ごとに1つずつ作る（`TR-RCL-28`）。 枠はあとから足せる。"
   tones: [Int!]!
   "綴りの規則（`DEC-SYN-013`）。 無ければ同梱の既定。 あとから変える道は無い。"
   rules: FileInput

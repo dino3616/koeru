@@ -20,6 +20,10 @@ includes_requirements = [
   'TR-RCL-22',
   'TR-RCL-24',
   'TR-RCL-26',
+  'TR-RCL-28',
+  'TR-RCL-29',
+  'TR-RCL-30',
+  'TR-RCL-31',
   'TR-SYN-13',
   'TR-SYN-14',
   'TR-SYN-15',
@@ -32,6 +36,10 @@ includes_requirements = [
   'TR-PKG-23',
   'TR-PKG-24',
   'TR-PKG-25',
+  'TR-PKG-58',
+  'TR-PKG-59',
+  'TR-PKG-60',
+  'TR-PKG-61',
 ]
 includes_fsl = [
   'AC-PKG-103',
@@ -41,6 +49,12 @@ includes_fsl = [
   'INV-PKG-106',
   'REQ-PKG-108',
   'REQ-PKG-109',
+  'REQ-RCL-101',
+  'REQ-RCL-102',
+  'INV-RCL-101',
+  'INV-RCL-102',
+  'INV-RCL-103',
+  'FB-RCL-101',
 ]
 excludes = [
   'エディタ本体',
@@ -61,6 +75,8 @@ decisions = [
   'DEC-RCL-011',
   'DEC-RCL-013',
   'DEC-RCL-014',
+  'DEC-RCL-018',
+  'DEC-PKG-018',
   'DEC-SYN-010',
   'DEC-SYN-011',
   'DEC-SYN-012',

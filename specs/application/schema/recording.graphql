@@ -11,8 +11,13 @@ extend type Query {
 }
 
 type RecordingFacet {
+  "サブバンクの枠。 並びが録る順の既定（`TR-RCL-28`）。 0 個もありうる。"
+  subbanks: [Subbank!]!
+  "声色ごとに枠を束ねたもの。 並びは、その声色の枠が最初に現れた順。"
+  voiceColors: [VoiceColor!]!
   order: RecordingOrder!
-  rows(window: WindowInput!): RowPage!
+  "`subbank` を指すと、その枠の行だけ。 省くと全部の枠の行を、枠の並びの順に。"
+  rows(window: WindowInput!, subbank: SubbankId): RowPage!
   "この版に無ければ null。"
   row(id: RowId!): RecordingRow
   "この版に無ければ null。"
@@ -20,7 +25,7 @@ type RecordingFacet {
   "残りの見積もり（`TR-RCL-09`, `DEC-RCL-013`）。"
   remaining: RemainingWork!
   "音高ごとの消化率（`TR-RCL-26`）。"
-  byTone: [ToneProgress!]!
+  byTone: [ToneProgress!]! @deprecated(reason: "声色の違う枠が同じ音高を持てる（`DEC-RCL-018`）。 `subbanks` の `progress` を読む")
   "この音源で使うと選んだマイク（`TR-REC-03`）。 一度も選んでいなければ null。"
   chosenDevice: DeviceId
   "開いている入力。 開いていなければ null。"
@@ -31,6 +36,49 @@ type RecordingFacet {
   space: SpaceEstimate!
   "次のフレーズへ進むまでの長さ（`TR-REC-20`）。"
   autoAdvanceMs: Float!
+}
+
+"""
+サブバンクの枠（`DEC-RCL-018`）。 声色・方式・収録音階の組は、音源の中で重複しない
+（`TR-RCL-28`）。 識別子は付け替えても変わらない。
+"""
+type Subbank {
+  id: SubbankId!
+  "声色の名前。 null は声色なし。 本人が打った綴りのままで、鍵にしない。"
+  voiceColor: String
+  method: RecordingMethod!
+  "作ったときの方式プリセット。 古い project は持たない。"
+  preset: MethodPresetId
+  "収録音階（`TR-RCL-06`）。"
+  tone: Tone!
+  "担当音域（`TR-RCL-31`）。"
+  toneRange: ToneRange!
+  progress: SubbankProgress!
+  "確定したテイクがあれば true。 方式を変えられない（`TR-RCL-30`）。"
+  hasTakes: Boolean!
+}
+
+type ToneRange {
+  low: Tone!
+  high: Tone!
+  "本人が直した範囲なら true。 false なら floor 割り当ての既定（`TR-RCL-06`）。"
+  edited: Boolean!
+}
+
+type SubbankProgress {
+  "採用テイクのある行。"
+  recordedRows: Int!
+  rows: Int!
+  "固定の見積もり（`DEC-RCL-013`）。"
+  remainingSeconds: Int!
+}
+
+"声色（`DEC-RCL-018`）。 同じ綴りの声色を持つ枠の束。 識別子を持たない。"
+type VoiceColor {
+  "null は声色なし。"
+  name: String
+  "枠の並びの順。"
+  subbanks: [Subbank!]!
 }
 
 "録る順（`TR-SYN-19`）。 どちらの順でいるかを常に表示する。"
@@ -53,6 +101,8 @@ type RowPage {
 
 type RecordingRow {
   id: RowId!
+  "この行が属する枠。"
+  subbank: SubbankId!
   "読み上げる文字列。 識別子ではない。"
   prompt: String!
   state: RowState!
@@ -275,6 +325,16 @@ extend type Mutation {
   chooseRecordingOrder(input: ChooseRecordingOrderInput!): ChooseRecordingOrderPayload!
   "採用するテイクを切り替える（`TR-RCL-25`）。 被覆は変わらない。"
   adoptTake(input: AdoptTakeInput!): AdoptTakePayload!
+  "サブバンクの枠を足す（`TR-RCL-28`）。 作ったあとでも足せ、足した枠は未収録から始まる。"
+  addSubbank(input: AddSubbankInput!): AddSubbankPayload!
+  "枠の声色・収録音階・方式を付け替える（`TR-RCL-30`）。 録ってある枠の方式は変えられない。"
+  reviseSubbank(input: ReviseSubbankInput!): ReviseSubbankPayload!
+  "枠を並べ替える。 並びが録る順の既定になる（`TR-RCL-28`）。"
+  reorderSubbanks(input: ReorderSubbanksInput!): ReorderSubbanksPayload!
+  "枠の担当音域を直す。 範囲を省くと既定へ戻す（`TR-RCL-31`）。"
+  setSubbankToneRange(input: SetSubbankToneRangeInput!): SetSubbankToneRangePayload!
+  "枠を消す。 その枠のテイクも消える（`TR-RCL-29`）。 ほかの枠は変わらない。"
+  removeSubbank(input: RemoveSubbankInput!): RemoveSubbankPayload!
 }
 
 input StartTakeInput {
@@ -282,6 +342,8 @@ input StartTakeInput {
   input: InputLeaseId!
   "省くと録る順の先頭。"
   row: RowId
+  "`row` を省いたとき、この枠の録る順の先頭から。 両方省くと、全部の枠の録る順の先頭。"
+  subbank: SubbankId
 }
 
 type StartTakePayload {
@@ -374,4 +436,185 @@ union AdoptTakeOutcome =
 
 type TakeAdopted {
   row: RecordingRow!
+}
+
+# ### サブバンクの枠（`DEC-RCL-018`）
+
+"""
+同じ声色・方式・収録音階の枠が、もうある。 声色は綴りが同じなら同じ声色として比べる。
+"""
+type SubbankConflict implements Problem {
+  code: String!
+  class: FailureClass!
+  commit: CommitState!
+  actions: [CallerAction!]!
+  message: String!
+  existing: SubbankId!
+}
+
+input AddSubbankInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "省くと声色なし。"
+  voiceColor: String
+  "`Catalog.methodPresets` の `id`。 方式はプリセットが決める。"
+  preset: MethodPresetId!
+  "収録音階（MIDI）。"
+  tone: Int!
+  "この枠の後ろに置く。 省くと末尾。"
+  after: SubbankId
+}
+
+type AddSubbankPayload {
+  receipt: MutationReceipt!
+  outcome: AddSubbankOutcome!
+}
+
+union AddSubbankOutcome =
+  | SubbankAdded
+  | SubbankConflict
+  | ReferenceNotFound
+  | InvalidRequest
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SubbankAdded {
+  subbank: Subbank!
+}
+
+"省いた欄は変えない。 声色を声色なしへ戻すときは `clearVoiceColor` を使う。"
+input ReviseSubbankInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  subbank: SubbankId!
+  voiceColor: String
+  clearVoiceColor: Boolean
+  "収録音階（MIDI）。 付け替えても音声は変えない（`TR-RCL-30`）。"
+  tone: Int
+  "録ってある枠では断る（`TR-RCL-30`）。"
+  preset: MethodPresetId
+}
+
+type ReviseSubbankPayload {
+  receipt: MutationReceipt!
+  outcome: ReviseSubbankOutcome!
+}
+
+union ReviseSubbankOutcome =
+  | SubbankRevised
+  | SubbankConflict
+  | RevisionConflict
+  | ActionRejected
+  | ReferenceNotFound
+  | InvalidRequest
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SubbankRevised {
+  subbank: Subbank!
+}
+
+input ReorderSubbanksInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  "すべての枠を、新しい並びで。 欠けや重複は `InvalidRequest`。"
+  order: [SubbankId!]!
+}
+
+type ReorderSubbanksPayload {
+  receipt: MutationReceipt!
+  outcome: ReorderSubbanksOutcome!
+}
+
+union ReorderSubbanksOutcome =
+  | SubbanksReordered
+  | RevisionConflict
+  | InvalidRequest
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SubbanksReordered {
+  subbanks: [Subbank!]!
+}
+
+input ToneRangeInput {
+  "MIDI。"
+  low: Int!
+  "MIDI。"
+  high: Int!
+}
+
+input SetSubbankToneRangeInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  subbank: SubbankId!
+  "省くと既定（floor 割り当て）へ戻す。"
+  range: ToneRangeInput
+}
+
+type SetSubbankToneRangePayload {
+  receipt: MutationReceipt!
+  outcome: SetSubbankToneRangeOutcome!
+}
+
+union SetSubbankToneRangeOutcome =
+  | SubbankToneRangeSet
+  | RevisionConflict
+  | ActionRejected
+  | ReferenceNotFound
+  | InvalidRequest
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SubbankToneRangeSet {
+  "直した枠と、既定が動いた同じ声色の枠。"
+  subbanks: [Subbank!]!
+}
+
+"""
+録ってある枠を消すと、テイクも消える（`TR-RCL-29`）。 画面は消えるテイクの数を示して
+確認を取り、その数を `acknowledgedTakes` に入れる。 数が今の版と違えば `RevisionConflict`。
+"""
+input RemoveSubbankInput {
+  lease: ProjectLease!
+  operationId: OperationId!
+  "画面が読んでいた版。 別の版で当てない。"
+  baseRevision: Revision!
+  subbank: SubbankId!
+  "本人に示した、消えるテイクの数。"
+  acknowledgedTakes: Int!
+}
+
+type RemoveSubbankPayload {
+  receipt: MutationReceipt!
+  outcome: RemoveSubbankOutcome!
+}
+
+"""
+録っている途中の枠と、復旧候補が残っている枠は消せない（`ActionRejected`）。 先に録り終えるか、
+候補を採るか捨てる。
+"""
+union RemoveSubbankOutcome =
+  | SubbankRemoved
+  | RevisionConflict
+  | ActionRejected
+  | ResourceBusy
+  | ReferenceNotFound
+  | StorageProblem
+  | ProjectLeaseExpired
+  | OperationIdReused
+
+type SubbankRemoved {
+  subbank: SubbankId!
+  removedTakes: Int!
 }

@@ -159,7 +159,7 @@ WebView 側、アプリの起動、仕様側（`fslc` / `cargo xtask`）も `ver
 - 合成は WORLD ベース。 ニューラルボコーダへの置き換えは採らない（「あなたの声そのもの」が「生成された声」に変わるため）
 - フロントは shadcn に依存しない。 レジストリからコードを写すだけで、実体は自前実装になる（`DEC-PLT-015`）
 - 部品へ注入してよいクラスは lint の contract が決める（`shadcn/no-restyle`、`vite.config.ts`）。型で言えるのは「受け取るか否か」までで、「幅は良いが高さは駄目」が書けない。畳むのは外から来たものと突き合わせる1箇所だけ——`~/lib/tv` の `cn`。`tv` は畳まない入口（`tailwind-variants/lite`）から取る。詳細は `react-conventions` skill
-- consumer への契約の正本は canonical SDL で、Rust の型から生成しない（`DEC-PLT-035`）。**移行中。** 今の画面はまだ tauri-specta の生成物 `ui/src/lib/bindings.gen.ts` で Rust を呼ぶ（手で直さない）。**新しい操作を tauri-specta に足さない**
+- consumer への契約の正本は canonical SDL で、Rust の型から生成しない（`DEC-PLT-035`）。**移行中。** 今の画面はまだ tauri-specta の生成物 `ui/src/lib/bindings.gen.ts` で Rust を呼ぶ（手で直さない）。**新しい操作を tauri-specta に足さない**。例外は画面の刷新のあいだだけで、SDL に先に書き、運ぶのを tauri-specta にする（`DEC-PLT-061`）。形はそちらに従う
 - 画面の読みは、部品の近くの fragment と経路の operation で宣言し、結果の寿命は TanStack Query が持つ（`DEC-PLT-037`）。読みは `useSuspenseQuery`、押して初めて走るものは `useMutation`。待ちは `Suspense`、失敗は `RouteError` と `ErrorBoundary`。**移行中**は `ui/src/lib/queries.ts` の取得口と `ledgerKey` の無効化が残る。**`open_project` を読みの寿命に隠さない**——あれは収録セッションを始め直すので（`TR-REC-30`）、テイクのたびに呼ぶと録音の途中でセッションが切り替わる
 - 画面へ流し続けるものは GraphQL Subscription にする。用途ごとの Channel を契約にしない（`DEC-PLT-036`）。**移行中**は波形の Channel が1本残る。新しく足さない。`invoke` で引きに行かせない——応答の順序が保証されず、波形が巻き戻る。流し続けるものはアプリの状態ロックの外から読む（テイク確定中は数秒握られる）
 - 収録画面の状態機械は `ui/src/lib/use-recorder.ts` が持つ。画面は組み立てだけ。二重確定を避ける札（`TR-REC-42`）と連続収録のループは描画と別の寿命で回るので、`useRef` で持つ——state にすると押すたびに描き直す

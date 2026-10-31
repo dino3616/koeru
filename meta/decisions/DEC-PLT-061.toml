@@ -1,0 +1,66 @@
+schema = 'decision'
+id = 'DEC-PLT-061'
+constraint_label = '画面の刷新で足す操作の運び方'
+constraint = '刷新の画面が要る操作を GraphQL の経路より先に出しつつ、契約の正本が SDL から動かず、あとで GraphQL へ移すときに1本も取りこぼさないこと（DEC-PLT-035）'
+title = '刷新のあいだは、新しい操作を SDL に先に書き、運ぶのは tauri-specta にする。リアーキテクトは T09 以降を止める'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'GraphQL の経路（T09〜T11）を先に作り、新しい操作はそこへ足す',
+  'SDL に先に書き、運ぶのは tauri-specta にする。対応を1対1で残し、刷新が済んだら移す',
+  'tauri-specta にだけ足し、SDL はリアーキテクトを再開するときに書く',
+]
+selected = 'SDL に先に書き、運ぶのは tauri-specta にする。対応を1対1で残し、刷新が済んだら移す'
+rationale = '''
+## 何がぶつかるか
+
+画面の刷新（`docs/reports/ux/redesign-canvas/`）は、今のコマンドに無い操作を要る。
+サブバンクの枠（`DEC-RCL-018`）、配布物と版（`DEC-PKG-018`）、利用計測の同意の設定が
+それにあたる。 `DEC-PLT-035` は「新しい操作を tauri-specta に足さない。GraphQL の経路が
+できる前に足す必要が出たら、ここへ戻って判断する」と書いている。 これはその戻り先。
+
+## なぜ GraphQL の経路を先に作らないか
+
+経路は T09（Rust の adapter）、T10（Tauri の transport と operation の manifest）、
+T11（画面の fragment と TanStack Query）の3段で、どれも前の段を待つ
+（`docs/reports/architecture/03-task-dag.md`）。 刷新はそれより短い期間で画面を
+入れ替える計画で、人手の大半は画面に向いている。 経路と画面を同時に動かすと、
+画面の不具合が経路のせいか部品のせいか切り分けられない。
+
+## なぜ SDL を後回しにしないか
+
+SDL を書かずに tauri-specta へ足すと、Rust の関数と DTO がそのまま契約になる。
+`DEC-PLT-035` が退けたのはまさにその形で、刷新で足す操作の数だけ、あとで契約を
+起こし直すことになる。 しかもその時点では画面がもう DTO の形に依存している。
+
+SDL を先に書けば、語彙と予期できる結果（`DEC-PLT-038`）は今決まる。 tauri-specta の
+コマンドは、その SDL を運ぶだけの一時の口になる。
+
+## 例外の形
+
+- 新しい操作は、先に `specs/application/schema/` へ欄か Mutation を足し、`cargo xtask check-schema` を通す
+- tauri-specta のコマンドは SDL の欄か Mutation と1対1にする。 名前は SDL の名前を snake_case にしたもの。 引数と戻り値の欄の名前も SDL に合わせ、結果の union は Rust の列挙で同じ枝を持つ
+- 足したコマンドは `specs/application/README.md` の「旧コマンドからの移行」の表に行を足し、行き先の欄を書く。 この表が、あとで移す一覧になる
+- 波形のような流し続けるものは、この例外に入れない。 新しい Channel を足さない（`DEC-PLT-036`）
+- 画面は tauri-specta の生成物を部品から直接呼ばず、経路の側で読む（`DEC-PLT-037` の移行中の形のまま）
+
+## リアーキテクトを止める
+
+T09 以降の着手を止める。 T08 までの成果は変えない。 再開するのは刷新の Go / No-Go のあと。
+再開したら、上の表に足した行を T09〜T11 の対象に含める。
+'''
+review_triggers = [
+  '刷新の Go / No-Go が済んだとき。 リアーキテクトを再開し、この例外で足したコマンドを GraphQL へ移す計画を立てる',
+  'tauri-specta のコマンドが SDL と1対1でなくなったとき（SDL に無い引数や枝が増えた）。 例外の形が崩れている',
+  '例外で足すコマンドが、移行の表に行の無いまま増えたとき',
+  '刷新が延び、例外で足すコマンドが旧コマンドの数に迫ったとき。 経路を先に作るほうが安くなっている',
+]
+affects_requirements = [
+  'TR-PLT-03',
+]
+affects_decisions = [
+  'DEC-PLT-035',
+  'DEC-PLT-036',
+  'DEC-PLT-037',
+]
+supersedes = []

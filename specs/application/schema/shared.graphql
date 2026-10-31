@@ -71,6 +71,9 @@ scalar JobId
 
 scalar ReleaseId
 
+"名前を付けて残す配布物（`DEC-PKG-018`）。 名前を変えても変わらない。"
+scalar DistributionId
+
 "書き出しの計画。 確定するまで project を変えない。"
 scalar ExportPlanId
 
@@ -88,6 +91,12 @@ scalar EditingSessionId
 
 "作り方の見本（`Catalog.methodPresets`）。 project を作るときに選ぶ。"
 scalar MethodPresetId
+
+"""
+サブバンクの枠（`DEC-RCL-018`）。 声色・方式・収録音階を付け替えても変わらない。
+消して足し直した枠は別の値になる。
+"""
+scalar SubbankId
 
 # ## 値
 #

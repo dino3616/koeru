@@ -51,7 +51,9 @@ refinement/project-design-refines-requirements.fsl   層の継ぎ目
 |---|---|
 | 完成は項目の状態だけで決まり、書き出し履歴を参照しない | `INV-PKG-001` |
 | 書き出せるのは完成しているときだけ | `INV-PKG-002` |
-| 確定したテイクは、削除も上書きもされない | `INV-REC-005` |
+| 確定したテイクが減るのは、本人がその枠を消したときだけ | `INV-REC-005` |
+| 枠を消しても、ほかの枠のテイクは減らない | `INV-RCL-102` |
+| 枠をすべて消した音源は書き出せない | `FB-RCL-101` |
 | 全テイク無効の項目は、確定したテイクを持たない | `INV-REC-002` |
 | 異常終了でも、確定したテイクの数は減らない | `REQ-REC-004` |
 | 公開操作なしに完成状態へ到達できる | `REQ-VIS-001` |
@@ -92,7 +94,7 @@ fslc verify  specs/design/project-storage.fsl --engine induction --depth 12
 ```
 
 すべて `proved`。 不変条件は深さの上限なしで成立している。変異検査の kill 率は
-project-lifecycle 0.59 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.73（深さ8）/
+project-lifecycle 0.66 / recording-input 0.70 / telemetry-consent 0.66 / project-storage 0.73（深さ8）/
 align-review 0.52（深さ6）/ preview-synthesis 0.61 / packaging-export 0.61 /
 method-coverage 0.72 / editor-constraints 0.41 / song-coverage 0.54 / first-run 0.70
 （いずれも深さ 6〜8）を基準線として扱う。
