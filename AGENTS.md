@@ -98,6 +98,12 @@ cargo test --workspace --all-features
 nix develop --command cargo test --workspace --all-features
 ```
 
+Cloud Agent では `.cursor/cloud-agent-install.sh` が Nix・submodule・LFS・UI ビルドまでを
+一度に用意する。`nix-daemon` は `.cursor/cloud-agent-start.sh` が起動する（systemd が無い VM 向け）。
+Tauri を headless で起動するときは host の `xvfb-run` ではなく Nix の `Xvfb` を使い、
+`cargo run` 前に WebKitGTK 向けの `LD_LIBRARY_PATH` が要る——`.cursor/koeru-with-nix.sh` が
+`nix develop` の `NIX_LDFLAGS` から組み立てる。
+
 **緑は「実行した」ではない。** CI が見るのは `cargo xtask test-receipt` で、試験 binary を
 1本ずつ走らせて件数を `meta/suites/` の登録と突き合わせる（`DEC-PLT-039`）。 0 件で通った、
 前提を欠いて `return` した、黙って `#[ignore]` した、を落とす。 マイクや実音声が要る
