@@ -12,6 +12,8 @@ KOERU の画面デザインを刷新したときの作業面。プロセス（�
 | [boards/](boards/) | ボードの HTML（`*.dc.html`）。ブラウザで開ける |
 | [canvas.json](canvas.json) | ボードの並び・題・付箋 |
 | [model/schema.graphql](model/schema.graphql) | 画面から起こしたオブジェクトとリレーション（GraphQL SDL、構造だけ。Mutation はまだ無い）。図は P13 |
+| [delivery-team-plan.md](delivery-team-plan.md) | 画面を差し替えるときの体制と RACI。差し替えが済んだら消す |
+| [delivery-phase-plan.md](delivery-phase-plan.md) | 差し替えの工程（段・関門・判定）と画面の順位。差し替えが済んだら消す |
 
 **第三者の画像は入れていない。** 検証に使った市販・配布音源（コル音イム、毒牙ネヲン、足立レイ、重音テト ほか）の立ち絵・アイコン・名前ロゴは権利者の画像なので、それを載せたボード（立ち絵の検証と、実キャラクターでのバリアント）はここに置いていない。本線の画面のうち闇音レンリのアイコンが入る4枚は、アイコンだけを斜線の面（`boards/assets/omitted.svg`）に置き換えた。該当するボードに ※ を付けた。
 
