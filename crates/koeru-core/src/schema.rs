@@ -97,6 +97,8 @@ diesel::table! {
         generation -> Integer,
         /// マスターの内容の SHA-256（`DEC-PLT-053`）。 まだ計算していなければ NULL。
         master_sha256 -> Nullable<Text>,
+        /// 本人が付けた名前。 付けていなければ NULL で、空文字は置かない。
+        label -> Nullable<Text>,
     }
 }
 

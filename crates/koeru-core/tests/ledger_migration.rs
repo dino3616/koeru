@@ -738,3 +738,74 @@ fn 壊れた指紋は置けず_置いてあれば読めないと言う() {
         Err(LedgerError::MalformedMasterDigest)
     ));
 }
+
+/// テイクの名前の列を足す前の台帳を移行すると、テイクは名前を持たないまま残り
+/// （画面は既定の表示を出す）、移行のあとで付けられる。 戻して当て直せる。
+#[test]
+fn 旧い台帳のテイクは名前を持たずに残り_移行のあとで名前を付けられる() {
+    use koeru_core::db::{FinalizedTake, SessionSnapshot};
+    use koeru_core::inventory::UnitSet;
+    use koeru_core::reclist::generate_single;
+
+    let dir = new_project("take-labels");
+    let take_id = {
+        let mut l = Ledger::open(dir.db_path()).expect("開けること");
+        let list = generate_single(UnitSet::Core, 3).expect("生成できること");
+        l.install_reclist(&list, 60).expect("書けること");
+        let session = l
+            .start_session(&SessionSnapshot {
+                started_at: "2026-11-01T00:00:00Z".into(),
+                device_id: "test".into(),
+                sample_rate_hz: 48_000,
+                channels: 1,
+                effects_state: "clean".into(),
+                route: "test".into(),
+                source_channel: 0,
+                master_rate_hz: 44_100,
+                resampler: "test".into(),
+                upstream_conversion: "unknown".into(),
+            })
+            .expect("始められること");
+        l.commit_take(&FinalizedTake {
+            row_id: list[0].id.clone(),
+            session_id: session,
+            rel_path: "masters/m0.wav".into(),
+            frames: 44_100,
+            recorded_at: "2026-11-01T00:00:01Z".into(),
+        })
+        .expect("載せられること")
+    };
+    {
+        let mut conn = raw_connection(&dir.db_path());
+        revert_named(&mut conn, "take_labels");
+        assert!(!has_column(&mut conn, "takes", "label"));
+    }
+    assert_eq!(
+        db::migration_state(&dir.db_path()).expect("読めること"),
+        MigrationState::Pending
+    );
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let kept = l
+        .take(take_id)
+        .expect("読めること")
+        .expect("テイクが残っていること");
+    assert_eq!(kept.label, None, "移行は名前を付けない");
+    let named = l
+        .set_take_label(take_id, Some("テイク 1"))
+        .expect("書けること")
+        .expect("テイクがあること");
+    assert_eq!(named.label.as_deref(), Some("テイク 1"));
+    drop(l);
+
+    let mut conn = raw_connection(&dir.db_path());
+    revert_named(&mut conn, "take_labels");
+    assert!(!has_column(&mut conn, "takes", "label"), "戻せること");
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("当て直せること");
+    assert!(has_column(&mut conn, "takes", "label"));
+}
