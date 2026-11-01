@@ -10,7 +10,7 @@ GitHub 接続経由で仕様、登録簿、コード、PR metadata・review、CI
 
 ## Repository primary sources
 
-基底 URL: `https://github.com/dino3616/koeru/`
+基底 URL: `https://github.com/uta-lab/koeru/`
 
 | ID | 読んだ場所 / 固定点 | 設計に使う事実・留保 |
 |---|---|---|
@@ -41,10 +41,10 @@ GitHub 接続経由で仕様、登録簿、コード、PR metadata・review、CI
 | R25 | PR16 custom presamp discussion `4066610267` / author `4066793493` | 外部 rules 変更時の detect/confirm/restrict/reindex の挙動は product decision を要する。architecture が黙って auto-reindex を選ばない。 |
 | R26 | `specs/requirements/editor-constraints.fsl` | 11制約をviolation booleanへ抽象化し、3msはモデル対象外、historyはfinite abstraction。modeが許可operationへ影響するためnormal/advancedは純React view stateではない。 |
 
-固定 permalink の書式: `https://github.com/dino3616/koeru/blob/af9a808bff296f35b38bb4049c2ffc43788bfe33/<path>`。main 固有の履歴は `fb331897f41166a3ec1a2a5c440ff38f773d00b6` を使う。
+固定 permalink の書式: `https://github.com/uta-lab/koeru/blob/af9a808bff296f35b38bb4049c2ffc43788bfe33/<path>`。main 固有の履歴は `fb331897f41166a3ec1a2a5c440ff38f773d00b6` を使う。
 
-レビューの入口: `https://github.com/dino3616/koeru/pull/16#discussion_r4069534096`、`https://github.com/dino3616/koeru/pull/7#discussion_r4039646797`、`https://github.com/dino3616/koeru/pull/3`。
-CI: `https://github.com/dino3616/koeru/actions/runs/35699288861`。
+レビューの入口: `https://github.com/uta-lab/koeru/pull/16#discussion_r4069534096`、`https://github.com/uta-lab/koeru/pull/7#discussion_r4039646797`、`https://github.com/uta-lab/koeru/pull/3`。
+CI: `https://github.com/uta-lab/koeru/actions/runs/35699288861`。
 
 ## 外部 primary sources と使い方
 

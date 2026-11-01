@@ -48,7 +48,7 @@ M2 と M4 を実装中です。 録音してテイクを確定し、その場で
 トップレベルだけ clone して、シェルに入ってから submodule を取ってください。
 
 ```bash
-git clone https://github.com/dino3616/koeru && cd koeru
+git clone https://github.com/uta-lab/koeru && cd koeru
 nix develop
 git lfs install && git submodule update --init --recursive
 ```

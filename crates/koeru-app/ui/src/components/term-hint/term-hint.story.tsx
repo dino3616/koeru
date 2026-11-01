@@ -37,10 +37,25 @@ const textOf = (term: TermId) => {
   return [entry.name, entry.summary, entry.note].filter((part) => part !== undefined).join(" ");
 };
 
+/**
+ * 本物のポインタを ⓘ から外す。
+ *
+ * 前の story が動かしたポインタはその位置に残る（`button.story.tsx` の hover など）。
+ * そこへ ⓘ が描かれると hover で説明が開き、「隠れている」が偽になる。 どのファイルが
+ * 同じブラウザで先に走るかは実行ごとに変わるので、落ちたり落ちなかったりする。
+ * 本物のポインタは試験の実ブラウザにしか無いので、Storybook を手で開いたときは何もしない。
+ */
+const unhover = async (target: Element) => {
+  if (!("__vitest_browser__" in globalThis)) return;
+  const { userEvent: pointer } = await import("vite-plus/test/browser");
+  await pointer.unhover(target);
+};
+
 /** 初出。 塗りの ⓘ。 説明は隠れているが、読み上げには届く。 */
 export const 初出: Story = {
   play: async ({ canvasElement }) => {
     const hint = hintOf(canvasElement, "先行発声の説明");
+    await unhover(hint);
     await expect(hint.getAttribute("data-first")).toBe("true");
     await expect(hint).toHaveAccessibleDescription(textOf("preutterance"));
     const popup = canvasElement.querySelector("[role=tooltip]");
@@ -122,6 +137,7 @@ export const 二重描画でも初出は動かない: Story = {
 export const キーボードでフォーカス: Story = {
   play: async ({ canvasElement }) => {
     const hint = hintOf(canvasElement, "先行発声の説明");
+    await unhover(hint);
     const popup = canvasElement.querySelector("[role=tooltip]");
     await userEvent.tab();
     await expect(hint).toHaveFocus();
