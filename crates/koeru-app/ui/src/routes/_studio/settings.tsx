@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as v from "valibot";
 
-import { DraftScreen } from "~/screens/draft-screen";
+import { SettingsScreen } from "~/screens/settings-screen";
 
 /**
  * アプリの設定。
@@ -20,5 +20,5 @@ const searchSchema = v.object({
 
 export const Route = createFileRoute("/_studio/settings")({
   validateSearch: searchSchema,
-  component: DraftScreen,
+  component: SettingsScreen,
 });
