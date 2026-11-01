@@ -43,6 +43,7 @@ export type {
   ReviewItemView,
   ReviewSummaryView,
   ProjectView,
+  RecordingMethod,
   ReleaseView,
   RingView,
   RowTakesView,
@@ -52,6 +53,7 @@ export type {
   SongView,
   SpaceView,
   SpectrogramView,
+  Subbank,
   SungSongView,
   TakeSummaryView,
   TakeView,
@@ -176,6 +178,8 @@ export const api = {
   renameProject: (id: string, displayName: string) =>
     unwrap(commands.renameProject(id, displayName)),
   openProject: (id: string) => unwrap(commands.openProject(id)),
+  /** 開いている音源の枠を並びの順で（`TR-RCL-28`）。開いたあとでなければ読めない。 */
+  subbanks: () => unwrap(commands.subbanks()),
   /** 開いている音源の環と色（`DEC-PLT-025`）。 */
   voiceState: () => unwrap(commands.voiceState()),
   progress: () => unwrap(commands.progress()),

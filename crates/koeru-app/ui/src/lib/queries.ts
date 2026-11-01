@@ -81,6 +81,16 @@ export const presampNoticeQuery = (id: string) =>
 export const voiceStateQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "voice"], queryFn: () => api.voiceState() });
 
+/**
+ * 開いている音源の枠（`TR-RCL-28`）。サイドバーの木とパンくずが読む。
+ *
+ * 開いたあとでなければ読めない。 呼ぶ側は [`openProjectQuery`] が済んだことを
+ * 自分で確かめること——あれを読みに行く側にならない（`TR-REC-30`）。
+ * 枠を足す・付け替える・並べ替える・消すと変わるので、台帳の鍵の下に置く。
+ */
+export const subbanksQuery = (id: string) =>
+  queryOptions({ queryKey: [LEDGER, id, "subbanks"], queryFn: () => api.subbanks() });
+
 export const songStatusQuery = (id: string) =>
   queryOptions({ queryKey: [LEDGER, id, "songs"], queryFn: () => api.songStatus() });
 
