@@ -1,6 +1,8 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import type { ComponentProps } from "react";
 
+import { type VariantProps, tv } from "~/lib/tv";
+
 /*
  * 一覧から1つ選ぶ。
  *
@@ -25,12 +27,31 @@ export const SelectValue = (
   props: Omit<ComponentProps<typeof SelectPrimitive.Value>, "className">,
 ) => <SelectPrimitive.Value {...props} />;
 
-export const SelectTrigger = ({
-  children,
-  ...props
-}: Omit<ComponentProps<typeof SelectPrimitive.Trigger>, "className">) => (
+/*
+ * 大きさは2つ。
+ *
+ * `md` は幅いっぱいに伸びる、フォームの中の選択。 `sm` は中身の幅で収まる、
+ * ツールバーのパンくずの中の選択（「ナギ › Normal A3 CVVC ⌄ › 収録」）。
+ * 高さは 36px で、ツールバーの高さ（`--height-toolbar`）に余白を持って収まる。
+ * `Button` の `sm` と同じく指の的としては小さいが、同じことが別の場所からもできる。
+ * 既定は `md`。 呼び出し側の見た目を変えない。
+ */
+const trigger = tv({
+  variants: {
+    size: {
+      md: "h-11 w-full gap-2 px-3 text-sm",
+      sm: "h-9 w-fit gap-1 px-2 text-md",
+    },
+  },
+  defaultVariants: { size: "md" },
+});
+
+type SelectTriggerProps = Omit<ComponentProps<typeof SelectPrimitive.Trigger>, "className"> &
+  VariantProps<typeof trigger>;
+
+export const SelectTrigger = ({ children, size, ...props }: SelectTriggerProps) => (
   <SelectPrimitive.Trigger
-    className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-slate-7 bg-slate-3 px-3 text-sm text-slate-12 disabled:opacity-45 data-[placeholder]:text-slate-11"
+    className={`flex items-center justify-between rounded-lg border border-slate-7 bg-slate-3 text-slate-12 disabled:opacity-45 data-[placeholder]:text-slate-11 ${trigger({ size })}`}
     {...props}
   >
     {children}
