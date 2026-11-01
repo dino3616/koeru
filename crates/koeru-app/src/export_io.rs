@@ -245,6 +245,7 @@ mod tests {
             .map(|(k, folder)| Subbank {
                 folder: Some((*folder).to_owned()),
                 color: String::new(),
+                voice_color: None,
                 prefix: String::new(),
                 suffix: String::new(),
                 tone: Some(60 + i32::try_from(k).unwrap_or(0)),
@@ -286,7 +287,7 @@ mod tests {
                 ..Character::default()
             },
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![60, 61],
             subbanks,
             rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),

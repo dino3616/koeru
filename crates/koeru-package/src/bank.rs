@@ -26,8 +26,10 @@ pub struct VoiceBank {
     /// **manifest の方式を入れていた。** 連続音から単独音へ降ろした配布物が
     /// 「連続音」を名乗り、配布の記録（降りた方式を書く）とも食い違っていた。
     ///
-    /// 多音階かどうかは持たない。 それは [`tones`](Self::tones) の本数。
-    pub method: Method,
+    /// 方式は枠ごとに持つ（`DEC-RCL-018`）ので、1つの音源に複数入りうる。 枠の並びで
+    /// 最初に現れた順で、重複しない。 多音階かどうかは持たない。 それは
+    /// [`tones`](Self::tones) の本数。
+    pub methods: Vec<Method>,
     /// 収録音高（MIDI、低い順）。readme の「収録音高」に出る（`DEC-PKG-015`）。
     ///
     /// 単音階でも1つ入る。 区画（[`subbanks`](Self::subbanks)）は単音階で
@@ -113,6 +115,12 @@ pub struct Subbank {
     pub folder: Option<String>,
     /// `character.yaml` の `subbanks.color`。
     pub color: String,
+    /// この区画の声色（`DEC-RCL-018`）。 `None` は声色なし。
+    ///
+    /// **[`color`](Self::color) と別に持つ。** `color` は書き出す名前で、声色を持たない音源では
+    /// 音高の名前になる。 `prefix.map` と `tone_ranges` の割り当ては声色ごとに閉じる——
+    /// 声色をまたいで床を探すと、別の声色の素材が担う範囲に入ってしまう。
+    pub voice_color: Option<String>,
     /// エイリアスの前に付ける（`TR-PKG-19`）。
     pub prefix: String,
     /// エイリアスの後ろに付ける（`TR-PKG-19`）。
@@ -268,6 +276,7 @@ mod tests {
         Subbank {
             folder: folder.map(str::to_owned),
             color: folder.unwrap_or_default().to_owned(),
+            voice_color: None,
             prefix: prefix.to_owned(),
             suffix: String::new(),
             tone: None,
@@ -280,7 +289,7 @@ mod tests {
             distribution_name: "koeru".to_owned(),
             character: Character::default(),
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![57],
             subbanks,
             rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),

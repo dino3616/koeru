@@ -9,7 +9,7 @@
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use koeru_model::id::SubbankId;
-use koeru_model::subbank::{ToneRange, VoiceColor};
+use koeru_model::subbank::{Cell, Cells, ToneRange, VoiceColor};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::intent::OPEN_STATES;
@@ -290,6 +290,34 @@ fn load(c: &mut SqliteConnection) -> Result<Vec<SubbankRecord>> {
         .collect()
 }
 
+/// 素材を探すときに見る枠の並び（`TR-RCL-20`, `DEC-RCL-018`）。 並びの順で。
+///
+/// 件数は数えない。 解決の入口は枠の属性だけを要る。
+pub(super) fn cells(c: &mut SqliteConnection) -> Result<Cells> {
+    let stored: Vec<(i32, Option<String>, String, i32)> = subbanks::table
+        .order((subbanks::ordinal.asc(), subbanks::id.asc()))
+        .select((
+            subbanks::id,
+            subbanks::voice_color,
+            subbanks::method,
+            subbanks::tone,
+        ))
+        .load(c)
+        .map_err(db("cells"))?;
+    stored
+        .into_iter()
+        .map(|(id, voice_color, method, tone)| {
+            Ok(Cell {
+                id: SubbankId::new(id),
+                voice_color: voice_color.as_deref().and_then(VoiceColor::parse),
+                method: parse_method(&method)?,
+                tone,
+            })
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Cells::new)
+}
+
 fn takes_in(c: &mut SqliteConnection, id: SubbankId) -> QueryResult<i64> {
     takes::table
         .inner_join(rows::table.on(rows::id.eq(takes::row_id)))
@@ -399,6 +427,16 @@ impl Ledger {
     /// 台帳を読めない、方式の表記を知らない（[`LedgerError::UnknownSubbankMethod`]）。
     pub fn subbanks(&mut self) -> Result<Vec<SubbankRecord>> {
         load(&mut self.conn)
+    }
+
+    /// 素材を探すときに見る枠の並び（`TR-RCL-20`）。 カバレッジ・歌えるか・試唱・書き出しが
+    /// 同じこれを通る。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めない、方式の表記を知らない（[`LedgerError::UnknownSubbankMethod`]）。
+    pub fn cells(&mut self) -> Result<Cells> {
+        cells(&mut self.conn)
     }
 
     /// 行が属する枠。
@@ -679,6 +717,15 @@ impl super::LedgerSnapshot {
     /// 台帳を読めない、方式の表記を知らない（[`LedgerError::UnknownSubbankMethod`]）。
     pub fn subbanks(&mut self) -> Result<Vec<SubbankRecord>> {
         load(self.conn())
+    }
+
+    /// 素材を探すときに見る枠の並び。 [`Ledger::cells`] と同じ版。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めない、方式の表記を知らない（[`LedgerError::UnknownSubbankMethod`]）。
+    pub fn cells(&mut self) -> Result<Cells> {
+        cells(self.conn())
     }
 }
 
