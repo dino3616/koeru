@@ -23,7 +23,7 @@ use crate::studio::{
 use koeru_core::db::subbank::SubbankRefusal;
 
 /// 作り方（`RecordingMethod`）。 枠は多音階を名乗らない——音階は枠ごとに1つ。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RecordingMethod {
     Single,
@@ -50,7 +50,7 @@ pub struct Tone {
 }
 
 impl Tone {
-    fn of(midi: i32) -> Self {
+    pub(super) fn of(midi: i32) -> Self {
         Self {
             midi,
             name: koeru_core::tone::name(midi),
@@ -96,7 +96,7 @@ pub struct Subbank {
 }
 
 impl Subbank {
-    fn of(s: &SubbankSummary) -> Self {
+    pub(super) fn of(s: &SubbankSummary) -> Self {
         Self {
             id: s.id.to_string(),
             voice_color: s.voice_color.as_ref().map(|c| c.as_str().to_owned()),

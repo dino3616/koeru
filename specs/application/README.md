@@ -183,6 +183,31 @@ SDL に先にあり、刷新のあいだ tauri-specta で運ぶコマンド。 �
 | `set_subbank_tone_range` | `Mutation.setSubbankToneRange` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
 | `remove_subbank` | `Mutation.removeSubbank` | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
 
+### 配布物と版（`DEC-PLT-061` の例外）
+
+SDL に先にあり、刷新のあいだ tauri-specta で運ぶコマンド（`DEC-PKG-018`）。 型と欄の名前は
+SDL のまま。 貸与・操作の識別子・読んだ版は運ばないので、入力から落とし、payload の `receipt` も
+持たない。 `OperationIdReused` と `RevisionConflict` は返らない。 開いていないときは
+`ProjectLeaseExpired` を返す。 これらの union は `StorageProblem` を持たないので、台帳やファイルの
+失敗は `AppError` で返る。
+
+版は配布物ごとに数え、版そのものを持つ型は無い。 一覧は `Distribution.releases`（書き出した版）と
+`draftVersion`（次の版）で、版を消すのは `reviseDistribution` の `clearDraftVersion`、書き出し済みの
+版は消せない。 「版の複製」は置かない——別の形で出したいなら配布物を写す。
+
+| コマンド | 行き先 | 種類 | 落とした欄 |
+|---|---|---|---|
+| `distributions` | `DistributionFacet.distributions` | Query | — |
+| `duplicate_distribution` | `Mutation.duplicateDistribution` | Mutation | `lease`・`operationId`・`receipt` |
+| `revise_distribution` | `Mutation.reviseDistribution`（入れる枠の担当音域もここで直す、`TR-PKG-59`） | Mutation | `lease`・`operationId`・`baseRevision`・`receipt` |
+| `remove_distribution` | `Mutation.removeDistribution` | Mutation | `lease`・`operationId`・`receipt` |
+| `export_distribution` | `Mutation.prepareExport`（`distribution`・`version`・`method` を指す） → `Mutation.commitExport`。 計画を作る手と確定する手を1回の呼び出しで行い、`ExportPlan` は運ばない。 書き出せない理由は `ExportBlocked` ではなく失敗で返る（何が足りないかは `package_state`） | Mutation | `lease`・`operationId`・`plan`・`profile`・`receipt` |
+
+`package_settings` / `set_package_settings` の `distributionName` と `version` は、先頭の配布物の
+`archiveName` と `draftVersion` を読み書きする。 `export_package` / `export_downgrade` は先頭の
+配布物を、その下書きの番号で書き出す。 `releases` の `ReleaseView` は配布物を持たないので、
+配布物ごとの記録は `distributions` の `releases` を読む。
+
 ## 語彙の判断
 
 語彙の選び方は判断記録が持つ。 ここでは場所だけを示す。
