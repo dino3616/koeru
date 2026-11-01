@@ -1076,3 +1076,226 @@ fn 旧い台帳のテイクは名前を持たずに残り_移行のあとで名�
         .expect("当て直せること");
     assert!(has_column(&mut conn, "takes", "label"));
 }
+
+/// 配布物（`DEC-PKG-018`）を持つ前の版の台帳を作る。 後ろに別の移行が足されても、この移行だけを戻す。
+fn pending_before_distributions(db_path: &Path) -> SqliteConnection {
+    let mut conn = raw_connection(db_path);
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("全部当てられること");
+    revert_named(&mut conn, "_distributions");
+    assert!(
+        !business_tables(&mut conn).contains(&"distributions".to_owned()),
+        "前提: 配布物が無い"
+    );
+    assert!(
+        !has_column(&mut conn, "releases", "distribution_id"),
+        "前提: 書き出しの記録は配布物を持たない"
+    );
+    conn
+}
+
+/// 枠を2つ入れる。 音階の昇順。
+fn two_subbanks(conn: &mut SqliteConnection) {
+    for (tone, ordinal) in [(55, 0), (62, 1)] {
+        diesel::sql_query(
+            "INSERT INTO subbanks (voice_color, method, preset_id, tone, ordinal) \
+             VALUES (NULL, 'single', 'single', ?, ?)",
+        )
+        .bind::<diesel::sql_types::Integer, _>(tone)
+        .bind::<diesel::sql_types::Integer, _>(ordinal)
+        .execute(conn)
+        .expect("枠を入れられること");
+    }
+}
+
+/// いまの配布の設定（フォルダ名・版・規約・名義）を書く。
+fn legacy_settings(conn: &mut SqliteConnection, name: &str, version: Option<&str>) {
+    diesel::sql_query(
+        "INSERT INTO distribution (id, distribution_name, profile, author, version, terms) \
+         VALUES (1, ?, 'classic', 'おれ', ?, '音源の規約')",
+    )
+    .bind::<diesel::sql_types::Text, _>(name)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Text>, _>(version)
+    .execute(conn)
+    .expect("設定を入れられること");
+}
+
+fn legacy_release(conn: &mut SqliteConnection, seq: i32, version: &str) {
+    diesel::sql_query(
+        "INSERT INTO releases (seq, version, method, alias_count, validation, oto_hash, \
+         terms_hash, archive_name, released_at) \
+         VALUES (?, ?, 'single', 10, 'passed', 'h', 't', ? || '.zip', '2026-10-01T00:00:00Z')",
+    )
+    .bind::<diesel::sql_types::Integer, _>(seq)
+    .bind::<diesel::sql_types::Text, _>(version)
+    .bind::<diesel::sql_types::Text, _>(format!("{seq:06}-{version}"))
+    .execute(conn)
+    .expect("記録を入れられること");
+}
+
+/// 既存のプロジェクトの配布の設定は「すべて」に残る（`DEC-PKG-018`）。 フォルダ名と版は配布物へ移り、
+/// 音源で1つの値は `distribution` に残る。 書き出した記録は「すべて」のものになる。
+#[test]
+fn 既存の配布の設定は_すべて_に残る() {
+    let dir = new_project("distributions-existing");
+    {
+        let mut conn = pending_before_distributions(&dir.db_path());
+        two_subbanks(&mut conn);
+        legacy_settings(&mut conn, "Koeru-Old", Some("v2"));
+        legacy_release(&mut conn, 1, "v1");
+    }
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let all = l.distributions().expect("読めること");
+    assert_eq!(all.len(), 1, "配布物は「すべて」だけ");
+    let d = &all[0];
+    assert_eq!(d.name, "すべて");
+    assert_eq!(
+        d.archive_name.as_deref(),
+        Some("Koeru-Old"),
+        "フォルダ名が残る"
+    );
+    assert_eq!(
+        d.draft_version.as_deref(),
+        Some("v2"),
+        "版が下書きとして残る"
+    );
+    assert_eq!(d.terms, None, "配布物の規約は上書きしていない");
+    let subbanks: Vec<_> = l
+        .subbanks()
+        .expect("読めること")
+        .iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(
+        d.subbanks.iter().map(|m| m.subbank).collect::<Vec<_>>(),
+        subbanks,
+        "いまある枠をすべて入れる"
+    );
+
+    // 音源で1つの値は、配布物へ移さない。
+    let settings = l
+        .distribution()
+        .expect("読めること")
+        .expect("残っていること");
+    assert_eq!(settings.author.as_deref(), Some("おれ"));
+    assert_eq!(settings.terms.as_deref(), Some("音源の規約"));
+
+    // 書き出しの記録は「すべて」のもの。 基準を残していない古い記録は数えない。
+    let releases = l.releases().expect("読めること");
+    assert_eq!(releases.len(), 1);
+    assert_eq!(releases[0].distribution, d.id);
+    assert_eq!(
+        l.rows_changed_since_release(d.id).expect("読めること"),
+        None
+    );
+}
+
+/// 版が書き出し済みの番号と重なるなら、下書きにしない（`TR-PKG-60`）。 何も書いていなければ、
+/// 書き出していないときだけ最初の番号を出しておく。
+#[test]
+fn 移行は書き出した番号と重なる版を下書きにしない() {
+    // 書いてある版が、書き出した番号と同じ。
+    let dir = new_project("distributions-version-taken");
+    {
+        let mut conn = pending_before_distributions(&dir.db_path());
+        two_subbanks(&mut conn);
+        legacy_settings(&mut conn, "Koeru", Some("v1"));
+        legacy_release(&mut conn, 1, "v1");
+    }
+    dir.migrate_ledger().expect("移行できること");
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    assert_eq!(
+        l.distributions().expect("読めること")[0].draft_version,
+        None
+    );
+
+    // 何も書いておらず、書き出してもいない。
+    let dir = new_project("distributions-fresh");
+    {
+        let mut conn = pending_before_distributions(&dir.db_path());
+        two_subbanks(&mut conn);
+    }
+    dir.migrate_ledger().expect("移行できること");
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let all = l.distributions().expect("読めること");
+    assert_eq!(all[0].archive_name, None, "既定の名前は開くときに入れる");
+    assert_eq!(all[0].draft_version.as_deref(), Some("1.0.0"));
+
+    // 何も書いておらず、書き出している。
+    let dir = new_project("distributions-released");
+    {
+        let mut conn = pending_before_distributions(&dir.db_path());
+        two_subbanks(&mut conn);
+        legacy_release(&mut conn, 1, "v1");
+    }
+    dir.migrate_ledger().expect("移行できること");
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    assert_eq!(
+        l.distributions().expect("読めること")[0].draft_version,
+        None
+    );
+}
+
+/// 新規の台帳も「すべて」を持つ。 配布物は少なくとも1つ（`TR-PKG-58`）。
+#[test]
+fn 新規の台帳も_すべて_を持つ() {
+    let dir = new_project("distributions-new");
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let all = l.distributions().expect("読めること");
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].name, "すべて");
+    assert!(all[0].subbanks.is_empty(), "枠はまだ無い");
+}
+
+/// この移行を戻して、当て直せる。 戻すとフォルダ名と下書きが `distribution` へ帰る。
+#[test]
+fn 配布物の移行は戻して当て直せる() {
+    let dir = new_project("distributions-revert");
+    {
+        let mut conn = pending_before_distributions(&dir.db_path());
+        two_subbanks(&mut conn);
+        legacy_settings(&mut conn, "Koeru-Old", Some("v2"));
+        legacy_release(&mut conn, 1, "v1");
+    }
+    dir.migrate_ledger().expect("移行できること");
+    {
+        let mut l = Ledger::open(dir.db_path()).expect("開けること");
+        let id = l.distributions().expect("読めること")[0].id;
+        l.revise_distribution(
+            id,
+            &koeru_core::db::shelf::DistributionRevision {
+                archive_name: Some("Koeru-New"),
+                draft_version: Some("v9"),
+                ..Default::default()
+            },
+        )
+        .expect("書けること")
+        .expect("直せること");
+    }
+
+    let mut conn = raw_connection(&dir.db_path());
+    revert_named(&mut conn, "_distributions");
+    assert!(!business_tables(&mut conn).contains(&"distributions".to_owned()));
+    assert!(!has_column(&mut conn, "releases", "distribution_id"));
+    #[derive(diesel::QueryableByName)]
+    struct Legacy {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        distribution_name: String,
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        version: Option<String>,
+    }
+    let legacy: Legacy = diesel::sql_query("SELECT distribution_name, version FROM distribution")
+        .get_result(&mut conn)
+        .expect("読めること");
+    assert_eq!(legacy.distribution_name, "Koeru-New");
+    assert_eq!(legacy.version.as_deref(), Some("v9"));
+
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("当て直せること");
+    assert!(business_tables(&mut conn).contains(&"distributions".to_owned()));
+}

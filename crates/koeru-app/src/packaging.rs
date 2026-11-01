@@ -17,7 +17,8 @@ use koeru_core::project::{Manifest, Method, ProjectDir};
 use koeru_core::reclist::Slot;
 use koeru_core::release::{NewRelease, Validation, archive_base_name, content_hash};
 use koeru_failure::Class;
-use koeru_model::id::{RowId, SubbankId, TakeId};
+use koeru_model::distribution::next_version;
+use koeru_model::id::{DistributionId, RowId, SubbankId, TakeId};
 use koeru_model::materials::{
     self, Adoption, Delivery, Facts, Production, Resolution, Role, UseContext,
 };
@@ -114,13 +115,84 @@ pub struct Exported {
 /// 配布に出す値を読む。無ければ既定値を作る（`DEC-PKG-008`）。
 ///
 /// 既定の配布名は表示名から作る。 空欄から始めさせない。
+///
+/// フォルダ名と版は配布物ごとの値（`DEC-PKG-018`）で、ここでは先頭の配布物（既定の「すべて」）の
+/// ものを重ねて返す。 配布物が1つの音源の画面は、いまの口のまま同じに見える。
+/// 音源で1つの値だけが欲しいときは [`source_settings`]。
 #[tracing::instrument(skip(ledger, manifest))]
 pub fn settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution> {
+    let mut d = source_settings(ledger, manifest)?;
+    if let Some(first) = ledger.distributions()?.into_iter().next() {
+        if let Some(name) = first.archive_name {
+            d.distribution_name = name;
+        }
+        d.version = first.draft_version;
+    }
+    Ok(d)
+}
+
+/// 音源で1つの配布の値（画像・名義・声の提供者・web・サンプル音声・規約）。 無ければ既定値。
+///
+/// 配布物ごとに変わる値（フォルダ名・版・規約の上書き）は入っていない。
+fn source_settings(ledger: &mut Ledger, manifest: &Manifest) -> Result<Distribution> {
     Ok(ledger.distribution()?.unwrap_or_else(|| Distribution {
         distribution_name: names::default_distribution_name(&manifest.display_name),
         profile: Profile::default().as_str().to_owned(),
         portrait_opacity: 1.0,
         ..Distribution::default()
+    }))
+}
+
+/// 書き出す配布物と版（`TR-PKG-58`, `TR-PKG-60`）。
+#[derive(Debug, Clone)]
+pub struct Target {
+    pub distribution: DistributionId,
+    /// この配布物で書き出すときの値。 音源で1つの値に、配布物のフォルダ名・規約の上書き・版を
+    /// 載せたもの。
+    pub settings: Distribution,
+}
+
+/// 書き出す配布物を決める。 `id` を省くと先頭の配布物。 配布物が無ければ `None`。
+///
+/// 版は `version`、無ければ下書きの番号、下書きも無ければ最後に書き出した番号の次
+/// （`TR-PKG-60`）。 規約は配布物の上書きがあればそれ、無ければ音源の規約。
+///
+/// # Errors
+///
+/// 台帳を読めない。
+pub fn target_of(
+    ledger: &mut Ledger,
+    manifest: &Manifest,
+    id: Option<DistributionId>,
+    version: Option<&str>,
+) -> Result<Option<Target>> {
+    let records = ledger.distributions()?;
+    let Some(record) = records
+        .into_iter()
+        .find(|r| id.is_none_or(|want| r.id == want))
+    else {
+        return Ok(None);
+    };
+    let released = ledger.released_versions(record.id)?;
+    let version = match (version, &record.draft_version) {
+        (Some(v), _) => v.to_owned(),
+        (None, Some(draft)) => draft.clone(),
+        (None, None) => {
+            let taken: Vec<&str> = released.iter().map(String::as_str).collect();
+            next_version(released.last().map(String::as_str), &taken)
+        }
+    };
+    let mut settings = source_settings(ledger, manifest)?;
+    if let Some(name) = record.archive_name {
+        settings.distribution_name = name;
+    }
+    if record.terms.is_some() {
+        settings.terms = record.terms;
+    }
+    settings.version = Some(version);
+    Ok(Some(Target {
+        distribution: record.id,
+        settings,
     }))
 }
 
@@ -392,16 +464,17 @@ pub struct Downgrade {
 /// 検証を通らないまま包まない。 読み戻しに落ちたらファイルを残さない。
 /// 台帳へ記録するのは、両方が通ってから。
 ///
-/// 版の札は設定から取る（`TR-PKG-44`）。 **書き出しのときに別に打たせない**
+/// 版の札は `dist` から取る（`TR-PKG-44`）。 **書き出しのときに別に打たせない**
 /// ——同じ札が2つあると、配布物の `character.txt` と履歴で違う値になる。
 // バージョン文字列は本人が書いた自由文。トレースへ載せない（`AGENTS.md` #3）。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at))]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, dist))]
 pub fn export(
     dir: &ProjectDir,
     ledger: &mut Ledger,
     rules: &Rules,
     manifest: &Manifest,
     released_at: &str,
+    dist: &Target,
 ) -> Result<Exported> {
     // 部分的なパッケージを出さない（`TR-PKG-23`, `INV-PKG-102`）。
     // 画面の関門と別に見る。 コマンドを直に叩かれても素通りさせない。
@@ -426,7 +499,7 @@ pub fn export(
             format!("まだ録れていない音が {} 件ある", coverage.missing.len()),
         ));
     }
-    write_package(dir, ledger, rules, manifest, released_at, None)
+    write_package(dir, ledger, rules, manifest, released_at, dist, None)
 }
 
 /// 下位方式へ書き出す（`TR-PKG-23`, `TR-PKG-24`, `TR-PKG-25`）。
@@ -443,7 +516,7 @@ pub fn export(
 /// # Errors
 ///
 /// 被覆が満ちていない、検証に通らない、包めない、台帳へ書けない。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at))]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, dist))]
 pub fn export_downgrade(
     dir: &ProjectDir,
     ledger: &mut Ledger,
@@ -451,6 +524,7 @@ pub fn export_downgrade(
     manifest: &Manifest,
     method: Method,
     released_at: &str,
+    dist: &Target,
 ) -> Result<Exported> {
     let set = koeru_core::inventory::UnitSet::Core;
     let target = alias_method(method);
@@ -482,7 +556,7 @@ pub fn export_downgrade(
             "その作り方に必要な音の表をまだ持っていない",
         ));
     };
-    write_package(dir, ledger, rules, manifest, released_at, Some(&down))
+    write_package(dir, ledger, rules, manifest, released_at, dist, Some(&down))
 }
 
 /// 下位方式の要求表と、5値を作り直す規約プリセット。 要求表が無ければ `None`。
@@ -504,16 +578,17 @@ fn downgraded_for(rules: &Rules, target: koeru_core::alias::Method) -> Result<Op
 ///
 /// 素の書き出しと下位方式で違うのは、組み立てる中身と音源ルートの名前だけ。
 /// **2本書くと片方だけが直る**——検証・改名・記録の順序は1箇所に置く。
-#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, down))]
+#[tracing::instrument(skip(dir, ledger, rules, manifest, released_at, dist, down))]
 fn write_package(
     dir: &ProjectDir,
     ledger: &mut Ledger,
     rules: &Rules,
     manifest: &Manifest,
     released_at: &str,
+    dist: &Target,
     down: Option<&Downgraded>,
 ) -> Result<Exported> {
-    let mut distribution = settings(ledger, manifest)?;
+    let mut distribution = dist.settings.clone();
     let version = distribution.version.clone().unwrap_or_default();
     let profile = resolved_profile(&distribution)?;
     if !profile::is_available(profile) {
@@ -591,6 +666,7 @@ fn write_package(
 
     let release = ledger.record_release(
         &NewRelease {
+            distribution: dist.distribution,
             version: version.clone(),
             // 下位方式の回は、出した方式を残す（`TR-PKG-44`）。
             // **プロジェクトの方式を書いていた。** どの回に何を配ったかが

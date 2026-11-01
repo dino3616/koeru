@@ -208,6 +208,39 @@ diesel::table! {
         terms_hash -> Text,
         archive_name -> Text,
         released_at -> Text,
+        /// 書き出した配布物（`DEC-PKG-018`）。 消した配布物の番号も残る。
+        distribution_id -> Integer,
+    }
+}
+
+diesel::table! {
+    /// 名前を付けて残す配布物（`DEC-PKG-018`）。
+    distributions (id) {
+        id -> Integer,
+        name -> Text,
+        archive_name -> Nullable<Text>,
+        terms -> Nullable<Text>,
+        draft_version -> Nullable<Text>,
+        ordinal -> Integer,
+    }
+}
+
+diesel::table! {
+    /// 配布物が入れる枠と、その配布物の書き出しに限った担当音域（`TR-PKG-59`）。
+    distribution_subbanks (distribution_id, subbank_id) {
+        distribution_id -> Integer,
+        subbank_id -> Integer,
+        range_low -> Nullable<Integer>,
+        range_high -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    /// 書き出した時点の採用テイク（`TR-PKG-61`）。 不変。
+    release_adoptions (release_seq, row_id) {
+        release_seq -> Integer,
+        row_id -> Text,
+        take_id -> Integer,
     }
 }
 
@@ -380,6 +413,8 @@ diesel::joinable!(song_import_songs -> song_imports (operation_id));
 diesel::joinable!(song_import_songs -> songs (song_id));
 
 diesel::joinable!(rows -> subbanks (subbank_id));
+diesel::joinable!(distribution_subbanks -> distributions (distribution_id));
+diesel::joinable!(distribution_subbanks -> subbanks (subbank_id));
 diesel::joinable!(row_units -> rows (row_id));
 diesel::joinable!(row_aliases -> rows (row_id));
 diesel::joinable!(take_boundaries -> takes (take_id));
@@ -420,4 +455,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     song_imports,
     song_import_songs,
     guide_settings,
+    distributions,
+    distribution_subbanks,
+    release_adoptions,
 );

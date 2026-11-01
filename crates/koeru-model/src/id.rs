@@ -68,6 +68,34 @@ impl fmt::Display for SubbankId {
     }
 }
 
+/// 名前を付けて残す配布物（`DEC-PKG-018`）。
+///
+/// 名前・フォルダ名・入れる枠を変えても変わらない。 消して足し直した配布物は別の値になる
+/// ——台帳が自動採番で振り、消した番号を使い直さない。 書き出しの記録は、消した配布物の
+/// 番号を持ったまま残る（`TR-PKG-58`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DistributionId(i32);
+
+impl DistributionId {
+    /// 台帳が振った番号から。
+    #[must_use]
+    pub const fn new(id: i32) -> Self {
+        Self(id)
+    }
+
+    /// 台帳へ渡す番号。
+    #[must_use]
+    pub const fn get(self) -> i32 {
+        self.0
+    }
+}
+
+impl fmt::Display for DistributionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// 確定したテイク（`TR-REC-28`, `TR-RCL-25`）。
 ///
 /// **確定した順に増える。** 台帳が自動採番で振るので、小さいほど先に確定した。

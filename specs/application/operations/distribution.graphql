@@ -204,6 +204,23 @@ mutation ReviseDistribution($input: ReviseDistributionInput!) {
   }
 }
 
+mutation RemoveDistribution($input: RemoveDistributionInput!) {
+  removeDistribution(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on DistributionRemoved {
+        distribution
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}
+
 mutation PrepareExport($input: PrepareExportInput!) {
   prepareExport(input: $input) {
     outcome {
