@@ -134,7 +134,8 @@ const config = defineConfig({
        * 「4px 刻みのどこか」が読む側に分からなくなる。
        *
        * ここに並ぶのは尺度が持っていない形。 段組みの `auto`、
-       * 画面高に対する割合、字間、環の影、`koeru-breath` の遅れ。
+       * 画面高に対する割合、字間、環の影、`koeru-breath` の遅れ、
+       * 顔の角丸（一辺に対する割合。3つの大きさで同じ比にする）。
        */
       "shadcn/no-arbitrary-values": [
         "error",
@@ -142,6 +143,7 @@ const config = defineConfig({
           allow: [
             "grid-cols-[auto_1fr]",
             "max-h-[40vh]",
+            "rounded-[22%]",
             "tracking-[0.18em]",
             "tracking-[0.22em]",
             "shadow-[inset_0_-2px_0_var(--slate-12)]",
