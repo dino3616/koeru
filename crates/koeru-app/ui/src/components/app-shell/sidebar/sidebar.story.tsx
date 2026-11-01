@@ -73,21 +73,37 @@ export const 木を閉じた: Story = {
   },
 };
 
-/** 畳んだ。 顔と場の絵だけで、名前は読み上げに残る。 */
+/** 畳んだ（S04）。 選んでいる音源の顔と場の絵だけで、名前は読み上げに残る。 */
 export const 畳んだ: Story = {
   args: { collapsed: true },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findByRole("link", { name: "ナギ" });
     // 絵だけの列でも、押せるものの名前がある。
-    for (const name of ["音源のページ", "収録", "曲バンク", "原音設定", "配布", "新しい音源"]) {
+    for (const name of ["音源のページ", "収録", "曲バンク", "原音設定", "配布"]) {
       await expect(canvas.getByRole("link", { name })).toBeVisible();
     }
+    await expect(canvas.getByRole("button", { name: "検索・コマンド" })).toBeVisible();
+    // 棚の他の音源は並べない。 選んでいる音源の顔だけ。
+    await expect(canvas.queryByRole("link", { name: "ハルカゼ" })).toBeNull();
     // 木は畳むと出さない。
     await expect(canvas.queryByRole("button", { name: "サブバンク" })).toBeNull();
     // 幅は 64。
     const nav = canvas.getByRole("navigation", { name: "音源と場" });
     await expect(nav.getBoundingClientRect().width).toBe(64);
+  },
+};
+
+/** 畳んだが、音源を選んでいない。 場が無いので、棚の顔と新しい音源を並べる。 */
+export const 畳んだ_音源を選ぶ前: Story = {
+  args: { collapsed: true, selectedId: undefined },
+  render: (args) => framed(args, "/new"),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const name of ["ナギ", "ハルカゼ", "新しい音源"]) {
+      await expect(await canvas.findByRole("link", { name })).toBeVisible();
+    }
+    await expect(canvas.queryByRole("link", { name: "収録" })).toBeNull();
   },
 };
 

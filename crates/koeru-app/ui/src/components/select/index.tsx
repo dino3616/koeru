@@ -1,6 +1,7 @@
 import * as SelectPrimitive from "@radix-ui/react-select";
 import type { ComponentProps } from "react";
 
+import { Icon } from "~/components/icon";
 import { type VariantProps, tv } from "~/lib/tv";
 
 /*
@@ -28,19 +29,24 @@ export const SelectValue = (
 ) => <SelectPrimitive.Value {...props} />;
 
 /*
- * 大きさは2つ。
+ * 形は3つ。
  *
- * `md` は幅いっぱいに伸びる、フォームの中の選択。 `sm` は中身の幅で収まる、
- * ツールバーのパンくずの中の選択（「ナギ › Normal A3 CVVC ⌄ › 収録」）。
- * 高さは 36px で、ツールバーの高さ（`--height-toolbar`）に余白を持って収まる。
- * `Button` の `sm` と同じく指の的としては小さいが、同じことが別の場所からもできる。
- * 既定は `md`。 呼び出し側の見た目を変えない。
+ * - `md` — 幅いっぱいに伸びる、フォームの中の選択
+ * - `sm` — ツールバーの右端に並ぶ選択（収録順、マイク）。 高さ 28px で、面は `surface-1`
+ * - `crumb` — パンくずの中の選択（「ナギ › Normal A3 CVVC ⌄ › 収録」）。 高さ 26px で、
+ *   地は透けたまま輪郭だけ引く。 パンくずの字と同じ大きさで並ぶ
+ *
+ * 寸法は S04 のボードのまま（`DEC-PLT-062`）。 `sm` と `crumb` は指の的としては小さいが、
+ * `TR-PLT-31` の 24px は満たす。 既定は `md`。 呼び出し側の見た目を変えない。
+ *
+ * 中に印を置ける（マイクの札）。 `SelectValue` の前に並べれば、▾ との間と同じだけ空く。
  */
 const trigger = tv({
   variants: {
     size: {
-      md: "h-11 w-full gap-2 px-3 text-sm",
-      sm: "h-9 w-fit gap-1 px-2 text-md",
+      md: "h-11 w-full justify-between gap-2 rounded-lg border-slate-7 bg-slate-3 px-3 text-sm",
+      sm: "h-7 w-fit gap-1.5 rounded-md border-line bg-surface-1 px-2.5 text-xs",
+      crumb: "h-6.5 w-fit gap-1.5 rounded-md border-line bg-transparent px-2 text-md",
     },
   },
   defaultVariants: { size: "md" },
@@ -51,11 +57,13 @@ type SelectTriggerProps = Omit<ComponentProps<typeof SelectPrimitive.Trigger>, "
 
 export const SelectTrigger = ({ children, size, ...props }: SelectTriggerProps) => (
   <SelectPrimitive.Trigger
-    className={`flex items-center justify-between rounded-lg border border-slate-7 bg-slate-3 text-slate-12 disabled:opacity-45 data-[placeholder]:text-slate-11 ${trigger({ size })}`}
+    className={`flex items-center border text-1 disabled:opacity-45 data-[placeholder]:text-2 ${trigger({ size })}`}
     {...props}
   >
     {children}
-    <SelectPrimitive.Icon aria-hidden="true">▾</SelectPrimitive.Icon>
+    <SelectPrimitive.Icon className="flex">
+      <Icon name="select" size={10} />
+    </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 );
 

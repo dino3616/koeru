@@ -58,7 +58,7 @@ const Breadcrumb = ({
       サブバンク
     </span>
     <Select defaultValue={defaultValue}>
-      <SelectTrigger id="subbank" size="sm" aria-labelledby="subbank-name subbank">
+      <SelectTrigger id="subbank" size="crumb" aria-labelledby="subbank-name subbank">
         <SelectValue placeholder="サブバンクを選ぶ" />
       </SelectTrigger>
       <SelectContent>

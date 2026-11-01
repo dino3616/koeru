@@ -4,7 +4,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 
 import { AppShell, ShellToolbarEnd, useSidebarCollapsedWhile } from ".";
 import { 木, 棚_ひとつ, 棚_三つ, NAGI } from "./fixtures";
-import { Glyph } from "./glyph";
+import { Icon } from "~/components/icon";
 import { withRouter } from "~/lib/story-router";
 
 /*
@@ -167,7 +167,7 @@ export const 窓の最小: Story = {
     const main = await canvas.findByRole("main");
     const nav = canvas.getByRole("navigation", { name: "音源と場" });
     await expect(nav.getBoundingClientRect().width).toBe(248);
-    // 窓 960 から、サイドバー 248 と右の余白 12 と縁 2 を引いた幅が、そのまま中身になる。
+    // 窓 960 から、サイドバー 248 と右の余白 8 を引いた幅が、そのまま中身になる。
     await expect(main.getBoundingClientRect().width).toBeGreaterThan(640);
     await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(
       document.documentElement.clientWidth,
@@ -212,7 +212,7 @@ const Holding = () => {
         type="button"
         className="inline-flex h-9 items-center gap-2 rounded-lg border border-line-strong px-3 text-sm"
       >
-        <Glyph name="mic" />
+        <Icon name="mic" size={13} />
         録音の道具
       </button>
     </ShellToolbarEnd>

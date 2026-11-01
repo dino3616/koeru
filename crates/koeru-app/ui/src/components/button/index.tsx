@@ -17,6 +17,9 @@ import { type VariantProps, cn, tv } from "~/lib/tv";
  *   slate 11 に落ちる（`DEC-PLT-062`、塗りの式は `globals.css` の `bg-primary`）
  * - `secondary` — 副。 輪郭だけ
  * - `ghost` — 小。 地に溶けて、hover で面が出るだけ
+ * - `quiet` — `ghost` の字を `text-2` に落としたもの。 ツールバーの開閉や履歴のように、
+ *   いつもそこにあって目で探さない印のボタン
+ * - `raised` — 面に `surface-2` を敷き、`line` で縁取る。 収録の操作の丸（先頭に戻す・再生）
  * - `danger` — red で塗る。 主・副・小の3種の外。 録音を止める操作が使っている
  *
  * 押している間は、面を1段進める。 `danger` は塗りが段 12 で行き止まりなので進めない。
@@ -32,6 +35,8 @@ const button = tv({
       secondary:
         "border border-line-strong font-semibold text-1 hover:bg-surface-2 active:bg-surface-3",
       ghost: "font-semibold text-1 hover:bg-surface-2 active:bg-surface-3",
+      quiet: "font-semibold text-2 hover:bg-surface-2 hover:text-1 active:bg-surface-3",
+      raised: "border border-line bg-surface-2 font-semibold text-1 hover:bg-surface-3",
       danger: "bg-red-11 font-semibold text-slate-1 hover:bg-red-12",
     },
     size: {
@@ -51,6 +56,16 @@ const button = tv({
        * 逆向きは衝突として扱われない。 どちらが効くかが生成 CSS の順序で決まる。
        */
       icon: "h-11 w-11",
+      /*
+       * 印だけのボタンの小さいもの。 寸法は S04 のボードのまま（`DEC-PLT-062`）。
+       *
+       * どれも `TR-PLT-31` の 24px を的の大きさか間隔で満たす。 20px の `icon-2xs` は、
+       * テイクの切り替えの ⋮ のように、隣の的から中心が 24px 以上離れる所にだけ置く。
+       */
+      "icon-lg": "h-13 w-13 rounded-full",
+      "icon-sm": "h-7 w-7 rounded-md",
+      "icon-xs": "h-6 w-6 rounded-md",
+      "icon-2xs": "h-5 w-5 rounded-md",
     },
   },
   defaultVariants: { variant: "secondary", size: "md" },

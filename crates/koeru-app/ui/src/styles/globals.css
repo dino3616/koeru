@@ -202,7 +202,21 @@
   --width-sidebar: 15.5rem;
   --width-sidebar-collapsed: 4rem;
   --height-toolbar: 3.25rem;
+  /*
+   * macOS の信号ボタンが占める幅。 左から 20、丸3つで 52、そこから 16 空ける。
+   * OS が px で描くものなので、字の大きさに合わせて伸ばさない。
+   */
+  --spacing-traffic-lights: 88px;
+
+  /* 中身の面を外枠から浮かせる影。 線は引かず、明るい縁と落ち影で分ける。 */
+  --shadow-panel: 0 0 0 1px rgb(255 255 255 / 0.06), 0 2px 12px rgb(0 0 0 / 0.35);
 }
+
+/*
+ * 信号ボタンがツールバーに重なっている窓（`tauri.macos.conf.json`）。
+ * 印は `public/window-frame.js` が付け、全画面のあいだは `lib/window-frame` が外す。
+ */
+@custom-variant traffic-lights (html[data-window-frame="overlay"]:not([data-fullscreen]) &);
 
 /*
  * Radix の段を Tailwind のユーティリティへ出す。
@@ -259,6 +273,9 @@
   --background-color-surface-3: var(--slate-4);
   --border-color-line: var(--slate-6);
   --border-color-line-strong: var(--slate-7);
+  /* 線の色で面を塗るもの（区切りの棒、拍の帯の済んだマス、録っていない波形の棒）。 */
+  --background-color-line: var(--slate-6);
+  --background-color-line-strong: var(--slate-7);
   --text-color-1: var(--slate-12);
   --text-color-2: var(--slate-11);
   --color-rec: var(--red-11);
@@ -278,6 +295,31 @@
   --background-color-voice-wash: color-mix(
     in oklab,
     var(--voice-image, light-dark(var(--voice-fill-light), var(--voice-fill-dark))) 14%,
+    var(--slate-2)
+  );
+  /* 録音中のボタンの暈。 赤の 18%。 */
+  --shadow-rec-halo: 0 0 0 6px color-mix(in oklab, var(--red-11) 18%, transparent);
+  /*
+   * 選んでいる行の左の線。 枠線で引くと字が 3px ずれるので、内側の影で描く。
+   * 声が無い音源では線を引かない。 選択は面が言う。
+   */
+  --shadow-voice-edge: inset 3px 0 0
+    var(
+      --voice-image,
+      light-dark(var(--voice-fill-light, transparent), var(--voice-fill-dark, transparent))
+    );
+
+  /*
+   * 外枠の地（`DEC-PLT-062`）。 `voice-wash` と同じ式で、混ぜるのは 7%。
+   * 声が無い音源では `surface-1` のまま。 灰色を混ぜて「灰色の声」にしない。
+   */
+  --background-color-voice-frame: color-mix(
+    in oklab,
+    var(
+        --voice-image,
+        light-dark(var(--voice-fill-light, var(--slate-2)), var(--voice-fill-dark, var(--slate-2)))
+      )
+      7%,
     var(--slate-2)
   );
 
