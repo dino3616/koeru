@@ -498,6 +498,8 @@ pub struct RowTakesView {
     /// スコアの合成値は返さない。 重みに根拠が無いので、
     /// 絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
     pub risk_hard: u32,
+    /// この行を読むと録れる対象（SDL の `RecordingRow.targets`）。 行を作ったときの並び。
+    pub targets: Vec<RowTargetView>,
 }
 
 /// 一覧に出すテイク1件。
@@ -565,8 +567,23 @@ impl From<koeru_core::db::RowTakes> for RowTakesView {
             units: r.units,
             takes: r.takes.into_iter().map(Into::into).collect(),
             adopted: r.adopted,
+            targets: r
+                .aliases
+                .into_iter()
+                .map(|rendered_alias| RowTargetView { rendered_alias })
+                .collect(),
         }
     }
+}
+
+/// 行を読むと録れる対象の1つ（`RecordingTarget`、`DEC-RCL-017`）。
+///
+/// 運ぶのは綴りだけ。 SDL の `RecordingTarget` の他の欄（識別子、音高、形）は、
+/// 台帳が対象を構造の鍵で持つようになってから足す。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct RowTargetView {
+    /// 作成時の規則で描いた綴り。 鍵にしない。
+    pub rendered_alias: String,
 }
 
 /// 画面へ返すテイク。
@@ -1153,6 +1170,15 @@ pub struct SongView {
     pub rescuing_tone: Option<String>,
     /// 総モーラ数。
     pub total_moras: u32,
+    /// いまのキー（`transpose`）で鳴る最低音と最高音（`Song.range`）。 音符が無ければ `null`。
+    pub range: Option<SongRange>,
+}
+
+/// 曲の音域（`SongRange`）。 両端を含む。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct SongRange {
+    pub low: subbank::Tone,
+    pub high: subbank::Tone,
 }
 
 /// 画面へ返す書き出し前の関門（`TR-REC-16`, `TR-REC-32`）。
@@ -1576,6 +1602,10 @@ pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
             missing_rows: count(s.missing_rows),
             seconds: s.seconds,
             total_moras: count(s.total_moras),
+            range: s.range.map(|(low, high)| SongRange {
+                low: subbank::Tone::of(low),
+                high: subbank::Tone::of(high),
+            }),
         })
         .collect())
 }

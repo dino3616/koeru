@@ -264,6 +264,7 @@ const song = (over: Partial<SongView>): SongView => ({
   recommended_transpose: 0,
   rescuing_tone: null,
   total_moras: 24,
+  range: null,
   ...over,
 });
 

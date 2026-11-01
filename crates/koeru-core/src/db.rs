@@ -997,6 +997,10 @@ pub struct RowTakes {
     pub takes: Vec<Take>,
     /// いま採用しているテイク。無ければ未収録。
     pub adopted: Option<i32>,
+    /// この行を読むと録れるエイリアス。 行を作ったときの並び（`row_aliases.ordinal`）。
+    ///
+    /// 作成時の規則で描いた綴りで、鍵にしない（`DEC-RCL-017`）。 画面に並べるためだけに持つ。
+    pub aliases: Vec<String>,
 }
 
 /// 問い合わせの行を [`Take`] へ組む。
@@ -1226,7 +1230,7 @@ fn adopted_voice(
 /// 録り直しの入口。 未収録しか返さない読みとは別に、一度録った行も選べるように
 /// これを使う。
 fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
-    // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
+    // 表ごとに1クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
     let rows = rows::table
         .order(rows::ordinal.asc())
         .select((rows::id, rows::subbank_id, rows::text, rows::state))
@@ -1260,6 +1264,17 @@ fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
         .load::<String>(conn)
         .map_err(db("rows_with_takes.units"))?;
 
+    let aliases = row_aliases::table
+        .order((row_aliases::row_id.asc(), row_aliases::ordinal.asc()))
+        .select((row_aliases::row_id, row_aliases::alias))
+        .load::<(String, String)>(conn)
+        .map_err(db("rows_with_takes.aliases"))?;
+    let mut aliases_by_row: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (row_id, alias) in aliases {
+        aliases_by_row.entry(row_id).or_default().push(alias);
+    }
+
     let mut by_row: std::collections::HashMap<String, Vec<Take>> = std::collections::HashMap::new();
     for raw in takes {
         let take = build_take(raw);
@@ -1280,6 +1295,7 @@ fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
             adopted: adopted.get(&row_id).copied(),
             state: RowState::parse(&state),
             units: unit_counts.get(&row_id).copied().unwrap_or(0),
+            aliases: aliases_by_row.remove(&row_id).unwrap_or_default(),
             row_id,
             text,
         })
@@ -4796,6 +4812,33 @@ mod tests {
         assert_eq!(other.state, RowState::Unrecorded);
         assert!(other.takes.is_empty());
         assert_eq!(other.adopted, None);
+    }
+
+    /// 行のエイリアスは、行を作ったときに規則が出した順で返す。 集合に潰して並べ替えない
+    /// ——画面はこの順でチップを並べる。
+    #[test]
+    fn 行のエイリアスは作った順() {
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+        let rules = crate::presamp::Rules::builtin(UnitSet::Core);
+        let method = crate::alias::Method::Cvvc;
+        l.install_reclist_for_tones(&list, &rules, method, None, &[60])
+            .expect("書き込める");
+
+        let got = l.rows_with_takes().expect("引ける");
+        for (row, want) in got.iter().zip(&list) {
+            let mut expected: Vec<String> = Vec::new();
+            for alias in crate::reclist::row_aliases(&rules, method, &want.units) {
+                if !expected.contains(&alias) {
+                    expected.push(alias);
+                }
+            }
+            assert_eq!(row.aliases, expected, "{}", row.text);
+        }
+        assert!(
+            got.iter().any(|r| r.aliases.len() > 1),
+            "順を見るには、複数のエイリアスを持つ行が要る"
+        );
     }
 
     /// 一覧は並び順で返す。 画面が並べ直さなくてよい。

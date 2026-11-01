@@ -32,6 +32,8 @@ type Song {
   singable: Boolean!
   coverage: SongCoverage!
   key: SongKey!
+  "いまのキー（`key.transpose`）で鳴る最低音と最高音。 音符が1つも無ければ null。"
+  range: SongRange
   notes(window: WindowInput!): NotePage!
   "この曲を歌うために、あと録る行（`TR-RCL-17`）。"
   plan: SongPlan!
@@ -61,6 +63,12 @@ type SongKey {
   nearRecordedTones: Boolean!
   "足すと今のキーのまま届くようになる収録音高（`TR-RCL-22`）。 届いていれば null。"
   rescuingTone: Tone
+}
+
+"曲の音域。 両端を含む。"
+type SongRange {
+  low: Tone!
+  high: Tone!
 }
 
 type NotePage {

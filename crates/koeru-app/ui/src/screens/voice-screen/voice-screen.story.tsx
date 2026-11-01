@@ -45,6 +45,7 @@ const row = (id: string, text: string, takes: number): RowTakesView => ({
   units: text.split(" ").length,
   moras: text.split(" ").length,
   risk_hard: 0,
+  targets: [],
   takes: Array.from({ length: takes }, (_, i) => ({
     take_id: i + 1,
     generation: i + 1,
@@ -81,6 +82,7 @@ const songs: SongView[] = [
     transpose: 0,
     recommended_transpose: 0,
     rescuing_tone: null,
+    range: null,
   },
   {
     id: "s2",
@@ -97,6 +99,7 @@ const songs: SongView[] = [
     transpose: 0,
     recommended_transpose: 0,
     rescuing_tone: null,
+    range: null,
   },
 ];
 

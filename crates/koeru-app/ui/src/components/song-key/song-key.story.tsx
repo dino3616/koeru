@@ -20,6 +20,7 @@ const song: SongView = {
   transpose: 0,
   recommended_transpose: 0,
   rescuing_tone: null,
+  range: null,
 };
 
 const meta = {

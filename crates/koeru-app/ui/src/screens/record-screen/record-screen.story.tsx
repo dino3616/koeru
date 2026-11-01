@@ -42,6 +42,7 @@ const row = (
   units: text.split(" ").length,
   moras: text.split(" ").length,
   risk_hard: 0,
+  targets: [],
   takes,
   adopted: takes.at(-1)?.take_id ?? null,
 });
@@ -95,6 +96,7 @@ const songs: SongView[] = [
     transpose: 0,
     recommended_transpose: 0,
     rescuing_tone: null,
+    range: null,
   },
 ];
 

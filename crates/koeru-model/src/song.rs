@@ -235,6 +235,16 @@ impl Song {
         self.notes.get(i).map(|n| n.midi + self.transpose)
     }
 
+    /// いまのキーで鳴る最低音と最高音（両端を含む）。 音符が無ければ `None`。
+    ///
+    /// 曲の一覧に添える音域で、収録音高との整合は [`range_fit`] が見る。
+    #[must_use]
+    pub fn sounding_range(&self) -> Option<(i32, i32)> {
+        let mut midis = self.notes.iter().map(|n| n.midi + self.transpose);
+        let first = midis.next()?;
+        Some(midis.fold((first, first), |(low, high), m| (low.min(m), high.max(m))))
+    }
+
     /// 必要単位を（受け持つ枠, エイリアス）の組で（`TR-RCL-15`, `TR-RCL-26`, `DEC-SYN-014`）。
     ///
     /// ノートを受け持つ枠は、`color` の声色で floor の収録音階にある枠（[`Cells::owner`]）。
@@ -588,6 +598,8 @@ pub struct SongStatus {
     pub rescuing_tone: Option<i32>,
     /// 収録音高との音域の整合（`TR-RCL-22`）。
     pub range_fit: RangeFit,
+    /// いまのキーで鳴る最低音と最高音（[`Song::sounding_range`]）。
+    pub range: Option<(i32, i32)>,
 }
 
 /// すべての曲の状態を出す（`TR-RCL-17`）。
@@ -674,6 +686,7 @@ pub fn status_of(
                 recommended_transpose: recommended_transpose(song, tones),
                 rescuing_tone: rescuing_tone(song, tones),
                 range_fit: fit,
+                range: song.sounding_range(),
             }
         })
         .collect();
@@ -1171,6 +1184,16 @@ mod range_tests {
     fn 届いている曲にはキーを動かさない() {
         let near = at(&[57, 59, 57]);
         assert_eq!(recommended_transpose(&near, &[57]), 0);
+    }
+
+    /// 音域はいまのキーを当てたあとの両端。 並びの順ではなく高さで取る。
+    #[test]
+    fn 音域はキーを当てた両端() {
+        let mut song = at(&[60, 57, 65, 62]);
+        assert_eq!(song.sounding_range(), Some((57, 65)));
+        song.transpose = 2;
+        assert_eq!(song.sounding_range(), Some((59, 67)));
+        assert_eq!(at(&[]).sounding_range(), None, "音符が無ければ音域も無い");
     }
 
     fn at(midis: &[i32]) -> Song {

@@ -14,6 +14,7 @@ const rows: RowTakesView[] = [
     units: 5,
     moras: 5,
     risk_hard: 0,
+    targets: [],
     takes: [
       {
         take_id: 1,

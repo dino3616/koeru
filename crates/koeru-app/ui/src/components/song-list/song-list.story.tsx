@@ -26,6 +26,7 @@ const song = (
   transpose: 0,
   recommended_transpose: 0,
   rescuing_tone: null,
+  range: null,
 });
 
 const songs = [

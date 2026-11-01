@@ -38,6 +38,7 @@ const rows: RowTakesView[] = [
     adopted: 9,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
   {
     row_id: "s002",
@@ -77,6 +78,7 @@ const rows: RowTakesView[] = [
     adopted: 11,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
   {
     row_id: "s003",
@@ -88,6 +90,7 @@ const rows: RowTakesView[] = [
     adopted: null,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
 ];
 

@@ -1457,6 +1457,19 @@ export type RowTakesView = {
 	 *  絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
 	 */
 	risk_hard: number,
+	/**  この行を読むと録れる対象（SDL の `RecordingRow.targets`）。 行を作ったときの並び。 */
+	targets: RowTargetView[],
+};
+
+/**
+ *  行を読むと録れる対象の1つ（`RecordingTarget`、`DEC-RCL-017`）。
+ * 
+ *  運ぶのは綴りだけ。 SDL の `RecordingTarget` の他の欄（識別子、音高、形）は、
+ *  台帳が対象を構造の鍵で持つようになってから足す。
+ */
+export type RowTargetView = {
+	/**  作成時の規則で描いた綴り。 鍵にしない。 */
+	rendered_alias: string,
 };
 
 export type SetGuideTempoInput = {
@@ -1537,6 +1550,12 @@ export type SongPlanView = {
 	seconds: Finite,
 };
 
+/**  曲の音域（`SongRange`）。 両端を含む。 */
+export type SongRange = {
+	low: Tone,
+	high: Tone,
+};
+
 /**  1曲ぶんの選択（`TR-RCL-12`）。 */
 export type SongSelection = {
 	song_id: string,
@@ -1591,6 +1610,8 @@ export type SongView = {
 	rescuing_tone: string | null,
 	/**  総モーラ数。 */
 	total_moras: number,
+	/**  いまのキー（`transpose`）で鳴る最低音と最高音（`Song.range`）。 音符が無ければ `null`。 */
+	range: SongRange | null,
 };
 
 /**  画面へ返す残量の見積もり（`TR-REC-41`）。 */
