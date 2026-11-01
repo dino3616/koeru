@@ -28,6 +28,8 @@ pub struct GuideTempo {
     pub min_bpm: u16,
     pub max_bpm: u16,
     pub step_bpm: u16,
+    /// 発声を始めるまでの助走（`TR-REC-23`）。 画面のカウントはこれを拍で数える。
+    pub lead_in_ms: Finite,
 }
 
 impl From<Tempo> for GuideTempo {
@@ -39,6 +41,7 @@ impl From<Tempo> for GuideTempo {
             min_bpm: Tempo::MIN_BPM,
             max_bpm: Tempo::MAX_BPM,
             step_bpm: Tempo::STEP_BPM,
+            lead_in_ms: koeru_core::guide::DEFAULT_LEAD_IN_MS.into(),
         }
     }
 }
@@ -155,6 +158,7 @@ mod tests {
                 "minBpm": 60,
                 "maxBpm": 180,
                 "stepBpm": 5,
+                "leadInMs": 1250.0,
             })
         );
     }

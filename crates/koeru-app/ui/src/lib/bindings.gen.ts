@@ -88,8 +88,13 @@ export const commands = {
 	 *  権限が無いと macOS は無音を返す。 成否ではなくピークを見る。
 	 */
 	probeInput: (ms: number) => typedError<Finite, AppError>(__TAURI_INVOKE("probe_input", { ms })),
-	/**  いま録るべき行の収録を始める。 */
-	startTake: () => typedError<string, AppError>(__TAURI_INVOKE("start_take")),
+	/**
+	 *  いま録るべき行の収録を始める。
+	 * 
+	 *  `subbank` を指すと、その枠の録る順の先頭から。 省くと全部の枠の録る順の先頭
+	 *  （SDL の `StartTakeInput`）。
+	 */
+	startTake: (subbank: string | null) => typedError<string, AppError>(__TAURI_INVOKE("start_take", { subbank })),
 	/**
 	 *  行を指定して録り直す（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
 	 * 
@@ -97,8 +102,12 @@ export const commands = {
 	 */
 	startRetake: (rowId: string) => typedError<string, AppError>(__TAURI_INVOKE("start_retake", { rowId })),
 	rowsWithTakes: () => typedError<RowTakesView[], AppError>(__TAURI_INVOKE("rows_with_takes")),
-	/**  いまの録る順と、その並び（`TR-SYN-19`）。 */
-	recordingOrder: () => typedError<RecordingOrderView, AppError>(__TAURI_INVOKE("recording_order")),
+	/**
+	 *  いまの録る順と、その並び（`TR-SYN-19`）。
+	 * 
+	 *  `subbank` を指すと、その枠の行だけ。 先頭が、その枠で次に録る行。
+	 */
+	recordingOrder: (subbank: string | null) => typedError<RecordingOrderView, AppError>(__TAURI_INVOKE("recording_order", { subbank })),
 	/**  録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
 	setRecordingOrder: (mode: string) => typedError<null, AppError>(__TAURI_INVOKE("set_recording_order", { mode })),
 	/**  枠を並びの順で（`RecordingFacet.subbanks`）。 並びが録る順の既定（`TR-RCL-28`）。 */
@@ -634,6 +643,8 @@ export type GuideTempo = {
 	minBpm: number,
 	maxBpm: number,
 	stepBpm: number,
+	/**  発声を始めるまでの助走（`TR-REC-23`）。 画面のカウントはこれを拍で数える。 */
+	leadInMs: Finite,
 };
 
 /**
@@ -1203,6 +1214,8 @@ export type RingView = {
 /**  画面へ返す「行と、その行のテイク」（`TR-REC-21`, `TR-RCL-25`）。 */
 export type RowTakesView = {
 	row_id: string,
+	/**  行が属する枠（`DEC-RCL-018`）。 枠の `id` と同じ文字列。 */
+	subbank: string,
 	/**  読み上げる文字列。 */
 	text: string,
 	/**  `unrecorded` / `recorded` / `needs_retake` / `excluded`。 */

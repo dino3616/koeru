@@ -982,6 +982,8 @@ pub struct Take {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RowTakes {
     pub row_id: String,
+    /// 行が属する枠（`DEC-RCL-018`）。
+    pub subbank: SubbankId,
     /// 読み上げる文字列。
     pub text: String,
     pub state: RowState,
@@ -1223,8 +1225,8 @@ fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
     // 3クエリで済ませる。 行ごとに引くと、行数ぶん往復する。
     let rows = rows::table
         .order(rows::ordinal.asc())
-        .select((rows::id, rows::text, rows::state))
-        .load::<(String, String, String)>(conn)
+        .select((rows::id, rows::subbank_id, rows::text, rows::state))
+        .load::<(String, i32, String, String)>(conn)
         .map_err(db("rows_with_takes.rows"))?;
 
     let takes = takes::table
@@ -1268,7 +1270,8 @@ fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
 
     Ok(rows
         .into_iter()
-        .map(|(row_id, text, state)| RowTakes {
+        .map(|(row_id, subbank, text, state)| RowTakes {
+            subbank: SubbankId::new(subbank),
             takes: by_row.remove(&row_id).unwrap_or_default(),
             adopted: adopted.get(&row_id).copied(),
             state: RowState::parse(&state),

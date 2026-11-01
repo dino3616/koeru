@@ -6,6 +6,7 @@ import type { RowTakesView } from "~/lib/ipc";
 
 const row = (id: string, text: string, takes: number): RowTakesView => ({
   row_id: id,
+  subbank: "1",
   text,
   state: takes > 0 ? "recorded" : "unrecorded",
   units: text.split(" ").length,

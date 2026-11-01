@@ -84,8 +84,8 @@ type VoiceColor {
 "録る順（`TR-SYN-19`）。 どちらの順でいるかを常に表示する。"
 type RecordingOrder {
   mode: RecordingOrderMode!
-  "次に録る順。 収録済みの行は入らない。"
-  upcoming(window: WindowInput!): RowPage!
+  "次に録る順。 収録済みの行は入らない。 `subbank` を指すと、その枠の行だけで、並べ方は変えない。"
+  upcoming(window: WindowInput!, subbank: SubbankId): RowPage!
 }
 
 enum RecordingOrderMode {
@@ -689,6 +689,8 @@ type GuideTempo {
   maxBpm: Int!
   "上げ下げの刻み。 `minBpm` から数えて、この倍数だけが選べる。"
   stepBpm: Int!
+  "発声を始めるまでの助走（ミリ秒、`TR-REC-23`）。 テンポでは変わらず、入る拍の数が変わる。"
+  leadInMs: Float!
 }
 
 extend type Mutation {

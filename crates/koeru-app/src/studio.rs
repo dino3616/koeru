@@ -51,6 +51,7 @@ use koeru_core::waveform;
 // `Outcome` は収録の校正（`calibration::Outcome`）が名乗っているので、確定の状態は
 // `koeru_failure::Outcome` と書く。
 use koeru_failure::{Class, Failure};
+use koeru_model::id::SubbankId;
 use koeru_model::materials::{Role, UseContext};
 use koeru_model::retake::{self, Anchor, Onsets, Pins};
 // 背後の仕事（`DEC-PLT-047`）。 `Receipt` は台帳の受領証（`koeru_core::db::Receipt`）が
@@ -2421,10 +2422,21 @@ impl Studio {
     /// 人は「録音」を押してから息を吸わない。指示の時点から書くと語頭が欠ける。
     #[tracing::instrument(skip(self))]
     pub fn start_take(&mut self) -> Result<String> {
+        self.start_take_in(None)
+    }
+
+    /// 枠を指して、その枠で次に録る行の収録を始める（`DEC-RCL-018`）。 `None` なら
+    /// 全部の枠を通した録る順の先頭から（[`Studio::start_take`]）。
+    ///
+    /// # Errors
+    ///
+    /// その枠に録る行がもう無い、収録を始められない。
+    #[tracing::instrument(skip(self))]
+    pub fn start_take_in(&mut self, subbank: Option<SubbankId>) -> Result<String> {
         // 録るのは提示順の先頭（`TR-SYN-19`）。 **正準順で引いていた**
         // ——曲バンク優先を選んでも、録り始めるのは常に ordinal の最小だった。
         let row_id = self
-            .next_presented_row()?
+            .next_row_in(subbank)?
             .ok_or_else(|| {
                 AppError::new(
                     "app.nothing_to_record",
@@ -2446,7 +2458,19 @@ impl Studio {
     /// 提示順が空なら正準順へ落ちる。 提示は未収録の行だけを並べるので、
     /// 除外や再生成で空になっても、録れる行が残っていれば録れる。
     fn next_presented_row(&mut self) -> Result<Option<(String, String)>> {
-        let (_, order) = self.recording_order()?;
+        self.next_row_in(None)
+    }
+
+    /// 枠の中で次に録る行（`TR-SYN-19`, `DEC-RCL-018`）。 `None` なら全部の枠から。
+    ///
+    /// 提示順の先頭で、空なら枠の正準順へ落ちる。 画面が「次の行」に出す
+    /// [`Studio::recording_order_in`] の先頭と同じ行を返す。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    pub fn next_row_in(&mut self, subbank: Option<SubbankId>) -> Result<Option<(String, String)>> {
+        let (_, order) = self.recording_order_in(subbank)?;
         let open = self.opened_mut()?;
         for id in order {
             // 提示順は台帳の行 ID で来る（多音階なら `s001@G3`）。 音高を
@@ -2455,7 +2479,10 @@ impl Studio {
                 return Ok(Some((id, text)));
             }
         }
-        open.writer()?.next_row().map_err(Into::into)
+        match subbank {
+            Some(id) => open.writer()?.next_row_of(id).map_err(Into::into),
+            None => open.writer()?.next_row().map_err(Into::into),
+        }
     }
 
     /// 全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
@@ -2578,6 +2605,33 @@ impl Studio {
                 by_tone.get(t).unwrap_or(&empty),
                 song_required.get(t).unwrap_or(&empty),
             ));
+        }
+        Ok((mode, order))
+    }
+
+    /// 枠の中の録る順（`TR-SYN-19`, `DEC-RCL-018`）。 `None` なら全部の枠を通した順。
+    ///
+    /// 並べ方は [`Studio::recording_order`] のまま。 枠で絞るのは、並べたあとに1回だけ。
+    /// 枠ごとに並べ直すと、曲バンク優先の点が枠をまたいで比べられなくなる。
+    ///
+    /// # Errors
+    ///
+    /// プロジェクトを開いていない、台帳を読めない。
+    #[tracing::instrument(skip(self))]
+    pub fn recording_order_in(
+        &mut self,
+        subbank: Option<SubbankId>,
+    ) -> Result<(koeru_core::order::Mode, Vec<String>)> {
+        let (mode, mut order) = self.recording_order()?;
+        if let Some(id) = subbank {
+            let inside: std::collections::BTreeSet<String> = self
+                .writer()?
+                .rows_with_takes()?
+                .into_iter()
+                .filter(|r| r.subbank == id)
+                .map(|r| r.row_id)
+                .collect();
+            order.retain(|row| inside.contains(row));
         }
         Ok((mode, order))
     }

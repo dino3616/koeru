@@ -267,7 +267,7 @@ fn unexpected() -> AppError {
 }
 
 /// 指した枠の識別子を読む。 読めない識別子は、この版に無いものとして扱う。
-fn subbank_id(s: &str) -> Option<SubbankId> {
+pub(crate) fn subbank_id(s: &str) -> Option<SubbankId> {
     s.parse().ok().map(SubbankId::new)
 }
 
