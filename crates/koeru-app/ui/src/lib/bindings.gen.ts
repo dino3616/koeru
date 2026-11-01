@@ -367,6 +367,18 @@ export const commands = {
 	 *  渡すのは連番だけ。 在り処は Rust が台帳から引く。
 	 */
 	revealRelease: (seq: number) => typedError<null, AppError>(__TAURI_INVOKE("reveal_release", { seq })),
+	/**
+	 *  テイクに名前を付ける・変える・消す（`Mutation.renameTake`）。
+	 * 
+	 *  `label` を `null` か空にすると消え、画面は既定の表示へ戻る。
+	 */
+	renameTake: (input: RenameTakeInput) => typedError<RenameTakePayload, AppError>(__TAURI_INVOKE("rename_take", { input })),
+	/**
+	 *  確定したテイクの音高の記録（`Take.pitch`）。
+	 * 
+	 *  解析がまだ置いていなければ `null`。 録っている途中には引かない（`DEC-PLT-036`）。
+	 */
+	takePitch: (take: number) => typedError<PitchTrack | null, AppError>(__TAURI_INVOKE("take_pitch", { take })),
 };
 
 /* Types */
@@ -729,6 +741,14 @@ export type PackageStateView = {
 	downgrades: DowngradeView[],
 };
 
+/**  確定したテイクの音高の記録（`PitchTrack`）。 */
+export type PitchTrack = {
+	/**  格子の間隔（マスターの標本数）。 `hz` の `i` 番目はテイクの先頭から `hop` × `i` 標本。 */
+	hop: number,
+	/**  格子ごとの F0（Hz）。 無声・無音は `null`。 */
+	hz: (Finite | null)[],
+};
+
 /**  画面へ返す「あと録る行」1件（`TR-RCL-17`）。 */
 export type PlanRowView = {
 	/**  行の識別子。**画面に出さない**（`TR-REC-18`）——録りに行くときに渡すだけ。 */
@@ -823,6 +843,20 @@ export type RecordingOrderView = {
 	row_ids: string[],
 };
 
+/**
+ *  指したテイクが台帳に無い（`ReferenceNotFound`）。
+ * 
+ *  欄の名前は SDL の `Problem` に合わせる。 分類・確定の状態・次の手の値は
+ *  [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
+ */
+export type ReferenceNotFound = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+};
+
 /**  書き出しの履歴1件（`TR-PKG-44`）。 */
 export type ReleaseView = {
 	seq: number,
@@ -832,6 +866,28 @@ export type ReleaseView = {
 	validation: string,
 	archive_name: string,
 	released_at: string,
+};
+
+/**  [`rename_take`] の入力（`RenameTakeInput`）。 */
+export type RenameTakeInput = {
+	take: number,
+	/**  省くか、前後の空白を落として空なら、名前を消す。 */
+	label: string | null,
+};
+
+/**
+ *  `RenameTakeOutcome` の union。 枝の名前は `__typename` に載る。
+ * 
+ *  `lease`・`operationId` を取らないので、それが古いときの枝
+ *  （`ProjectLeaseExpired`・`OperationIdReused`）は無い。
+ */
+export type RenameTakeOutcome = { __typename: "TakeRenamed"; take: TakeSummaryView } | {
+	__typename: "ReferenceNotFound",
+} & ReferenceNotFound;
+
+/**  [`rename_take`] の応答（`RenameTakePayload`）。 `operationId` を取らないので受領証は無い。 */
+export type RenameTakePayload = {
+	outcome: RenameTakeOutcome,
 };
 
 /**  確認キューの1件（`TR-ALN-26`）。 */
@@ -1088,6 +1144,8 @@ export type TakeSummaryView = {
 	 *  それは声質の推測材料になる。どう読むかは本人が決める。
 	 */
 	recorded_at: string,
+	/**  本人が付けた名前。 付けていなければ `null` で、画面は「テイク N」と出す。 */
+	label: string | null,
 };
 
 /**  画面へ返すテイク。 */

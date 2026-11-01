@@ -897,6 +897,8 @@ pub struct Take {
     /// 出すと、声質の推測材料を置いたことになる（`DEC-RCL-015`）。
     /// 1テイクに1つ、どう読むかは本人が決める。
     pub recorded_at: String,
+    /// 本人が付けた名前。 付けていなければ `None` で、空文字にはならない。
+    pub label: Option<String>,
 }
 
 /// 行と、その行に積んだテイク（`TR-REC-21`, `TR-RCL-25`）。
@@ -928,8 +930,8 @@ pub struct RowTakes {
     clippy::cast_possible_truncation,
     reason = "peak は 0.0..=1.0 付近。f32 で保つ"
 )]
-fn build_take(row: (i32, String, String, i64, i32, i32, Option<f64>, String)) -> Take {
-    let (id, row_id, rel_path, frames, invalid, generation, peak, recorded_at) = row;
+fn build_take(row: TakeColumns) -> Take {
+    let (id, row_id, rel_path, frames, invalid, generation, peak, recorded_at, label) = row;
     Take {
         id,
         row_id,
@@ -939,8 +941,22 @@ fn build_take(row: (i32, String, String, i64, i32, i32, Option<f64>, String)) ->
         generation,
         peak: peak.map(|p| p as f32),
         recorded_at,
+        label,
     }
 }
+
+/// [`build_take`] が受け取る列の並び。 問い合わせ側の `select` と同じ順に書く。
+type TakeColumns = (
+    i32,
+    String,
+    String,
+    i64,
+    i32,
+    i32,
+    Option<f64>,
+    String,
+    Option<String>,
+);
 
 // ## コミット済みの読み
 //
@@ -1149,8 +1165,9 @@ fn rows_with_takes(conn: &mut SqliteConnection) -> Result<Vec<RowTakes>> {
             takes::generation,
             take_analysis::peak.nullable(),
             takes::recorded_at,
+            takes::label,
         ))
-        .load::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(conn)
+        .load::<TakeColumns>(conn)
         .map_err(db("rows_with_takes.takes"))?;
 
     let adopted = adopted_takes::table
@@ -1274,8 +1291,9 @@ fn take(conn: &mut SqliteConnection, take_id: i32) -> Result<Option<Take>> {
             takes::generation,
             take_analysis::peak.nullable(),
             takes::recorded_at,
+            takes::label,
         ))
-        .first::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(conn)
+        .first::<TakeColumns>(conn)
         .optional()
         .map_err(db("take"))
         .map(|o| o.map(build_take))
@@ -2031,8 +2049,9 @@ impl Ledger {
                 takes::generation,
                 take_analysis::peak.nullable(),
                 takes::recorded_at,
+                takes::label,
             ))
-            .load::<(i32, String, String, i64, i32, i32, Option<f64>, String)>(&mut self.conn)
+            .load::<TakeColumns>(&mut self.conn)
             .map(|v| v.into_iter().map(build_take).collect())
             .map_err(db("takes_of"))
     }
@@ -2983,6 +3002,24 @@ impl Ledger {
     /// テイクを1件引く。無ければ `None`。
     #[tracing::instrument(skip(self), fields(take_id))]
     pub fn take(&mut self, take_id: i32) -> Result<Option<Take>> {
+        take(&mut self.conn, take_id)
+    }
+
+    /// テイクの名前を付け直す。 `None` で消す。 付け直したテイクを返し、無ければ `None`。
+    ///
+    /// 空文字は渡さない。 消すのは `None` で、列が空文字を断る。
+    ///
+    /// **名前をトレースに載せない。** 本人が打った文字列で、歌詞も音源名も入りうる
+    /// （`TR-PKG-56`）。
+    #[tracing::instrument(skip(self, label), fields(take_id))]
+    pub fn set_take_label(&mut self, take_id: i32, label: Option<&str>) -> Result<Option<Take>> {
+        let changed = diesel::update(takes::table.filter(takes::id.eq(take_id)))
+            .set(takes::label.eq(label))
+            .execute(&mut self.conn)
+            .map_err(db("set_take_label"))?;
+        if changed == 0 {
+            return Ok(None);
+        }
         take(&mut self.conn, take_id)
     }
 
@@ -4323,6 +4360,54 @@ mod tests {
             l.unrecorded_row_text(row).expect("引ける"),
             None,
             "古い提示順に残っても録音済みは返さない"
+        );
+    }
+
+    /// テイクの名前は付け、変え、消せる。 どの読みにも同じ名前が出て、ほかのテイクは動かない。
+    #[test]
+    fn テイクの名前を付け直して消せる() {
+        let (mut l, sid, list) = ready();
+        let row = &list[0].id;
+        let first = l.commit_take(&take(row, sid, 1)).expect("確定できる");
+        let second = l.commit_take(&take(row, sid, 2)).expect("確定できる");
+        assert_eq!(l.take(first).expect("引ける").expect("ある").label, None);
+
+        let named = l
+            .set_take_label(first, Some("ちょい明め"))
+            .expect("書ける")
+            .expect("テイクがある");
+        assert_eq!(named.label.as_deref(), Some("ちょい明め"));
+        l.set_take_label(first, Some("ちょい弱め"))
+            .expect("書ける")
+            .expect("テイクがある");
+        let labels = |l: &mut Ledger| -> Vec<Option<String>> {
+            l.takes_of(row)
+                .expect("引ける")
+                .into_iter()
+                .map(|t| t.label)
+                .collect()
+        };
+        assert_eq!(labels(&mut l), [Some("ちょい弱め".to_owned()), None]);
+        let rows = l.rows_with_takes().expect("引ける");
+        let listed = rows.iter().find(|r| &r.row_id == row).expect("行がある");
+        assert_eq!(listed.takes[0].label.as_deref(), Some("ちょい弱め"));
+
+        let cleared = l
+            .set_take_label(first, None)
+            .expect("書ける")
+            .expect("テイクがある");
+        assert_eq!(cleared.label, None);
+        assert_eq!(labels(&mut l), [None, None]);
+        assert_eq!(l.take(second).expect("引ける").expect("ある").label, None);
+
+        assert_eq!(
+            l.set_take_label(424_242, Some("x")).expect("書ける"),
+            None,
+            "無いテイクは値で返す"
+        );
+        assert!(
+            l.set_take_label(first, Some("")).is_err(),
+            "空文字は列が断る。 消すのは None"
         );
     }
 

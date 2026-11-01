@@ -137,6 +137,7 @@ fragment TakeSummary_Take on Take {
   id
   row
   generation
+  label
   recordedAt
   durationMs
   validity
@@ -355,6 +356,51 @@ query TakeWaveform($input: WaveformWindowInput!) {
     }
     ... on Problem {
       ...ProblemNotice_Problem
+    }
+  }
+}
+
+# 確定したテイクの音高の記録。 録っている途中には読まない（`DEC-PLT-036`）。
+query TakePitch($lease: ProjectLease!, $take: TakeId!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      recording {
+        take(id: $take) {
+          id
+          pitch {
+            ...PitchChart_PitchTrack
+          }
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+fragment PitchChart_PitchTrack on PitchTrack {
+  hop
+  hz
+}
+
+mutation RenameTake($input: RenameTakeInput!) {
+  renameTake(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on TakeRenamed {
+        take {
+          id
+          label
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
     }
   }
 }

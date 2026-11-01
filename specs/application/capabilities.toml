@@ -71,6 +71,8 @@ costs = [
 'EditorFacet.bulkEditPreview' = { capability = 'editor.read', cost = 'compute-heavy' }
 'DistributionFacet.readiness' = { capability = 'distribution.read', cost = 'compute-heavy' }
 'DistributionImage.content' = { capability = 'distribution.read', cost = 'large-read' }
+# テイクの長さに比例して伸びる。 一覧で選ぶと、テイクの数だけ掛かる。
+'Take.pitch' = { capability = 'recording.read', cost = 'large-read' }
 
 # ## Mutation
 'Mutation.createProject' = { capability = 'library.manage', cost = 'durable-write' }
@@ -95,6 +97,7 @@ costs = [
 'Mutation.reorderSubbanks' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.setSubbankToneRange' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.removeSubbank' = { capability = 'recording.modify', cost = 'durable-write' }
+'Mutation.renameTake' = { capability = 'recording.modify', cost = 'durable-write' }
 'Mutation.playTake' = { capability = 'playback.control', cost = 'native-resource' }
 'Mutation.auditionTake' = { capability = 'playback.control', cost = 'compute-heavy' }
 'Mutation.stopPlayback' = { capability = 'playback.control', cost = 'native-resource' }

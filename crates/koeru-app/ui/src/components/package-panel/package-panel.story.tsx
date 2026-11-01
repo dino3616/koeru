@@ -21,6 +21,7 @@ const rows: RowTakesView[] = [
         duration_ms: 3100,
         invalid: false,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
     ],
     adopted: 1,

@@ -31,6 +31,7 @@ const rows: RowTakesView[] = [
         duration_ms: 2900,
         invalid: false,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
     ],
     adopted: 9,
@@ -50,6 +51,7 @@ const rows: RowTakesView[] = [
         duration_ms: 3020,
         invalid: false,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
       {
         take_id: 11,
@@ -58,6 +60,7 @@ const rows: RowTakesView[] = [
         duration_ms: 3100,
         invalid: false,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
       {
         take_id: 12,
@@ -66,6 +69,7 @@ const rows: RowTakesView[] = [
         duration_ms: 2940,
         invalid: false,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
     ],
     adopted: 11,

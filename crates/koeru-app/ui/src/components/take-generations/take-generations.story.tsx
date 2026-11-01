@@ -12,6 +12,7 @@ const takes: TakeSummaryView[] = [
     duration_ms: 3020,
     invalid: false,
     recorded_at: "2026-09-21T18:24:00Z",
+    label: null,
   },
   {
     take_id: 2,
@@ -20,6 +21,7 @@ const takes: TakeSummaryView[] = [
     duration_ms: 3100,
     invalid: false,
     recorded_at: "2026-09-21T18:24:00Z",
+    label: null,
   },
   {
     take_id: 3,
@@ -28,6 +30,7 @@ const takes: TakeSummaryView[] = [
     duration_ms: 2940,
     invalid: false,
     recorded_at: "2026-09-21T18:24:00Z",
+    label: null,
   },
 ];
 
@@ -74,6 +77,7 @@ export const 使えない回がある: Story = {
         duration_ms: 1200,
         invalid: true,
         recorded_at: "2026-09-21T18:24:00Z",
+        label: null,
       },
     ],
   },

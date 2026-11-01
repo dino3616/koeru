@@ -155,6 +155,8 @@ tauri-specta の 78 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 | `export_downgrade` | `Mutation.prepareExport`（`method` を指す） → `Mutation.commitExport` | Mutation |
 | `releases` | `DistributionFacet.releases` | Query |
 | `reveal_release` | desktop host の API。 渡すのは `ReleaseId` だけで、在り処は host が引く（`TR-PKG-45`） | host |
+| `rename_take` | `Mutation.renameTake`（`DEC-PLT-061` の例外で足した）。 口は `lease`・`operationId` を取らず、受領証と `ProjectLeaseExpired`・`OperationIdReused` の枝も持たない。 開いていなければ `app.no_project` の失敗 | Mutation |
+| `take_pitch` | `Take.pitch`（`DEC-PLT-061` の例外で足した）。 口は `Query.project` の `lease` を取らない。 テイクが無ければ `ledger.unknown_take` の失敗 | Query |
 
 コマンドの外で消えるもの。 `finish_take` が返していた波形のサムネイルは
 `Query.waveformWindow` を小さい画素数で読む。 行と確認の `key`（結合した文字列）は

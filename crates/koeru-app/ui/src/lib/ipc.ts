@@ -69,6 +69,16 @@ import type {
   PackageSettingsView,
   SongSelection,
 } from "~/lib/bindings.gen";
+import type { RenameTakeInput } from "~/lib/bindings.gen";
+
+/* テイクの名前と音高の記録。 刷新のあいだ SDL の型名のまま運ぶ（`DEC-PLT-061`）。 */
+export type {
+  PitchTrack,
+  ReferenceNotFound,
+  RenameTakeInput,
+  RenameTakeOutcome,
+  RenameTakePayload,
+} from "~/lib/bindings.gen";
 
 /**
  * Rust 側の失敗かどうか。
@@ -176,6 +186,10 @@ export const api = {
   stopPreview: () => unwrap(commands.stopPreview()),
   /** そのテイクの原音設定を、エイリアスごとに引く（`TR-ALN-33`）。 */
   otosOfTake: (takeId: number) => unwrap(commands.otosOfTake(takeId)),
+  /** テイクに名前を付ける・変える・消す。 無いテイクは結果の枝で返る。 */
+  renameTake: (input: RenameTakeInput) => unwrap(commands.renameTake(input)),
+  /** 確定したテイクの音高の記録。 解析がまだ置いていなければ `null`。 */
+  takePitch: (take: number) => unwrap(commands.takePitch(take)),
   /** 録れたものをそのまま鳴らす（`TR-REC-43`）。合成を通さない。 */
   playTake: (takeId: number) => unwrap(commands.playTake(takeId)),
   prerollMs: () => unwrap(commands.prerollMs()),

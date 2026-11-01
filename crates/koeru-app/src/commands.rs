@@ -41,6 +41,8 @@ use koeru_runtime::jobs::JobRuntime;
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 
+pub mod takes;
+
 /// 件数を画面へ渡せる幅へ落とす。
 ///
 /// 画面に出すのは録音リストの行数や待ち数で、`u32` に収まらない値は
@@ -507,6 +509,26 @@ pub struct TakeSummaryView {
     /// **事実だけ。** 何回に跨るか・何日空いたかは集計しない——
     /// それは声質の推測材料になる。どう読むかは本人が決める。
     pub recorded_at: String,
+    /// 本人が付けた名前。 付けていなければ `null` で、画面は「テイク N」と出す。
+    pub label: Option<String>,
+}
+
+impl From<koeru_core::db::Take> for TakeSummaryView {
+    fn from(t: koeru_core::db::Take) -> Self {
+        Self {
+            take_id: t.id,
+            generation: t.generation,
+            peak: t.peak.map(|p| Finite(f64::from(p))),
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "テイクの長さは表示用。桁は十分に収まる"
+            )]
+            duration_ms: t.frames as f64 * 1000.0 / f64::from(koeru_audio::wav::MASTER_RATE_HZ),
+            invalid: t.invalid,
+            recorded_at: t.recorded_at,
+            label: t.label,
+        }
+    }
 }
 
 impl From<koeru_core::db::RowTakes> for RowTakesView {
@@ -532,23 +554,7 @@ impl From<koeru_core::db::RowTakes> for RowTakesView {
             text: r.text,
             state: r.state.as_str().to_owned(),
             units: r.units,
-            takes: r
-                .takes
-                .into_iter()
-                .map(|t| TakeSummaryView {
-                    take_id: t.id,
-                    generation: t.generation,
-                    peak: t.peak.map(|p| Finite(f64::from(p))),
-                    #[allow(
-                        clippy::cast_precision_loss,
-                        reason = "テイクの長さは表示用。桁は十分に収まる"
-                    )]
-                    duration_ms: t.frames as f64 * 1000.0
-                        / f64::from(koeru_audio::wav::MASTER_RATE_HZ),
-                    invalid: t.invalid,
-                    recorded_at: t.recorded_at,
-                })
-                .collect(),
+            takes: r.takes.into_iter().map(Into::into).collect(),
             adopted: r.adopted,
         }
     }
