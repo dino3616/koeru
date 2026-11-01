@@ -2464,7 +2464,7 @@ impl Studio {
     /// # Errors
     ///
     /// その枠に録る行がもう無い、収録を始められない。
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, subbank))]
     pub fn start_take_in(&mut self, subbank: Option<SubbankId>) -> Result<String> {
         // 録るのは提示順の先頭（`TR-SYN-19`）。 **正準順で引いていた**
         // ——曲バンク優先を選んでも、録り始めるのは常に ordinal の最小だった。
@@ -2650,7 +2650,7 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、台帳を読めない。
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, subbank))]
     pub fn recording_order_in(
         &mut self,
         subbank: Option<SubbankId>,
