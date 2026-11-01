@@ -131,12 +131,17 @@ pub fn builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::takes::take_pitch,
             commands::guide_tempo::guide_tempo,
             commands::guide_tempo::set_guide_tempo,
+            commands::privacy::privacy,
+            commands::privacy::choose_privacy_consent,
         ])
         // 位相ごとの書き出しを切る。既定のままだと、送る型と受ける型で形が違うものが
         // `X_Serialize` / `X_Deserialize` に割れ、画面が `X` で参照できなくなる。
         // 画面の型名は Rust の型名と1対1に保つ（`DEC-PLT-019`）。
         .disable_serde_phases()
 }
+
+/// 利用状況とクラッシュ報告の同意を置くファイル（`koeru_runtime::privacy`）。
+const PRIVACY_FILE: &str = "privacy.json";
 
 /// デバイスの見張りスレッドが、一覧の変化を確かめに行く間隔（ミリ秒、`TR-REC-04`）。
 ///
@@ -214,11 +219,16 @@ pub fn run() {
             let stop = std::sync::Arc::clone(&device_watch_stop);
             move |app| {
                 use tauri::Manager as _;
-                let root = app
+                let data = app
                     .path()
                     .app_local_data_dir()
-                    .expect("アプリのローカルデータディレクトリを取れること")
-                    .join("library");
+                    .expect("アプリのローカルデータディレクトリを取れること");
+                let root = data.join("library");
+
+                // 同意は製品全体で1つ。 ライブラリの外に置く（`koeru_runtime::privacy`）。
+                app.manage(koeru_runtime::privacy::PrivacyStore::at(
+                    data.join(PRIVACY_FILE),
+                ));
 
                 let fs_kind = storage::filesystem_kind(&root);
                 if !fs_kind.is_promised() {

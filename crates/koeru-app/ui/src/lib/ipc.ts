@@ -61,9 +61,20 @@ export type {
   VoiceStateView,
   VoiceView,
 } from "~/lib/bindings.gen";
+/* 刷新のあいだ SDL の型名のまま運ぶもの（`DEC-PLT-061`）。 */
+export type {
+  ChoosePrivacyConsentInput,
+  ChoosePrivacyConsentOutcome,
+  ChoosePrivacyConsentPayload,
+  ConsentState,
+  ConsentSubject,
+  PrivacySettings,
+  StorageProblem,
+} from "~/lib/bindings.gen";
 
 import type {
   AppError,
+  ChoosePrivacyConsentInput,
   EnvelopeView,
   MicModeView,
   PackageSettingsView,
@@ -264,6 +275,10 @@ export const api = {
   releases: () => unwrap(commands.releases()),
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
   revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
+  /** 同意と送った記録（`TR-PKG-54`）。 project を開かずに読める。 */
+  privacy: () => unwrap(commands.privacy()),
+  /** 1つの同意を選ぶ（`TR-PKG-57`）。 保存できなかったことは結果の枝で返る。 */
+  choosePrivacyConsent: (input: ChoosePrivacyConsentInput) => commands.choosePrivacyConsent(input),
   useMixedChannels: () => unwrap(commands.useMixedChannels()),
   /** 取り込む前に中身を見る（`TR-RCL-12`）。台帳へ入れない。 */
   songFilePreview: (bytes: number[], fileName: string) =>

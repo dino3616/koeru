@@ -14,6 +14,7 @@ pub mod alias;
 pub mod calibration;
 pub mod channel;
 pub mod confidence;
+pub mod consent;
 pub mod coverage;
 pub mod downgrade;
 pub mod fingerprint;
