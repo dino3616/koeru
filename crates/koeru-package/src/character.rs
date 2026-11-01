@@ -136,7 +136,7 @@ pub fn character_yaml(bank: &VoiceBank, profile: Profile, has_icon: bool) -> Str
 
 /// `prefix.map` を組み立てる（`TR-PKG-04`, `TR-RCL-06`）。
 ///
-/// C1 から B7 の 84 半音すべてに1行を持つ。 1行は「音階名 TAB prefix TAB suffix」で、
+/// C-1 から G9 の 128 半音すべてに1行を持つ。 1行は「音階名 TAB prefix TAB suffix」で、
 /// 接尾辞はその半音を担う収録音高の音名。単一音階では `None`。
 ///
 /// 割り当ては収録音高から導く（`koeru_model::tone::prefix_map_body`）。 区画が
@@ -395,16 +395,16 @@ mod tests {
         ]);
         let y = character_yaml(&b, Profile::Both, false);
         assert!(y.contains("tone_ranges:"));
-        // C4 は C1 から F#4 まで、G4 は G4 から B7 まで担う。
-        assert!(y.contains("\"C1-F#4\""), "{y}");
-        assert!(y.contains("\"G4-B7\""), "{y}");
+        // C4 は C-1 から F#4 まで、G4 は G4 から G9 まで担う（`DEC-RCL-019`）。
+        assert!(y.contains("\"C-1-F#4\""), "{y}");
+        assert!(y.contains("\"G4-G9\""), "{y}");
 
         let map = prefix_map(&b).expect("多音階なら出る");
         let lines: Vec<&str> = map.lines().collect();
-        assert_eq!(lines.len(), 84, "C1 から B7 まで抜けが無い");
-        assert_eq!(lines[0], "C1\t\t", "最低音高が下の全音域も担う");
-        assert_eq!(lines[43], "G4\t↑\t", "区画の prefix を落とさない");
-        assert_eq!(lines[83], "B7\t↑\t");
+        assert_eq!(lines.len(), 128, "C-1 から G9 まで抜けが無い");
+        assert_eq!(lines[0], "C-1\t\t", "最低音高が下の全音域も担う");
+        assert_eq!(lines[67], "G4\t↑\t", "区画の prefix を落とさない");
+        assert_eq!(lines[127], "G9\t↑\t");
     }
 
     /// 区画の `prefix` を落とさない。 落とすとその音域のエイリアスが引けない。

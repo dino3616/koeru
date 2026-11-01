@@ -38,11 +38,14 @@ use koeru_failure::Class;
 use koeru_runtime::ProjectRuntime;
 use koeru_runtime::jobs::JobRuntime;
 
+pub mod subbank;
+
 use crate::error::{AppError, Result};
 use crate::studio::{Preflight, Progress, SpaceEstimate, Studio, TakeResult};
 
 pub mod guide_tempo;
 pub mod privacy;
+pub mod problem;
 pub mod takes;
 
 /// 件数を画面へ渡せる幅へ落とす。
@@ -794,8 +797,8 @@ pub struct ToneSuggestionView {
 
 /// 選べる収録音高（`TR-RCL-06`, `TR-REC-25`）。
 ///
-/// `prefix.map` が覆う C1〜B7 の 84 半音。 これより外は書き出しても
-/// 鳴らす先が無い。画面に MIDI 番号を出さないので、名前を添えて返す。
+/// `prefix.map` が覆う C-1〜G9 の 128 半音（`DEC-RCL-019`）。
+/// 画面に MIDI 番号を出さないので、名前を添えて返す。
 #[tauri::command]
 #[specta::specta]
 pub fn tone_options() -> Vec<ToneOptionView> {

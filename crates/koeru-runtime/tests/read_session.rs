@@ -401,7 +401,7 @@ fn seed_overlapping_rows(rt: &ProjectRuntime) -> (String, String, i32) {
     let rules = koeru_core::presamp::Rules::builtin(UnitSet::Core);
     let list = generate_sequential(UnitSet::Core, 8).expect("生成できる");
     let mut w = rt.writer(rt.lease()).expect("書ける");
-    w.install_reclist_for_tones(&list, &rules, AliasMethod::Sequential, &[60])
+    w.install_reclist_for_tones(&list, &rules, AliasMethod::Sequential, None, &[60])
         .expect("書き込める");
     let sid = w
         .start_session(&SessionSnapshot {
@@ -557,5 +557,56 @@ fn materials_facet_は版を固定し_無効になれば次の行へ移る() {
     assert!(
         r.candidates().iter().all(|c| c.row.as_str() != hi),
         "採用が無効な行は候補にならない"
+    );
+}
+
+// ## サブバンクの枠（`DEC-RCL-018`）
+
+/// 枠の一覧も読みの版に固定される。 読みを開いたあとに枠を足しても、その読みからは
+/// 見えない——試唱の途中に解いた素材と枠の一覧がずれない。 枠はプリセットと方式を持つ。
+#[test]
+fn 枠の一覧も読みの版に固定される() {
+    use koeru_core::alias::Method as AliasMethod;
+    use koeru_core::db::subbank::NewSubbank;
+
+    let rt = open_runtime(new_project("subbanks"));
+    let lease = *rt.lease();
+    let rules = koeru_core::presamp::Rules::builtin(UnitSet::Core);
+    let list = generate_single(UnitSet::Core, 5).expect("生成できる");
+    rt.writer(&lease)
+        .expect("書ける")
+        .install_reclist_for_tones(&list, &rules, AliasMethod::Single, Some("single"), &[60])
+        .expect("書き込める");
+
+    let pinned = rt.read(&lease).expect("読める");
+    let added = rt
+        .writer(&lease)
+        .expect("書ける")
+        .add_subbank(&NewSubbank {
+            voice_color: None,
+            method: AliasMethod::Single,
+            preset_id: "single",
+            tone: 64,
+            after: None,
+            list: &list,
+            rules: &rules,
+        })
+        .expect("台帳を書ける")
+        .expect("足せる");
+
+    let before = pinned.subbanks().expect("読める");
+    assert_eq!(before.len(), 1, "開いたあとに足した枠は見えない");
+    assert_eq!(before[0].tone, 60);
+    assert_eq!(before[0].method, AliasMethod::Single);
+    assert_eq!(before[0].preset_id.as_deref(), Some("single"));
+
+    let after = rt.read(&lease).expect("読める").subbanks().expect("読める");
+    let ids: Vec<_> = after.iter().map(|s| s.id).collect();
+    assert_eq!(ids, [before[0].id, added]);
+    assert_eq!(after[1].tone, 64);
+    assert_eq!(
+        after[1].rows,
+        list.len(),
+        "足した枠の録音リストを、その枠の音階で入れる"
     );
 }

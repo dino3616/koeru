@@ -151,7 +151,7 @@ fn 収録音高は本人が決める() {
     assert_eq!(l.recording_tones().expect("引ける"), [60, 62]);
 }
 
-/// 鳴らせない音高は断る。`prefix.map` が覆うのは C1〜B7。
+/// 鳴らせない音高は断る。`prefix.map` が覆うのは C-1〜G9（`DEC-RCL-019`）。
 #[test]
 fn 鳴らせない音高は断る() {
     let (mut s, _root) = studio("badtones");
@@ -162,7 +162,7 @@ fn 鳴らせない音高は断る() {
         "tone.empty"
     );
     assert_eq!(
-        s.create_project_with("そと", "single", &[0])
+        s.create_project_with("そと", "single", &[128])
             .expect_err("断る")
             .code,
         "tone.out_of_range"
@@ -227,9 +227,9 @@ fn 多音階は音高ごとに区画を分ける() {
         assert!(f.is_ascii(), "{f}");
     }
 
-    // prefix.map は 84 行で、収録音高から floor 割り当てで作る（`TR-RCL-06`）。
+    // prefix.map は 128 行で、収録音高から floor 割り当てで作る（`TR-RCL-06`）。
     let map = character::prefix_map(&bank).expect("多音階なら出る");
-    assert_eq!(map.lines().count(), 84);
+    assert_eq!(map.lines().count(), 128);
     assert!(map.lines().next().is_some_and(|l| l.ends_with("G3")));
 
     // 素材が無いので oto.ini は出ないが、組み立ては通る。
@@ -522,11 +522,12 @@ fn 詰め直した行を録るとフルリストの残りを組み直す() {
     assert!(!covered.is_empty());
 
     // まだ録っていないフルリストの行は、録った綴りを1つも作らない。
+    let subbank = l
+        .subbank_for_tone(koeru_core::preset::DEFAULT_TONE_MIDI)
+        .expect("引ける")
+        .expect("枠がある");
     let untaken = l
-        .untaken_rows(
-            koeru_core::preset::DEFAULT_TONE_MIDI,
-            koeru_core::db::RowOrigin::Preset,
-        )
+        .untaken_rows(subbank, koeru_core::db::RowOrigin::Preset)
         .expect("引ける");
     assert!(!untaken.is_empty(), "残りがある");
     for (row, aliases) in &untaken {

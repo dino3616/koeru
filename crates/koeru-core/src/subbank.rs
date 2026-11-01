@@ -19,10 +19,10 @@ use std::collections::BTreeMap;
 
 use crate::tone;
 
-/// subbank が覆う音域の下限（`TR-SYN-13`）。
-pub const RANGE_LOW: i32 = 24;
-/// 上限。`prefix.map` の B7 より1つ上まで見る（`TR-SYN-13` の「MIDI 24〜108」）。
-pub const RANGE_HIGH: i32 = 108;
+/// subbank が覆う音域の下限（`TR-SYN-13` の「MIDI 0〜127」）。 書き出す `prefix.map` と同じ。
+pub const RANGE_LOW: i32 = tone::PREFIX_MAP_LOW;
+/// 上限。
+pub const RANGE_HIGH: i32 = tone::PREFIX_MAP_HIGH;
 
 /// 音域レンジを持つ区画（`TR-SYN-13`）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +70,7 @@ impl Subbank {
 /// ——**行が1つ壊れているだけで音源全体を読めなくしない。**
 ///
 /// 同じ prefix / suffix の組は1つの区画にまとまる。 `prefix.map` は
-/// 半音ごとに1行あるので、畳まないと 84 個の区画ができる。
+/// 半音ごとに1行あるので、畳まないと行の数だけ区画ができる。
 #[must_use]
 pub fn parse_prefix_map(text: &str) -> Vec<Subbank> {
     let mut by_affix: BTreeMap<(String, String), Vec<i32>> = BTreeMap::new();
@@ -184,7 +184,9 @@ pub fn representative_tone(banks: &[Subbank], index: usize) -> Option<i32> {
         return None;
     }
     // 最低区画は下限が収録音高ではない。 接辞が読めなかった以上、ここでは決まらない。
-    if b.low() == Some(RANGE_LOW) && banks.len() > 1 {
+    // 下限が `RANGE_LOW` かでは見ない。 他所の `prefix.map` は C1 から始まる。
+    let lowest = banks.iter().filter_map(Subbank::low).min();
+    if b.low() == lowest && banks.len() > 1 {
         return None;
     }
     b.low()
@@ -292,8 +294,8 @@ mod tests {
         // 半音ごとの行が畳まれている。
         assert_eq!(
             banks.iter().map(|b| b.tones.len()).sum::<usize>(),
-            84,
-            "C1 から B7 まで"
+            128,
+            "C-1 から G9 まで"
         );
     }
 

@@ -12,8 +12,9 @@ use tauri::State;
 use koeru_core::guide::GuideTempo as Tempo;
 use koeru_failure::Class;
 
+use super::problem::{InputViolation, InvalidRequest, Problem};
 use super::{AppState, Finite, lock};
-use crate::error::{AppError, FailureAction, FailureClass, FailureOutcome, Result};
+use crate::error::{AppError, FailureClass, Result};
 use crate::studio::GuideTempoChange;
 
 /// ガイドのテンポ（`GuideTempo`）。 範囲と刻みも渡すので、画面は数を写さない
@@ -65,47 +66,11 @@ pub enum SetGuideTempoOutcome {
     StorageProblem(Problem),
 }
 
-/// 予期できる失敗（`Problem`）。 欄の名前は SDL に合わせる。 分類・確定の状態・次の手の値は
-/// [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
-#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
-pub struct Problem {
-    pub code: &'static str,
-    pub class: FailureClass,
-    pub commit: FailureOutcome,
-    pub actions: Vec<FailureAction>,
-    pub message: String,
-}
-
-impl Problem {
-    /// 画面へ値として返すので、`AppError` の直列化を通らない。 ここで1回記録する
-    /// （`DEC-PLT-038`）。
-    fn of(e: &AppError) -> Self {
-        e.record("recording.set_guide_tempo");
-        Self {
-            code: e.code,
-            class: e.class,
-            commit: e.outcome,
-            actions: vec![e.action],
-            message: e.message.clone(),
-        }
-    }
-}
-
-/// 入力が形の上で受けられない（`InvalidRequest`）。
-#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
-pub struct InvalidRequest {
-    pub code: &'static str,
-    pub class: FailureClass,
-    pub commit: FailureOutcome,
-    pub actions: Vec<FailureAction>,
-    pub message: String,
-    pub violations: Vec<InputViolation>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, specta::Type)]
-pub struct InputViolation {
-    pub field: &'static str,
-    pub code: &'static str,
+/// 画面へ値として返すので、`AppError` の直列化を通らない。 ここで1回記録する
+/// （`DEC-PLT-038`）。
+fn problem(e: &AppError) -> Problem {
+    e.record("recording.set_guide_tempo");
+    Problem::of(e)
 }
 
 const OUT_OF_RANGE: &str = "recording.guide_tempo_out_of_range";
@@ -116,22 +81,17 @@ fn out_of_range() -> InvalidRequest {
         Class::InvalidInput,
         "選べないテンポ。範囲と刻みの中から選んでほしい",
     );
-    let p = Problem::of(&e);
-    InvalidRequest {
-        code: p.code,
-        class: p.class,
-        commit: p.commit,
-        actions: p.actions,
-        message: p.message,
-        violations: vec![InputViolation {
+    InvalidRequest::of(
+        problem(&e),
+        vec![InputViolation {
             field: "bpm",
             code: OUT_OF_RANGE,
         }],
-    }
+    )
 }
 
 fn while_recording() -> Problem {
-    Problem::of(&AppError::new(
+    problem(&AppError::new(
         "recording.guide_tempo_while_recording",
         Class::Rejected,
         "録っている途中はガイドのテンポを変えない。止めてから変えてほしい",
@@ -148,7 +108,7 @@ fn outcome_of(r: Result<GuideTempoChange>) -> Result<SetGuideTempoOutcome> {
         }
         Err(e) => match e.class {
             FailureClass::Storage | FailureClass::TransientIo | FailureClass::Corrupt => {
-                Ok(SetGuideTempoOutcome::StorageProblem(Problem::of(&e)))
+                Ok(SetGuideTempoOutcome::StorageProblem(problem(&e)))
             }
             _ => Err(e),
         },

@@ -42,7 +42,7 @@ pub struct VoiceTraits {
 /// OKLCH の3成分に対応する。 彩度と明度は位置だけで、幅は面が決める
 /// （このモジュールの冒頭）。
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct VoiceColor {
+pub struct VoiceTint {
     /// 色相（度）。[`HUE_START`] から [`HUE_SPAN`] のあいだ。
     pub hue: f64,
     /// 彩度の位置（0〜1）。面ごとの幅へ写す前の値。
@@ -101,7 +101,7 @@ const VOICED_HI_MS: f64 = 1600.0;
 /// 重心の違いが隣の音高帯へはみ出して音高帯の意味が消える。
 const HUE_SECTORS: usize = 5;
 
-impl VoiceColor {
+impl VoiceTint {
     /// 観測から色を作る。
     #[must_use]
     pub fn from_traits(t: &VoiceTraits) -> Self {
@@ -116,7 +116,7 @@ impl VoiceColor {
 
 /// 色相（度）。音高帯が区画を選び、重心が区画の中の位置を決める。
 ///
-/// 重心は彩度にも効く（[`VoiceColor::chroma_t`]）。 1つの観測が2つの成分を
+/// 重心は彩度にも効く（[`VoiceTint::chroma_t`]）。 1つの観測が2つの成分を
 /// 動かすので、明るい声は「色相が進んで、かつ彩度が上がる」形で揃って動く。
 /// 承知のうえで選んだ——**入力が3つしか無いので、色相を音高から離すには
 /// どれかを二度使うほかない**（`DEC-PLT-027`）。
@@ -236,8 +236,8 @@ mod tests {
     #[test]
     fn 同じ観測からは同じ色が出る() {
         let takes = [take(180.0, 1800.0, 120), take(200.0, 2000.0, 100)];
-        let a = VoiceColor::from_traits(&traits_of(&takes).expect("声がある"));
-        let b = VoiceColor::from_traits(&traits_of(&takes).expect("声がある"));
+        let a = VoiceTint::from_traits(&traits_of(&takes).expect("声がある"));
+        let b = VoiceTint::from_traits(&traits_of(&takes).expect("声がある"));
         assert_eq!(a, b);
     }
 
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn 色相は禁じられた帯を外れる() {
         for hz in [40.0, 70.0, 120.0, 220.0, 450.0, 900.0] {
-            let c = VoiceColor::from_traits(&VoiceTraits {
+            let c = VoiceTint::from_traits(&VoiceTraits {
                 pitch_hz: hz,
                 centroid_ratio: 6.0,
                 voiced_ms: 600.0,
@@ -264,8 +264,8 @@ mod tests {
     /// 何が色相を進めたのかが分からない。
     #[test]
     fn 音高が高いほど色相が進む() {
-        let low = VoiceColor::from_traits(&traits_of(&[take(110.0, 1210.0, 100)]).expect("声"));
-        let high = VoiceColor::from_traits(&traits_of(&[take(330.0, 3630.0, 100)]).expect("声"));
+        let low = VoiceTint::from_traits(&traits_of(&[take(110.0, 1210.0, 100)]).expect("声"));
+        let high = VoiceTint::from_traits(&traits_of(&[take(330.0, 3630.0, 100)]).expect("声"));
         assert!(low.hue < high.hue, "{} < {}", low.hue, high.hue);
     }
 
@@ -275,8 +275,8 @@ mod tests {
     /// 一人の音源が全部同じ色になる（`EVID-PLT-002`）。
     #[test]
     fn 同じ音高でも重心が違えば色相が動く() {
-        let dull = VoiceColor::from_traits(&traits_of(&[take(200.0, 800.0, 100)]).expect("声"));
-        let bright = VoiceColor::from_traits(&traits_of(&[take(200.0, 2600.0, 100)]).expect("声"));
+        let dull = VoiceTint::from_traits(&traits_of(&[take(200.0, 800.0, 100)]).expect("声"));
+        let bright = VoiceTint::from_traits(&traits_of(&[take(200.0, 2600.0, 100)]).expect("声"));
         assert!(
             (dull.hue - bright.hue).abs() > 10.0,
             "{} と {} が近すぎる",
@@ -290,7 +290,7 @@ mod tests {
     fn 区画の端でも帯を外れない() {
         for pitch in [70.0, 90.0, 150.0, 250.0, 400.0, 450.0] {
             for ratio in [RATIO_LO, 5.0, RATIO_HI] {
-                let c = VoiceColor::from_traits(&VoiceTraits {
+                let c = VoiceTint::from_traits(&VoiceTraits {
                     pitch_hz: pitch,
                     centroid_ratio: ratio,
                     voiced_ms: 600.0,
@@ -313,7 +313,7 @@ mod tests {
             frame_ms: 5.0,
         }])
         .expect("声がある");
-        let c = VoiceColor::from_traits(&t);
+        let c = VoiceTint::from_traits(&t);
         assert!((0.0..=1.0).contains(&c.chroma_t));
     }
 

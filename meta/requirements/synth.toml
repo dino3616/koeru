@@ -151,7 +151,7 @@ title = 'prefix.map と subbank'
 confidence = 'Fact'
 needs_component = false
 depends_on = []
-statement = '音源ディレクトリ直下の prefix.map（タブ区切り3列: 音名 / prefix / suffix）を読み、prefix と suffix の組ごとに音域レンジを持つ subbank へ展開する。対象音域は MIDI 24〜108 とする。エイリアス検索は素のエイリアスではなく「prefix + エイリアス + suffix」で行う。prefix.map が無い音源は全音域を覆う単一 subbank として扱う。'
+statement = '音源ディレクトリ直下の prefix.map（タブ区切り3列: 音名 / prefix / suffix）を読み、prefix と suffix の組ごとに音域レンジを持つ subbank へ展開する。対象音域は MIDI 0〜127 とする（DEC-RCL-019）。エイリアス検索は素のエイリアスではなく「prefix + エイリアス + suffix」で行う。prefix.map が無い音源は全音域を覆う単一 subbank として扱う。'
 
 [[requirement]]
 id = 'TR-SYN-14'

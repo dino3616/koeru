@@ -36,8 +36,8 @@ export const commands = {
 	/**
 	 *  選べる収録音高（`TR-RCL-06`, `TR-REC-25`）。
 	 * 
-	 *  `prefix.map` が覆う C1〜B7 の 84 半音。 これより外は書き出しても
-	 *  鳴らす先が無い。画面に MIDI 番号を出さないので、名前を添えて返す。
+	 *  `prefix.map` が覆う C-1〜G9 の 128 半音（`DEC-RCL-019`）。
+	 *  画面に MIDI 番号を出さないので、名前を添えて返す。
 	 */
 	toneOptions: () => __TAURI_INVOKE<ToneOptionView[]>("tone_options"),
 	/**
@@ -101,6 +101,20 @@ export const commands = {
 	recordingOrder: () => typedError<RecordingOrderView, AppError>(__TAURI_INVOKE("recording_order")),
 	/**  録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
 	setRecordingOrder: (mode: string) => typedError<null, AppError>(__TAURI_INVOKE("set_recording_order", { mode })),
+	/**  枠を並びの順で（`RecordingFacet.subbanks`）。 並びが録る順の既定（`TR-RCL-28`）。 */
+	subbanks: () => typedError<Subbank[], AppError>(__TAURI_INVOKE("subbanks")),
+	/**  声色ごとに枠を束ねたもの（`RecordingFacet.voiceColors`）。 */
+	voiceColors: () => typedError<VoiceColor[], AppError>(__TAURI_INVOKE("voice_colors")),
+	/**  枠を足す（`Mutation.addSubbank`、`TR-RCL-28`）。 足した枠は未収録から始まる。 */
+	addSubbank: (input: AddSubbankInput) => typedError<AddSubbankPayload, AppError>(__TAURI_INVOKE("add_subbank", { input })),
+	/**  枠の声色・収録音階・方式を付け替える（`Mutation.reviseSubbank`、`TR-RCL-30`）。 */
+	reviseSubbank: (input: ReviseSubbankInput) => typedError<ReviseSubbankPayload, AppError>(__TAURI_INVOKE("revise_subbank", { input })),
+	/**  枠を並べ替える（`Mutation.reorderSubbanks`）。 並びが録る順の既定になる（`TR-RCL-28`）。 */
+	reorderSubbanks: (input: ReorderSubbanksInput) => typedError<ReorderSubbanksPayload, AppError>(__TAURI_INVOKE("reorder_subbanks", { input })),
+	/**  枠の担当音域を直す（`Mutation.setSubbankToneRange`、`TR-RCL-31`）。 */
+	setSubbankToneRange: (input: SetSubbankToneRangeInput) => typedError<SetSubbankToneRangePayload, AppError>(__TAURI_INVOKE("set_subbank_tone_range", { input })),
+	/**  枠を消す（`Mutation.removeSubbank`、`TR-RCL-29`）。 その枠のテイクも消える。 */
+	removeSubbank: (input: RemoveSubbankInput) => typedError<RemoveSubbankPayload, AppError>(__TAURI_INVOKE("remove_subbank", { input })),
 	/**
 	 *  採用テイクを切り替える（`TR-RCL-25`）。
 	 * 
@@ -390,6 +404,36 @@ export const commands = {
 };
 
 /* Types */
+export type AddSubbankInput = {
+	/**  省くと声色なし。 */
+	voiceColor: string | null,
+	/**  `Catalog.methodPresets` の `id`。 方式はプリセットが決める。 */
+	preset: string,
+	/**  収録音階（MIDI）。 */
+	tone: number,
+	/**  この枠の後ろに置く。 省くと末尾。 */
+	after: string | null,
+};
+
+/**  `AddSubbankOutcome` の union。 枝の名前は `__typename` に載る。 */
+export type AddSubbankOutcome = { __typename: "SubbankAdded"; subbank: Subbank } | {
+	__typename: "SubbankConflict",
+} & SubbankConflict | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "StorageProblem",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type AddSubbankPayload = {
+	outcome: AddSubbankOutcome,
+};
+
 /**  画面へ返す失敗。 */
 export type AppError = {
 	code: string,
@@ -606,11 +650,12 @@ export type ImportedSongView = {
 };
 
 export type InputViolation = {
+	/**  入力の中の場所。 欄の名前を . でつなぐ。 */
 	field: string,
 	code: string,
 };
 
-/**  入力が形の上で受けられない（`InvalidRequest`）。 */
+/**  入力が不正（`InvalidRequest`）。 */
 export type InvalidRequest = {
 	code: string,
 	class: FailureClass,
@@ -701,6 +746,20 @@ export type NoteView = {
 	tone: string,
 	/**  長さ（ティック）。480 が4分音符。 */
 	ticks: number,
+};
+
+/**
+ *  同じ操作の識別子で、違う要求が来た（`OperationIdReused`）。
+ * 
+ *  操作の識別子を運ばないので、この枝は返らない。 SDL の union と同じ枝を持つために置く。
+ */
+export type OperationIdReused = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+	operationId: string,
 };
 
 /**  画面へ返す原音設定の1件（`TR-ALN-33`）。5値をそのまま渡す。 */
@@ -840,8 +899,9 @@ export type PrivacySettings = {
 };
 
 /**
- *  予期できる失敗（`Problem`）。 欄の名前は SDL に合わせる。 分類・確定の状態・次の手の値は
- *  [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ揃えるのは GraphQL へ移すとき。
+ *  予期できる失敗の共通の形（`Problem`）。 欄だけを持つ枝はこれを運ぶ。
+ * 
+ *  値として画面へ返すので、`AppError` の直列化を通らない。 記録するかどうかは呼び出し側が決める。
  */
 export type Problem = {
 	code: string,
@@ -904,6 +964,9 @@ export type ProjectView = {
 	state: VoiceStateView | null,
 };
 
+/**  作り方（`RecordingMethod`）。 枠は多音階を名乗らない——音階は枠ごとに1つ。 */
+export type RecordingMethod = "SINGLE" | "SEQUENTIAL" | "CVVC" | "MULTI_PITCH_SEQUENTIAL";
+
 /**
  *  全部の行と、そのテイク（`TR-REC-21`, `TR-RCL-25`）。
  *  録る順（`TR-SYN-19`）。
@@ -944,6 +1007,39 @@ export type ReleaseView = {
 	released_at: string,
 };
 
+/**  画面は消えるテイクの数を示して確認を取り、その数を `acknowledgedTakes` に入れる。 */
+export type RemoveSubbankInput = {
+	subbank: string,
+	/**  本人に示した、消えるテイクの数。 */
+	acknowledgedTakes: number,
+};
+
+/**
+ *  `RemoveSubbankOutcome` の union。 録っている途中の枠と、復旧候補が残っている枠は
+ *  消せない（`ActionRejected`）。
+ */
+export type RemoveSubbankOutcome = {
+	__typename: "SubbankRemoved",
+} & SubbankRemoved | {
+	__typename: "RevisionConflict",
+} & RevisionConflict | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "ResourceBusy",
+} & Problem | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "StorageProblem",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type RemoveSubbankPayload = {
+	outcome: RemoveSubbankOutcome,
+};
+
 /**  [`rename_take`] の入力（`RenameTakeInput`）。 */
 export type RenameTakeInput = {
 	take: number,
@@ -964,6 +1060,28 @@ export type RenameTakeOutcome = { __typename: "TakeRenamed"; take: TakeSummaryVi
 /**  [`rename_take`] の応答（`RenameTakePayload`）。 `operationId` を取らないので受領証は無い。 */
 export type RenameTakePayload = {
 	outcome: RenameTakeOutcome,
+};
+
+export type ReorderSubbanksInput = {
+	/**  すべての枠を、新しい並びで。 欠けや重複は `InvalidRequest`。 */
+	order: string[],
+};
+
+/**  `ReorderSubbanksOutcome` の union。 */
+export type ReorderSubbanksOutcome = { __typename: "SubbanksReordered"; subbanks: Subbank[] } | {
+	__typename: "RevisionConflict",
+} & RevisionConflict | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "StorageProblem",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type ReorderSubbanksPayload = {
+	outcome: ReorderSubbanksOutcome,
 };
 
 /**  確認キューの1件（`TR-ALN-26`）。 */
@@ -1022,6 +1140,55 @@ export type ReviewSummaryView = {
 	exported: boolean,
 };
 
+/**  省いた欄は変えない。 声色を声色なしへ戻すときは `clearVoiceColor` を使う。 */
+export type ReviseSubbankInput = {
+	subbank: string,
+	voiceColor: string | null,
+	clearVoiceColor: boolean | null,
+	/**  収録音階（MIDI）。 付け替えても音声は変えない（`TR-RCL-30`）。 */
+	tone: number | null,
+	/**  録ってある枠では断る（`TR-RCL-30`）。 */
+	preset: string | null,
+};
+
+/**  `ReviseSubbankOutcome` の union。 */
+export type ReviseSubbankOutcome = { __typename: "SubbankRevised"; subbank: Subbank } | {
+	__typename: "SubbankConflict",
+} & SubbankConflict | {
+	__typename: "RevisionConflict",
+} & RevisionConflict | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "StorageProblem",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type ReviseSubbankPayload = {
+	outcome: ReviseSubbankOutcome,
+};
+
+/**
+ *  読んだ版が古い（`RevisionConflict`）。
+ * 
+ *  画面が読んでいた版（`baseRevision`）を運ばないので、`expected` も今の版になる。
+ */
+export type RevisionConflict = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+	expected: string,
+	actual: string,
+};
+
 /**
  *  環1本（`DEC-PLT-025`）。五十音の行ごとの被覆。
  * 
@@ -1077,6 +1244,35 @@ export type SetGuideTempoOutcome = { __typename: "GuideTempoSet"; tempo: GuideTe
 
 export type SetGuideTempoPayload = {
 	outcome: SetGuideTempoOutcome,
+};
+
+export type SetSubbankToneRangeInput = {
+	subbank: string,
+	/**  省くと既定（floor 割り当て）へ戻す。 */
+	range: ToneRangeInput | null,
+};
+
+/**  `SetSubbankToneRangeOutcome` の union。 */
+export type SetSubbankToneRangeOutcome = 
+/**  直した枠と、既定が動いた同じ声色の枠。 */
+{ __typename: "SubbankToneRangeSet"; subbanks: Subbank[] } | {
+	__typename: "RevisionConflict",
+} & RevisionConflict | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "StorageProblem",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type SetSubbankToneRangePayload = {
+	outcome: SetSubbankToneRangeOutcome,
 };
 
 /**  取り込む前の1曲（`TR-RCL-12`）。まだ台帳に無い。 */
@@ -1209,6 +1405,45 @@ export type StorageProblem = {
 	message: string,
 };
 
+/**  サブバンクの枠（`Subbank`）。 */
+export type Subbank = {
+	/**  `SubbankId`。 wire では文字列で、画面は中身を解釈しない。 */
+	id: string,
+	/**  `null` は声色なし。 */
+	voiceColor: string | null,
+	method: RecordingMethod,
+	/**  作ったときの方式プリセット。 古い project は持たない。 */
+	preset: string | null,
+	tone: Tone,
+	toneRange: ToneRange,
+	progress: SubbankProgress,
+	/**  確定したテイクがあれば true。 方式を変えられない（`TR-RCL-30`）。 */
+	hasTakes: boolean,
+};
+
+/**  同じ声色・方式・収録音階の枠が、もうある（`SubbankConflict`）。 */
+export type SubbankConflict = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+	existing: string,
+};
+
+export type SubbankProgress = {
+	/**  採用テイクのある行。 */
+	recordedRows: number,
+	rows: number,
+	/**  固定の見積もり（`DEC-RCL-013`）。 */
+	remainingSeconds: number,
+};
+
+export type SubbankRemoved = {
+	subbank: string,
+	removedTakes: number,
+};
+
 /**  区画が切り替わった1箇所（`TR-SYN-16`）。 */
 export type SubbankSwitchView = {
 	/**  切り替わった音符の位置（0 始まり）。 */
@@ -1295,6 +1530,12 @@ export type TakeView = {
 	followup: AppError | null,
 };
 
+/**  音高（`Tone`）。 画面に出すのは `name` で、MIDI 番号は出さない（`TR-REC-25`）。 */
+export type Tone = {
+	midi: number,
+	name: string,
+};
+
 /**  選べる音高1つ（`TR-REC-25`）。 */
 export type ToneOptionView = {
 	midi: number,
@@ -1310,6 +1551,21 @@ export type ToneProgressView = {
 	done: number,
 	/**  その音高の行の総数。 */
 	total: number,
+};
+
+/**  担当音域（`ToneRange`、`TR-RCL-31`）。 */
+export type ToneRange = {
+	low: Tone,
+	high: Tone,
+	/**  本人が直した範囲なら true。 false なら floor 割り当ての既定。 */
+	edited: boolean,
+};
+
+export type ToneRangeInput = {
+	/**  MIDI。 */
+	low: number,
+	/**  MIDI。 */
+	high: number,
 };
 
 /**  収録音高の推奨値1件（`TR-RCL-06`）。 */
@@ -1333,6 +1589,14 @@ export type UnencodableView = {
 	suggestion: string | null,
 	/**  エイリアスのときだけ、その行へ戻れる。 */
 	row_id: string | null,
+};
+
+/**  声色（`VoiceColor`）。 同じ綴りの声色を持つ枠の束。 */
+export type VoiceColor = {
+	/**  `null` は声色なし。 */
+	name: string | null,
+	/**  枠の並びの順。 */
+	subbanks: Subbank[],
 };
 
 /**  画面へ返す音源のいまの姿。 */

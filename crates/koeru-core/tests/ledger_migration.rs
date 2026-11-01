@@ -95,17 +95,55 @@ fn pending_one_migration_short(db_path: &Path) -> SqliteConnection {
     conn
 }
 
+/// 音高 60 の行を1つ入れる。 枠を持つ版の台帳なら、先頭の枠に入れる（無ければ作る）。
 fn insert_row(conn: &mut SqliteConnection, id: &str) {
-    // `file_stem` は `id` から作る。`UNIQUE (file_stem, tone)` に当たらないように
-    // ID ごとに変える——同じ台帳に複数回呼ぶ試験がある。
+    insert_row_at(conn, id, 60);
+}
+
+fn insert_row_at(conn: &mut SqliteConnection, id: &str, tone: i32) {
+    // `file_stem` は `id` から作る。 一意制約に当たらないように ID ごとに変える
+    // ——同じ台帳に複数回呼ぶ試験がある。
+    if has_column(conn, "rows", "subbank_id") {
+        plain_subbank(conn);
+        diesel::sql_query(
+            "INSERT INTO rows (id, text, file_stem, tone, state, ordinal, subbank_id) \
+             VALUES (?, 'てすと', ?, ?, 'unrecorded', 0, (SELECT MIN(id) FROM subbanks))",
+        )
+        .bind::<diesel::sql_types::Text, _>(id)
+        .bind::<diesel::sql_types::Text, _>(id)
+        .bind::<diesel::sql_types::Integer, _>(tone)
+        .execute(conn)
+        .expect("行を入れられること");
+        return;
+    }
     diesel::sql_query(
         "INSERT INTO rows (id, text, file_stem, tone, state, ordinal) \
-         VALUES (?, 'てすと', ?, 60, 'unrecorded', 0)",
+         VALUES (?, 'てすと', ?, ?, 'unrecorded', 0)",
     )
     .bind::<diesel::sql_types::Text, _>(id)
     .bind::<diesel::sql_types::Text, _>(id)
+    .bind::<diesel::sql_types::Integer, _>(tone)
     .execute(conn)
     .expect("行を入れられること");
+}
+
+/// 枠が1つも無ければ、声色なし・単独音・音高 60 の枠を1つ作る。
+///
+/// 有無は SQL の外で見る。 1行も入れない `INSERT` でも版のトリガーは組み立てられ、
+/// 版の表を戻した台帳では落ちる。
+fn plain_subbank(conn: &mut SqliteConnection) {
+    let present: ColumnCount = diesel::sql_query("SELECT COUNT(*) AS n FROM subbanks")
+        .get_result(conn)
+        .expect("数えられること");
+    if present.n > 0 {
+        return;
+    }
+    diesel::sql_query(
+        "INSERT INTO subbanks (voice_color, method, preset_id, tone, ordinal) \
+         VALUES (NULL, 'single', NULL, 60, 0)",
+    )
+    .execute(conn)
+    .expect("枠を入れられること");
 }
 
 fn count_rows(db_path: &Path) -> i64 {
@@ -524,6 +562,8 @@ fn 移行後にproject_revisionと全表のトリガーが揃う() {
         let mut conn = raw_connection(&dir.db_path());
         conn.run_pending_migrations(MIGRATIONS)
             .expect("全部当てられること");
+        // 枠を入れると版のトリガーが動く。 版の表を戻す前に入れておく。
+        plain_subbank(&mut conn);
         revert_named(&mut conn, "project_revision");
         insert_row(&mut conn, "r1");
     }
@@ -690,6 +730,233 @@ fn 旧い台帳は指紋が空のまま開き_書いたあとは変わらない(
         l.master_digest_of(424_242),
         Err(LedgerError::UnknownTake)
     ));
+}
+
+/// 枠（`DEC-RCL-018`）を持つ前の版の台帳を作る。 後ろに別の移行が足されても、枠の移行の前まで戻す。
+fn pending_before_subbanks(db_path: &Path) -> SqliteConnection {
+    let mut conn = raw_connection(db_path);
+    conn.run_pending_migrations(MIGRATIONS)
+        .expect("全部当てられること");
+    while business_tables(&mut conn).contains(&"subbanks".to_owned()) {
+        conn.revert_last_migration(MIGRATIONS)
+            .expect("1つ戻せること");
+    }
+    assert!(
+        !has_column(&mut conn, "rows", "subbank_id"),
+        "前提: 枠が無い"
+    );
+    conn
+}
+
+/// テイクを1つ入れ、採用する。 収録セッションが無ければ作る。
+fn insert_adopted_take(conn: &mut SqliteConnection, row_id: &str) {
+    diesel::sql_query(
+        "INSERT INTO sessions (started_at, device_id, sample_rate_hz, channels, effects_state, \
+         route) SELECT 't', 'd', 48000, 1, 'clean', 'r' WHERE NOT EXISTS (SELECT 1 FROM sessions)",
+    )
+    .execute(conn)
+    .expect("セッションを入れられること");
+    diesel::sql_query(
+        "INSERT INTO takes (row_id, session_id, rel_path, frames, recorded_at, generation) \
+         VALUES (?, (SELECT MIN(id) FROM sessions), 'audio/' || ? || '_1.wav', 1, 't', 1)",
+    )
+    .bind::<diesel::sql_types::Text, _>(row_id)
+    .bind::<diesel::sql_types::Text, _>(row_id)
+    .execute(conn)
+    .expect("テイクを入れられること");
+    diesel::sql_query(
+        "INSERT INTO adopted_takes (row_id, take_id) VALUES (?, (SELECT MAX(id) FROM takes))",
+    )
+    .bind::<diesel::sql_types::Text, _>(row_id)
+    .execute(conn)
+    .expect("採用できること");
+}
+
+fn project_with(tag: &str, m: &Manifest) -> ProjectDir {
+    Library::open(tmp(tag))
+        .expect("開けること")
+        .create(m)
+        .expect("作れること")
+}
+
+/// 既存の project は、作ったときの収録音階ごとに声色なしの枠を1つずつ持つ（`DEC-RCL-018`）。
+/// 方式とプリセットは manifest から、並びは音階の昇順。 行もテイクも、自分の音階の枠へ
+/// そのまま属する。
+#[test]
+fn 既存の台帳は収録音階ごとに声色なしの枠を1つずつ持つ() {
+    use koeru_core::alias::Method as AliasMethod;
+
+    let m = Manifest {
+        method: Method::MultiPitchSequential,
+        preset_id: Some("sequential".to_owned()),
+        ..manifest()
+    };
+    let dir = project_with("subbanks-multi", &m);
+    {
+        let mut conn = pending_before_subbanks(&dir.db_path());
+        // 入れた順ではなく、音階の昇順に並ぶ。
+        insert_row_at(&mut conn, "s001@A4", 69);
+        insert_row_at(&mut conn, "s001@G3", 55);
+        insert_row_at(&mut conn, "s002@G3", 55);
+        insert_row_at(&mut conn, "s001@D4", 62);
+        insert_adopted_take(&mut conn, "s001@G3");
+    }
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let subbanks = l.subbanks().expect("読めること");
+    assert_eq!(
+        subbanks.iter().map(|s| s.tone).collect::<Vec<_>>(),
+        [55, 62, 69]
+    );
+    for s in &subbanks {
+        assert_eq!(s.voice_color, None, "声色なし");
+        assert_eq!(
+            s.method,
+            AliasMethod::Sequential,
+            "多音階連続音は音階ごとに連続音"
+        );
+        assert_eq!(s.preset_id.as_deref(), Some("sequential"));
+        assert_eq!(s.edited_range, None, "担当音域は既定のまま");
+    }
+    assert_eq!(
+        subbanks.iter().map(|s| s.rows).collect::<Vec<_>>(),
+        [2, 1, 1]
+    );
+    assert_eq!(
+        subbanks
+            .iter()
+            .map(|s| (s.takes, s.recorded_rows))
+            .collect::<Vec<_>>(),
+        [(1, 1), (0, 0), (0, 0)],
+        "テイクは自分の音階の枠に残る"
+    );
+    for (row, at) in [
+        ("s001@G3", 0),
+        ("s002@G3", 0),
+        ("s001@D4", 1),
+        ("s001@A4", 2),
+    ] {
+        assert_eq!(
+            l.row_subbank(row).expect("属する"),
+            subbanks[at].id,
+            "{row}"
+        );
+    }
+    assert_eq!(l.recording_tones().expect("引ける"), [55, 62, 69]);
+}
+
+/// 単音階の project は枠を1つ持って開く。 プリセットを持たない古い manifest なら、枠も持たない。
+#[test]
+fn 単音階の既存の台帳は枠を1つ持って開く() {
+    use koeru_core::alias::Method as AliasMethod;
+
+    let dir = new_project("subbanks-single");
+    {
+        let mut conn = pending_before_subbanks(&dir.db_path());
+        insert_row(&mut conn, "s001");
+        insert_row(&mut conn, "s002");
+    }
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    let subbanks = l.subbanks().expect("読めること");
+    assert_eq!(subbanks.len(), 1);
+    assert_eq!(subbanks[0].tone, 60);
+    assert_eq!(subbanks[0].method, AliasMethod::Single);
+    assert_eq!(subbanks[0].preset_id, None);
+    assert_eq!(subbanks[0].rows, 2);
+}
+
+/// manifest が読めなければ、`project.db` を変えずに止め、失敗を記録する（`DEC-PLT-041`）。
+/// 方式を推し量って枠を作らない。
+#[test]
+fn manifest_が読めなければ台帳を変えずに失敗を記録する() {
+    let dir = new_project("subbanks-bad-manifest");
+    {
+        let mut conn = pending_before_subbanks(&dir.db_path());
+        insert_row(&mut conn, "s001");
+    }
+    std::fs::write(dir.manifest_path(), "method = 'no-such-method'\n").expect("書けること");
+
+    let before = std::fs::read(dir.db_path()).expect("読めること");
+    let err = dir.migrate_ledger().expect_err("落ちること");
+    let after = std::fs::read(dir.db_path()).expect("読めること");
+    assert_eq!(before, after, "稼働中の台帳は変わらないこと");
+    assert_eq!(
+        db::migration_state(&dir.db_path()).expect("読めること"),
+        MigrationState::Pending
+    );
+
+    let failure = dir.migration_failure().expect("記録が残ること");
+    assert_eq!(failure.code, koeru_failure::Failure::code(&err));
+    assert!(!dir.root().join("project.db.migrating").exists());
+    assert!(!dir.root().join("migration-backup.part").exists());
+}
+
+/// 移行が二度走っても枠は増えない。 前回が写しに当て終えたところで落ち、枠を持つ写しが
+/// 残っていても、写しを捨てて `project.db` から作り直す。
+#[test]
+fn 移行が二度走っても枠は増えない() {
+    let dir = new_project("subbanks-twice");
+    {
+        let mut conn = pending_before_subbanks(&dir.db_path());
+        insert_row_at(&mut conn, "s001@G3", 55);
+        insert_row_at(&mut conn, "s001@D4", 62);
+    }
+    let leftover = dir.root().join("project.db.migrating");
+    std::fs::copy(dir.db_path(), &leftover).expect("写せること");
+    db::migrate_and_validate(
+        &leftover,
+        &db::MigrationManifest {
+            method: koeru_core::alias::Method::Single,
+            preset_id: None,
+        },
+    )
+    .expect("写しに当てられること");
+
+    assert_eq!(
+        dir.migrate_ledger().expect("移行できること"),
+        MigrationOutcome::Migrated
+    );
+    assert_eq!(
+        dir.migrate_ledger().expect("二度目は何もしない"),
+        MigrationOutcome::AlreadyCurrent
+    );
+    let mut l = Ledger::open(dir.db_path()).expect("開けること");
+    assert_eq!(l.subbanks().expect("読めること").len(), 2);
+}
+
+/// manifest を置かずに当てると、行のある台帳では落ちる。 方式を推し量って枠を埋めない。
+/// 落ちても、その接続で書いたものは残らない。
+#[test]
+fn manifest_を置かずに当てると行のある台帳は落ちる() {
+    let dir = new_project("subbanks-unseeded");
+    {
+        let mut conn = pending_before_subbanks(&dir.db_path());
+        insert_row(&mut conn, "s001");
+    }
+    {
+        let mut conn = raw_connection(&dir.db_path());
+        diesel::sql_query("PRAGMA foreign_keys = ON")
+            .execute(&mut conn)
+            .expect("効かせられること");
+        assert!(conn.run_pending_migrations(MIGRATIONS).is_err());
+    }
+    assert_eq!(
+        db::migration_state(&dir.db_path()).expect("読めること"),
+        MigrationState::Pending
+    );
+    assert_eq!(count_rows(&dir.db_path()), 1, "行は残ること");
+    let mut conn = raw_connection(&dir.db_path());
+    assert!(!business_tables(&mut conn).contains(&"subbanks".to_owned()));
 }
 
 /// 64字でないものは台帳が断り、64字の16進でないものは置いてあっても読めないと言う。

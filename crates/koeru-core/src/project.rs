@@ -177,6 +177,16 @@ impl Method {
         }
     }
 
+    /// 綴りを組む方式。 多音階連続音は、音階ごとには連続音。
+    #[must_use]
+    pub const fn alias_method(self) -> crate::alias::Method {
+        match self {
+            Self::Single => crate::alias::Method::Single,
+            Self::Sequential | Self::MultiPitchSequential => crate::alias::Method::Sequential,
+            Self::Cvvc => crate::alias::Method::Cvvc,
+        }
+    }
+
     /// manifest の名前から戻す。
     ///
     /// 画面から作り方を受け取る口（下位方式の書き出し、`TR-PKG-24`）が要る。
@@ -793,7 +803,7 @@ impl ProjectDir {
     /// [`ProjectError::MigrationNewer`]、[`ProjectError::MigrationWalRemains`]
     /// （`-wal` を切り詰めきれない）、[`ProjectError::DbCopy`]（写せない）、
     /// [`ProjectError::MigrationDb`]（状態が読めない、適用や確かめが失敗した）、
-    /// 入出力の失敗。
+    /// manifest を読めない、入出力の失敗。
     #[tracing::instrument(skip(self))]
     pub fn migrate_ledger(&self) -> Result<MigrationOutcome> {
         self.cleanup_migration_leftovers()?;
@@ -826,6 +836,14 @@ impl ProjectDir {
 
     /// [`Self::migrate_ledger`] が状態を `Pending` と確かめたあとに呼ぶ実際の手順。
     fn migrate_ledger_steps(&self) -> Result<()> {
+        // 枠を作る migration が方式とプリセットを読む（`DEC-RCL-018`）。 何かを書く前に読む
+        // ——読めない manifest で控えや写しを作っても、当てる段で落ちるだけ。
+        let manifest = self.read_manifest()?;
+        let seed = crate::db::MigrationManifest {
+            method: manifest.method.alias_method(),
+            preset_id: manifest.preset_id,
+        };
+
         // 稼働中の台帳を切り詰める。 古い `-wal` が新しい台帳へ当たると壊れる。
         crate::db::checkpoint_wal(&self.db_path()).map_err(ProjectError::MigrationDb)?;
         if wal_has_content(&self.db_path())? {
@@ -848,7 +866,7 @@ impl ProjectDir {
         crate::db::write_consistent_copy(&self.db_path(), &migrating)
             .map_err(ProjectError::DbCopy)?;
         sync_file(&migrating)?;
-        crate::db::migrate_and_validate(&migrating).map_err(ProjectError::MigrationDb)?;
+        crate::db::migrate_and_validate(&migrating, &seed).map_err(ProjectError::MigrationDb)?;
         // `journal_mode = DELETE` にしてから閉じているので、無いはず（`-wal` は空でなく無い）。
         if wal_sidecar_path(&migrating).exists() {
             return Err(ProjectError::MigrationWalRemains);

@@ -96,7 +96,7 @@ export const TonePicker = ({ tones, onChange }: TonePickerProps) => {
 
       {/*
         推奨は出すが、選択は止めない（`TR-RCL-06`）。
-        出発点を置かないと、84 個の選択肢の前で手が止まる。
+        出発点を置かないと、128 個の選択肢の前で手が止まる。
       */}
       <div className="flex flex-col gap-2">
         <span className="text-xs text-slate-11">迷ったら</span>

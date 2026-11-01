@@ -1,0 +1,61 @@
+schema = 'decision'
+id = 'DEC-RCL-019'
+constraint_label = '音階の範囲'
+constraint = '収録音高・サブバンクの枠の収録音階と担当音域・prefix.map・character.yaml の担当音域が、同じ1つの範囲を使うこと'
+title = '音階の範囲は MIDI の標準と同じ 0〜127（C-1〜G9）にし、prefix.map も 128 行で書き出す'
+status = 'accepted'
+owner = 'dino3616'
+options = [
+  'MIDI の標準と同じ 0〜127（C-1〜G9）。 書き出しもこの範囲で出す',
+  'KOERU の中は 0〜127。 書き出す prefix.map と character.yaml は C1〜B7 に切る',
+  'C1〜B7（MIDI 24〜107）のまま',
+]
+selected = 'MIDI の標準と同じ 0〜127（C-1〜G9）。 書き出しもこの範囲で出す'
+rationale = '''
+C1〜B7 は `prefix.map` の 84 行から来ていた。 収録音高も枠の担当音域も、
+`prefix.map` に書ける範囲に合わせて閉じていた。
+
+範囲は MIDI の標準に揃える。 C1 より下や B7 より上に声を持つ人を、書き出す
+ファイルの都合で弾かない。 内部は MIDI ノート番号で持っているので（`TR-REC-25`）、
+ノート番号が取れる値はすべて受け取る。
+
+## 書き出しも切らない
+
+KOERU の中だけ広げて書き出しで切ると、範囲が2つになる。 枠の担当音域が
+書き出しで黙って縮み、試唱で鳴った音域と配った音源の音域が食い違う。
+範囲は1つにして、`prefix.map` も 128 行すべてを出す。
+
+## 引き受けるもの
+
+**OpenUtau は C1〜B7 の外を読まない。** `prefix.map` は MIDI 24〜107 しか
+読まず（`VoicebankLoader.LoadMap`）、外の行は捨てられる。
+
+**OpenUtau は C-1 から始まる担当音域を読めない。** `character.yaml` の担当音域を
+`-` で割って読むので（`USubbank.AddToneRange`）、`"C-1-F#4"` は3つに割れて
+その枠の音域が丸ごと空になる。 単独の `"C-1"` も読めず、MIDI 0 は弾かれる。
+既定の割り当てでは、いちばん低い枠が下端まで受け持つ（`TR-RCL-06`）。 その枠は
+OpenUtau では1音も受け持たない。
+
+UTAU 本体が 84 行の外をどう扱うかは確かめていない。
+
+これらを知った上で、範囲を1つにすることを取った。 読めない歌唱ソフトに合わせて
+範囲を閉じるのではなく、読めない側で起きることを書き出しの前に本人へ見せる
+道を残す。
+'''
+review_triggers = [
+  'OpenUtau で、いちばん低い枠の音が鳴らないという報告が来たとき。 担当音域の書き方を、読める形（下端を C0 以上に寄せるなど）へ変えることを考える',
+  'UTAU 本体が 84 行の外の prefix.map をどう扱うかを確かめたとき',
+  'OpenUtau が C1〜B7 の外の prefix.map や、負のオクターブを含む担当音域を読むようになったとき',
+]
+affects_requirements = [
+  'TR-RCL-06',
+  'TR-RCL-28',
+  'TR-RCL-31',
+  'TR-EDT-33',
+  'TR-SYN-13',
+]
+affects_decisions = [
+  'DEC-RCL-014',
+  'DEC-RCL-018',
+]
+supersedes = []
