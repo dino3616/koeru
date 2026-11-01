@@ -4,6 +4,15 @@ import { InputLevel } from "~/components/input-level";
 import { Channel, type EnvelopeView, api } from "~/lib/ipc";
 
 /**
+ * バーの長さに使う、いちばん新しい目盛りの本数。
+ *
+ * 1本は 5 ms で、声の基本周期より短いことがある。 1本だけ見ると、
+ * 波の谷に当たるたびにバーが跳ねる。 通知1回ぶん（50 ms）なら跳ねず、
+ * 画面の更新より遅れて見えることもない。
+ */
+const LEVEL_STEPS = 10;
+
+/**
  * いま入ってきている音（`TR-REC-43`）。
  *
  * 録る前から動く。 ストリームは音源を開いた時点で開いていて（`TR-REC-19`）、
@@ -26,6 +35,9 @@ export const LiveWaveform = () => {
    * 毎秒 20 回走る。明暗が変わったときだけ読み直す。
    */
   const waveColor = useRef("");
+  /** バーの長さ。 窓のいちばん新しい `LEVEL_STEPS` 本の大きさ。 */
+  const [level, setLevel] = useState(0);
+  /** 縦線の位置。 窓（1.5 秒）全体のいちばん大きいところ。 */
   const [peak, setPeak] = useState(0);
   /**
    * 割れた回数。数えるだけで、止めも警告もしない（`DEC-REC-008`）。
@@ -105,7 +117,10 @@ export const LiveWaveform = () => {
       if (!alive) return;
       data.current = frame.steps;
       const top = frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
+      const now = frame.steps.slice(-LEVEL_STEPS).reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
       // Rust 側の Channel から届いた値を反映する。外部の仕組みとの同期。
+      // oxlint-disable-next-line react/set-state-in-effect
+      setLevel(now);
       // oxlint-disable-next-line react/set-state-in-effect
       setPeak(top);
       // oxlint-disable-next-line react/set-state-in-effect
@@ -148,7 +163,7 @@ export const LiveWaveform = () => {
         aria-label="いま入っている音の形"
         className="h-20 w-full rounded-lg bg-slate-3"
       />
-      <InputLevel peak={peak} clipped={clipped} />
+      <InputLevel level={level} peak={peak} clipped={clipped} />
     </div>
   );
 };

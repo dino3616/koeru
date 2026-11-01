@@ -420,7 +420,7 @@ body {
  * 報告するだけ」と食い違う。**確定したテイクは判定しないのに、鳴っている音だけ
  * 判定される**状態を無くすため、区分ごと外した。
  *
- * だから色も1色。 割れたかどうかは、別に置いた回数のほうが持つ。
+ * だから色も1色（`text-1`、段 12）。 割れたかどうかは、別に置いた回数のほうが持つ。
  */
 .koeru-meter {
   appearance: none;
@@ -437,11 +437,11 @@ body {
 }
 
 .koeru-meter::-webkit-meter-optimum-value {
-  background: var(--slate-11);
+  background: var(--slate-12);
 }
 
 .koeru-meter::-moz-meter-bar {
-  background: var(--slate-11);
+  background: var(--slate-12);
   border-radius: 9999px;
 }
 
