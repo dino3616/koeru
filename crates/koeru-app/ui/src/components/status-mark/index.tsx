@@ -110,6 +110,11 @@ const Glyph = ({ name }: { name: GlyphName }) => (
  */
 const row = tv({
   variants: {
+    // 印だけの円は、長い一覧の行に並べるため。 字は読み上げに残す。
+    compact: {
+      true: "p-1.5",
+      false: "gap-2 px-3 py-1",
+    },
     status: {
       unrecorded: "border-line-strong text-2",
       recorded: "border-transparent bg-surface-2 text-1",
@@ -174,19 +179,26 @@ const ORIGIN: Record<OriginStatus, Entry> = {
   pinned: { glyph: "pin", label: "手で固定" },
 };
 
-type RowMarkProps = { status: RowStatus };
+type RowMarkProps = {
+  status: RowStatus;
+  /**
+   * 字を畳んで、印だけの円にする。 字は `sr-only` で残すので、読み上げは変わらない。
+   * 幅の狭い列に数百行を並べる一覧のため（収録の左の列）。
+   */
+  compact?: boolean;
+};
 
 /**
  * 行の状態のしるし。 録音リストの行と、行の絞り込みの結果に置く（`TR-RCL-18`）。
  *
  * 角丸は全開（丸い札）。 曲と原音の札（角の小さい四角）と、形でも見分けがつく。
  */
-export const RowMark = ({ status }: RowMarkProps) => (
+export const RowMark = ({ status, compact = false }: RowMarkProps) => (
   <span
-    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-md ${row({ status })}`}
+    className={`inline-flex items-center rounded-full border text-md ${row({ status, compact })}`}
   >
     <Glyph name={ROW[status].glyph} />
-    {ROW[status].label}
+    {compact ? <span className="sr-only">{ROW[status].label}</span> : ROW[status].label}
   </span>
 );
 
