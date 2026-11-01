@@ -124,9 +124,38 @@ export const songNotesQuery = (id: string, songId: string) =>
     queryFn: () => api.songNotes(songId),
   });
 
-/** いまの録る順（`TR-SYN-19`）。台帳が変われば並びも変わる。 */
-export const recordingOrderQuery = (id: string) =>
-  queryOptions({ queryKey: [LEDGER, id, "order"], queryFn: () => api.recordingOrder() });
+/**
+ * いまの録る順（`TR-SYN-19`）。台帳が変われば並びも変わる。
+ *
+ * 枠を指すと、その枠の行だけ（`DEC-RCL-018`）。 先頭が、その枠で次に録る行。
+ * 枠ごとに別の答えなので鍵に混ぜる。
+ */
+export const recordingOrderQuery = (id: string, subbank: string | null = null) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "order", subbank],
+    queryFn: () => api.recordingOrder(subbank),
+  });
+
+/**
+ * ガイドのテンポ（`TR-REC-23`、`DEC-REC-012`）。
+ *
+ * 台帳の鍵の下に置かない。 テイクを確定しても変わらず、変わるのは本人が
+ * 変えたときだけで、そのときは返ってきた値をそのまま入れる。
+ */
+export const guideTempoQuery = (id: string) =>
+  queryOptions({ queryKey: ["guide-tempo", id], queryFn: () => api.guideTempo() });
+
+/**
+ * 確定したテイクの F0（`Take.pitch`）。 解析がまだなら `null`。
+ *
+ * 録っている途中には引かない（`DEC-PLT-036`）。 テイクの識別子は台帳の中で
+ * 一意なので、[`otosQuery`] と同じ形にする。
+ */
+export const takePitchQuery = (id: string, takeId: number) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "pitch", takeId],
+    queryFn: () => api.takePitch(takeId),
+  });
 
 /**
  * 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。

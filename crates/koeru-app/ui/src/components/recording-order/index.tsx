@@ -1,4 +1,5 @@
 import { Button } from "~/components/button";
+import { recordingOrderLabel } from "~/lib/labels";
 
 type RecordingOrderProps = {
   /** いまのモード。`SongBankFirst` か `CoverageEfficiency`。 */
@@ -14,14 +15,14 @@ type RecordingOrderProps = {
   switching: boolean;
 };
 
-/** モードごとの言葉。工程の名前ではなく、何が起きるかで書く。 */
+/** モードごとの言葉。名前は `recordingOrderLabel` が持ち、ここは理由だけ。 */
 const LABEL = {
   SongBankFirst: {
-    name: "歌いたい曲から",
+    name: recordingOrderLabel("SongBankFirst"),
     why: "選んだ曲に要る音を先に録ります。早く1曲歌えます。",
   },
   CoverageEfficiency: {
-    name: "少ない行数で",
+    name: recordingOrderLabel("CoverageEfficiency"),
     why: "似た音をまとめて録ります。全体が早く埋まります。",
   },
 } as const;

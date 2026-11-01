@@ -18,6 +18,13 @@ const METHODS: Record<string, string> = {
 export const methodLabel = (method: string | null): string =>
   method === null ? "作り方が分かりません" : (METHODS[method] ?? "知らない作り方");
 
+/** 録る順のモード（`TR-SYN-19`）。 切り替えの先はこの2つだけ。 */
+export const RECORDING_ORDERS = ["SongBankFirst", "CoverageEfficiency"] as const;
+
+/** 録る順の名前。 工程の名前ではなく、何が起きるかで書く。 知らないモード名は曲バンク優先として読む。 */
+export const recordingOrderLabel = (mode: string): string =>
+  mode === "CoverageEfficiency" ? "少ない行数で" : "歌いたい曲から";
+
 /**
  * 低確信度の主因（`TR-ALN-26` (3)）。
  *
