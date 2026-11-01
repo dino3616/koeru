@@ -6,7 +6,7 @@ members = ["crates/*", "xtask"]
 edition = "2024"
 rust-version = "1.98"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/dino3616/koeru"
+repository = "https://github.com/uta-lab/koeru"
 
 # リポジトリ全体の lint 方針。各クレートは [lints] workspace = true で継承する。
 # clippy::all は priority = -1 にしてあるので、個別の lint 指定が常に優先される。

@@ -11,7 +11,7 @@ M4（配布パッケージ生成）でタグを打ちはじめたら、ここに
 
 公開の Issue で報告しないでください。
 
-[Security Advisories](https://github.com/dino3616/koeru/security/advisories/new) から非公開で報告してください。GitHub アカウントがあれば、他の人に見えない形で報告できます。
+[Security Advisories](https://github.com/uta-lab/koeru/security/advisories/new) から非公開で報告してください。GitHub アカウントがあれば、他の人に見えない形で報告できます。
 
 以下を含めてもらえると助かります。
 

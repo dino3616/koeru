@@ -16,8 +16,8 @@
 //! 作れない。モデルが知らない音素をアライナへ渡せない。 渡してしまうと、
 //! Kaldi 側で番号が引けずに落ちるか、黙って `<eps>` に潰れる。
 //!
-//! [`resources/kana-phonemes.tsv`]: https://github.com/dino3616/koeru/blob/main/crates/koeru-align/resources/kana-phonemes.tsv
-//! [`resources/mfa-japanese-phones.tsv`]: https://github.com/dino3616/koeru/blob/main/crates/koeru-align/resources/mfa-japanese-phones.tsv
+//! [`resources/kana-phonemes.tsv`]: https://github.com/uta-lab/koeru/blob/main/crates/koeru-align/resources/kana-phonemes.tsv
+//! [`resources/mfa-japanese-phones.tsv`]: https://github.com/uta-lab/koeru/blob/main/crates/koeru-align/resources/mfa-japanese-phones.tsv
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;

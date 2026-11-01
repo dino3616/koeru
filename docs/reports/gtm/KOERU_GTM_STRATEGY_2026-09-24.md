@@ -1605,7 +1605,7 @@ KOERUの最初のGTMは、広告ではない。
 - REAPER: https://www.reaper.fm/
 - UTALOADER: https://utaloader.net/
 - 重音テト公式: https://kasaneteto.jp/
-- KOERU repository: https://github.com/dino3616/koeru
+- KOERU repository: https://github.com/uta-lab/koeru
 
 ---
 

@@ -91,7 +91,7 @@ KOERU は Tauri で作っていて、画面は OS が持つ WebView に描きま
 
 ## 障壁を報告する
 
-使えない箇所や使いにくい箇所があれば、[アクセシビリティの Issue テンプレート](https://github.com/dino3616/koeru/issues/new?template=accessibility.yml) から知らせてください。
+使えない箇所や使いにくい箇所があれば、[アクセシビリティの Issue テンプレート](https://github.com/uta-lab/koeru/issues/new?template=accessibility.yml) から知らせてください。
 
 - 障害の有無や内容を書く必要はありません。
 - 使っている支援技術や設定は、書ける範囲で構いません。名前と版が分かると、再現の手がかりになります。

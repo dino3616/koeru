@@ -20,7 +20,7 @@
 //! 1件あたりの確認時間は未実測（`TGT-ALN-007` の note）。[`ReviewQueue::new`] に
 //! 見積もりを渡す形にして、実測が出たら呼び出し側だけ直せばよいようにしてある。
 //!
-//! [`specs/requirements/align-review.fsl`]: https://github.com/dino3616/koeru/blob/main/specs/requirements/align-review.fsl
+//! [`specs/requirements/align-review.fsl`]: https://github.com/uta-lab/koeru/blob/main/specs/requirements/align-review.fsl
 
 use std::collections::BTreeMap;
 use std::time::Duration;

@@ -22,7 +22,7 @@ curl -fsSL https://install.determinate.systems/nix | sh -s -- install --determin
 `git-lfs` は devShell が供給するので、この順序なら事前に入れる必要がありません。
 
 ```bash
-git clone https://github.com/dino3616/koeru && cd koeru
+git clone https://github.com/uta-lab/koeru && cd koeru
 nix develop
 git lfs install
 git submodule update --init --recursive

@@ -22,7 +22,7 @@
 //! 上級モードで編集したプリセットも版を持つ——持たないと、
 //! 「値が変わったのに再計算されない」が起きる。
 //!
-//! [`resources/presets.toml`]: https://github.com/dino3616/koeru/blob/main/crates/koeru-align/resources/presets.toml
+//! [`resources/presets.toml`]: https://github.com/uta-lab/koeru/blob/main/crates/koeru-align/resources/presets.toml
 
 use std::collections::BTreeMap;
 

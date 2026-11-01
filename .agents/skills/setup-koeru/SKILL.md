@@ -47,7 +47,7 @@ curl -fsSL https://install.determinate.systems/nix | sh -s -- install --determin
 submodule を取るのはシェルに入ってから。これで Homebrew の前提が消える。
 
 ```bash
-git clone https://github.com/dino3616/koeru
+git clone https://github.com/uta-lab/koeru
 cd koeru
 nix develop                              # ここで git-lfs が PATH に乗る
 git lfs install
