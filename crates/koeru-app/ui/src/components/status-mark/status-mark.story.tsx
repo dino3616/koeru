@@ -111,6 +111,33 @@ export const 全状態: Story = {
   },
 };
 
+/**
+ * 行の印だけの円。 見える字は無いが、読み上げの字は札と同じ。
+ * 印の形で4状態が見分けられる。
+ */
+export const 行の印だけ: Story = {
+  render: () => (
+    <ul aria-label="行の状態（印だけ）" className="flex gap-2">
+      {ROWS.map((status) => (
+        <li key={status}>
+          <RowMark status={status} compact />
+        </li>
+      ))}
+    </ul>
+  ),
+  play: async ({ canvasElement }) => {
+    const marks = [...canvasElement.querySelectorAll("li > span")];
+    await expect(marks.map((m) => m.textContent)).toEqual([
+      "未収録",
+      "収録済み",
+      "要録り直し",
+      "除外",
+    ]);
+    // 字は畳まれて、見える字が残らない。
+    await expect(canvasElement.querySelectorAll("li > span > span.sr-only")).toHaveLength(4);
+  },
+};
+
 /** 色を落として見る。 印と字と形（塗り・輪郭・破線）だけで、全状態が見分けられる。 */
 export const 白黒: Story = {
   render: () => <Themes grayscale />,
