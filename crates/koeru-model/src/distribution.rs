@@ -33,11 +33,7 @@ fn avoid(mut candidate: String, taken: &[&str]) -> String {
 }
 
 fn bump(version: &str) -> String {
-    let digits = version
-        .bytes()
-        .rev()
-        .take_while(u8::is_ascii_digit)
-        .count();
+    let digits = version.bytes().rev().take_while(u8::is_ascii_digit).count();
     if digits == 0 {
         return format!("{version}.1");
     }
@@ -89,7 +85,9 @@ pub fn copy_archive_name(source: &str, taken: &[&str]) -> String {
 ///
 /// 重なりは隙間にしない。 どの枠が歌うかの規則はまだ無い（`Q-RCL-005`）。
 #[must_use]
-pub fn uncovered(members: &[(Option<&VoiceColor>, ToneRange)]) -> Vec<(Option<VoiceColor>, ToneRange)> {
+pub fn uncovered(
+    members: &[(Option<&VoiceColor>, ToneRange)],
+) -> Vec<(Option<VoiceColor>, ToneRange)> {
     let mut colors: Vec<Option<&VoiceColor>> = Vec::new();
     for (color, _) in members {
         if !colors.contains(color) {
@@ -107,12 +105,24 @@ pub fn uncovered(members: &[(Option<&VoiceColor>, ToneRange)]) -> Vec<(Option<Vo
         let mut next = PREFIX_MAP_LOW;
         for r in &ranges {
             if r.low > next {
-                out.push((color.cloned(), ToneRange { low: next, high: r.low - 1 }));
+                out.push((
+                    color.cloned(),
+                    ToneRange {
+                        low: next,
+                        high: r.low - 1,
+                    },
+                ));
             }
             next = next.max(r.high + 1);
         }
         if next <= PREFIX_MAP_HIGH {
-            out.push((color.cloned(), ToneRange { low: next, high: PREFIX_MAP_HIGH }));
+            out.push((
+                color.cloned(),
+                ToneRange {
+                    low: next,
+                    high: PREFIX_MAP_HIGH,
+                },
+            ));
         }
     }
     out
@@ -186,10 +196,7 @@ mod tests {
             uncovered(&[(None, range(0, 61)), (None, range(62, 68))]),
             [(None, range(69, 127))]
         );
-        assert_eq!(
-            uncovered(&[(None, range(62, 127))]),
-            [(None, range(0, 61))]
-        );
+        assert_eq!(uncovered(&[(None, range(62, 127))]), [(None, range(0, 61))]);
     }
 
     #[test]

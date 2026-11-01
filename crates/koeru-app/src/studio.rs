@@ -1256,11 +1256,9 @@ impl Studio {
         // 配布物のフォルダ名の既定は表示名から作る（`DEC-PKG-008`）。 SQL の移行では作れないので、
         // まだ決まっていない配布物へここで入れる。 決まっているものには触れない。
         let display_name = dir.read_manifest()?.display_name;
-        runtime
-            .writer(&lease)?
-            .fill_default_archive_name(&koeru_core::names::default_distribution_name(
-                &display_name,
-            ))?;
+        runtime.writer(&lease)?.fill_default_archive_name(
+            &koeru_core::names::default_distribution_name(&display_name),
+        )?;
         // フォルダの控えが書き換えられていれば戻し、中身を別名で残す。
         let presamp_restored = dir.restore_presamp(&snapshot)?;
         if presamp_restored.is_some() {

@@ -51,12 +51,29 @@ const privacy: actual.PrivacySettings = {
 };
 
 /**
+ * 配布物の既定。 増やさない人が見るのは、枠をすべて入れた「すべて」が1つだけ
+ * （`DEC-PKG-018`）。 まだ書き出しておらず、最初の版が下書きにある。
+ */
+const everything: actual.Distribution = {
+  id: "1",
+  name: "すべて",
+  archiveName: "Koeru",
+  subbanks: [],
+  uncovered: [],
+  terms: null,
+  draftVersion: "1.0.0",
+  releases: [],
+  rowsChangedSinceRelease: null,
+};
+
+/**
  * 待たずに答える口。 製品の既定がそのまま絵になるものだけを置く。
  *
  * 選んだ同意は既定から1つだけ動かして返す。 訊く前のオフは撤回にならないので、
  * オフを選んでも `NOT_ASKED` のまま。
  */
 const answers: Partial<Api> = {
+  distributions: async () => [everything],
   privacy: async () => privacy,
   choosePrivacyConsent: async ({ subject, granted }) => {
     const state: actual.ConsentState = granted ? "GRANTED" : "NOT_ASKED";

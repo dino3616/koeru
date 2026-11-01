@@ -1154,10 +1154,23 @@ fn 既存の配布の設定は_すべて_に残る() {
     assert_eq!(all.len(), 1, "配布物は「すべて」だけ");
     let d = &all[0];
     assert_eq!(d.name, "すべて");
-    assert_eq!(d.archive_name.as_deref(), Some("Koeru-Old"), "フォルダ名が残る");
-    assert_eq!(d.draft_version.as_deref(), Some("v2"), "版が下書きとして残る");
+    assert_eq!(
+        d.archive_name.as_deref(),
+        Some("Koeru-Old"),
+        "フォルダ名が残る"
+    );
+    assert_eq!(
+        d.draft_version.as_deref(),
+        Some("v2"),
+        "版が下書きとして残る"
+    );
     assert_eq!(d.terms, None, "配布物の規約は上書きしていない");
-    let subbanks: Vec<_> = l.subbanks().expect("読めること").iter().map(|s| s.id).collect();
+    let subbanks: Vec<_> = l
+        .subbanks()
+        .expect("読めること")
+        .iter()
+        .map(|s| s.id)
+        .collect();
     assert_eq!(
         d.subbanks.iter().map(|m| m.subbank).collect::<Vec<_>>(),
         subbanks,
@@ -1165,7 +1178,10 @@ fn 既存の配布の設定は_すべて_に残る() {
     );
 
     // 音源で1つの値は、配布物へ移さない。
-    let settings = l.distribution().expect("読めること").expect("残っていること");
+    let settings = l
+        .distribution()
+        .expect("読めること")
+        .expect("残っていること");
     assert_eq!(settings.author.as_deref(), Some("おれ"));
     assert_eq!(settings.terms.as_deref(), Some("音源の規約"));
 
@@ -1173,7 +1189,10 @@ fn 既存の配布の設定は_すべて_に残る() {
     let releases = l.releases().expect("読めること");
     assert_eq!(releases.len(), 1);
     assert_eq!(releases[0].distribution, d.id);
-    assert_eq!(l.rows_changed_since_release(d.id).expect("読めること"), None);
+    assert_eq!(
+        l.rows_changed_since_release(d.id).expect("読めること"),
+        None
+    );
 }
 
 /// 版が書き出し済みの番号と重なるなら、下書きにしない（`TR-PKG-60`）。 何も書いていなければ、
@@ -1190,7 +1209,10 @@ fn 移行は書き出した番号と重なる版を下書きにしない() {
     }
     dir.migrate_ledger().expect("移行できること");
     let mut l = Ledger::open(dir.db_path()).expect("開けること");
-    assert_eq!(l.distributions().expect("読めること")[0].draft_version, None);
+    assert_eq!(
+        l.distributions().expect("読めること")[0].draft_version,
+        None
+    );
 
     // 何も書いておらず、書き出してもいない。
     let dir = new_project("distributions-fresh");
@@ -1213,7 +1235,10 @@ fn 移行は書き出した番号と重なる版を下書きにしない() {
     }
     dir.migrate_ledger().expect("移行できること");
     let mut l = Ledger::open(dir.db_path()).expect("開けること");
-    assert_eq!(l.distributions().expect("読めること")[0].draft_version, None);
+    assert_eq!(
+        l.distributions().expect("読めること")[0].draft_version,
+        None
+    );
 }
 
 /// 新規の台帳も「すべて」を持つ。 配布物は少なくとも1つ（`TR-PKG-58`）。

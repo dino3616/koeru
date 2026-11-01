@@ -131,7 +131,7 @@ impl Studio {
     /// # Errors
     ///
     /// プロジェクトを開いていない、台帳を書けない。
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, source))]
     pub fn duplicate_distribution(
         &mut self,
         source: DistributionId,
@@ -232,7 +232,8 @@ impl Studio {
     /// # Errors
     ///
     /// 確認が残っている、名前が使えない、被覆が満ちていない、検証に通らない、包めない。
-    #[tracing::instrument(skip(self, version))]
+    // 版は本人が書いた自由文。 トレースへ載せない（`AGENTS.md` #3）。
+    #[tracing::instrument(skip(self, distribution, version))]
     pub fn export_distribution(
         &mut self,
         distribution: Option<DistributionId>,
@@ -298,7 +299,10 @@ impl Studio {
         Ok(now_rfc3339())
     }
 
-    pub(super) fn export_package_to(&mut self, target: &packaging::Target) -> Result<packaging::Exported> {
+    pub(super) fn export_package_to(
+        &mut self,
+        target: &packaging::Target,
+    ) -> Result<packaging::Exported> {
         let at = self.export_gate()?;
         let dir = self.opened()?.dir().clone();
         let manifest = dir.read_manifest()?;
@@ -328,9 +332,7 @@ impl Studio {
 }
 
 /// 入れる枠の指定を、台帳へ渡す形へ。 空・重複・範囲の誤りは通さない。
-fn members_of(
-    changes: &[PackagedSubbankChange],
-) -> DistributionAnswer<Vec<PackagedSubbankRecord>> {
+fn members_of(changes: &[PackagedSubbankChange]) -> DistributionAnswer<Vec<PackagedSubbankRecord>> {
     if changes.is_empty() {
         return Err(invalid("subbanks", "distribution.no_subbanks"));
     }

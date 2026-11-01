@@ -99,21 +99,23 @@ fn load(c: &mut SqliteConnection) -> QueryResult<Vec<DistributionRecord>> {
         .load(c)?;
     Ok(stored
         .into_iter()
-        .map(|(id, name, archive_name, terms, draft_version)| DistributionRecord {
-            id: DistributionId::new(id),
-            name,
-            archive_name,
-            terms,
-            draft_version,
-            subbanks: members
-                .iter()
-                .filter(|(d, ..)| *d == id)
-                .map(|(_, s, low, high)| PackagedSubbankRecord {
-                    subbank: SubbankId::new(*s),
-                    edited_range: low.zip(*high).map(|(low, high)| ToneRange { low, high }),
-                })
-                .collect(),
-        })
+        .map(
+            |(id, name, archive_name, terms, draft_version)| DistributionRecord {
+                id: DistributionId::new(id),
+                name,
+                archive_name,
+                terms,
+                draft_version,
+                subbanks: members
+                    .iter()
+                    .filter(|(d, ..)| *d == id)
+                    .map(|(_, s, low, high)| PackagedSubbankRecord {
+                        subbank: SubbankId::new(*s),
+                        edited_range: low.zip(*high).map(|(low, high)| ToneRange { low, high }),
+                    })
+                    .collect(),
+            },
+        )
         .collect())
 }
 
@@ -221,10 +223,9 @@ fn revise(
     }
     if let Some(members) = change.subbanks {
         for m in members {
-            let known: bool = diesel::select(diesel::dsl::exists(
-                subbanks::table.find(m.subbank.get()),
-            ))
-            .get_result(c)?;
+            let known: bool =
+                diesel::select(diesel::dsl::exists(subbanks::table.find(m.subbank.get())))
+                    .get_result(c)?;
             if !known {
                 return Ok(Err(DistributionRefusal::UnknownSubbank));
             }
@@ -266,7 +267,8 @@ fn revise(
     }
     if let Some(members) = change.subbanks {
         diesel::delete(
-            distribution_subbanks::table.filter(distribution_subbanks::distribution_id.eq(id.get())),
+            distribution_subbanks::table
+                .filter(distribution_subbanks::distribution_id.eq(id.get())),
         )
         .execute(c)?;
         for m in members {
@@ -292,10 +294,14 @@ fn duplicate(
         return Ok(Err(DistributionRefusal::UnknownDistribution));
     };
     let names: Vec<&str> = all.iter().map(|d| d.name.as_str()).collect();
-    let archives: Vec<&str> = all.iter().filter_map(|d| d.archive_name.as_deref()).collect();
+    let archives: Vec<&str> = all
+        .iter()
+        .filter_map(|d| d.archive_name.as_deref())
+        .collect();
     let name = copy_name(&from.name, &names);
     // 元の名前が決まっていなければ、既定の名前に番号を付けるしかない。 開くときに埋めるので、通常は起きない。
-    let archive_name = copy_archive_name(from.archive_name.as_deref().unwrap_or("voice"), &archives);
+    let archive_name =
+        copy_archive_name(from.archive_name.as_deref().unwrap_or("voice"), &archives);
     let ordinal = distributions::table
         .select(diesel::dsl::max(distributions::ordinal))
         .first::<Option<i32>>(c)?
@@ -385,7 +391,7 @@ impl Ledger {
     /// # Errors
     ///
     /// 台帳を書けない。
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, source))]
     pub fn duplicate_distribution(
         &mut self,
         source: DistributionId,
@@ -495,8 +501,8 @@ mod tests {
     use crate::alias::Method;
     use crate::db::{FinalizedTake, SessionSnapshot};
     use crate::inventory::UnitSet;
-    use crate::release::{NewRelease, Validation, content_hash};
     use crate::reclist::{Row as ReclistRow, generate_single};
+    use crate::release::{NewRelease, Validation, content_hash};
     use koeru_model::subbank::VoiceColor;
 
     fn rules() -> crate::presamp::Rules {
@@ -709,7 +715,10 @@ mod tests {
             refused,
             Err(DistributionRefusal::Conflict { existing: all })
         );
-        assert_eq!(l.distributions().expect("読める")[1].name, "すべて のコピー");
+        assert_eq!(
+            l.distributions().expect("読める")[1].name,
+            "すべて のコピー"
+        );
 
         // 自分の名前へ書き直すのは重なりではない。
         l.revise_distribution(
@@ -781,10 +790,15 @@ mod tests {
             ["1.0.0", "1.0.0"]
         );
         assert_eq!(
-            l.distributions().expect("読める")[0].draft_version.as_deref(),
+            l.distributions().expect("読める")[0]
+                .draft_version
+                .as_deref(),
             Some("1.0.1")
         );
-        assert_eq!(l.released_versions(copy).expect("読める"), Vec::<String>::new());
+        assert_eq!(
+            l.released_versions(copy).expect("読める"),
+            Vec::<String>::new()
+        );
     }
 
     /// `TR-PKG-60`。下書きの番号は、書き出した番号と重ねず、消せる。
@@ -827,7 +841,11 @@ mod tests {
         .expect("書ける")
         .expect("消せる");
         assert_eq!(only(&mut l).draft_version, None);
-        assert_eq!(l.released_versions(all).expect("読める"), ["2.0"], "書き出し済みは消えない");
+        assert_eq!(
+            l.released_versions(all).expect("読める"),
+            ["2.0"],
+            "書き出し済みは消えない"
+        );
     }
 
     /// `TR-PKG-61`。基準は最後の書き出しが残した採用テイク。 入れた枠の行だけを数える。

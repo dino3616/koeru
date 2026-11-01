@@ -95,8 +95,8 @@ runner = 'cargo'
 package = 'koeru-core'
 target = 'ledger_migration'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 18
-contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043', 'DEC-RCL-018']
+min_cases = 22
+contracts = ['DEC-PLT-041', 'DEC-PKG-017', 'DEC-PLT-043', 'DEC-RCL-018', 'DEC-PKG-018']
 
 [[suite]]
 id = 'SUITE-CORE-005'
@@ -384,8 +384,8 @@ package = 'koeru-app'
 target = 'export_package'
 platforms = ['macos']
 backends = ['native']
-min_cases = 8
-contracts = ['TR-PKG-49', 'TR-PKG-52']
+min_cases = 15
+contracts = ['TR-PKG-49', 'TR-PKG-52', 'DEC-PKG-018', 'TR-PKG-58', 'TR-PKG-59', 'TR-PKG-60', 'TR-PKG-61']
 
 [[suite]]
 id = 'SUITE-APP-005'
