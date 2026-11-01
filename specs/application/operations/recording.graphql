@@ -404,3 +404,49 @@ mutation RenameTake($input: RenameTakeInput!) {
     }
   }
 }
+
+# ガイドのテンポ。 ツールバーの上げ下げは、読んだ範囲と刻みで決める（`DEC-REC-012`）。
+
+fragment GuideTempoStepper_GuideTempo on GuideTempo {
+  bpm
+  beatMs
+  defaultBpm
+  minBpm
+  maxBpm
+  stepBpm
+}
+
+query GuideTempo($lease: ProjectLease!) {
+  project(lease: $lease) {
+    __typename
+    ... on Project {
+      recording {
+        guideTempo {
+          ...GuideTempoStepper_GuideTempo
+        }
+      }
+    }
+    ... on ProjectLeaseExpired {
+      ...ProblemNotice_Problem
+    }
+  }
+}
+
+mutation SetGuideTempo($input: SetGuideTempoInput!) {
+  setGuideTempo(input: $input) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
+    outcome {
+      __typename
+      ... on GuideTempoSet {
+        tempo {
+          ...GuideTempoStepper_GuideTempo
+        }
+      }
+      ... on Problem {
+        ...ProblemNotice_Problem
+      }
+    }
+  }
+}

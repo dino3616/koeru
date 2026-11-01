@@ -47,6 +47,7 @@ use koeru_model::id::{RowId, TakeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+pub mod guide;
 pub mod intent;
 pub mod song_import;
 
@@ -1893,9 +1894,12 @@ impl Ledger {
     }
 
     /// 収録セッションを始める。
+    ///
+    /// ガイドのテンポは音源の設定を同じトランザクションで読んで写す（`guide`）。
     pub fn start_session(&mut self, s: &SessionSnapshot) -> Result<i32> {
         self.conn
             .transaction(|c| {
+                let tempo = guide::current_tempo(c)?;
                 diesel::insert_into(sessions::table)
                     .values((
                         sessions::started_at.eq(&s.started_at),
@@ -1909,6 +1913,7 @@ impl Ledger {
                         sessions::master_rate_hz.eq(s.master_rate_hz),
                         sessions::resampler.eq(&s.resampler),
                         sessions::upstream_conversion.eq(&s.upstream_conversion),
+                        sessions::guide_tempo_bpm.eq(Some(i32::from(tempo.bpm()))),
                     ))
                     .execute(c)?;
                 sessions::table
