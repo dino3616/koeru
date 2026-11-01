@@ -51,6 +51,22 @@ type RecorderOptions = {
    * ——**止めることも録ることもできなくなる。踏んだ。**
    */
   initiallyRecording: boolean;
+  /**
+   * 録る枠（`DEC-RCL-018`）。 `null` なら枠を問わず、版全体の録る順から録る。
+   *
+   * 次に録る行は Rust が決める。 ここは枠を渡すだけで、行を選ばない。
+   */
+  subbank?: string | null;
+  /**
+   * 録りはじめる前に数える助走（ミリ秒、`TR-REC-23`）と、1拍の長さ。
+   *
+   * どちらかを省くと数えずに録りはじめる。 数えるのは `start_take` の**前**。
+   * Rust にテイクを捨てる口が無いので、録りはじめてから数えると、カウント中に
+   * 取りやめたものも確定させるしかなくなる。 押した瞬間より前はプリロールが
+   * 遡って拾う（`TR-REC-19`）ので、数えているあいだの音は落ちない。
+   */
+  leadInMs?: number | undefined;
+  beatMs?: number | undefined;
 };
 
 /**
@@ -87,8 +103,13 @@ export const useRecorder = ({
   onRetry,
   ensureArmed,
   initiallyRecording,
+  subbank = null,
+  leadInMs,
+  beatMs,
 }: RecorderOptions) => {
   const [take, setTake] = useState<TakeView | null>(null);
+  /** 助走の残りの拍。 数えていなければ `null`。 */
+  const [count, setCount] = useState<number | null>(null);
   const [recording, setRecording] = useState(initiallyRecording);
   const [continuous, setContinuous] = useState(false);
   /**
@@ -119,9 +140,18 @@ export const useRecorder = ({
   const arming = useRef(false);
   /** 連続収録が回っているか。React の外から読むので ref で持つ。 */
   const continuing = useRef(false);
+  /**
+   * 数えている回の番号。
+   *
+   * 取りやめるたびに進めるので、待っている数えは自分の番号でなくなり、
+   * 録りはじめない。 `takeSeq` と同じ形の札。
+   */
+  const countSeq = useRef(0);
+  /** 数えている最中か。 二重に数えさせない。 */
+  const counting = useRef(false);
 
   /*
-   * 画面を離れたら連続収録を止める。
+   * 画面を離れたら連続収録と数えを止める。
    *
    * ループは React の外で回るので、これが無いと一覧へ戻ったあとも録り続け、
    * 本人が喋っていないテイクが台帳に積まれる。
@@ -129,9 +159,50 @@ export const useRecorder = ({
   useEffect(
     () => () => {
       continuing.current = false;
+      countSeq.current += 1;
     },
     [],
   );
+
+  /**
+   * 助走を数える（`TR-REC-23`）。 数え切ったら `true`、取りやめたら `false`。
+   *
+   * 残りは経過時間から出す。 1拍ずつ眠ると、助走が拍の整数倍でないとき
+   * （120 BPM で 1250 ms は 2.5 拍）に、数え終わりが助走の長さからずれる。
+   */
+  const countIn = useCallback(async () => {
+    if (leadInMs === undefined || beatMs === undefined) return true;
+    counting.current = true;
+    countSeq.current += 1;
+    const mine = countSeq.current;
+    const from = performance.now();
+    try {
+      for (;;) {
+        if (countSeq.current !== mine) return false;
+        const left = leadInMs - (performance.now() - from);
+        if (left <= 0) return true;
+        setCount(Math.ceil(left / beatMs));
+        await new Promise((r) => setTimeout(r, Math.min(50, left)));
+      }
+    } finally {
+      // 取りやめた側が下ろしている。 次の数えが始まっていたら触らない。
+      if (countSeq.current === mine) {
+        counting.current = false;
+        setCount(null);
+      }
+    }
+  }, [leadInMs, beatMs]);
+
+  /** 数えるのを取りやめる。 まだ録りはじめていないので、確定させるものは無い。 */
+  const cancel = useCallback(() => {
+    countSeq.current += 1;
+    counting.current = false;
+    setCount(null);
+    onStatus("取りやめました");
+  }, [onStatus]);
+
+  /** いま新しく録りはじめてよいか。 数え・開き・確定のどれかの途中なら弾く。 */
+  const busy = useCallback(() => counting.current || arming.current || settlingRef.current, []);
 
   /**
    * テイクを1つ始める。
@@ -206,9 +277,12 @@ export const useRecorder = ({
    * 「あ い う え お」と「ん」を同じ長さで切る理由が無い。
    */
   const start = useCallback(() => {
+    if (busy()) return;
     onRetry();
-    beginTake(() => api.startTake()).catch(onError);
-  }, [beginTake, onError, onRetry]);
+    (async () => {
+      if (await countIn()) await beginTake(() => api.startTake(subbank));
+    })().catch(onError);
+  }, [beginTake, busy, countIn, onError, onRetry, subbank]);
 
   /**
    * 行を指定して録り直す（`TR-REC-21`、`TR-RCL-25`、`TR-ALN-27`）。
@@ -217,12 +291,16 @@ export const useRecorder = ({
    */
   const retake = useCallback(
     (rowId: string) => {
+      if (busy()) return;
       onRetry();
-      beginTake(() => api.startRetake(rowId))
-        .then(() => onStatus(`${rowId} を録り直しています。終わったら「止める」`))
-        .catch(onError);
+      (async () => {
+        if (!(await countIn())) return;
+        if ((await beginTake(() => api.startRetake(rowId))) !== null) {
+          onStatus("録り直しています。終わったら「止める」");
+        }
+      })().catch(onError);
     },
-    [beginTake, onError, onStatus, onRetry],
+    [beginTake, busy, countIn, onError, onStatus, onRetry],
   );
 
   /**
@@ -252,7 +330,7 @@ export const useRecorder = ({
 
   const recordOnce = useCallback(
     async (holdMs: number) => {
-      const mine = await beginTake(() => api.startTake());
+      const mine = await beginTake(() => api.startTake(subbank));
       // 開けなかった（既に開こうとしていた）なら、確定させにいかない。
       if (mine === null) return null;
       await sleepWhileRunning(holdMs);
@@ -260,8 +338,20 @@ export const useRecorder = ({
       if (takeSeq.current !== mine) return null;
       return settle();
     },
-    [beginTake, settle, sleepWhileRunning],
+    [beginTake, settle, sleepWhileRunning, subbank],
   );
+
+  /**
+   * まだ録る行が残っているか。
+   *
+   * 枠を指しているときは、その枠の録る順で見る。 版全体の `next_row_id` で
+   * 見ると、枠を録り終えても別の枠の行が残っている限り回り続け、
+   * そのたびに `start_take` が `app.nothing_to_record` で断る。
+   */
+  const hasNextRow = useCallback(async () => {
+    if (subbank === null) return (await api.progress()).next_row_id !== null;
+    return (await api.recordingOrder(subbank)).row_ids.length > 0;
+  }, [subbank]);
 
   /**
    * 連続収録（`TR-REC-20`）。
@@ -274,8 +364,8 @@ export const useRecorder = ({
     setContinuous(true);
     try {
       while (continuing.current) {
-        const p = await api.progress();
-        if (!continuing.current || p.next_row_id === null) break;
+        const more = await hasNextRow();
+        if (!continuing.current || !more) break;
         /*
          * 始められなかったら、そこで抜ける。
          *
@@ -294,7 +384,7 @@ export const useRecorder = ({
       setContinuous(false);
       onStatus("連続収録を止めました");
     }
-  }, [advanceMs, recordOnce, sleepWhileRunning, onError, onStatus]);
+  }, [advanceMs, hasNextRow, recordOnce, sleepWhileRunning, onError, onStatus]);
 
   /**
    * 連続収録をやめる。
@@ -317,6 +407,8 @@ export const useRecorder = ({
 
   return {
     take,
+    count,
+    cancel,
     recording,
     settling,
     continuous,

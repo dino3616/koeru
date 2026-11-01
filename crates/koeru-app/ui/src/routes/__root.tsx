@@ -11,6 +11,7 @@ import { ErrorBoundary } from "~/components/error-boundary";
 import type { ReactNode } from "react";
 
 import { createQueryClient } from "~/lib/query-client";
+import { useFullscreenMark } from "~/lib/window-frame";
 import globalsCss from "~/styles/globals.css?url";
 
 /*
@@ -96,10 +97,16 @@ export const Route = createRootRoute({
     links: [{ rel: "stylesheet", href: globalsCss }],
     // 最初の描画より前に配色を決める。 遅れると暗い設定の人に白い画面が一瞬出る。
     // インラインではなく外部ファイル: Tauri の CSP は script-src 'self'。
-    scripts: [{ src: "/theme.js" }],
+    // 信号ボタンの幅を空けるかも、同じく最初の描画より前に決める。
+    scripts: [{ src: "/theme.js" }, { src: "/window-frame.js" }],
   }),
   shellComponent: RootDocument,
-  component: () => (
+  component: () => <App />,
+});
+
+const App = () => {
+  useFullscreenMark();
+  return (
     <QueryClientProvider client={queryClient}>
       {/*
         読み上げ領域は境界の外に置く。 内側に入れると、描画で例外が出たときに
@@ -119,5 +126,5 @@ export const Route = createRootRoute({
         )}
       </QueryErrorResetBoundary>
     </QueryClientProvider>
-  ),
-});
+  );
+};

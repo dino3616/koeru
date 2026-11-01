@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as v from "valibot";
 
-import { DraftScreen } from "~/screens/draft-screen";
+import { RecordScreen } from "~/screens/record-screen";
 
 /**
  * 収録。 曲を聴いている状態も同じ経路に置く。
@@ -23,5 +23,5 @@ const searchSchema = v.object({
 
 export const Route = createFileRoute("/_studio/record")({
   validateSearch: searchSchema,
-  component: DraftScreen,
+  component: RecordScreen,
 });

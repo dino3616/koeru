@@ -40,7 +40,8 @@ type AppShellProps = {
  * サイドバーを飛ばしたいときは領域移動（`nav` の landmark、`TR-PLT-29`）を使う。
  *
  * 選んだ音源の声の色を、ここで差す（`DEC-PLT-062`）。 祖先に差すので、サイドバーの
- * 選択の線だけでなく、中身の主ボタンもその色に染まる。
+ * 選択の線だけでなく、中身の主ボタンもその色に染まる。 外枠の地（`voice-frame`）も
+ * その色をわずかに混ぜる。 中身の面は `bg` のまま染めない。
  * 選んでいなければ打ち消す——外から受け継いだ色で、別の音源を塗らない。
  *
  * 窓の最小幅 960 で、サイドバーが 248、中身が残りの 712。 中身は `min-w-0` で
@@ -67,7 +68,7 @@ const Shell = ({
 
   return (
     <div
-      className="relative flex h-full bg-slate-1 text-slate-12"
+      className="relative flex h-full bg-voice-frame text-1"
       /*
        * 変数を差すだけで、見た目の値は持たない。 別ファイルの関数なので、
        * 規則からは中身が読めず動的な塊に見える（`Avatar` と同じ）。
@@ -89,10 +90,11 @@ const Shell = ({
         }
         subbanks={subbanks}
       />
-      <div className="flex min-w-0 flex-1 flex-col pr-3 pb-3">
+      <div className="flex min-w-0 flex-1 flex-col pr-2 pb-2">
         {/* ツールバーが載る分。 サイドバーの上の空きと同じ高さ。 */}
         <div aria-hidden="true" className="h-toolbar shrink-0" />
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-line bg-slate-2">
+        {/* 線は引かない。 外枠から浮かせるのは影の明るい縁（`--shadow-panel`）。 */}
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl bg-bg shadow-panel">
           {children}
         </div>
       </div>

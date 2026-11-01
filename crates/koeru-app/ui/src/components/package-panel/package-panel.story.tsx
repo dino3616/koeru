@@ -8,11 +8,13 @@ import type { PackageStateView, PreflightView, RowTakesView } from "~/lib/ipc";
 const rows: RowTakesView[] = [
   {
     row_id: "s002",
+    subbank: "1",
     text: "か き く け こ",
     state: "recorded",
     units: 5,
     moras: 5,
     risk_hard: 0,
+    targets: [],
     takes: [
       {
         take_id: 1,

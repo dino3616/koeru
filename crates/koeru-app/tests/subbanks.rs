@@ -85,6 +85,64 @@ fn 作った音源は収録音階ごとに枠を持ち_担当音域は_floor_で
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 枠を指した録る順は、その枠の行だけを、全部の枠を通した順のまま並べる。 次に録る行は
+/// その先頭で、録ると枠の中の次の行へ進む（`DEC-RCL-018`、`TR-SYN-19`）。
+#[test]
+fn 枠を指すと_その枠の行だけを録る順に並べ_次に録る行はその先頭() {
+    let (mut s, root) = studio("order");
+    let id = s.create_project("単独音").expect("作れる");
+    s.open_project(id).expect("開ける");
+    let plain = s.subbanks().expect("読める")[0].clone();
+    let strong = add(&mut s, Some("強"), "single", plain.tone);
+
+    let rows = Ledger::open(s.project_dir().expect("開いている").db_path())
+        .expect("開ける")
+        .rows_with_takes()
+        .expect("引ける");
+    let inside: std::collections::BTreeSet<String> = rows
+        .iter()
+        .filter(|r| r.subbank == strong.id)
+        .map(|r| r.row_id.clone())
+        .collect();
+    assert_eq!(inside.len(), strong.rows, "行は自分の枠を知っている");
+
+    let (_, all) = s.recording_order_in(None).expect("引ける");
+    let (_, mine) = s.recording_order_in(Some(strong.id)).expect("引ける");
+    let kept: Vec<String> = all
+        .iter()
+        .filter(|r| inside.contains(*r))
+        .cloned()
+        .collect();
+    assert!(!mine.is_empty(), "前提: 足した枠に録る行がある");
+    assert_eq!(mine, kept, "枠の行だけを、並べ方を変えずに");
+
+    let next = s
+        .next_row_in(Some(strong.id))
+        .expect("引ける")
+        .expect("録る行がある")
+        .0;
+    assert_eq!(next, mine[0], "次に録る行は、枠の録る順の先頭");
+    assert_eq!(
+        s.next_row_in(None)
+            .expect("引ける")
+            .expect("録る行がある")
+            .0,
+        all[0],
+        "枠を指さなければ全部の枠の先頭"
+    );
+
+    s.seed_material_for_test(&next).expect("素材を置ける");
+    let after = s
+        .next_row_in(Some(strong.id))
+        .expect("引ける")
+        .expect("まだ録る行がある")
+        .0;
+    assert_ne!(after, next, "録った行は次に録る行にならない");
+    assert!(inside.contains(&after), "枠の外へ出ない");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// 足す・付け替える・並べ替える・担当音域を直す・消す。 どれも収録セッションを始め直さない
 /// （`TR-REC-30`）。 音階が2つになったら、音高ごとのサブディレクトリを揃える（`TR-REC-36`）。
 #[test]

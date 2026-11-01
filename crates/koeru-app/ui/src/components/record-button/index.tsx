@@ -1,10 +1,9 @@
 import { tv } from "~/lib/tv";
 
 /**
- * 状態は形で言う。 丸（待機）→ 輪の中の数字（カウント）→ 四角（録音中）。
- *
- * 塗りの有無も変える。 待機は輪郭だけ、録音中は面ぜんぶ。 赤を見分けられない人や
- * 白黒の写しでも、形と字で状態が読める。
+ * 76px の `rec` の丸（S04）。 状態は中の形で言う。 丸（待機）→ 数字（カウント）→
+ * 四角（録音中）。 録音中は外に暈を足す。 赤を見分けられない人や白黒の写しでも、
+ * 形と字で状態が読める。 中が四角なのはボードとの差（`DEC-PLT-062`）。
  *
  * 赤は録音ボタンだけが持つ（`--color-rec`）。 声の色は主ボタンのものなので使わない。
  *
@@ -14,9 +13,9 @@ import { tv } from "~/lib/tv";
 const recordButton = tv({
   variants: {
     state: {
-      idle: "border-2 border-line-strong hover:bg-surface-2",
-      countdown: "border-2 border-rec text-rec hover:bg-surface-2",
-      recording: "bg-rec hover:bg-red-12",
+      idle: "",
+      countdown: "",
+      recording: "shadow-rec-halo",
     },
   },
 });
@@ -56,13 +55,13 @@ export const RecordButton = ({ state, count, onPress, disabled = false }: Record
       }
       disabled={disabled}
       onClick={onPress}
-      className={`inline-flex h-16 w-16 items-center justify-center rounded-full disabled:pointer-events-none disabled:opacity-45 ${recordButton({ state })}`}
+      className={`inline-flex size-19 shrink-0 items-center justify-center rounded-full bg-rec hover:bg-red-12 disabled:pointer-events-none disabled:opacity-45 ${recordButton({ state })}`}
     >
-      {state === "idle" && <span className="h-7 w-7 rounded-full bg-rec" />}
+      {state === "idle" && <span className="size-6.5 rounded-full bg-bg" />}
       {state === "countdown" && (
-        <span className="font-mono text-xl font-semibold tabular-nums">{count}</span>
+        <span className="font-mono text-xl font-semibold text-slate-1 tabular-nums">{count}</span>
       )}
-      {state === "recording" && <span className="h-5 w-5 rounded-md bg-slate-1" />}
+      {state === "recording" && <span className="size-6.5 rounded-md bg-bg" />}
     </button>
     <p aria-live="polite" aria-atomic="true" className="sr-only">
       {state === "countdown" && count !== undefined ? `${count}` : ""}

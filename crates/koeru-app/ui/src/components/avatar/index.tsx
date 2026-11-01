@@ -2,8 +2,8 @@ import type { VoiceView } from "~/lib/ipc";
 import { tv } from "~/lib/tv";
 import { type ImageColor, voiceStyle } from "~/lib/voice-color";
 
-/** 一辺（CSS ピクセル）。72 は身元、40 は棚、24 は行の中。 */
-export type AvatarSize = 72 | 40 | 24;
+/** 一辺（CSS ピクセル）。72 は身元、40 は棚、36 は畳んだ列の先頭（S04）、24 は行の中。 */
+export type AvatarSize = 72 | 40 | 36 | 24;
 
 type AvatarProps = {
   /** 音源名。顔の名前になるので、必ず渡す。 */
@@ -27,6 +27,7 @@ const avatar = tv({
     size: {
       "72": "size-18 text-3xl",
       "40": "size-10 text-xl",
+      "36": "size-9 text-base",
       "24": "size-6 text-xs",
     },
   },

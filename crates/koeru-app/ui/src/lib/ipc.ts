@@ -219,12 +219,13 @@ export const api = {
   /** OS 側の音声加工の状態（`TR-REC-11`）。`Standard` 以外は録った音が本人の声でなくなる。 */
   armDevice: (deviceId: string) => unwrap(commands.armDevice(deviceId)),
   probeInput: (ms: number) => unwrap(commands.probeInput(ms)),
-  startTake: () => unwrap(commands.startTake()),
+  /** 枠を指すと、その枠の録る順の先頭から。 省くと全部の枠の録る順の先頭（`DEC-RCL-018`）。 */
+  startTake: (subbank: string | null = null) => unwrap(commands.startTake(subbank)),
   /** 行を指定して録り直す（`TR-REC-21`）。既存のテイクは消えない。 */
   startRetake: (rowId: string) => unwrap(commands.startRetake(rowId)),
   rowsWithTakes: () => unwrap(commands.rowsWithTakes()),
-  /** いまの録る順と、その並び（`TR-SYN-19`）。 */
-  recordingOrder: () => unwrap(commands.recordingOrder()),
+  /** いまの録る順と、その並び（`TR-SYN-19`）。 枠を指すと、その枠の行だけで、先頭が次に録る行。 */
+  recordingOrder: (subbank: string | null = null) => unwrap(commands.recordingOrder(subbank)),
   /** 録る順を切り替える（`TR-SYN-19` の (b)）。可逆。 */
   setRecordingOrder: (mode: string) => unwrap(commands.setRecordingOrder(mode)),
   /** 採用テイクを切り替える（`TR-RCL-25`）。カバレッジは変わらない。 */

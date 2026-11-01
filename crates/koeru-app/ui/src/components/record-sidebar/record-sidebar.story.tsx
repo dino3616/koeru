@@ -9,10 +9,28 @@ import { rowItem, rowStatus, songItem, songState } from "./from-views";
 import { RecordSidebar, type SidebarRow, type SidebarSong } from ".";
 
 const SONGS: SidebarSong[] = [
-  { id: "s1", title: "さくらさくら", range: "A3–D4", state: { status: "ready" } },
-  { id: "s2", title: "帰り道ワルツ", range: "G3–E4", state: { status: "fallback" } },
-  { id: "s3", title: "ひかりのあと", range: "A3–F4", state: { status: "remaining", rows: 4 } },
-  { id: "s4", title: "夜明けのテスト", range: "D4–A5", state: { status: "out_of_range" } },
+  { id: "s1", title: "さくらさくら", range: "A3–D4", state: { status: "ready" }, progress: 1 },
+  {
+    id: "s2",
+    title: "帰り道ワルツ",
+    range: "G3–E4",
+    state: { status: "fallback" },
+    progress: 1,
+  },
+  {
+    id: "s3",
+    title: "ひかりのあと",
+    range: "A3–F4",
+    state: { status: "remaining", rows: 4 },
+    progress: 2 / 3,
+  },
+  {
+    id: "s4",
+    title: "夜明けのテスト",
+    range: "D4–A5",
+    state: { status: "out_of_range" },
+    progress: 0.4,
+  },
 ];
 
 const row = (id: string, text: string, status: RowStatus): SidebarRow => ({ id, text, status });
@@ -55,6 +73,7 @@ const meta = {
     rows: ROWS,
     selectedRowId: null,
     selectedSongId: null,
+    songRowIds: new Set<string>(),
     onSelectRow: fn(),
     onSelectSong: fn(),
     onPlaySong: fn(),
@@ -85,9 +104,12 @@ export const 途中: Story = {
 
     // 歌える曲だけに ▶ が出る。 歌える（代替ありを含む）は2つ。
     await expect(canvas.getAllByRole("button", { name: /を歌う$/ })).toHaveLength(2);
-    await expect(canvas.getByText("2 / 4")).toBeInTheDocument();
     await expect(canvas.getByText("2 / 9")).toBeInTheDocument();
-    await expect(canvas.getByText("あと 4 行")).toBeInTheDocument();
+    await expect(canvas.getByRole("button", { name: /^ひかりのあと/ })).toHaveTextContent(
+      "あと 4行",
+    );
+    await expect(canvas.getAllByText("歌える")).toHaveLength(2);
+    await expect(canvas.getByText("音域外")).toBeInTheDocument();
 
     // 選んだ行だけが選ばれている。 状態は名前に入る。
     const selected = canvas.getAllByRole("option", { selected: true });
@@ -111,7 +133,7 @@ export const 全部録った: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText("2 / 2")).toBeInTheDocument();
+    await expect(canvas.getAllByText("歌える")).toHaveLength(2);
     await expect(canvas.getByText("9 / 9")).toBeInTheDocument();
   },
 };
@@ -122,7 +144,7 @@ export const 歌える曲が無い: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.queryAllByRole("button", { name: /を歌う$/ })).toHaveLength(0);
-    await expect(canvas.getByText("0 / 2")).toBeInTheDocument();
+    await expect(canvas.queryAllByText("歌える")).toHaveLength(0);
   },
 };
 
@@ -146,10 +168,15 @@ export const 行が300ある: Story = {
   },
 };
 
-/** 曲で絞っている。 選んでいる曲は押されている。 曲の行に補助の字を出せる。 */
+/**
+ * 曲を目標にした。 行は絞らず、その曲に要る行に ♪ が付く。 選んでいる曲は押されている。
+ * 曲の行に補助の字を出せる。
+ */
 export const 曲を選んだ: Story = {
   args: {
+    selectedRowId: "r4",
     selectedSongId: "s3",
+    songRowIds: new Set(["r4", "r5", "r6", "r9"]),
     songs: SONGS.map((s) => (s.id === "s1" ? { ...s, note: "0:12 / 1:48" } : s)),
   },
   play: async ({ canvasElement, args }) => {
@@ -159,7 +186,14 @@ export const 曲を選んだ: Story = {
     await expect(pressed[0]).toHaveAccessibleName(/ひかりのあと/);
     await expect(canvas.getByText("0:12 / 1:48")).toBeInTheDocument();
 
-    // もう一度押すと絞りが外れる。
+    await expect(canvas.getAllByRole("option")).toHaveLength(ROWS.length);
+    const marked = canvas.getAllByRole("option", { name: /ひかりのあと に要る行$/ });
+    await expect(marked).toHaveLength(4);
+    await expect(canvas.getAllByRole("option", { selected: true })[0]).toHaveAccessibleName(
+      /^ぱ ぱ ぴ ぷ ぺ ぽ ん ば\s*未収録\s*ひかりのあと に要る行$/,
+    );
+
+    // もう一度押すと目標が外れる。
     await userEvent.click(pressed[0] as HTMLElement);
     await expect(args.onSelectSong).toHaveBeenCalledWith(null);
   },
@@ -174,6 +208,7 @@ export const 長い字: Story = {
         title: "とても長い題の曲の名前がここに入ります",
         range: "A3–D4",
         state: { status: "fallback" },
+        progress: 1,
       },
     ],
     rows: [
@@ -264,6 +299,7 @@ const song = (over: Partial<SongView>): SongView => ({
   recommended_transpose: 0,
   rescuing_tone: null,
   total_moras: 24,
+  range: null,
   ...over,
 });
 
@@ -286,13 +322,18 @@ export const 写し: Story = {
       rows: 1,
     });
 
-    await expect(songItem(song({}), "A3–D4")).toEqual({
+    const range = { low: { midi: 57, name: "A3" }, high: { midi: 62, name: "D4" } };
+    await expect(songItem(song({ range }))).toEqual({
       id: "s1",
       title: "さくらさくら",
       range: "A3–D4",
       state: { status: "ready" },
+      progress: 1,
     });
     await expect(songItem(song({})).range).toBeNull();
+    await expect(songItem(song({ covered: 16, required: 24 })).progress).toBeCloseTo(2 / 3);
+    // 要るものが無い曲は、録り終えている。
+    await expect(songItem(song({ covered: 0, required: 0 })).progress).toBe(1);
 
     for (const status of ["unrecorded", "recorded", "needs_retake", "excluded"] as const) {
       await expect(rowStatus(status)).toBe(status);

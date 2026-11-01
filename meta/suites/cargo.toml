@@ -530,14 +530,14 @@ contracts = ['DEC-PLT-047', 'DEC-PLT-034', 'DEC-PLT-038', 'TR-SYN-33']
 
 [[suite]]
 id = 'SUITE-APP-018'
-title = 'サブバンクの枠を足す・付け替える・並べ替える・担当音域を直す・消すが、収録セッションを始め直さない'
+title = 'サブバンクの枠を足す・付け替える・並べ替える・担当音域を直す・消すが、収録セッションを始め直さない。 枠を指すと、その枠の録る順から録る'
 runner = 'cargo'
 package = 'koeru-app'
 target = 'subbanks'
 platforms = ['macos']
 backends = ['native']
-min_cases = 5
-contracts = ['DEC-RCL-018', 'TR-RCL-28', 'TR-RCL-29', 'TR-RCL-30', 'TR-RCL-31', 'TR-REC-30']
+min_cases = 6
+contracts = ['DEC-RCL-018', 'TR-RCL-28', 'TR-RCL-29', 'TR-RCL-30', 'TR-RCL-31', 'TR-REC-30', 'TR-SYN-19']
 
 [[suite]]
 id = 'SUITE-APP-019'

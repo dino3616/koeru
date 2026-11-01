@@ -144,6 +144,7 @@ const config = defineConfig({
             "grid-cols-[auto_1fr]",
             "max-h-[40vh]",
             "rounded-[22%]",
+            "tracking-[0.08em]",
             "tracking-[0.18em]",
             "tracking-[0.22em]",
             "shadow-[inset_0_-2px_0_var(--slate-12)]",

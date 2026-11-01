@@ -1,6 +1,6 @@
-import { type KeyboardEvent, useRef } from "react";
+import { type KeyboardEvent, type Ref, useRef } from "react";
 
-import { cx } from "~/lib/tv";
+import { cx, tv } from "~/lib/tv";
 
 export type SegmentOption<V extends string> = {
   value: V;
@@ -21,7 +21,51 @@ type SegmentProps<V extends string> = Name & {
   value: V;
   onValueChange: (value: V) => void;
   options: readonly SegmentOption<V>[];
+  /** `sm` は収録画面の右上のテイク（S04）。 高さ 24px、12px の字。 */
+  size?: "md" | "sm";
+  /**
+   * 選んでいる項目の右に、項目へ重ねる操作（⋮）の席を空ける。 操作そのものは
+   * 群の外に置く——`radio` の中にも `radiogroup` の子にもボタンを置けない
+   * （axe の `nested-interactive` / `aria-required-children`）。
+   */
+  reserveTrailing?: boolean;
+  /** 群の要素。 重ねる操作の位置を、選んでいる項目から測るのに使う。 */
+  groupRef?: Ref<HTMLDivElement>;
 };
+
+const group = tv({
+  base: "inline-flex rounded-lg",
+  variants: {
+    size: {
+      md: "gap-1 bg-slate-3 p-1",
+      sm: "gap-0.5 bg-surface-2 p-0.5",
+    },
+  },
+});
+
+const item = tv({
+  base: "inline-grid items-center rounded-md disabled:opacity-45",
+  variants: {
+    size: {
+      md: "h-8 px-3 text-md",
+      sm: "h-6 text-xs",
+    },
+    checked: {
+      true: "",
+      false: "enabled:hover:text-slate-12",
+    },
+    reserve: { true: "", false: "" },
+  },
+  // 余白の左右は1つの組み合わせだけが持つ。 `px` と `pr` を重ねると、勝つほうが並び順で決まる。
+  compoundVariants: [
+    { size: "md", checked: true, class: "bg-slate-5 text-slate-12" },
+    { size: "md", checked: false, class: "text-slate-11" },
+    { size: "sm", checked: true, class: "bg-surface-3 text-1" },
+    { size: "sm", checked: false, class: "px-3 text-2" },
+    { size: "sm", checked: true, reserve: false, class: "px-3" },
+    { size: "sm", checked: true, reserve: true, class: "pr-8 pl-2.5" },
+  ],
+});
 
 /**
  * 並んだ選択肢から1つ選ぶ。 方式、テイク、範囲の切り替えに使う。
@@ -30,7 +74,7 @@ type SegmentProps<V extends string> = Name & {
  * （ロービングタブインデックス）。 動いた先がそのまま選ばれる。
  * 矢印は押せない項目を飛ばし、端で反対側へ回る。 Home / End は端の押せる項目。
  *
- * 選んでいるかは面の段（3 → 5）と字の太さで言う。 色相を持たない。
+ * 選んでいるかは面の段と字の太さで言う。 色相を持たない。
  *
  * `className` を受け取らない。 幅は中身が決める。
  */
@@ -38,6 +82,9 @@ export const Segment = <V extends string>({
   value,
   onValueChange,
   options,
+  size = "md",
+  reserveTrailing = false,
+  groupRef,
   ...name
 }: SegmentProps<V>) => {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -91,7 +138,7 @@ export const Segment = <V extends string>({
   };
 
   return (
-    <div role="radiogroup" className="inline-flex gap-1 rounded-lg bg-slate-3 p-1" {...name}>
+    <div ref={groupRef} role="radiogroup" className={group({ size })} {...name}>
       {options.map((option, index) => {
         const checked = option.value === value;
         return (
@@ -107,10 +154,7 @@ export const Segment = <V extends string>({
             tabIndex={option.value === tabStop ? 0 : -1}
             onClick={() => choose(index)}
             onKeyDown={(event) => onKeyDown(event, index)}
-            className={cx(
-              "inline-grid h-8 items-center rounded-md px-3 text-md disabled:opacity-45",
-              checked ? "bg-slate-5 text-slate-12" : "text-slate-11 enabled:hover:text-slate-12",
-            )}
+            className={item({ size, checked, reserve: reserveTrailing })}
           >
             {/*
              * 太さを変えると幅が変わり、矢印で動くたびに隣が揺れる。

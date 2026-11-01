@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { InputLevel } from "~/components/input-level";
-import { Channel, type EnvelopeView, api } from "~/lib/ipc";
+import { useEnvelopeStream } from "~/lib/use-envelope-stream";
 
 /**
  * バーの長さに使う、いちばん新しい目盛りの本数。
@@ -20,14 +20,11 @@ const LEVEL_STEPS = 10;
  *
  * 評価はしない（`TR-REC-16`）。出すのは観測だけで、良し悪しを付けない。
  *
- * アプリが所有する単一の描画面へ直接描く（`TR-PLT-04`）。
- *
- * 包絡は Channel で送られてくる。`invoke` で引きに行かない（`DEC-PLT-017`）。
- * 間隔は Rust 側が刻むので、画面の都合や IPC の混み具合で速度が変わらない。
+ * アプリが所有する単一の描画面へ直接描く（`TR-PLT-04`）。 包絡の受け方は
+ * `useEnvelopeStream` が持つ。
  */
 export const LiveWaveform = () => {
   const ref = useRef<HTMLCanvasElement>(null);
-  const data = useRef<[number, number][]>([]);
   /**
    * 波形の色。
    *
@@ -49,57 +46,54 @@ export const LiveWaveform = () => {
    */
   const [clipped, setClipped] = useState(0);
 
+  const draw = (v: readonly [number, number][]) => {
+    const canvas = ref.current;
+    if (canvas === null) return;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) return;
+
+    // 論理ピクセルではなく実ピクセルで描く。 そうしないと Retina で滲む。
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    ctx.clearRect(0, 0, w, h);
+
+    const mid = h / 2;
+
+    // 中心線。無音でも「動いている」ことが見える。
+    ctx.fillStyle = waveColor.current;
+    ctx.globalAlpha = 0.35;
+    ctx.fillRect(0, mid - dpr * 0.5, w, Math.max(1, dpr));
+    ctx.globalAlpha = 1;
+    if (v.length === 0) return;
+
+    /*
+     * 1本につき1列。畳まない。
+     *
+     * 目盛りは 50ms ごとに 10 本ずつ入れ替わる。割り切れない本数へ畳むと、
+     * 入れ替わるたびに目盛りと列の対応がずれて**絵が揺れる**——
+     * 「速度が一定じゃない」に見える。1本1列なら、10 本ずれれば 10 列ずれるだけ。
+     *
+     * 計算量は目盛りの本数に比例する（`TR-PLT-04`）。
+     */
+    const barW = w / v.length;
+    for (let i = 0; i < v.length; i += 1) {
+      const b = v[i];
+      if (b === undefined) continue;
+      const top = mid - b[1] * mid;
+      const bottom = mid - b[0] * mid;
+      ctx.fillRect(i * barW, top, Math.max(1, barW), Math.max(dpr, bottom - top));
+    }
+  };
+
+  // 明暗の切り替えは `<html>` の class で起きる（`public/theme.js`）。
+  // そこだけを見て読み直す。
   useEffect(() => {
-    let alive = true;
-
-    const draw = () => {
-      const canvas = ref.current;
-      if (canvas === null) return;
-      const ctx = canvas.getContext("2d");
-      if (ctx === null) return;
-
-      // 論理ピクセルではなく実ピクセルで描く。 そうしないと Retina で滲む。
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const w = Math.max(1, Math.round(rect.width * dpr));
-      const h = Math.max(1, Math.round(rect.height * dpr));
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
-      ctx.clearRect(0, 0, w, h);
-
-      const v = data.current;
-      const mid = h / 2;
-
-      // 中心線。無音でも「動いている」ことが見える。
-      ctx.fillStyle = waveColor.current;
-      ctx.globalAlpha = 0.35;
-      ctx.fillRect(0, mid - dpr * 0.5, w, Math.max(1, dpr));
-      ctx.globalAlpha = 1;
-      if (v.length === 0) return;
-
-      /*
-       * 1本につき1列。畳まない。
-       *
-       * 目盛りは 50ms ごとに 10 本ずつ入れ替わる。割り切れない本数へ畳むと、
-       * 入れ替わるたびに目盛りと列の対応がずれて**絵が揺れる**——
-       * 「速度が一定じゃない」に見える。1本1列なら、10 本ずれれば 10 列ずれるだけ。
-       *
-       * 計算量は目盛りの本数に比例する（`TR-PLT-04`）。
-       */
-      const barW = w / v.length;
-      for (let i = 0; i < v.length; i += 1) {
-        const b = v[i];
-        if (b === undefined) continue;
-        const top = mid - b[1] * mid;
-        const bottom = mid - b[0] * mid;
-        ctx.fillRect(i * barW, top, Math.max(1, barW), Math.max(dpr, bottom - top));
-      }
-    };
-
-    // 明暗の切り替えは `<html>` の class で起きる（`public/theme.js`）。
-    // そこだけを見て読み直す。
     const readColor = () => {
       waveColor.current = getComputedStyle(document.documentElement)
         .getPropertyValue("--slate-11")
@@ -111,42 +105,17 @@ export const LiveWaveform = () => {
       attributes: true,
       attributeFilter: ["class"],
     });
-
-    const channel = new Channel<EnvelopeView>();
-    channel.onmessage = (frame) => {
-      if (!alive) return;
-      data.current = frame.steps;
-      const top = frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
-      const now = frame.steps.slice(-LEVEL_STEPS).reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
-      // Rust 側の Channel から届いた値を反映する。外部の仕組みとの同期。
-      // oxlint-disable-next-line react/set-state-in-effect
-      setLevel(now);
-      // oxlint-disable-next-line react/set-state-in-effect
-      setPeak(top);
-      // oxlint-disable-next-line react/set-state-in-effect
-      setClipped(frame.clipped_runs);
-      draw();
-    };
-
-    // 開く前は空で正しい。 騒がない。
-    // 番号で名指しして止める。 作り直しのときに、
-    // 「古いのを止める」より「新しいのを始める」が先に着くことがある。
-    let generation: number | null = null;
-    api
-      .streamEnvelope(channel)
-      .then((g) => {
-        generation = g;
-        // 番号が返る前に外されていたら、ここで止める。
-        if (!alive) api.stopEnvelopeStream(g).catch(() => {});
-      })
-      .catch(() => {});
-
-    return () => {
-      themeWatch.disconnect();
-      alive = false;
-      if (generation !== null) api.stopEnvelopeStream(generation).catch(() => {});
-    };
+    return () => themeWatch.disconnect();
   }, []);
+
+  useEnvelopeStream((frame) => {
+    const top = frame.steps.reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
+    const now = frame.steps.slice(-LEVEL_STEPS).reduce((m, [lo, hi]) => Math.max(m, -lo, hi), 0);
+    setLevel(now);
+    setPeak(top);
+    setClipped(frame.clipped_runs);
+    draw(frame.steps);
+  });
 
   return (
     <div className="flex flex-col gap-3">

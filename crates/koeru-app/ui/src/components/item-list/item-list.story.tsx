@@ -6,11 +6,13 @@ import type { RowTakesView } from "~/lib/ipc";
 
 const row = (id: string, text: string, takes: number): RowTakesView => ({
   row_id: id,
+  subbank: "1",
   text,
   state: takes > 0 ? "recorded" : "unrecorded",
   units: text.split(" ").length,
   moras: text.split(" ").length,
   risk_hard: 0,
+  targets: [],
   takes: Array.from({ length: takes }, (_, i) => ({
     take_id: i + 1,
     generation: i + 1,

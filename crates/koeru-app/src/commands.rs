@@ -479,6 +479,8 @@ pub struct OtoView {
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct RowTakesView {
     pub row_id: String,
+    /// 行が属する枠（`DEC-RCL-018`）。 枠の `id` と同じ文字列。
+    pub subbank: String,
     /// 読み上げる文字列。
     pub text: String,
     /// `unrecorded` / `recorded` / `needs_retake` / `excluded`。
@@ -496,6 +498,8 @@ pub struct RowTakesView {
     /// スコアの合成値は返さない。 重みに根拠が無いので、
     /// 絶対値を画面に出さない（`TR-RCL-07` の `RowRisk`）。
     pub risk_hard: u32,
+    /// この行を読むと録れる対象（SDL の `RecordingRow.targets`）。 行を作ったときの並び。
+    pub targets: Vec<RowTargetView>,
 }
 
 /// 一覧に出すテイク1件。
@@ -555,6 +559,7 @@ impl From<koeru_core::db::RowTakes> for RowTakesView {
 
         Self {
             row_id: r.row_id,
+            subbank: r.subbank.to_string(),
             moras: count(moras.len()),
             risk_hard: count(risk_hard),
             text: r.text,
@@ -562,8 +567,23 @@ impl From<koeru_core::db::RowTakes> for RowTakesView {
             units: r.units,
             takes: r.takes.into_iter().map(Into::into).collect(),
             adopted: r.adopted,
+            targets: r
+                .aliases
+                .into_iter()
+                .map(|rendered_alias| RowTargetView { rendered_alias })
+                .collect(),
         }
     }
+}
+
+/// 行を読むと録れる対象の1つ（`RecordingTarget`、`DEC-RCL-017`）。
+///
+/// 運ぶのは綴りだけ。 SDL の `RecordingTarget` の他の欄（識別子、音高、形）は、
+/// 台帳が対象を構造の鍵で持つようになってから足す。
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct RowTargetView {
+    /// 作成時の規則で描いた綴り。 鍵にしない。
+    pub rendered_alias: String,
 }
 
 /// 画面へ返すテイク。
@@ -1150,6 +1170,15 @@ pub struct SongView {
     pub rescuing_tone: Option<String>,
     /// 総モーラ数。
     pub total_moras: u32,
+    /// いまのキー（`transpose`）で鳴る最低音と最高音（`Song.range`）。 音符が無ければ `null`。
+    pub range: Option<SongRange>,
+}
+
+/// 曲の音域（`SongRange`）。 両端を含む。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct SongRange {
+    pub low: subbank::Tone,
+    pub high: subbank::Tone,
 }
 
 /// 画面へ返す書き出し前の関門（`TR-REC-16`, `TR-REC-32`）。
@@ -1573,6 +1602,10 @@ pub fn song_status(state: State<'_, AppState>) -> Result<Vec<SongView>> {
             missing_rows: count(s.missing_rows),
             seconds: s.seconds,
             total_moras: count(s.total_moras),
+            range: s.range.map(|(low, high)| SongRange {
+                low: subbank::Tone::of(low),
+                high: subbank::Tone::of(high),
+            }),
         })
         .collect())
 }
@@ -1924,10 +1957,25 @@ pub fn probe_input(state: State<'_, AppState>, ms: u32) -> Result<Finite> {
 }
 
 /// いま録るべき行の収録を始める。
+///
+/// `subbank` を指すと、その枠の録る順の先頭から。 省くと全部の枠の録る順の先頭
+/// （SDL の `StartTakeInput`）。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn start_take(state: State<'_, AppState>) -> Result<String> {
-    lock(&state)?.start_take()
+pub fn start_take(state: State<'_, AppState>, subbank: Option<String>) -> Result<String> {
+    let subbank = subbank.as_deref().map(known_subbank).transpose()?;
+    lock(&state)?.start_take_in(subbank)
+}
+
+/// 画面から来た枠の識別子を読む。 読めなければ、この版に無い枠として断る。
+fn known_subbank(s: &str) -> Result<koeru_model::id::SubbankId> {
+    subbank::subbank_id(s).ok_or_else(|| {
+        AppError::new(
+            "subbank.not_found",
+            Class::Rejected,
+            "指した枠がこの版に無い",
+        )
+    })
 }
 
 /// 行を指定して録り直す（`TR-REC-21`, `TR-RCL-25`, `TR-ALN-27`）。
@@ -1952,10 +2000,16 @@ pub struct RecordingOrderView {
 }
 
 /// いまの録る順と、その並び（`TR-SYN-19`）。
+///
+/// `subbank` を指すと、その枠の行だけ。 先頭が、その枠で次に録る行。
 #[tauri::command(async)]
 #[specta::specta]
-pub fn recording_order(state: State<'_, AppState>) -> Result<RecordingOrderView> {
-    let (mode, row_ids) = lock(&state)?.recording_order()?;
+pub fn recording_order(
+    state: State<'_, AppState>,
+    subbank: Option<String>,
+) -> Result<RecordingOrderView> {
+    let subbank = subbank.as_deref().map(known_subbank).transpose()?;
+    let (mode, row_ids) = lock(&state)?.recording_order_in(subbank)?;
     Ok(RecordingOrderView {
         mode: mode.as_str().to_owned(),
         row_ids,

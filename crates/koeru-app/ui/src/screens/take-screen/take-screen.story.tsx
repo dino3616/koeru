@@ -20,6 +20,7 @@ const otos: OtoView[] = ["か", "き", "く", "け", "こ"].map((alias, i) => ({
 const rows: RowTakesView[] = [
   {
     row_id: "s001",
+    subbank: "1",
     text: "あ い う え お",
     state: "recorded",
     units: 5,
@@ -37,9 +38,11 @@ const rows: RowTakesView[] = [
     adopted: 9,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
   {
     row_id: "s002",
+    subbank: "1",
     text: "か き く け こ",
     state: "recorded",
     units: 5,
@@ -75,9 +78,11 @@ const rows: RowTakesView[] = [
     adopted: 11,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
   {
     row_id: "s003",
+    subbank: "1",
     text: "さ し す せ そ",
     state: "unrecorded",
     units: 5,
@@ -85,6 +90,7 @@ const rows: RowTakesView[] = [
     adopted: null,
     moras: 5,
     risk_hard: 0,
+    targets: [],
   },
 ];
 

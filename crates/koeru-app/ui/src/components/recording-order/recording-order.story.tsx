@@ -22,14 +22,14 @@ type Story = StoryObj<typeof meta>;
 export const 曲バンク優先: Story = {
   args: { mode: "SongBankFirst" },
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.textContent).toContain("歌いたい曲から");
+    await expect(canvasElement.textContent).toContain("曲バンク優先");
   },
 };
 
 export const 被覆効率: Story = {
   args: { mode: "CoverageEfficiency" },
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.textContent).toContain("少ない行数で");
+    await expect(canvasElement.textContent).toContain("被覆効率");
   },
 };
 
@@ -38,7 +38,7 @@ export const 切り替えられる: Story = {
   args: { mode: "CoverageEfficiency" },
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await userEvent.click(await c.findByRole("button", { name: /歌いたい曲から/ }));
+    await userEvent.click(await c.findByRole("button", { name: /曲バンク優先/ }));
     await expect(args.onChange).toHaveBeenCalledWith("SongBankFirst");
   },
 };

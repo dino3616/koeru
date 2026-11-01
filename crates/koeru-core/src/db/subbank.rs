@@ -455,6 +455,25 @@ impl Ledger {
             .ok_or(LedgerError::UnknownRow)
     }
 
+    /// 枠の中で次に録る行（`TR-REC-18`）。 未録音のうち並び順が最も早いもの。
+    ///
+    /// [`Ledger::next_row`] の枠を絞った形で、同じく正準順の退避経路。
+    /// 提示順は `Studio` が持つ。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めない。
+    pub fn next_row_of(&mut self, id: SubbankId) -> Result<Option<(String, String)>> {
+        rows::table
+            .filter(rows::subbank_id.eq(id.get()))
+            .filter(rows::state.eq(RowState::Unrecorded.as_str()))
+            .order(rows::ordinal.asc())
+            .select((rows::id, rows::text))
+            .first::<(String, String)>(&mut self.conn)
+            .optional()
+            .map_err(db("next_row_of"))
+    }
+
     /// その音階を持つ枠のうち、並びの先頭のもの。 無ければ `None`。
     ///
     /// 被覆を音階で数える手（詰め直し、`DEC-RCL-016`）が、行を入れる枠を選ぶのに使う。
