@@ -441,6 +441,58 @@ mod tests {
         assert!(map.lines().all(|l| l.contains('↑')), "{map}");
     }
 
+    fn voiced(folder: &str, voice: &str, suffix: &str, tone: i32) -> Subbank {
+        Subbank {
+            voice_color: Some(voice.to_owned()),
+            color: voice.to_owned(),
+            suffix: suffix.to_owned(),
+            ..subbank(Some(folder), "", &[tone])
+        }
+    }
+
+    /// 割り当ては声色ごとに閉じる（`DEC-RCL-018`）。 別の声色の素材が担う範囲に、床を探しに入らない。
+    #[test]
+    fn 範囲の割り当ては声色ごとに閉じる() {
+        let b = bank(vec![
+            voiced("Normal_C4", "Normal", "N", 60),
+            voiced("Growl_G4", "Growl", "G", 67),
+        ]);
+        let y = character_yaml(&b, Profile::Both, false);
+        // Normal は C-1 から G9 まで全部（Growl が G4 を持っていても、声色が違えば関係しない）。
+        assert!(y.contains("\"C-1-G9\""), "{y}");
+        assert_eq!(y.matches("tone_ranges:").count(), 2, "{y}");
+        assert!(
+            !y.contains("\"G4-G9\""),
+            "Growl の範囲は Normal へ割り込まない: {y}"
+        );
+    }
+
+    /// 音源ルートの `prefix.map` が書けるのは1つの声色だけ。 並びの先頭の区画の声色（`Q-PKG-004`）。
+    #[test]
+    fn prefix_map_は先頭の声色の割り当てを書く() {
+        let b = bank(vec![
+            voiced("Normal_C4", "Normal", "N", 60),
+            voiced("Growl_G4", "Growl", "G", 67),
+        ]);
+        let map = prefix_map(&b).expect("多音階なら出る");
+        assert_eq!(map.lines().count(), 128);
+        assert!(map.lines().all(|l| l.ends_with("\tN")), "{map}");
+    }
+
+    /// 同じ声色の同じ高さに方式違いの区画が並ぶとき、先に並んだ1つだけが範囲と `prefix.map` を持つ。
+    /// 同じ範囲を2つの区画が宣言すると、読み手がどちらで鳴らすかを決められない。
+    #[test]
+    fn 同じ高さの区画は先頭だけが範囲を持つ() {
+        let b = bank(vec![
+            voiced("seq", "Normal", "seq", 60),
+            voiced("cvvc", "Normal", "cvvc", 60),
+        ]);
+        let y = character_yaml(&b, Profile::Both, false);
+        assert_eq!(y.matches("tone_ranges:").count(), 1, "{y}");
+        let map = prefix_map(&b).expect("区画にフォルダがあれば出る");
+        assert!(map.lines().all(|l| l.ends_with("\tseq")), "{map}");
+    }
+
     #[test]
     fn yaml_の値は常に引用する() {
         let mut b = bank(vec![subbank(None, "", &[])]);

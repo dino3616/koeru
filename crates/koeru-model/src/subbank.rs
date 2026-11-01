@@ -250,13 +250,25 @@ mod tests {
             cell(4, None, Method::Sequential, 62),
             cell(5, Some("Growl"), Method::Single, 69),
         ]);
-        assert_eq!(ids(&cells.chain(None, 70)), [1, 4, 3], "62 の2枠を並びの順に、次に 55");
+        assert_eq!(
+            ids(&cells.chain(None, 70)),
+            [1, 4, 3],
+            "62 の2枠を並びの順に、次に 55"
+        );
         assert_eq!(ids(&cells.chain(None, 61)), [3], "floor は 55");
-        assert_eq!(ids(&cells.chain(None, 20)), [3], "最低音階より下は最低音階が受け持つ");
+        assert_eq!(
+            ids(&cells.chain(None, 20)),
+            [3],
+            "最低音階より下は最低音階が受け持つ"
+        );
         let growl = VoiceColor::parse("Growl");
         assert_eq!(ids(&cells.chain(growl.as_ref(), 70)), [5, 2]);
         assert_eq!(cells.owner(growl.as_ref(), 64).map(|c| c.id.get()), Some(2));
-        assert!(cells.chain(VoiceColor::parse("Soft").as_ref(), 60).is_empty());
+        assert!(
+            cells
+                .chain(VoiceColor::parse("Soft").as_ref(), 60)
+                .is_empty()
+        );
         assert_eq!(cells.default_color(), None, "先頭の枠は声色なし");
         assert_eq!(cells.tones(None), [55, 62]);
     }
@@ -267,10 +279,7 @@ mod tests {
             cell(1, Some("Growl"), Method::Single, 60),
             cell(2, None, Method::Cvvc, 60),
         ]);
-        assert_eq!(
-            cells.default_color().map(VoiceColor::as_str),
-            Some("Growl")
-        );
+        assert_eq!(cells.default_color().map(VoiceColor::as_str), Some("Growl"));
         assert!(Cells::default().default_color().is_none());
     }
 

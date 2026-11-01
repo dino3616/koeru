@@ -1539,7 +1539,8 @@ impl Studio {
             koeru_model::id::SubbankId,
             std::collections::BTreeSet<String>,
         > = std::collections::BTreeMap::new();
-        for (cell, alias) in song.required_by_cell(&rules, preset.set, &cells, cells.default_color())
+        for (cell, alias) in
+            song.required_by_cell(&rules, preset.set, &cells, cells.default_color())
         {
             if !covered.get(&cell).is_some_and(|s| s.contains(&alias)) {
                 missing.entry(cell).or_default().insert(alias);
@@ -6063,8 +6064,7 @@ fn full_lists_by_cell(
     rules: &koeru_core::presamp::Rules,
     cells: &koeru_model::subbank::Cells,
     project: koeru_core::preset::MethodPreset,
-) -> Result<std::collections::BTreeMap<koeru_model::id::SubbankId, Vec<koeru_core::reclist::Row>>>
-{
+) -> Result<std::collections::BTreeMap<koeru_model::id::SubbankId, Vec<koeru_core::reclist::Row>>> {
     let presets = cell_presets(ledger, project)?;
     // 同じプリセットの枠が並ぶ（声色違いなど）。 リストの生成は枠の数だけ繰り返さない。
     let mut made: std::collections::BTreeMap<&'static str, Vec<koeru_core::reclist::Row>> =
@@ -7066,9 +7066,7 @@ mod material_tests {
 
             let root = s.opened().expect("開いている").dir().root().to_path_buf();
             let (got, cells) = by_cell(&mut s);
-            let m = got
-                .get(&cells.as_slice()[0].id)
-                .expect("単音階は枠が1つ");
+            let m = got.get(&cells.as_slice()[0].id).expect("単音階は枠が1つ");
             assert_eq!(
                 m.paths.get("- い"),
                 Some(&root.join(format!("audio/{owner}_1.wav"))),

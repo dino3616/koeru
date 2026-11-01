@@ -203,6 +203,14 @@ mod tests {
             "{multi}"
         );
         assert!(!multi.contains("多音階"), "方式の名前に高さを混ぜない");
+
+        // 枠ごとに方式が違う音源は、並びの順に全部書く（`DEC-RCL-018`）。
+        b.methods = vec![Method::Cvvc, Method::Single];
+        let mixed = readme_txt(&b, &contents());
+        assert!(
+            mixed.contains("【収録方式】\r\nCVVC / 単独音\r\n"),
+            "{mixed}"
+        );
     }
 
     /// 書いていない節を空の見出しで置かない（`DEC-PKG-011`）。

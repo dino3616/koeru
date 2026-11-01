@@ -137,7 +137,18 @@ mod tests {
             cell(2, Some("Growl"), Method::Single, 57),
         ])
         .unwrap();
-        assert_eq!(got, ["Normal_A3_cvvc", "Growl_A3_single"]);
+        assert_eq!(got, ["Normal_cvvc", "Growl_single"]);
+    }
+
+    /// 3つの軸が全部分かれたら、全部入る。 順は 声色・高さ・方式。
+    #[test]
+    fn 軸が全部分かれたら全部入る() {
+        let got = names(vec![
+            cell(1, Some("Normal"), Method::Cvvc, 55),
+            cell(2, Some("Growl"), Method::Single, 62),
+        ])
+        .unwrap();
+        assert_eq!(got, ["Normal_G3_cvvc", "Growl_D4_single"]);
     }
 
     #[test]

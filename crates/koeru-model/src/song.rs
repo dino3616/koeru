@@ -621,8 +621,7 @@ pub fn status_of(
         .iter()
         .map(|(id, song)| {
             let required = song.required_by_cell(rules, set, cells, color);
-            let have =
-                |(c, a): &(SubbankId, String)| covered.get(c).is_some_and(|s| s.contains(a));
+            let have = |(c, a): &(SubbankId, String)| covered.get(c).is_some_and(|s| s.contains(a));
             let still: BTreeSet<&(SubbankId, String)> =
                 required.iter().filter(|p| !have(p)).collect();
             let missing = still.len();
@@ -1065,7 +1064,10 @@ mod tests {
             &lists,
         );
         assert_eq!(got[0].singability, Singability::WithFallback);
-        assert_eq!(got[0].missing_units, 1, "必要な `a か` は連続音の枠に無いまま");
+        assert_eq!(
+            got[0].missing_units, 1,
+            "必要な `a か` は連続音の枠に無いまま"
+        );
     }
 
     /// 声色の違う枠は、同じ高さでも収録済みが混ざらない（`TR-RCL-26`）。
@@ -1088,9 +1090,10 @@ mod tests {
         ]);
         let s = song("さく", &["さ", "く"]);
         // 声色なしの枠だけが全部録ってある。
-        let held: BTreeMap<SubbankId, BTreeSet<String>> = [(SubbankId::new(1), have(&["さ", "く"]))]
-            .into_iter()
-            .collect();
+        let held: BTreeMap<SubbankId, BTreeSet<String>> =
+            [(SubbankId::new(1), have(&["さ", "く"]))]
+                .into_iter()
+                .collect();
         let lists: BTreeMap<SubbankId, Vec<crate::reclist::Row>> = [
             (SubbankId::new(1), full_list()),
             (SubbankId::new(2), full_list()),
@@ -1099,11 +1102,23 @@ mod tests {
         .collect();
         let songs = [("s1".to_owned(), s)];
         let status = |c: Option<&VoiceColor>| {
-            status_of(&songs, &builtin_rules(), &cells, c, &held, UnitSet::Core, &lists)
+            status_of(
+                &songs,
+                &builtin_rules(),
+                &cells,
+                c,
+                &held,
+                UnitSet::Core,
+                &lists,
+            )
         };
         assert_eq!(status(None)[0].singability, Singability::Complete);
         let growl = &status(color.as_ref())[0];
-        assert_eq!(growl.singability, Singability::Unavailable, "Growl の枠は空");
+        assert_eq!(
+            growl.singability,
+            Singability::Unavailable,
+            "Growl の枠は空"
+        );
         assert_eq!(growl.missing_units, 2);
     }
 
