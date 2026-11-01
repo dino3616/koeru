@@ -158,6 +158,18 @@ export const takePitchQuery = (id: string, takeId: number) =>
   });
 
 /**
+ * 確定したテイクの波形を `bars` 本に畳んだ min/max（収録画面の波形の欄）。
+ *
+ * 本数は画面の尺から決まり、描く幅の実測は要らない。 テイクの音は確定したら
+ * 変わらないので、[`takePitchQuery`] と同じ形で持つ。
+ */
+export const takeBarsQuery = (id: string, takeId: number, durationMs: number, bars: number) =>
+  queryOptions({
+    queryKey: [LEDGER, id, "bars", takeId, durationMs, bars],
+    queryFn: () => api.waveformWindow({ takeId, fromMs: 0, toMs: durationMs, pixels: bars }),
+  });
+
+/**
  * 書き出す前の関門（`TR-REC-16`, `TR-REC-32`）。
  *
  * 台帳の鍵の下に置く。 録るたびに結果が変わる——割れたテイクも

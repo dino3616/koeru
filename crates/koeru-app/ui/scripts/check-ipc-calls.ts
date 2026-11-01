@@ -19,7 +19,7 @@ const SRC = Bun.fileURLToPath(new URL("../src", import.meta.url));
 /** 繋いでよいもの。理由を書いて足す。 */
 const EXEMPT = new Map([
   [
-    "src/components/live-waveform/index.tsx",
+    "src/lib/use-envelope-stream.ts",
     "Channel の開閉（`DEC-PLT-017`）。問い合わせではないので、取り直しも重複排除も意味を持たない",
   ],
   [
