@@ -4,6 +4,7 @@ import { expect, mocked, userEvent, waitFor, within } from "storybook/test";
 import { RecordScreen } from ".";
 import { AppShell } from "~/components/app-shell";
 import { NAGI, 棚_三つ } from "~/components/app-shell/fixtures";
+import { boardPitch, boardWave } from "~/components/record-timeline/fixture";
 import { api } from "~/lib/ipc";
 import type {
   GuideTempo,
@@ -302,6 +303,155 @@ export const 確定後: Story = {
     await userEvent.clear(field);
     await userEvent.type(field, "明るめ{Enter}");
     await expect(api.renameTake).toHaveBeenCalledWith({ take: 12, label: "明るめ" });
+  },
+};
+
+/*
+ * S04 のボードと同じ値の場面。 ボードと重ねて撮り、差が DEC-PLT-062 の差だけかを見る。
+ *
+ * ナギの Normal A3 CVVC、行は 93 / 131、いまの行は「ぱぱぴぷぺぽんば」でエイリアスは 15 個、
+ * テイクは「テイク 1」と「ちょい弱め」、BPM 120、マイクは USB Audio CODEC。
+ */
+const BOARD_ROWS = [
+  "な な に ぬ ね の ん は",
+  "や や ゆ よ ん ま",
+  "ら ら り る れ ろ ん わ",
+  "ぱ ぱ ぴ ぷ ぺ ぽ ん ば",
+  "ざ ざ じ ず ぜ ぞ ん だ",
+  "ば ば び ぶ べ ぼ ん が",
+  "が が ぎ ぐ げ ご ん ぱ",
+  "きゃ きゃ きゅ きぇ きょ ん ぎゃ",
+  "しゃ しゃ しゅ しぇ しょ ん じゃ",
+  "ちゃ ちゃ ちゅ ちぇ ちょ ん にゃ",
+  "ひゃ ひゃ ひゅ ひぇ ひょ ん びゃ",
+  "みゃ みゃ みゅ みぇ みょ ん りゃ",
+  "ふぁ ふぁ ふぃ ふぇ ふぉ ん ゔぁ",
+  "つぁ つぁ つぃ つぇ つぉ ん てぃ",
+  "うぃ うぃ うぇ うぉ ん いぇ",
+  "でぃ でぃ どぅ でゅ ん とぅ",
+];
+
+const BOARD_ALIASES = [
+  "- ぱ",
+  "ぱ",
+  "a p",
+  "ぴ",
+  "i p",
+  "ぷ",
+  "u p",
+  "ぺ",
+  "e p",
+  "ぽ",
+  "o n",
+  "ん",
+  "n b",
+  "ば",
+  "a -",
+];
+
+const boardRows = (): RowTakesView[] => {
+  const listed = BOARD_ROWS.map((text, i) => {
+    const r = row(`b${i}`, NORMAL, text, i < 3 ? [take(100 + i, 1)] : []);
+    return i === 3
+      ? {
+          ...r,
+          targets: BOARD_ALIASES.map((a) => ({ rendered_alias: a })),
+          takes: [
+            { ...take(11, 1), duration_ms: 4000 },
+            { ...take(12, 2, "ちょい弱め"), duration_ms: 4000 },
+          ],
+          adopted: 12,
+        }
+      : r;
+  });
+  // 一覧の下は見えない。 数をボードに合わせるだけの行（録ったものを 90 行）。
+  const rest = Array.from({ length: 131 - listed.length }, (_, i) =>
+    row(`x${i}`, NORMAL, "あ い う え お", i < 90 ? [take(1000 + i, 1)] : []),
+  );
+  return [...listed, ...rest];
+};
+
+const boardSong = (over: Partial<SongView> & Pick<SongView, "id" | "title">): SongView => ({
+  ...(songs[0] as SongView),
+  singability: "Complete",
+  singable: true,
+  covered: 24,
+  required: 24,
+  missing_rows: 0,
+  rescuing_tone: null,
+  ...over,
+});
+
+const tone = (midi: number, name: string) => ({ midi, name });
+
+const BOARD_SONGS: SongView[] = [
+  boardSong({
+    id: "s1",
+    title: "さくらさくら",
+    range: { low: tone(57, "A3"), high: tone(62, "D4") },
+  }),
+  boardSong({
+    id: "s2",
+    title: "帰り道ワルツ",
+    range: { low: tone(55, "G3"), high: tone(64, "E4") },
+  }),
+  boardSong({
+    id: "s3",
+    title: "ひかりのあと",
+    singability: "Unavailable",
+    singable: false,
+    covered: 16,
+    missing_rows: 4,
+    range: { low: tone(57, "A3"), high: tone(65, "F4") },
+  }),
+  boardSong({
+    id: "s4",
+    title: "夜明けのテスト",
+    singability: "Unavailable",
+    singable: false,
+    covered: 10,
+    missing_rows: 6,
+    rescuing_tone: "D4",
+    range: { low: tone(62, "D4"), high: tone(69, "A5") },
+  }),
+];
+
+/** テイクの波形。 ボードの棒（2マス目から）が同じ高さで出る点の列。 */
+const boardPoints = (pixels: number) => {
+  const bars = boardWave(266);
+  return Array.from({ length: pixels }, (_, j) => {
+    const amp = bars[j + 30] ?? 0.02;
+    return [-amp, amp] as [number, number];
+  });
+};
+
+export const ボード: Story = {
+  render: () => framed(`&subbank=${encodeURIComponent(JSON.stringify(NORMAL))}`),
+  beforeEach: () => {
+    mocked(api.rowsWithTakes).mockResolvedValue(boardRows());
+    mocked(api.songStatus).mockResolvedValue(BOARD_SONGS);
+    mocked(api.subbanks).mockResolvedValue([subbank(NORMAL, "Normal", 93, 131)]);
+    mocked(api.recordingOrder).mockResolvedValue({ mode: "SongBankFirst", row_ids: ["b3"] });
+    mocked(api.listDevices).mockResolvedValue([{ id: "usb", name: "USB Audio CODEC" }]);
+    mocked(api.chosenDevice).mockResolvedValue({ id: "usb", armed: true, recording: false });
+    mocked(api.waveformWindow).mockImplementation(async ({ pixels }) => boardPoints(pixels));
+    mocked(api.takePitch).mockResolvedValue(boardPitch(8));
+    mocked(api.songPlan).mockResolvedValue({
+      rows: ["b3", "b4", "b5", "b6"].map((row_id) => ({ row_id, text: "", units: 1 })),
+      covers: 4,
+      unreachable: 0,
+      seconds: 0,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(await c.findByRole("img", { name: "ぱ ぱ ぴ ぷ ぺ ぽ ん ば" })).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: /^ひかりのあと/ }));
+    await waitFor(() =>
+      expect(c.getAllByRole("option", { name: /ひかりのあと に要る行$/ })).toHaveLength(4),
+    );
+    await expect(c.getByText("71%")).toBeVisible();
+    await expect(c.getByRole("list", { name: "この行のエイリアス" }).children).toHaveLength(15);
   },
 };
 

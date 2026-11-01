@@ -112,7 +112,9 @@ export const useTimelineWave = ({ voiceId, source, beatMs, spanMs }: Options) =>
     if (points === undefined) return Array.from({ length: WAVE_BARS }, () => null);
     return Array.from({ length: WAVE_BARS }, (_, i) => {
       const ms = ((i + 0.5) * spanMs) / WAVE_BARS - beatMs;
-      if (ms < 0 || ms >= source.durationMs) return null;
+      // 助走のマスはテイクの外。 録った音が無いのではなく、鳴らしていない。
+      if (ms < 0) return 0;
+      if (ms >= source.durationMs) return null;
       const point = points[Math.floor((ms / source.durationMs) * points.length)];
       return point === undefined ? null : amplitude(point);
     });

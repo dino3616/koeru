@@ -350,7 +350,7 @@ export const RecordSidebar = ({
                   onFocus={() => setFocusId(row.id)}
                   onKeyDown={(event) => onKeyDown(event, row.id)}
                   // 枠の外に輪を出すと、送りの窓で切れる。 内側に引く。
-                  className={`h-8.5 gap-2 px-2.5 focus-visible:-outline-offset-2 ${entry({ selected })} ${selected ? "shadow-voice-edge" : ""}`}
+                  className={`h-8 gap-2 px-2.5 focus-visible:-outline-offset-2 ${entry({ selected })} ${selected ? "shadow-voice-edge" : ""}`}
                 >
                   <span aria-hidden="true" className="flex w-3.5 shrink-0 text-2">
                     {ROW_ICON[row.status]}

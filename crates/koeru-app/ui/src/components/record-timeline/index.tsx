@@ -241,7 +241,7 @@ export const RecordTimeline = ({
         <div
           role="img"
           aria-label={pitchLabel}
-          className="relative h-45 overflow-hidden border-t border-line"
+          className="relative h-45.25 overflow-hidden border-t border-line"
         >
           <span aria-hidden="true" className="absolute inset-x-0 top-22.5 h-px bg-line-strong" />
           <span aria-hidden="true" className="absolute inset-x-0 top-11.25 h-px bg-surface-2" />
@@ -278,7 +278,7 @@ export const RecordTimeline = ({
           )}
         </div>
 
-        <div aria-hidden="true" className="relative h-6 border-t border-line">
+        <div aria-hidden="true" className="relative h-6.25 border-t border-line">
           {Array.from({ length: seconds + 1 }, (_, s) => {
             const f = (s * 1000) / spanMs;
             const align =
@@ -321,4 +321,4 @@ export const RecordTimeline = ({
 
 /** 再生位置の線。 拍の帯の上端から時刻の欄の手前まで。 */
 const playheadClass = (recording: boolean) =>
-  `absolute top-0 bottom-6.25 left-(--x) z-2 -ml-px w-0.5 ${recording ? "bg-rec" : "bg-slate-12"}`;
+  `absolute top-0 bottom-6.5 left-(--x) z-2 -ml-px w-0.5 ${recording ? "bg-rec" : "bg-slate-12"}`;
