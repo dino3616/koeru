@@ -99,6 +99,7 @@ const ROLE_TEXT_ON_SURFACE = [
   { fg: "text-2", bg: "bg-surface-2-hover", label: "text-2 / surface-2 hover" },
   { fg: "text-2", bg: "bg-surface-3", label: "text-2 / surface-3" },
   { fg: "text-slate-1", bg: "bg-rec", label: "rec の上の字" },
+  { fg: "text-rec", bg: "bg-bg", label: "rec の字 / bg" },
 ] as const;
 
 export const 役割の字と面: Story = {
@@ -136,6 +137,7 @@ const NON_TEXT = [
   { fg: "bg-slate-11", bg: "bg-slate-2", label: "輪郭だけの的 / 面" },
   { fg: "bg-amber-11", bg: "bg-slate-2", label: "注意の印 / 面" },
   { fg: "bg-red-11", bg: "bg-slate-2", label: "危険の印 / 面" },
+  { fg: "bg-rec", bg: "bg-bg", label: "録音ボタンの丸と輪 / bg" },
 ] as const;
 
 /**
