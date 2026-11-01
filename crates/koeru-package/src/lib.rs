@@ -30,6 +30,7 @@ pub mod archive;
 pub mod bank;
 pub mod character;
 pub mod icon;
+pub mod layout;
 pub mod profile;
 pub mod readme;
 /// 音階の名前（`TR-PKG-04`, `TR-PKG-29`）。

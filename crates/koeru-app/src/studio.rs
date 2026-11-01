@@ -1496,47 +1496,29 @@ impl Studio {
             .collect();
 
         // 残り（`TR-RCL-09`）。固定の見積もりで出す——実測は採らない（`DEC-RCL-013`）。
-        let tones = self.writer()?.recording_tones()?;
-        let remaining_rows: Vec<koeru_core::reclist::Row> = {
-            // この音源の作り方で数える（`TR-RCL-01`）。 単独音で数えると、
-            // 連続音のプロジェクトの残りが常に別のリストの残りになる。
-            let rules = self.opened()?.rules.clone();
-            let list = preset.reclist(&rules).map_err(AppError::from_failure)?;
-            let done: std::collections::BTreeSet<String> = self
-                .writer()?
-                .rows_with_takes()?
-                .into_iter()
-                .filter(|r| r.adopted.is_some())
-                .map(|r| r.row_id)
-                .collect();
-            // 音高ごとに数える（`TR-RCL-26`）。
-            //
-            // **素の行 ID で突き合わせていた。** 多音階の台帳は `s001@G3` の形で
-            // 持つので、生成したリストの `s001` とは一度も一致せず、
-            // **残りが最初から最後まで減らなかった。**
-            let multi = tones.len() > 1;
-            let mut left = Vec::new();
-            for t in &tones {
-                for r in &list {
-                    let id = if multi {
-                        format!("{}@{}", r.id, koeru_core::tone::name(*t))
-                    } else {
-                        r.id.clone()
-                    };
-                    if !done.contains(&id) {
-                        left.push(r.clone());
-                    }
-                }
+        //
+        // 枠ごとに、台帳にある行のうち採用の無いものを、その枠の方式で数える
+        // （`TR-RCL-01`, `TR-RCL-28`, `DEC-RCL-018`）。 **作ったときの方式で数える**
+        // ——方式の違う枠が並ぶと、音源に1つの方式で全部の枠を数えた残りは、どの枠の残りでも
+        // なくなる。 台帳の行そのもので数えるので、行の ID の形（`s001@G3`、枠の番号つき）
+        // に依らず、録った行は減り、詰め直した行は数に入る。
+        let (remaining_rows, remaining_seconds) = {
+            let ledger = &mut *self.writer()?;
+            let cells = ledger.cells()?;
+            let mut rows = 0_usize;
+            let mut seconds = 0.0_f64;
+            for cell in cells.as_slice() {
+                let left = ledger.unrecorded_rows_of(cell.id, preset.set)?;
+                seconds += koeru_core::pace::fixed_seconds(cell.method, &left, 1);
+                rows += left.len();
             }
-            left
+            (rows, seconds)
         };
-        // 音高ぶんは上で展開済み。 ここで掛け直さない。
-        let remaining_seconds = koeru_core::pace::fixed_seconds(preset.method, &remaining_rows, 1);
 
         Ok(Progress {
             next_row,
             remaining_seconds,
-            remaining_rows: remaining_rows.len(),
+            remaining_rows,
             covered: covered.len(),
             required: required.len(),
             coverage,
@@ -1574,27 +1556,58 @@ impl Studio {
     pub fn song_plan(&mut self, id: &str) -> Result<koeru_core::plan::Plan> {
         let preset = self.current_preset()?;
         let open = self.opened_mut()?;
-        // 必要集合は方式ごとの綴り。 仮名で引くと交わらない。
-        let covered = open.writer()?.covered_aliases()?;
-        let song = open
-            .writer()?
+        let rules = open.rules.clone();
+        let ledger = &mut *open.writer()?;
+        // 必要集合は枠ごと・方式ごとの綴り（`TR-RCL-15`）。 仮名で引くと交わらない。
+        let cells = ledger.cells()?;
+        let covered = ledger.covered_aliases_by_cell()?;
+        let song = ledger
             .songs_in_bank()?
             .into_iter()
             .find(|(sid, _)| sid == id)
             .map(|(_, song)| song)
             .ok_or_else(no_song)?;
 
-        let rules = open.rules.clone();
-        let required = song.required_aliases(&rules, preset.method, preset.set);
-        let missing: std::collections::BTreeSet<String> =
-            required.difference(&covered).cloned().collect();
-        let full_list = preset.reclist(&rules).map_err(AppError::from_failure)?;
-        Ok(koeru_core::plan::rows_to_cover(
-            &rules,
-            preset.method,
-            &missing,
-            &full_list,
-        ))
+        // 足りない綴りを、受け持つ枠ごとにまとめる。 状態（`song_status_of`）と同じ必要集合。
+        let mut missing: std::collections::BTreeMap<
+            koeru_model::id::SubbankId,
+            std::collections::BTreeSet<String>,
+        > = std::collections::BTreeMap::new();
+        for (cell, alias) in
+            song.required_by_cell(&rules, preset.set, &cells, cells.default_color())
+        {
+            if !covered.get(&cell).is_some_and(|s| s.contains(&alias)) {
+                missing.entry(cell).or_default().insert(alias);
+            }
+        }
+        // 枠ごとに、その枠の方式と録音リストで選ぶ。 録る行は足し合わせる。
+        let lists = full_lists_by_cell(ledger, &rules, &cells, preset)?;
+        let mut plan = koeru_core::plan::Plan {
+            rows: Vec::new(),
+            covers: 0,
+            unreachable: std::collections::BTreeSet::new(),
+            seconds: 0.0,
+        };
+        for (cell, want) in &missing {
+            let (Some(here), Some(list)) = (cells.get(*cell), lists.get(cell)) else {
+                continue;
+            };
+            let part = koeru_core::plan::rows_to_cover(&rules, here.method, want, list);
+            // 同じ録音リストの枠が並ぶと、同じ行が何度も出る。 行としては1つ。
+            for row in part.rows {
+                if !plan
+                    .rows
+                    .iter()
+                    .any(|r| r.id == row.id && r.text == row.text)
+                {
+                    plan.rows.push(row);
+                }
+            }
+            plan.covers += part.covers;
+            plan.unreachable.extend(part.unreachable);
+            plan.seconds += part.seconds;
+        }
+        Ok(plan)
     }
 
     /// UST / USTX を取り込む（`TR-RCL-12`）。
@@ -1718,14 +1731,17 @@ impl Studio {
     ) -> Result<usize> {
         let preset = self.current_preset()?;
         let rules = self.current_rules()?;
-        // 収録音高は台帳が持つ（`TR-RCL-01`）。プリセットは方式だけ。
+        // 収録音高・声色・方式は枠が持つ（`TR-RCL-01`, `DEC-RCL-018`）。
         let tones = self.writer()?.recording_tones()?;
+        let cells = self.writer()?.cells()?;
+        let presets = cell_presets(&mut *self.writer()?, preset)?;
         let songs = self.writer()?.songs_in_bank()?;
-        // 要るものは（収録音高, 綴り）の組（`TR-RCL-15`）。 ノートの floor の音高でだけ要る。
+        // 要るものは（枠, 綴り）の組（`TR-RCL-15`）。 ノートを受け持つ枠でだけ、その枠の
+        // 方式の綴りが要る。
         //
         // **全部の音高に同じ行を入れていた。** 低い曲を選んでも、使わない高い
         // 区画の行まで読ませることになる。
-        let mut required: std::collections::BTreeSet<(i32, String)> =
+        let mut required: std::collections::BTreeSet<(koeru_model::id::SubbankId, String)> =
             std::collections::BTreeSet::new();
         for (id, ranges) in selections {
             let song = songs
@@ -1738,48 +1754,52 @@ impl Studio {
             } else {
                 song.select(ranges)
             };
-            required.extend(part.required_by_tone(&rules, preset.method, preset.set, &tones));
+            required.extend(part.required_by_cell(
+                &rules,
+                preset.set,
+                &cells,
+                cells.default_color(),
+            ));
         }
 
         // 一度録った綴りは読ませない（`DEC-RCL-016`）。 まだ録っていない詰め直しの
         // 行が既に作る綴りも除く——選び直すたびに同じ綴りを別の行でもう一度読ませない。
-        let covered = self.writer()?.covered_aliases_by_tone()?;
+        let covered = self.writer()?.covered_aliases_by_cell()?;
         let suffixed = tones.len() > 1;
         // 返すのは台帳に実際に入った行の数。 **作った数を返していた**ので、
         // 同じ範囲を2度詰め直しても「N 行を足しました」と出ていた
         // ——既にある行は飛ばすので、台帳は増えていない。
         let mut added = 0;
-        for t in &tones {
-            // 被覆は音階で数える。 同じ音階の枠が2つあれば、並びの先頭の枠へ入れる。
-            let Some(subbank) = self.writer()?.subbank_for_tone(*t)? else {
-                continue;
-            };
+        for cell in cells.as_slice() {
+            // 被覆は枠で数える。 声色や方式の違う枠が同じ音階にあっても、混ぜない。
             let waiting: std::collections::BTreeSet<String> = self
                 .writer()?
-                .untaken_rows(subbank, koeru_core::db::RowOrigin::Repack)?
+                .untaken_rows(cell.id, koeru_core::db::RowOrigin::Repack)?
                 .into_iter()
                 .flat_map(|(_, a)| a)
                 .collect();
             let want: std::collections::BTreeSet<String> = required
                 .iter()
-                .filter(|(rt, a)| {
-                    rt == t
+                .filter(|(c, a)| {
+                    *c == cell.id
                         && !waiting.contains(a)
-                        && !covered.get(t).is_some_and(|c| c.contains(a))
+                        && !covered.get(c).is_some_and(|s| s.contains(a))
                 })
                 .map(|(_, a)| a.clone())
                 .collect();
             if want.is_empty() {
                 continue;
             }
-            let rows = preset
+            // 行はその枠の方式プリセットが作る。 方式の違う枠へ、別の方式の行を入れない。
+            let here = presets.get(&cell.id).copied().unwrap_or(preset);
+            let rows = here
                 .reclist_for(&rules, &want)
                 .map_err(AppError::from_failure)?;
             added += self.writer()?.install_rows(
                 &rows,
                 &rules,
-                preset.method,
-                subbank,
+                cell.method,
+                cell.id,
                 suffixed,
                 koeru_core::db::RowOrigin::Repack,
             )?;
@@ -1802,14 +1822,13 @@ impl Studio {
         let rules = self.current_rules()?;
         let ledger = &mut *self.writer()?;
         let origin = ledger.row_origin(row_id)?.other();
-        let tone = ledger.row_tone(row_id)?;
         // 組み直すのは録った行の枠だけ。 同じ音階でも、声色の違う枠の行は動かさない。
         let subbank = ledger.row_subbank(row_id)?;
         let preset = subbank_preset(ledger, subbank)?.unwrap_or(project_preset);
         let waiting = ledger.untaken_rows(subbank, origin)?;
         let covered = ledger
-            .covered_aliases_by_tone()?
-            .remove(&tone)
+            .covered_aliases_by_cell()?
+            .remove(&subbank)
             .unwrap_or_default();
         // 録った綴りを1つも含まないなら、組み直しても同じ行になる。
         if !waiting
@@ -2596,14 +2615,16 @@ impl Studio {
             .filter(|r| r.adopted.is_some())
             .map(|r| r.row_id.clone())
             .collect();
-        let tones = self.writer()?.recording_tones()?;
-        // 曲が要る綴りは、そのノートの floor の音高ごとに（`TR-RCL-15`, `DEC-SYN-014`）。
-        let mut song_required: std::collections::BTreeMap<i32, std::collections::BTreeSet<String>> =
-            std::collections::BTreeMap::new();
+        let cells = self.writer()?.cells()?;
+        // 曲が要る綴りは、そのノートを受け持つ枠ごとに（`TR-RCL-15`, `DEC-RCL-018`, `DEC-SYN-014`）。
+        let mut song_required: std::collections::BTreeMap<
+            koeru_model::id::SubbankId,
+            std::collections::BTreeSet<String>,
+        > = std::collections::BTreeMap::new();
         let bank = self.writer()?.songs_in_bank()?;
         for (_, song) in bank {
-            for (t, a) in song.required_by_tone(&rules, preset.method, preset.set, &tones) {
-                song_required.entry(t).or_default().insert(a);
+            for (c, a) in song.required_by_cell(&rules, preset.set, &cells, cells.default_color()) {
+                song_required.entry(c).or_default().insert(a);
             }
         }
         // 並べるのは台帳の行（`TR-SYN-19`, `DEC-RCL-016`）。
@@ -2613,30 +2634,31 @@ impl Studio {
         // もう一度読ませるフルリストの行が出続けた。
         let listed = self.writer()?.listed_rows(preset.set)?;
 
-        // 音高ごとに並べ、低い音高から順に繋ぐ（`TR-RCL-26`）。
+        // 枠ごとに並べ、枠の並びの順に繋ぐ（`TR-RCL-26`, `TR-RCL-28`）。
         //
         // **音高を跨いで1本で並べていた。** 被覆を和集合で渡したので、1音高を
         // 録り終えると全部の綴りが揃ったことになり、残りの音高ではどの行も
         // 点が 0——モードに関係なく正準順へ戻っていた。
         //
-        // 音高の向きは台帳の正準順（`ordinal`）と同じ。 並べ直すのは、各音高の中だけ。
-        let by_tone = self.writer()?.covered_aliases_by_tone()?;
+        // 枠の並びは録る順の既定で、移行した音源では収録音高の昇順と同じ。 並べ直すのは、
+        // 各枠の中だけ。 点数は枠の方式で数える——方式の違う枠の綴りを混ぜない。
+        let by_cell = self.writer()?.covered_aliases_by_cell()?;
         let empty = std::collections::BTreeSet::new();
         let mut order = Vec::new();
-        for t in &tones {
+        for cell in cells.as_slice() {
             let here: Vec<koeru_core::reclist::Row> = listed
                 .iter()
-                .filter(|(rt, _)| rt == t)
+                .filter(|(c, _)| *c == cell.id)
                 .map(|(_, r)| r.clone())
                 .collect();
             order.extend(koeru_core::order::present(
                 &rules,
                 mode,
-                preset.method,
+                cell.method,
                 &here,
                 &recorded,
-                by_tone.get(t).unwrap_or(&empty),
-                song_required.get(t).unwrap_or(&empty),
+                by_cell.get(&cell.id).unwrap_or(&empty),
+                song_required.get(&cell.id).unwrap_or(&empty),
             ));
         }
         Ok((mode, order))
@@ -4650,7 +4672,10 @@ impl Studio {
         // 音階の数だけ並び、受け取った UTAU は1つしか見ない
         // ——**音域を広げるために録った音階が、まるごと鳴らない。**
         // 音高ごとに分かれた `oto.ini` は配布パッケージが出す（`TR-PKG-04`）。
-        if self.writer()?.recording_tones()?.len() > 1 {
+        //
+        // 数えるのは音階ではなく枠（`DEC-RCL-018`）。 同じ高さに声色や方式の違う枠が並んでも、
+        // 平らな `oto.ini` では同じ綴りが重なる。
+        if self.writer()?.cells()?.as_slice().len() > 1 {
             return Err(AppError::new(
                 "review.multi_pitch_oto_ini",
                 Class::Rejected,
@@ -4966,39 +4991,32 @@ impl Studio {
         // 遠くても止めない。 ±7 半音・二乗平均 4 半音という線に実測の裏付けが
         // 無い（`reclist.toml` の領域リスク）ので、その線で鳴らすことを禁じない。
         // どうなるかは画面が先に出していて、押したのは本人。
-        let tones = self.writer()?.recording_tones()?;
+        //
+        // ## 素材を集める
+        //
+        // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
+        // 枠ごとの素材（`TR-SYN-16`, `DEC-RCL-018`）。 鍵は枠。 同じ高さに、声色や方式の
+        // 違う枠も並ぶので、高さでは素材の持ち主が決まらない。
+        let (by_cell, cells) = self.materials_by_cell(&root, &rules, preset)?;
+        // 歌わせる声色は、声色を選ぶ口が画面に無い間は、並びの先頭の枠のもの。
+        let color = cells.default_color();
+        let tones = cells.tones(color);
         let fit = koeru_core::song::range_fit(&song, &tones);
         if fit.transpose != 0 {
             tracing::info!(semitones = fit.transpose, "指定されたキーで鳴らす");
         }
-
-        // ## 素材を集める
-        //
-        // 採用テイクだけを使う。 無効にしたテイク（取りこぼし）は入らない。
-        // 収録音高ごとの素材（`TR-SYN-16`）。 単音階なら鍵は `None` の1つ。
-        let by_tone = self.materials_by_tone(&root, &rules, preset)?;
-        // 解決はノートごとに、そのノートが使える区画だけで行う（`DEC-SYN-014`）。
+        // 解決はノートごとに、そのノートが使える枠だけで、その枠の方式で行う（`DEC-SYN-014`）。
         //
         // **全体の和集合で綴りを選んでいた。** 選んだ綴りがそのノートの区画に
         // 無いと、素材を引く段で落ちて黙って鳴らなかった——代用の綴りが
         // その区画にあっても使わなかった。
-        //
-        // 単音階は区画が1つで、鍵は `None`。 解決の側は音高で数えるので、
-        // 収録音高の1本へ読み替える。
-        let have: std::collections::BTreeMap<i32, std::collections::BTreeSet<String>> = by_tone
+        let have: std::collections::BTreeMap<
+            koeru_model::id::SubbankId,
+            std::collections::BTreeSet<String>,
+        > = by_cell
             .iter()
-            .filter_map(|(t, m)| {
-                let tone = t.or_else(|| tones.first().copied())?;
-                Some((tone, m.paths.keys().cloned().collect()))
-            })
+            .map(|(c, m)| (*c, m.paths.keys().cloned().collect()))
             .collect();
-        let key_of = |tone: Option<i32>| {
-            if by_tone.contains_key(&None) {
-                None
-            } else {
-                tone
-            }
-        };
         /*
           周波数表は素材のパスで引く（`TR-SYN-25`）。
 
@@ -5007,7 +5025,7 @@ impl Studio {
           そのまま渡すと、下の `pick` が選んだ音高と違う素材の表が当たって、
           **選んだ音高の素材に別の音高の f0 が乗る。**
         */
-        let tables: HashMap<std::path::PathBuf, Vec<f64>> = by_tone
+        let tables: HashMap<std::path::PathBuf, Vec<f64>> = by_cell
             .values()
             .flat_map(|m| {
                 m.tables.iter().filter_map(|(alias, f0)| {
@@ -5024,7 +5042,7 @@ impl Studio {
         // 休符のあとの音符が語頭形ではなく継続に解決される。
         // 曲の状態と同じ入口を通る（`TR-RCL-20`）。
         let resolved = song
-            .resolve_by_tone(&rules, preset.method, preset.set, &tones, &have)
+            .resolve_by_cell(&rules, preset.set, &cells, color, &have)
             .ok_or_else(|| {
                 AppError::new(
                     "app.unreadable_lyrics",
@@ -5041,7 +5059,8 @@ impl Studio {
         let mut playable = true;
         // 区画が切り替わった位置（`TR-SYN-16`）。原音設定側の確認対象になる。
         let mut switches: Vec<(usize, Option<i32>, Option<i32>)> = Vec::new();
-        let mut last_tone: Option<Option<i32>> = None;
+        let mut last_cell: Option<koeru_model::id::SubbankId> = None;
+        let tone_of = |cell: koeru_model::id::SubbankId| cells.get(cell).map(|c| c.tone);
 
         // UST の 480 ティック = 4分音符。曲のテンポで長さを出す（`TR-SYN-30`）。
         // **120 BPM を決め打っていた。** 読み込んだ UST のテンポが落ちていて、
@@ -5101,19 +5120,18 @@ impl Studio {
                     // 解決した区画から素材を引く（`TR-SYN-13`, `TR-SYN-16`）。
                     // どの区画かは解決が決めている（`DEC-SYN-014`）。 **ここで
                     // 引き直さない**——別の順で引くと、判定と違う素材で鳴る。
-                    let used_tone = key_of(res.tone);
-                    let Some(m) = by_tone.get(&used_tone) else {
+                    let Some(m) = res.cell.and_then(|c| by_cell.get(&c)) else {
                         playable = false;
                         continue;
                     };
                     // 切り替わった位置を記録する（`TR-SYN-16`）。
                     // 切り替えは音符境界でのみ——1音符の途中では変わらない。
-                    if let Some(prev) = last_tone
-                        && prev != used_tone
+                    if let (Some(prev), Some(now)) = (last_cell, res.cell)
+                        && prev != now
                     {
-                        switches.push((i, prev, used_tone));
+                        switches.push((i, tone_of(prev), tone_of(now)));
                     }
-                    last_tone = Some(used_tone);
+                    last_cell = res.cell.or(last_cell);
 
                     let Some(oto) = m.otos.get(&res.alias) else {
                         playable = false;
@@ -5142,7 +5160,7 @@ impl Studio {
                                 koeru_core::alias::PhraseUnit::Sound(r) => Some((n, r)),
                                 _ => None,
                             })
-                            .and_then(|(_, r)| by_tone.get(&key_of(r.tone))?.otos.get(&r.alias));
+                            .and_then(|(_, r)| by_cell.get(&r.cell?)?.otos.get(&r.alias));
                         let vc_ms = koeru_core::oto::transition_ms(next_oto, owner_ms, beat_ms);
                         if let Some(prev) = current.last_mut() {
                             prev.duration_ms = (prev.duration_ms - vc_ms).max(0.0);
@@ -5302,11 +5320,12 @@ impl Studio {
         out
     }
 
-    /// 収録音高ごとの、鳴らす素材・周波数表・oto（`TR-SYN-16`）。
+    /// 枠ごとの、鳴らす素材・周波数表・oto（`TR-SYN-16`, `DEC-RCL-018`）。 あわせて、
+    /// 同じ版の枠の並びを返す。
     ///
-    /// 単音階なら1つで、鍵は `None`。 多音階では音高ごとに引き、
-    /// **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
-    /// 1音だけ別人の声になる。
+    /// 鍵は枠。 **音高を跨いで拾わない**——高音階の素材を低音階の音符に当てると、
+    /// 1音だけ別人の声になる。 同じ高さの別の枠（声色や方式が違う）も混ぜない。
+    /// 1テイクも録っていない枠も、空の素材として持つ（解決が枠を数える）。
     ///
     /// どの素材を使うかは、書き出しと同じ解決が決める（`DEC-PLT-052`）。 綴りの持ち主の
     /// 行（`DEC-RCL-016`）の採用テイクで、5値があるものだけ。 **並びが前の行のテイクを
@@ -5314,38 +5333,55 @@ impl Studio {
     /// 持ち主の素材があるのに綴りが黙って鳴らなかった。
     ///
     /// 台帳の1つの版から読む。 解いている間に録音が確定しても、途中の版を混ぜない。
-    fn materials_by_tone(
+    fn materials_by_cell(
         &mut self,
         root: &std::path::Path,
         rules: &koeru_core::presamp::Rules,
         preset: koeru_core::preset::MethodPreset,
-    ) -> Result<std::collections::BTreeMap<Option<i32>, Materials>> {
+    ) -> Result<(
+        std::collections::BTreeMap<koeru_model::id::SubbankId, Materials>,
+        koeru_model::subbank::Cells,
+    )> {
         let (runtime, lease) = {
             let open = self.opened()?;
             (Arc::clone(&open.runtime), open.lease)
         };
         let session = runtime.read(&lease)?;
         let facet = session.materials()?;
+        let cells = facet.cells().clone();
         // 試唱が鳴らさない役割（語尾）を引くための一覧。 書き出しは同じ事実から語尾も配る。
-        let catalog = koeru_model::target::Catalog::new(rules, preset.method, preset.set);
-        let resolution = facet.resolve(UseContext::Preview, |(_, alias)| Role::of(&catalog, alias));
-
-        let tones = facet.tones();
-        let multi = tones.len() > 1;
-        let mut out: std::collections::BTreeMap<Option<i32>, Materials> =
-            std::collections::BTreeMap::new();
-        if multi {
-            // 1テイクも録っていない音高も、空の区画として持つ（解決が区画を数える）。
-            for t in tones {
-                out.insert(Some(*t), Materials::default());
+        // 一覧は方式ごとに描く——枠の方式で語尾の綴りが違う。 空の音源は事前設定の方式で描く。
+        let mut catalogs = Vec::new();
+        for method in cells
+            .as_slice()
+            .iter()
+            .map(|c| c.method)
+            .chain(std::iter::once(preset.method))
+        {
+            if !catalogs.iter().any(|(m, _)| *m == method) {
+                catalogs.push((
+                    method,
+                    koeru_model::target::Catalog::new(rules, method, preset.set),
+                ));
             }
-        } else {
-            out.insert(None, Materials::default());
         }
+        let resolution = facet.resolve(UseContext::Preview, |(cell, alias)| {
+            let method = cells.get(*cell).map_or(preset.method, |c| c.method);
+            catalogs
+                .iter()
+                .find(|(m, _)| *m == method)
+                .map_or(Role::Cv, |(_, catalog)| Role::of(catalog, alias))
+        });
+
+        let mut out: std::collections::BTreeMap<koeru_model::id::SubbankId, Materials> = cells
+            .as_slice()
+            .iter()
+            .map(|c| (c.id, Materials::default()))
+            .collect();
         // 周波数表はテイクごとに1度だけ引く。 綴りごとに引くと、同じ表を何度も読む。
         let mut tables: HashMap<koeru_model::id::TakeId, Option<Vec<f64>>> = HashMap::new();
         for c in resolution.used() {
-            let (tone, alias) = &c.key;
+            let (cell, alias) = &c.key;
             let (Some(rel), Some(oto)) = (facet.rel_path(c.take), facet.oto(c)) else {
                 continue;
             };
@@ -5357,14 +5393,14 @@ impl Studio {
                     t
                 }
             };
-            let m = out.entry(multi.then_some(*tone)).or_default();
+            let m = out.entry(*cell).or_default();
             m.paths.insert(alias.clone(), root.join(rel));
             if let Some(f0) = table {
                 m.tables.insert(alias.clone(), f0);
             }
             m.otos.insert(alias.clone(), *oto);
         }
-        Ok(out)
+        Ok((out, cells))
     }
 
     /// テスト用。 音声デバイス無しで、行を収録済みとして印を付ける。
@@ -6061,25 +6097,81 @@ fn song_status_of(
     // 綴りで突き合わせる（`TR-RCL-18`）。 **仮名で引いていた**ので、
     // 連続音や CVVC では必要集合と交わらず、曲が永久に「歌えない」ままだった。
     //
-    // 音高ごとに渡す（`TR-RCL-26`, `DEC-SYN-014`）。 試唱と同じく、ノートごとに
-    // そのノートが使える区画だけで解く。
-    let covered = ledger.covered_aliases_by_tone()?;
+    // 枠ごとに渡す（`TR-RCL-26`, `DEC-RCL-018`, `DEC-SYN-014`）。 試唱と同じく、ノートごとに
+    // そのノートが使える枠だけで、その枠の方式で解く。
+    let cells = ledger.cells()?;
+    let covered = ledger.covered_aliases_by_cell()?;
     let songs: Vec<(String, Song)> = ledger.songs_in_bank()?;
     // あと何行かは、フルリストの部分集合として数える（`TR-RCL-16`）。
-    // 詰め直さないので、ここで渡すのはいま使っている録音リストそのもの。
-    let full_list = preset.reclist(rules).map_err(AppError::from_failure)?;
-    // 音域の判定に要る（`TR-RCL-22`）。 エイリアスが揃っていても、
-    // 収録音高から遠い音は鳴らない。
-    let tones = ledger.recording_tones()?;
+    // 詰め直さないので、ここで渡すのは枠がいま使っている録音リストそのもの。
+    let full_lists = full_lists_by_cell(ledger, rules, &cells, preset)?;
     Ok(song::status_of(
         &songs,
         rules,
-        preset.method,
+        &cells,
+        cells.default_color(),
         &covered,
         preset.set,
-        &full_list,
-        &tones,
+        &full_lists,
     ))
+}
+
+/// 枠ごとの方式プリセット（`TR-RCL-01`, `DEC-RCL-018`）。
+///
+/// 枠が作られたときのプリセットを引く。 持たない枠（移行前の古い project から作った枠）は
+/// project のプリセットへ倒す。 ただし枠の方式と合わないときは、その方式の同梱プリセットを
+/// 使う——**方式の違う録音リストで、あと何行かを数えない。**
+fn cell_presets(
+    ledger: &mut Ledger,
+    project: koeru_core::preset::MethodPreset,
+) -> Result<std::collections::BTreeMap<koeru_model::id::SubbankId, koeru_core::preset::MethodPreset>>
+{
+    Ok(ledger
+        .subbanks()?
+        .into_iter()
+        .map(|s| {
+            let preset = s
+                .preset_id
+                .as_deref()
+                .and_then(koeru_core::preset::by_id)
+                .filter(|p| p.method == s.method)
+                .or_else(|| Some(project).filter(|p| p.method == s.method))
+                .or_else(|| {
+                    koeru_core::preset::builtin()
+                        .into_iter()
+                        .find(|p| p.method == s.method)
+                })
+                .unwrap_or(project);
+            (s.id, preset)
+        })
+        .collect())
+}
+
+/// 枠ごとの録音リスト（その枠の方式プリセットが作るもの、`TR-RCL-16`）。
+fn full_lists_by_cell(
+    ledger: &mut Ledger,
+    rules: &koeru_core::presamp::Rules,
+    cells: &koeru_model::subbank::Cells,
+    project: koeru_core::preset::MethodPreset,
+) -> Result<std::collections::BTreeMap<koeru_model::id::SubbankId, Vec<koeru_core::reclist::Row>>> {
+    let presets = cell_presets(ledger, project)?;
+    // 同じプリセットの枠が並ぶ（声色違いなど）。 リストの生成は枠の数だけ繰り返さない。
+    let mut made: std::collections::BTreeMap<&'static str, Vec<koeru_core::reclist::Row>> =
+        std::collections::BTreeMap::new();
+    let mut out = std::collections::BTreeMap::new();
+    for cell in cells.as_slice() {
+        let preset = presets.get(&cell.id).copied().unwrap_or(project);
+        if !made.contains_key(preset.id) {
+            made.insert(
+                preset.id,
+                preset.reclist(rules).map_err(AppError::from_failure)?,
+            );
+        }
+        if let Some(list) = made.get(preset.id) {
+            out.insert(cell.id, list.clone());
+        }
+    }
+    Ok(out)
 }
 
 /// 環と色を、開いた台帳から求める（`DEC-PLT-025`, `DEC-PLT-027`）。
@@ -7015,12 +7107,27 @@ mod material_tests {
         out
     }
 
-    fn by_tone(s: &mut Studio) -> std::collections::BTreeMap<Option<i32>, Materials> {
+    fn by_cell(
+        s: &mut Studio,
+    ) -> (
+        std::collections::BTreeMap<koeru_model::id::SubbankId, Materials>,
+        koeru_model::subbank::Cells,
+    ) {
         let root = s.opened().expect("開いている").dir().root().to_path_buf();
         let rules = s.current_rules().expect("引ける");
         let preset = s.current_preset().expect("引ける");
-        s.materials_by_tone(&root, &rules, preset)
+        s.materials_by_cell(&root, &rules, preset)
             .expect("素材を集められる")
+    }
+
+    /// 収録音高から枠を引く。 声色なし・方式1つの音源の試験用。
+    fn cell_at(cells: &koeru_model::subbank::Cells, tone: i32) -> koeru_model::id::SubbankId {
+        cells
+            .as_slice()
+            .iter()
+            .find(|c| c.tone == tone)
+            .expect("その音高の枠")
+            .id
     }
 
     /// 試唱は、綴りの持ち主の行のテイクで鳴らす（`DEC-RCL-016`）。
@@ -7047,8 +7154,8 @@ mod material_tests {
             let owner = if hi_first { &hi } else { &lo };
 
             let root = s.opened().expect("開いている").dir().root().to_path_buf();
-            let got = by_tone(&mut s);
-            let m = got.get(&None).expect("単音階の鍵は None");
+            let (got, cells) = by_cell(&mut s);
+            let m = got.get(&cells.as_slice()[0].id).expect("単音階は枠が1つ");
             assert_eq!(
                 m.paths.get("- い"),
                 Some(&root.join(format!("audio/{owner}_1.wav"))),
@@ -7097,22 +7204,23 @@ mod material_tests {
         s.seed_material_for_test(&low).expect("置ける");
 
         let root = s.opened().expect("開いている").dir().root().to_path_buf();
-        let got = by_tone(&mut s);
-        assert_eq!(got.len(), 2, "音高の数だけ区画を持つ");
+        let (got, cells) = by_cell(&mut s);
+        let (g3, d4) = (cell_at(&cells, 55), cell_at(&cells, 62));
+        assert_eq!(got.len(), 2, "枠の数だけ区画を持つ");
         let a = s
             .writer()
             .expect("書き手")
             .owned_aliases_of_row(&low)
             .expect("引ける")
             .into_iter()
-            .find(|a| got[&Some(62)].paths.contains_key(a))
+            .find(|a| got[&d4].paths.contains_key(a))
             .expect("両方の音高に同じ綴りがある");
         assert_eq!(
-            got[&Some(55)].paths.get(&a),
+            got[&g3].paths.get(&a),
             Some(&root.join(format!("audio/{low}_1.wav")))
         );
         assert_eq!(
-            got[&Some(62)].paths.get(&a),
+            got[&d4].paths.get(&a),
             Some(&root.join(format!("audio/{high}_1.wav")))
         );
     }
@@ -7155,12 +7263,14 @@ mod material_tests {
             .map(|c| c.key.1.clone())
             .collect()
         };
-        let previewed: BTreeSet<String> = by_tone(&mut s)
-            .remove(&None)
-            .expect("単音階の鍵は None")
-            .paths
-            .into_keys()
-            .collect();
+        let previewed: BTreeSet<String> = {
+            let (mut got, cells) = by_cell(&mut s);
+            got.remove(&cells.as_slice()[0].id)
+                .expect("単音階は枠が1つ")
+                .paths
+                .into_keys()
+                .collect()
+        };
 
         let endings: BTreeSet<String> = exported
             .iter()

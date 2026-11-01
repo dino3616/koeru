@@ -474,7 +474,7 @@ fn materials_facet_は書き手の事実と同じ候補を解く() {
     };
     assert_eq!(via_facet, via_writer);
 
-    let key = (60, "- い".to_owned());
+    let key = (facet.cells().as_slice()[0].id, "- い".to_owned());
     let of = |row: &str| {
         via_facet
             .candidates()
@@ -521,8 +521,11 @@ fn materials_facet_は版を固定し_無効になれば次の行へ移る() {
         "開いたあとの採用は映らない"
     );
 
-    let key = (60, "- い".to_owned());
     let fresh = rt.read(&lease).expect("読める");
+    let key = (
+        fresh.materials().expect("読める").cells().as_slice()[0].id,
+        "- い".to_owned(),
+    );
     let r = fresh
         .materials()
         .expect("読める")
