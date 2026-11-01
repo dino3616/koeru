@@ -8,7 +8,7 @@ import { RecordSidebar } from "~/components/record-sidebar";
 import { rowItem, songItem } from "~/components/record-sidebar/from-views";
 import { RecordStage, type StagePhase } from "~/components/record-stage";
 import { RecordToolbar } from "~/components/record-toolbar";
-import { TakeSwitch } from "~/components/take-switch";
+import { TakeSwitch, takeName } from "~/components/take-switch";
 import { api, errorMessage, type ProgressView, type RenameTakeInput } from "~/lib/ipc";
 import { PROBE_MS } from "~/lib/levels";
 import {
@@ -186,7 +186,6 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
    */
   const plan = useQuery({ ...songPlanQuery(id, songId ?? ""), enabled: songId !== null });
   const songRowIds = new Set(songId === null ? [] : (plan.data?.rows.map((p) => p.row_id) ?? []));
-  const listed = rows;
 
   /*
    * 次に録る行は Rust が決める。 枠を指していれば、その枠の録る順の先頭。
@@ -195,9 +194,8 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
   const nextRowId = subbank === null ? progress.next_row_id : (order.row_ids[0] ?? null);
   const center =
     rows.find((r) => r.row_id === chosenRow) ?? rows.find((r) => r.row_id === nextRowId) ?? null;
-  const at = center === null ? -1 : listed.findIndex((r) => r.row_id === center.row_id);
-  const previous = at > 0 ? (listed[at - 1] ?? null) : null;
   const adopted = center?.takes.find((t) => t.take_id === center.adopted) ?? null;
+  const tone = subbanks.find((s) => s.id === center?.subbank)?.tone.midi ?? null;
 
   const pitch = useQuery({
     ...takePitchQuery(id, adopted?.take_id ?? -1),
@@ -314,7 +312,7 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
 
       <RecordSidebar
         songs={songs.map(songItem)}
-        rows={listed.map(rowItem)}
+        rows={rows.map(rowItem)}
         selectedRowId={center?.row_id ?? null}
         onSelectRow={setChosenRow}
         selectedSongId={songId}
@@ -323,52 +321,57 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
         onPlaySong={(song) => sing.mutate(song)}
       />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-10 py-6">
-        <RecordStage
-          rowText={center?.text ?? null}
-          phase={phase}
-          count={recorder.count}
-          beatMs={tempo.beatMs}
-          take={
-            adopted === null
-              ? null
-              : { id: adopted.take_id, durationMs: adopted.duration_ms, peak: adopted.peak ?? 0 }
-          }
-          pitch={adopted === null ? undefined : pitch.data}
-          ready={deviceId !== undefined}
-          takes={
-            center !== null && (
-              <TakeSwitch
-                takes={center.takes.map((t) => ({
-                  id: t.take_id,
-                  generation: t.generation,
-                  label: t.label,
-                  invalid: t.invalid,
-                }))}
-                adopted={center.adopted}
-                disabled={busy || adopt.isPending || rename.isPending}
-                onAdopt={(takeId) => adopt.mutate({ rowId: center.row_id, takeId })}
-                onRename={(take, label) => rename.mutate({ take, label })}
-              />
-            )
-          }
-          canGoBack={previous !== null}
-          onRecord={record}
-          onStop={recorder.stop}
-          onCancel={recorder.cancel}
-          onBack={() => {
-            if (previous !== null) setChosenRow(previous.row_id);
-          }}
-          onPlay={() => {
-            if (adopted !== null) play.mutate(adopted.take_id);
-          }}
-        />
-        {error !== null && (
-          <p role="alert" className="rounded-lg bg-red-3 px-3 py-2 text-sm text-red-11">
-            {error}
-          </p>
-        )}
-      </div>
+      <RecordStage
+        voiceId={id}
+        rowText={center?.text ?? null}
+        aliases={center?.targets.map((t) => t.rendered_alias) ?? []}
+        phase={phase}
+        count={recorder.count}
+        beatMs={tempo.beatMs}
+        take={
+          adopted === null
+            ? null
+            : {
+                id: adopted.take_id,
+                durationMs: adopted.duration_ms,
+                name: takeName({ generation: adopted.generation, label: adopted.label }),
+              }
+        }
+        pitch={adopted === null ? undefined : pitch.data}
+        tone={tone}
+        ready={deviceId !== undefined}
+        takes={
+          center !== null && (
+            <TakeSwitch
+              takes={center.takes.map((t) => ({
+                id: t.take_id,
+                generation: t.generation,
+                label: t.label,
+                invalid: t.invalid,
+              }))}
+              adopted={center.adopted}
+              disabled={busy || adopt.isPending || rename.isPending}
+              cannotRecord={deviceId === undefined}
+              onAdopt={(takeId) => adopt.mutate({ rowId: center.row_id, takeId })}
+              onRename={(take, label) => rename.mutate({ take, label })}
+              onNew={record}
+            />
+          )
+        }
+        notice={
+          error !== null && (
+            <p role="alert" className="mt-4 rounded-lg bg-red-3 px-3 py-2 text-sm text-red-11">
+              {error}
+            </p>
+          )
+        }
+        onRecord={record}
+        onStop={recorder.stop}
+        onCancel={recorder.cancel}
+        onPlay={() => {
+          if (adopted !== null) play.mutate(adopted.take_id);
+        }}
+      />
     </>
   );
 };

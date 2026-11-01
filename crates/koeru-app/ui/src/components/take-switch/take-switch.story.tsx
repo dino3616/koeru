@@ -11,7 +11,7 @@ const takes: TakeChoice[] = [
 const meta = {
   title: "部品/TakeSwitch",
   component: TakeSwitch,
-  args: { takes, adopted: 12, onAdopt: fn(), onRename: fn() },
+  args: { takes, adopted: 12, onAdopt: fn(), onRename: fn(), onNew: fn() },
 } satisfies Meta<typeof TakeSwitch>;
 
 export default meta;
@@ -43,7 +43,7 @@ export const 切り替える: Story = {
 export const 名前を変える: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await userEvent.click(await c.findByRole("button", { name: "名前を変える" }));
+    await userEvent.click(await c.findByRole("button", { name: "ちょい明め の名前を変える" }));
     const field = c.getByRole("textbox", { name: /ちょい明め の新しい名前/ });
     await expect(field).toHaveValue("ちょい明め");
     await userEvent.clear(field);
@@ -58,7 +58,7 @@ export const 名前を変える: Story = {
 export const 名前を消す: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await userEvent.click(await c.findByRole("button", { name: "名前を変える" }));
+    await userEvent.click(await c.findByRole("button", { name: "ちょい明め の名前を変える" }));
     await userEvent.clear(c.getByRole("textbox"));
     await userEvent.click(c.getByRole("button", { name: "決める" }));
     await expect(args.onRename).toHaveBeenLastCalledWith(12, null);
@@ -73,7 +73,7 @@ export const 押せない: Story = {
     for (const radio of await c.findAllByRole("radio")) {
       await expect(radio).toBeDisabled();
     }
-    await expect(c.getByRole("button", { name: "名前を変える" })).toBeDisabled();
+    await expect(c.getByRole("button", { name: "ちょい明め の名前を変える" })).toBeDisabled();
   },
 };
 
@@ -85,6 +85,33 @@ export const 無効のテイク: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(await c.findByRole("radio", { name: "テイク 3" })).toBeDisabled();
+  },
+};
+
+/**
+ * ⋮ は選んでいる項目の右端に重なる。 DOM では群の外にあり、`radiogroup` の子は
+ * `radio` だけ。 選ぶテイクを替えると付いていく。
+ */
+export const 名前の印: Story = {
+  args: { adopted: 11 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const group = await c.findByRole("radiogroup", { name: "テイク" });
+    await expect([...group.children].every((e) => e.getAttribute("role") === "radio")).toBe(true);
+    const kebab = c.getByRole("button", { name: "テイク 1 の名前を変える" });
+    const box = c.getByRole("radio", { name: "テイク 1" }).getBoundingClientRect();
+    const at = kebab.getBoundingClientRect();
+    await expect(at.right).toBeLessThanOrEqual(box.right);
+    await expect(at.left).toBeGreaterThanOrEqual(box.left);
+  },
+};
+
+/** ＋ はこの行をもう一度録る。 */
+export const 新しいテイク: Story = {
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(await c.findByRole("button", { name: "新しいテイク" }));
+    await expect(args.onNew).toHaveBeenCalled();
   },
 };
 

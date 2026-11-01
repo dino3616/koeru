@@ -291,12 +291,13 @@ export const 確定後: Story = {
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(await c.findByRole("img", { name: /^音の高さの流れ/ })).toBeVisible();
+    await expect(await c.findByRole("img", { name: /^音高の記録。 中央は / })).toBeVisible();
+    await expect(c.getByRole("img", { name: "入力の波形。ちょい明め" })).toBeVisible();
     await expect(c.getByRole("radio", { name: "ちょい明め" }).getAttribute("aria-checked")).toBe(
       "true",
     );
 
-    await userEvent.click(c.getByRole("button", { name: "名前を変える" }));
+    await userEvent.click(c.getByRole("button", { name: "ちょい明め の名前を変える" }));
     const field = c.getByRole("textbox");
     await userEvent.clear(field);
     await userEvent.type(field, "明るめ{Enter}");
