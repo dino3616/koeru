@@ -288,5 +288,15 @@ export const autoAdvanceQuery = () =>
     staleTime: Number.POSITIVE_INFINITY,
   });
 
+/**
+ * 利用計測の同意と、最後に送った日時（`TR-PKG-54`）。
+ *
+ * 台帳の鍵の下に置かない。 音源ではなくアプリに付く値で、project を開かずに
+ * 読める。 テイクを確定しても変わらないので、確定ごとに取り直す理由が無い。
+ * 切り替えたら、返ってきた値をそのまま入れる。
+ */
+export const privacyQuery = () =>
+  queryOptions({ queryKey: ["privacy"], queryFn: () => api.privacy() });
+
 /** 台帳から読むものを全部取り直させる。テイクを確定させたら呼ぶ。 */
 export const ledgerKey = [LEDGER] as const;

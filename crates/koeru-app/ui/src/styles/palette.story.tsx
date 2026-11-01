@@ -99,6 +99,7 @@ const ROLE_TEXT_ON_SURFACE = [
   { fg: "text-2", bg: "bg-surface-2-hover", label: "text-2 / surface-2 hover" },
   { fg: "text-2", bg: "bg-surface-3", label: "text-2 / surface-3" },
   { fg: "text-slate-1", bg: "bg-rec", label: "rec の上の字" },
+  { fg: "text-rec", bg: "bg-bg", label: "rec の字 / bg" },
 ] as const;
 
 export const 役割の字と面: Story = {
@@ -136,6 +137,7 @@ const NON_TEXT = [
   { fg: "bg-slate-11", bg: "bg-slate-2", label: "輪郭だけの的 / 面" },
   { fg: "bg-amber-11", bg: "bg-slate-2", label: "注意の印 / 面" },
   { fg: "bg-red-11", bg: "bg-slate-2", label: "危険の印 / 面" },
+  { fg: "bg-rec", bg: "bg-bg", label: "録音ボタンの丸と輪 / bg" },
 ] as const;
 
 /**
@@ -308,6 +310,23 @@ export const 押せない状態: Story = {
               </Button>
             </div>
           ))}
+          {/* 声の色で塗った主ボタン。 `bg-primary` は声が届くと塗りが変わる。 */}
+          <div className="flex flex-wrap gap-1">
+            {VOICE_SAMPLES.map(({ name, color, image }) => (
+              <div
+                key={name}
+                className="bg-slate-2 p-1"
+                data-surface={`${theme} 押せない 主 ${name}`}
+                /* 返すのは `--voice-*` だけ。別ファイルの関数なので読めない。 */
+                // oxlint-disable-next-line shadcn/no-inline-styles
+                style={voiceStyle(color, image)}
+              >
+                <Button variant="primary" disabled>
+                  主
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
     </div>
@@ -478,9 +497,16 @@ const VOICE_SAMPLES: readonly {
   ...IMAGE_COLORS.map((image) => ({ name: image, color: null, image })),
 ];
 
-/** 1つの声につき描く、字と塗りの組の数と、地と面の組の数。 */
-const PAIRS_PER_SAMPLE = 2;
+/**
+ * 1つの声につき描く、字と塗りの組の数と、地と面の組の数。
+ *
+ * 組は、主ボタンの塗り・hover・押している状態と、`voice-wash` の4つ。
+ */
+const PAIRS_PER_SAMPLE = 4;
 const SURFACES_PER_SAMPLE = 3;
+
+/** 声が無い音源の主ボタン。 塗り・hover・押している状態の3つ。 */
+const NO_VOICE_PAIRS = 3;
 
 export const 声の塗りと字: Story = {
   render: () => (
@@ -504,6 +530,14 @@ export const 声の塗りと字: Story = {
                     className="inline-block h-4 w-6 rounded-md bg-voice text-voice-ink"
                   />
                   <span
+                    data-pair={`${key} voice-ink / primary-hover`}
+                    className="inline-block h-4 w-6 rounded-md bg-primary-hover text-voice-ink"
+                  />
+                  <span
+                    data-pair={`${key} voice-ink / primary-active`}
+                    className="inline-block h-4 w-6 rounded-md bg-primary-active text-voice-ink"
+                  />
+                  <span
                     data-pair={`${key} text-1 / voice-wash`}
                     className="inline-block h-4 w-6 rounded-md bg-voice-wash text-1"
                   />
@@ -520,6 +554,30 @@ export const 声の塗りと字: Story = {
                 </div>
               );
             })}
+            {/*
+             * 声が無い音源の主ボタン。 `--voice-*` が1つも無いと slate 11 に落ちる
+             * （`bg-voice` なら透明になる）。 `voiceStyle` に何も渡さず、そのまま出す。
+             */}
+            <div
+              className="flex items-center gap-1"
+              /* 返すのは `--voice-image` の打ち消しだけ。別ファイルの関数なので読めない。 */
+              // oxlint-disable-next-line shadcn/no-inline-styles
+              style={voiceStyle(null)}
+            >
+              <span
+                data-pair={`${theme} 声なし primary`}
+                className="inline-block h-4 w-6 rounded-md bg-primary text-voice-ink"
+              />
+              <span
+                data-pair={`${theme} 声なし primary-hover`}
+                className="inline-block h-4 w-6 rounded-md bg-primary-hover text-voice-ink"
+              />
+              <span
+                data-pair={`${theme} 声なし primary-active`}
+                className="inline-block h-4 w-6 rounded-md bg-primary-active text-voice-ink"
+              />
+              <span className="text-xs text-slate-12">声なし</span>
+            </div>
           </div>
         </div>
       ))}
@@ -528,7 +586,7 @@ export const 声の塗りと字: Story = {
   play: async ({ canvasElement }) => {
     const pairs = [...canvasElement.querySelectorAll("[data-pair]")];
     const surfaces = [...canvasElement.querySelectorAll("[data-surface]")];
-    await expect(pairs.length).toBe(2 * VOICE_SAMPLES.length * PAIRS_PER_SAMPLE);
+    await expect(pairs.length).toBe(2 * (VOICE_SAMPLES.length * PAIRS_PER_SAMPLE + NO_VOICE_PAIRS));
     await expect(surfaces.length).toBe(2 * VOICE_SAMPLES.length * SURFACES_PER_SAMPLE);
 
     const short: string[] = [];
