@@ -36,8 +36,8 @@ export const commands = {
 	/**
 	 *  選べる収録音高（`TR-RCL-06`, `TR-REC-25`）。
 	 * 
-	 *  `prefix.map` が覆う C1〜B7 の 84 半音。 これより外は書き出しても
-	 *  鳴らす先が無い。画面に MIDI 番号を出さないので、名前を添えて返す。
+	 *  `prefix.map` が覆う C-1〜G9 の 128 半音（`DEC-RCL-019`）。
+	 *  画面に MIDI 番号を出さないので、名前を添えて返す。
 	 */
 	toneOptions: () => __TAURI_INVOKE<ToneOptionView[]>("tone_options"),
 	/**

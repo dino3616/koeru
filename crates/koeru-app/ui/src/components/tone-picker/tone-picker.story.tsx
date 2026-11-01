@@ -4,7 +4,7 @@ import { expect, fn, mocked, userEvent, waitFor, within } from "storybook/test";
 import { TonePicker } from ".";
 import { api } from "~/lib/ipc";
 
-/** C1〜B7 の 84 半音（`TR-RCL-06`）。story では要るところだけ。 */
+/** C-1〜G9 の 128 半音（`TR-RCL-06`）。story では要るところだけ。 */
 const NAMES = ["C3", "E3", "G3", "A3", "C4", "D4", "E4", "A4"] as const;
 const MIDI = [48, 52, 55, 57, 60, 62, 64, 69] as const;
 

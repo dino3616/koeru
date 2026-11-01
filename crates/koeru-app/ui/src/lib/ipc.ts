@@ -147,7 +147,7 @@ export const api = {
   /** 選べる作り方（`TR-RCL-11`）。いまは単独音だけ。 */
   /** 選べる作り方（`TR-RCL-11`）。`tones` は収録音高の本数。 */
   methodPresets: (tones: number) => unwrap(commands.methodPresets(tones)),
-  /** 選べる収録音高（`TR-RCL-06`）。C1〜B7。 */
+  /** 選べる収録音高（`TR-RCL-06`）。C-1〜G9（`DEC-RCL-019`）。 */
   toneOptions: () => commands.toneOptions(),
   /** 収録音高の推奨値（`TR-RCL-06`）。推奨であって制約ではない。 */
   toneSuggestions: () => commands.toneSuggestions(),

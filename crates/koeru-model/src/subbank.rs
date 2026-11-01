@@ -38,8 +38,8 @@ pub struct ToneRange {
 /// 重なりと隙間はここで弾かない。 どの枠が歌うかの規則がまだ無い（`Q-RCL-005`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ToneRangeError {
-    /// `prefix.map` が覆う範囲（C1〜B7）の外。
-    #[error("担当音域が C1〜B7 の外にある")]
+    /// `prefix.map` が覆う範囲（C-1〜G9）の外。
+    #[error("担当音域が C-1〜G9 の外にある")]
     OutOfRange,
     /// 下端が上端より高い。
     #[error("担当音域の下端が上端より高い")]
@@ -64,7 +64,7 @@ impl ToneRange {
     ///
     /// # Errors
     ///
-    /// C1〜B7 の外、下端が上端より高い。
+    /// C-1〜G9 の外、下端が上端より高い。
     pub fn edited(low: i32, high: i32) -> Result<Self, ToneRangeError> {
         let span = PREFIX_MAP_LOW..=PREFIX_MAP_HIGH;
         if !span.contains(&low) || !span.contains(&high) {
@@ -77,7 +77,7 @@ impl ToneRange {
     }
 }
 
-/// 枠の収録音階として受け取れるか（`TR-RCL-28` の「範囲は TR-RCL-06 の C1〜B7」）。
+/// 枠の収録音階として受け取れるか（`TR-RCL-28` の「範囲は TR-RCL-06 の C-1〜G9」）。
 #[must_use]
 pub fn is_recordable_tone(midi: i32) -> bool {
     (PREFIX_MAP_LOW..=PREFIX_MAP_HIGH).contains(&midi)
@@ -86,8 +86,8 @@ pub fn is_recordable_tone(midi: i32) -> bool {
 /// 既定の担当音域（`TR-RCL-31`）。 `subbanks` は `(声色, 収録音階)` を枠の並びで。
 ///
 /// 同じ声色の枠のあいだで floor 割り当て（`TR-RCL-06`）を当てる。 下端はその音階、
-/// 上端は同じ声色の次に高い音階の1つ下。 いちばん低い枠は C1 まで、いちばん高い枠は
-/// B7 まで受け持つ。 同じ声色に同じ音階の枠が2つあれば（方式違い）、同じ範囲になる。
+/// 上端は同じ声色の次に高い音階の1つ下。 いちばん低い枠は C-1 まで、いちばん高い枠は
+/// G9 まで受け持つ。 同じ声色に同じ音階の枠が2つあれば（方式違い）、同じ範囲になる。
 ///
 /// 返す並びは渡した並びと同じ。
 #[must_use]
@@ -108,7 +108,7 @@ pub fn default_ranges(subbanks: &[(Option<&VoiceColor>, i32)]) -> Vec<ToneRange>
                 .iter()
                 .find(|t| *t > tone)
                 .map_or(PREFIX_MAP_HIGH, |next| next - 1);
-            // 範囲の外の音階（作れないが、古い台帳には入りうる）でも、範囲は C1〜B7 に収める。
+            // 範囲の外の音階（作れないが、台帳の値としては入りうる）でも、範囲は C-1〜G9 に収める。
             let low = low.clamp(PREFIX_MAP_LOW, PREFIX_MAP_HIGH);
             ToneRange {
                 low,
@@ -147,11 +147,11 @@ mod tests {
         assert_eq!(
             ranges,
             [
-                ToneRange { low: 24, high: 61 },
+                ToneRange { low: 0, high: 61 },
                 ToneRange { low: 62, high: 68 },
-                ToneRange { low: 60, high: 107 },
-                ToneRange { low: 69, high: 107 },
-                ToneRange { low: 24, high: 59 },
+                ToneRange { low: 60, high: 127 },
+                ToneRange { low: 69, high: 127 },
+                ToneRange { low: 0, high: 59 },
             ]
         );
     }
@@ -160,25 +160,25 @@ mod tests {
     fn 同じ声色で同じ音階の枠は同じ範囲を持つ() {
         let ranges = default_ranges(&[(None, 60), (None, 60)]);
         assert_eq!(ranges[0], ranges[1]);
-        assert_eq!(ranges[0], ToneRange { low: 24, high: 107 });
+        assert_eq!(ranges[0], ToneRange { low: 0, high: 127 });
     }
 
     #[test]
-    fn 直した範囲は_c1_から_b7_の中で下端が上端を超えない() {
+    fn 直した範囲は_c_1_から_g9_の中で下端が上端を超えない() {
         assert_eq!(
-            ToneRange::edited(24, 107),
-            Ok(ToneRange { low: 24, high: 107 })
+            ToneRange::edited(0, 127),
+            Ok(ToneRange { low: 0, high: 127 })
         );
         assert_eq!(
             ToneRange::edited(60, 60),
             Ok(ToneRange { low: 60, high: 60 })
         );
         assert_eq!(
-            ToneRange::edited(23, 60).expect_err("C1 より下").code(),
+            ToneRange::edited(-1, 60).expect_err("C-1 より下").code(),
             "subbank.tone_range_out_of_range"
         );
         assert_eq!(
-            ToneRange::edited(60, 108).expect_err("B7 より上").code(),
+            ToneRange::edited(60, 128).expect_err("G9 より上").code(),
             "subbank.tone_range_out_of_range"
         );
         assert_eq!(

@@ -91,10 +91,12 @@ fn render_range(start: i32, last: i32) -> String {
     }
 }
 
-/// `prefix.map` が覆う最低音（C1、`TR-RCL-06`）。
-pub const PREFIX_MAP_LOW: i32 = 24;
-/// `prefix.map` が覆う最高音（B7）。
-pub const PREFIX_MAP_HIGH: i32 = 107;
+/// `prefix.map` が覆う最低音（C-1、`TR-RCL-06`）。 MIDI の標準と同じ（`DEC-RCL-019`）。
+pub const PREFIX_MAP_LOW: i32 = 0;
+/// `prefix.map` が覆う最高音（G9）。
+///
+/// OpenUtau は C1〜B7（24〜107）の外の行を読まない。 それでも切らない（`DEC-RCL-019`）。
+pub const PREFIX_MAP_HIGH: i32 = 127;
 
 /// 多音階の推奨値、女声（G3 / D4 / A4、`TR-RCL-06`）。
 pub const DEFAULT_TONES_FEMALE: [i32; 3] = [55, 62, 69];
@@ -104,7 +106,7 @@ pub const DEFAULT_TONES_MALE: [i32; 3] = [48, 57, 64];
 /// 収録音高として受け取れる並びか見て、揃えて返す（`TR-RCL-01`）。
 ///
 /// **本数も音高も本人が決める。** ここが弾くのは、そもそも鳴らせないものだけ
-/// ——空、`prefix.map` が覆う範囲（C1〜B7）の外、重複。
+/// ——空、`prefix.map` が覆う範囲（C-1〜G9）の外、重複。
 ///
 /// 並べ替えて返す。 台帳もディレクトリも音高の昇順を前提にしている。
 ///
@@ -219,7 +221,7 @@ pub fn shift_for(tones: &[i32], midi: i32) -> Option<i32> {
 
 /// 半音ごとの割り当て（`TR-RCL-06`）。
 ///
-/// C1 から B7 の 84 組を、`(その半音, 担う収録音高)` で返す。
+/// C-1 から G9 の 128 組を、`(その半音, 担う収録音高)` で返す。
 /// 綴りは持たない——`prefix.map` の prefix / suffix は区画が決める。
 #[must_use]
 pub fn prefix_map_rows(tones: &[i32]) -> Vec<(i32, i32)> {
@@ -236,7 +238,7 @@ pub fn default_affix(recorded: i32) -> (String, String) {
 
 /// `prefix.map` の本文（`TR-RCL-06`）。
 ///
-/// C1 から B7 の 84 半音すべてに1行を持つ。 行は `音名 \t prefix \t suffix` で、
+/// C-1 から G9 の 128 半音すべてに1行を持つ。 行は `音名 \t prefix \t suffix` で、
 /// 綴りは `affix` が収録音高から決める。
 ///
 /// **抜けを作らない。** 担う音高が書かれていない半音があると、UTAU は
@@ -323,14 +325,14 @@ mod tests {
         assert_eq!(shift_for(&tones, 50), Some(-5), "最低音高より下は負");
     }
 
-    /// prefix.map は 84 行あり、抜けが無い（`TR-RCL-06`）。
+    /// prefix.map は 128 行あり、抜けが無い（`TR-RCL-06`, `DEC-RCL-019`）。
     #[test]
-    fn prefix_map_は八十四行で抜けが無い() {
+    fn prefix_map_は百二十八行で抜けが無い() {
         let body = prefix_map_body(&DEFAULT_TONES_FEMALE, default_affix, "\n");
         let lines: Vec<&str> = body.lines().collect();
-        assert_eq!(lines.len(), 84);
-        assert!(lines[0].starts_with("C1\t"), "{}", lines[0]);
-        assert!(lines[83].starts_with("B7\t"), "{}", lines[83]);
+        assert_eq!(lines.len(), 128);
+        assert!(lines[0].starts_with("C-1\t"), "{}", lines[0]);
+        assert!(lines[127].starts_with("G9\t"), "{}", lines[127]);
         for l in &lines {
             let cols: Vec<&str> = l.split('\t').collect();
             assert_eq!(cols.len(), 3, "{l}");
@@ -367,17 +369,17 @@ mod tests {
         );
     }
 
-    /// 割り当てた範囲を合わせると 84 半音になる（`TR-PKG-04`）。
+    /// 割り当てた範囲を合わせると 128 半音になる（`TR-PKG-04`）。
     #[test]
     fn 割り当ては重ならず抜けない() {
         let ranges = assigned_ranges(&DEFAULT_TONES_FEMALE);
         assert_eq!(ranges.len(), 3);
         let total: usize = ranges.iter().map(|(_, v)| v.len()).sum();
-        assert_eq!(total, 84);
+        assert_eq!(total, 128);
         let mut all: Vec<i32> = ranges.iter().flat_map(|(_, v)| v.clone()).collect();
         all.sort_unstable();
         all.dedup();
-        assert_eq!(all.len(), 84, "重なりが無い");
+        assert_eq!(all.len(), 128, "重なりが無い");
     }
 
     #[test]
@@ -386,11 +388,13 @@ mod tests {
         assert_eq!(name(61), "C#4");
         assert_eq!(name(59), "B3");
         assert_eq!(name(24), "C1");
+        assert_eq!(name(0), "C-1");
+        assert_eq!(name(127), "G9");
     }
 
     #[test]
     fn 名前を往復できる() {
-        for midi in 12..=108 {
+        for midi in PREFIX_MAP_LOW..=PREFIX_MAP_HIGH {
             assert_eq!(parse(&name(midi)), Some(midi), "{midi}");
         }
         assert_eq!(parse("なんだこれ"), None);

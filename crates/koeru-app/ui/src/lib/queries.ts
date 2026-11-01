@@ -236,7 +236,7 @@ export const methodPresetsQuery = (tones: number) =>
     staleTime: Number.POSITIVE_INFINITY,
   });
 
-/** 選べる収録音高（`TR-RCL-06`）。C1〜B7 の 84 半音。起動中は変わらない。 */
+/** 選べる収録音高（`TR-RCL-06`）。C-1〜G9 の 128 半音（`DEC-RCL-019`）。起動中は変わらない。 */
 export const toneOptionsQuery = () =>
   queryOptions({
     queryKey: ["tone-options"],

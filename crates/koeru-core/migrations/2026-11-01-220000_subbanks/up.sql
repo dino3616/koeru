@@ -33,7 +33,7 @@ CREATE TABLE subbanks (
     range_low   INTEGER,
     range_high  INTEGER,
     CHECK ((range_low IS NULL) = (range_high IS NULL)),
-    CHECK (range_low IS NULL OR (24 <= range_low AND range_low <= range_high AND range_high <= 107))
+    CHECK (range_low IS NULL OR (0 <= range_low AND range_low <= range_high AND range_high <= 127))
 ) STRICT;
 
 -- 声色・方式・収録音階の組は音源の中で一意（TR-RCL-28）。

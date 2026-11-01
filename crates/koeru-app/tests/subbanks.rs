@@ -58,7 +58,7 @@ fn first_row_of(s: &Studio, id: SubbankId) -> String {
 }
 
 /// 作った音源は収録音階ごとに声色なしの枠を持つ。 担当音域は直すまで floor 割り当て
-/// （`TR-RCL-31`）で、低い端と高い端は録れる範囲（C1..B7）の端まで伸びる。
+/// （`TR-RCL-31`）で、低い端と高い端は録れる範囲（C-1..G9）の端まで伸びる。
 #[test]
 fn 作った音源は収録音階ごとに枠を持ち_担当音域は_floor_で分ける() {
     let (mut s, root) = studio("create");
@@ -80,7 +80,7 @@ fn 作った音源は収録音階ごとに枠を持ち_担当音域は_floor_で
         assert!(b.remaining_seconds > 0.0);
     }
     let ranges: Vec<(i32, i32)> = all.iter().map(|b| (b.range.low, b.range.high)).collect();
-    assert_eq!(ranges, [(24, 61), (62, 68), (69, 107)]);
+    assert_eq!(ranges, [(0, 61), (62, 68), (69, 127)]);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -288,7 +288,7 @@ fn 録っている途中は枠を消せず_音階も変えられない() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 入力の誤りは値で返す（`DEC-PLT-038`）。 音階は C1..B7、範囲は low ≤ high だけを見る。
+/// 入力の誤りは値で返す（`DEC-PLT-038`）。 音階は C-1..G9、範囲は low ≤ high だけを見る。
 #[test]
 fn 入力の誤りはどの欄かを添えて断る() {
     let (mut s, root) = studio("invalid");
@@ -302,7 +302,7 @@ fn 入力の誤りはどの欄かを添えて断る() {
             AddSubbank {
                 voice_color: None,
                 preset: "single",
-                tone: 23,
+                tone: 128,
                 after: None,
             },
             "tone",
@@ -354,7 +354,7 @@ fn 入力の誤りはどの欄かを添えて断る() {
         invalid("range", "subbank.tone_range_inverted")
     );
     assert_eq!(
-        s.set_subbank_tone_range(plain.id, Some((10, 50)))
+        s.set_subbank_tone_range(plain.id, Some((-1, 50)))
             .expect("台帳を書ける")
             .map(|_| ()),
         invalid("range", "subbank.tone_range_out_of_range")
