@@ -142,11 +142,12 @@ mod tests {
                 ..Character::default()
             },
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![57],
             subbanks: vec![Subbank {
                 folder: None,
                 color: String::new(),
+                voice_color: None,
                 prefix: String::new(),
                 suffix: String::new(),
                 tone: None,

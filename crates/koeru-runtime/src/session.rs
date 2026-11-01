@@ -38,9 +38,10 @@ use koeru_core::capture;
 use koeru_core::db::subbank::SubbankRecord;
 use koeru_core::db::{LedgerSnapshot, MaterialFacts, Revision, RowTakes, Take};
 use koeru_core::song::Song;
-use koeru_model::id::TakeId;
+use koeru_model::id::{SubbankId, TakeId};
 use koeru_model::materials::{self, Candidate, Facts, Resolution, Role, UseContext};
 use koeru_model::review::ReviewQueue;
+use koeru_model::subbank::Cells;
 
 use crate::error::RuntimeError;
 use crate::lease::ProjectLease;
@@ -123,14 +124,14 @@ impl MaterialsFacet {
     pub fn resolve(
         &self,
         context: UseContext,
-        role_of: impl Fn(&(i32, String)) -> Role,
-    ) -> Resolution<(i32, String)> {
+        role_of: impl Fn(&(SubbankId, String)) -> Role,
+    ) -> Resolution<(SubbankId, String)> {
         materials::resolve(&self.material.facts, context, role_of)
     }
 
     /// 候補の5値。 無ければ `None`。
     #[must_use]
-    pub fn oto(&self, c: &Candidate<(i32, String)>) -> Option<&koeru_core::oto::Oto> {
+    pub fn oto(&self, c: &Candidate<(SubbankId, String)>) -> Option<&koeru_core::oto::Oto> {
         self.material.facts.oto(c)
     }
 
@@ -146,9 +147,15 @@ impl MaterialsFacet {
         &self.material.tones
     }
 
+    /// 枠の並び（`TR-RCL-20`）。 素材の鍵の枠が、どの声色・方式・収録音階かを引く。
+    #[must_use]
+    pub const fn cells(&self) -> &Cells {
+        &self.material.cells
+    }
+
     /// 解くのに使う事実そのもの。
     #[must_use]
-    pub const fn facts(&self) -> &Facts<(i32, String), koeru_core::oto::Oto> {
+    pub const fn facts(&self) -> &Facts<(SubbankId, String), koeru_core::oto::Oto> {
         &self.material.facts
     }
 }

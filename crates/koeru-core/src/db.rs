@@ -1149,23 +1149,26 @@ fn coverage_by_kana_row(conn: &mut SqliteConnection) -> Result<Vec<(u32, u32)>> 
         .collect())
 }
 
-/// 音高ごとの収録済みエイリアス（`TR-RCL-26`）。
+/// 枠ごとの収録済みエイリアス（`TR-RCL-26`, `DEC-RCL-018`）。
 ///
 /// > 収録済み単位は (エイリアス, 収録音高) の組で管理する
 ///
-/// 音高を跨いで混ぜない。 1音高だけ録り終えても、音域の広い曲は歌えない。
-fn covered_aliases_by_tone(conn: &mut SqliteConnection) -> Result<BTreeMap<i32, BTreeSet<String>>> {
+/// 鍵は枠。 音高では持たない——声色や方式の違う枠が同じ高さにあると、収録済みが混ざる。
+/// 枠を跨いで混ぜない。 1枠だけ録り終えても、音域の広い曲は歌えない。
+fn covered_aliases_by_cell(
+    conn: &mut SqliteConnection,
+) -> Result<BTreeMap<SubbankId, BTreeSet<String>>> {
     let rows: Vec<(i32, String)> = row_aliases::table
         .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
         .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
         .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
         .filter(takes::invalid.eq(0))
-        .select((rows::tone, row_aliases::alias))
+        .select((rows::subbank_id, row_aliases::alias))
         .load(conn)
-        .map_err(db("covered_aliases_by_tone"))?;
-    let mut out: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
-    for (tone, alias) in rows {
-        out.entry(tone).or_default().insert(alias);
+        .map_err(db("covered_aliases_by_cell"))?;
+    let mut out: BTreeMap<SubbankId, BTreeSet<String>> = BTreeMap::new();
+    for (cell, alias) in rows {
+        out.entry(SubbankId::new(cell)).or_default().insert(alias);
     }
     Ok(out)
 }
@@ -1436,16 +1439,21 @@ fn first_valid_takes(conn: &mut SqliteConnection) -> Result<BTreeMap<RowId, Take
 /// 誰が選ばれるかは決めない。
 #[derive(Debug, Clone)]
 pub struct MaterialFacts {
-    /// 行・採用・5値。 鍵は移行中の（収録音高, 綴り）（`DEC-RCL-017`）。
+    /// 行・採用・5値。 鍵は移行中の（枠, 綴り）（`DEC-RCL-017`, `DEC-RCL-018`）。
+    ///
+    /// 音高では持たない。 声色や方式の違う枠が同じ高さにあるとき、音高の鍵では
+    /// 一方の枠の綴りがもう一方の持ち主に潰れる。
     ///
     /// 台帳は行の中の深さを持たないので、`produced` の深さは 0。 深さを読むのは
     /// 下位方式の選びだけで、そちらの事実は行の単位から作り直す
     /// （`koeru-app` の `packaging`）。
-    pub facts: koeru_model::materials::Facts<(i32, String), koeru_oto::Oto>,
+    pub facts: koeru_model::materials::Facts<(SubbankId, String), koeru_oto::Oto>,
     /// 採用テイクのマスターの、プロジェクト直下からの相対パス。
     pub rel_paths: BTreeMap<TakeId, String>,
     /// 収録音高（昇順）。
     pub tones: Vec<i32>,
+    /// 枠の並び。 解決が枠の方式と声色で素材を探す（`TR-RCL-20`）。
+    pub cells: koeru_model::subbank::Cells,
 }
 
 /// 素材の解決に要る事実を読む。
@@ -1472,10 +1480,10 @@ fn material_facts(conn: &mut SqliteConnection) -> Result<MaterialFacts> {
         .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
         .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
         .filter(takes::invalid.eq(0))
-        .select((row_aliases::row_id, rows::tone, row_aliases::alias))
+        .select((row_aliases::row_id, rows::subbank_id, row_aliases::alias))
         .load(conn)
         .map_err(db("material_facts.produced"))?;
-    // 5値は採用テイクのものだけ。 キーの音高は、そのテイクの行の音高。
+    // 5値は採用テイクのものだけ。 キーの枠は、そのテイクの行の枠。
     #[allow(
         clippy::type_complexity,
         reason = "oto_values の列を並べたもの。 名前を付けても読みやすくならない"
@@ -1488,7 +1496,7 @@ fn material_facts(conn: &mut SqliteConnection) -> Result<MaterialFacts> {
         .select((
             oto_values::take_id,
             oto_values::alias,
-            rows::tone,
+            rows::subbank_id,
             oto_values::offset_ms,
             oto_values::consonant_ms,
             oto_values::cutoff_ms,
@@ -1510,16 +1518,16 @@ fn material_facts(conn: &mut SqliteConnection) -> Result<MaterialFacts> {
     facts.first_valid = first_valid_takes(conn)?;
     facts.produced = produced
         .into_iter()
-        .map(|(row, tone, alias)| Production {
-            key: (tone, alias),
+        .map(|(row, cell, alias)| Production {
+            key: (SubbankId::new(cell), alias),
             row: RowId::new(row),
             depth: 0,
         })
         .collect();
-    for (take, alias, tone, offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms) in otos
+    for (take, alias, cell, offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms) in otos
     {
         facts.otos.insert(
-            (TakeId::new(take), (tone, alias)),
+            (TakeId::new(take), (SubbankId::new(cell), alias)),
             koeru_oto::Oto {
                 offset_ms,
                 consonant_ms,
@@ -1533,6 +1541,7 @@ fn material_facts(conn: &mut SqliteConnection) -> Result<MaterialFacts> {
         facts,
         rel_paths,
         tones: recording_tones(conn)?,
+        cells: subbank::cells(conn)?,
     })
 }
 
@@ -1622,7 +1631,7 @@ pub trait LedgerRead {
     /// # Errors
     ///
     /// 台帳を読めないとき。
-    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>>;
+    fn covered_aliases_by_cell(&mut self) -> Result<BTreeMap<SubbankId, BTreeSet<String>>>;
 
     /// # Errors
     ///
@@ -1920,29 +1929,29 @@ impl Ledger {
     }
 
     /// 台帳の行を、録音リストの行の形で（`TR-SYN-19`, `DEC-RCL-016`）。 返すのは
-    /// `(収録音高, 行)` で、並びは正準順。除外した行は入らない。
+    /// `(枠, 行)` で、並びは正準順。除外した行は入らない。
     ///
     /// 提示順はこれを並べる。 **プリセットから生成し直したリストを並べていた**ので、
     /// 詰め直した行も組み直した行も一度も並ばなかった。
     ///
     /// 単位は読み上げる文字列から引く（[`row_units_of`](Self::row_units_of) と同じ）。
     /// 行ごとに問い合わせない——提示順はテイクのたびに作り直す。
-    pub fn listed_rows(&mut self, set: UnitSet) -> Result<Vec<(i32, ReclistRow)>> {
+    pub fn listed_rows(&mut self, set: UnitSet) -> Result<Vec<(SubbankId, ReclistRow)>> {
         let table = units(set);
         Ok(rows::table
             .filter(rows::state.ne(RowState::Excluded.as_str()))
             .order(rows::ordinal.asc())
-            .select((rows::id, rows::text, rows::file_stem, rows::tone))
+            .select((rows::id, rows::text, rows::file_stem, rows::subbank_id))
             .load::<(String, String, String, i32)>(&mut self.conn)
             .map_err(db("listed_rows"))?
             .into_iter()
-            .map(|(id, text, file_stem, tone)| {
+            .map(|(id, text, file_stem, subbank)| {
                 let units = text
                     .split_whitespace()
                     .filter_map(|k| table.iter().find(|u| u.kana == k).cloned())
                     .collect();
                 (
-                    tone,
+                    SubbankId::new(subbank),
                     ReclistRow {
                         id,
                         text,
@@ -2200,13 +2209,16 @@ impl Ledger {
             .collect())
     }
 
-    /// （収録音高, 綴り）ごとの持ち主の行（`DEC-RCL-016`）。
+    /// （枠, 綴り）ごとの持ち主の行（`DEC-RCL-016`, `DEC-RCL-018`）。
     ///
     /// 決め方は [`koeru_model::selection::owners`] が持つ。 ここは台帳から事実を読んで渡すだけ。
     ///
     /// **入れる順で先に名乗った行に持たせていた**（`DEC-ALN-017`）。 フルリストの
     /// あとに足した詰め直しの行は綴りを1つも持たず、録っても何も増えなかった。
-    pub fn alias_owners(&mut self) -> Result<BTreeMap<(i32, String), String>> {
+    ///
+    /// **音高で持っていた。** 声色や方式の違う枠が同じ高さにあると、後ろの枠の行は
+    /// どの綴りの持ち主にもなれず、録っても5値が付かなかった。
+    pub fn alias_owners(&mut self) -> Result<BTreeMap<(SubbankId, String), String>> {
         let valid: BTreeSet<RowId> = adopted_takes::table
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .filter(takes::invalid.eq(0))
@@ -2219,13 +2231,13 @@ impl Ledger {
         let first = first_valid_takes(&mut self.conn)?;
         let produced: Vec<(String, i32, String)> = row_aliases::table
             .inner_join(rows::table.on(rows::id.eq(row_aliases::row_id)))
-            .select((rows::id, rows::tone, row_aliases::alias))
+            .select((rows::id, rows::subbank_id, row_aliases::alias))
             .load(&mut self.conn)
             .map_err(db("alias_owners.aliases"))?;
         let owners = koeru_model::selection::owners(
             produced
                 .into_iter()
-                .map(|(row, tone, alias)| ((tone, alias), RowId::new(row))),
+                .map(|(row, cell, alias)| ((SubbankId::new(cell), alias), RowId::new(row))),
             &valid,
             &first,
         );
@@ -2254,13 +2266,13 @@ impl Ledger {
             .map_err(db("all_aliases"))
     }
 
-    /// 音高ごとの収録済みエイリアス（`TR-RCL-26`）。
+    /// 枠ごとの収録済みエイリアス（`TR-RCL-26`, `DEC-RCL-018`）。
     ///
     /// > 収録済み単位は (エイリアス, 収録音高) の組で管理する
     ///
-    /// 音高を跨いで混ぜない。 1音高だけ録り終えても、音域の広い曲は歌えない。
-    pub fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
-        covered_aliases_by_tone(&mut self.conn)
+    /// 枠を跨いで混ぜない。 1枠だけ録り終えても、音域の広い曲は歌えない。
+    pub fn covered_aliases_by_cell(&mut self) -> Result<BTreeMap<SubbankId, BTreeSet<String>>> {
+        covered_aliases_by_cell(&mut self.conn)
     }
 
     /// いまの録る順（`TR-SYN-19`）。
@@ -3288,7 +3300,7 @@ impl Ledger {
     /// エイリアスの並びは決めておく。 同じ音源からは同じ `oto.ini` が出る。
     #[tracing::instrument(skip(self))]
     pub fn distribution_samples(&mut self) -> Result<Vec<DistributionSample>> {
-        let takes: Vec<(String, String, String, i32, i32, i64)> = rows::table
+        let takes: Vec<(String, String, String, i32, i32, i64, i32)> = rows::table
             .inner_join(adopted_takes::table.on(adopted_takes::row_id.eq(rows::id)))
             .inner_join(takes::table.on(takes::id.eq(adopted_takes::take_id)))
             .order(rows::ordinal.asc())
@@ -3299,12 +3311,13 @@ impl Ledger {
                 adopted_takes::take_id,
                 rows::tone,
                 takes::frames,
+                rows::subbank_id,
             ))
             .load(&mut self.conn)
             .map_err(db("distribution_samples"))?;
 
         let mut out = Vec::with_capacity(takes.len());
-        for (row_id, file_stem, rel_path, take_id, tone, frames) in takes {
+        for (row_id, file_stem, rel_path, take_id, tone, frames, subbank) in takes {
             let mut otos = self.otos_of(take_id)?;
             otos.sort_by(|a, b| a.0.cmp(&b.0));
             let frq = self.analysis_of(take_id)?.map(|a| a.frq);
@@ -3317,6 +3330,7 @@ impl Ledger {
                 frq,
                 tone,
                 frames,
+                subbank: SubbankId::new(subbank),
             });
         }
         Ok(out)
@@ -3541,9 +3555,10 @@ impl Ledger {
         Ok(out)
     }
 
-    /// 同じ収録音高の中で、別の採用テイクにまたがって重複しているエイリアス。
+    /// 同じ枠の中で、別の採用テイクにまたがって重複しているエイリアス。
     ///
-    /// エントリの識別子は（収録音高, 綴り）（`docs/reports/ux/ooui-model.md`）。
+    /// エントリの識別子は（枠, 綴り）（`docs/reports/ux/ooui-model.md`, `DEC-RCL-018`）。
+    /// 枠は収録音高を持つので、枠が1つずつの音源では（収録音高, 綴り）と同じ。
     /// **重なると確認キューが片方を落とす**——あとに読んだ行が前の行を
     /// 置き換え、落ちたほうは確認もされず `oto.ini` にも出ない。
     ///
@@ -3569,14 +3584,14 @@ impl Ledger {
         let rows: Vec<(i32, String, i32)> = oto_values::table
             .inner_join(adopted_takes::table.on(adopted_takes::take_id.eq(oto_values::take_id)))
             .inner_join(rows::table.on(rows::id.eq(adopted_takes::row_id)))
-            .select((rows::tone, oto_values::alias, oto_values::take_id))
+            .select((rows::subbank_id, oto_values::alias, oto_values::take_id))
             .load(&mut self.conn)
             .map_err(db("adopted_conflicting_aliases"))?;
         let mut seen: std::collections::BTreeMap<(i32, String), i32> =
             std::collections::BTreeMap::new();
         let mut out = Vec::new();
-        for (tone, alias, take_id) in rows {
-            let key = (tone, alias.clone());
+        for (cell, alias, take_id) in rows {
+            let key = (cell, alias.clone());
             match seen.get(&key) {
                 Some(first) if *first != take_id => out.push(alias),
                 Some(_) => {}
@@ -3753,8 +3768,8 @@ impl LedgerRead for Ledger {
         coverage_by_kana_row(&mut self.conn)
     }
 
-    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
-        covered_aliases_by_tone(&mut self.conn)
+    fn covered_aliases_by_cell(&mut self) -> Result<BTreeMap<SubbankId, BTreeSet<String>>> {
+        covered_aliases_by_cell(&mut self.conn)
     }
 
     fn recording_tones(&mut self) -> Result<Vec<i32>> {
@@ -3911,9 +3926,9 @@ impl LedgerSnapshot {
         coverage_by_kana_row(self.conn())
     }
 
-    /// 音高ごとの収録済みエイリアス。 [`Ledger::covered_aliases_by_tone`] と同じ版。
-    pub fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
-        covered_aliases_by_tone(self.conn())
+    /// 枠ごとの収録済みエイリアス。 [`Ledger::covered_aliases_by_cell`] と同じ版。
+    pub fn covered_aliases_by_cell(&mut self) -> Result<BTreeMap<SubbankId, BTreeSet<String>>> {
+        covered_aliases_by_cell(self.conn())
     }
 
     /// このプロジェクトの収録音高。 [`Ledger::recording_tones`] と同じ版。
@@ -3976,8 +3991,8 @@ impl LedgerRead for LedgerSnapshot {
         coverage_by_kana_row(self.conn())
     }
 
-    fn covered_aliases_by_tone(&mut self) -> Result<BTreeMap<i32, BTreeSet<String>>> {
-        covered_aliases_by_tone(self.conn())
+    fn covered_aliases_by_cell(&mut self) -> Result<BTreeMap<SubbankId, BTreeSet<String>>> {
+        covered_aliases_by_cell(self.conn())
     }
 
     fn recording_tones(&mut self) -> Result<Vec<i32>> {
@@ -4135,8 +4150,10 @@ pub struct DistributionSample {
     pub otos: Vec<(String, koeru_oto::Oto)>,
     /// 周波数表（`TR-PKG-05`）。録音時に作ったもの。
     pub frq: Option<Frq>,
-    /// 収録音高（MIDI、`TR-REC-25`）。多音階では区画を分ける軸になる。
+    /// 収録音高（MIDI、`TR-REC-25`）。
     pub tone: i32,
+    /// 行が属する枠。 区画を分ける軸（`DEC-RCL-018`）。 声色・方式・収録音階はこの枠が持つ。
+    pub subbank: SubbankId,
     /// マスターの標本数。 5値を作り直すのに素材の長さが要る（`TR-ALN-34`）。
     pub frames: i64,
 }
@@ -5321,7 +5338,8 @@ mod m5_tests {
 
             let m = l.material_facts().expect("引ける");
             let r = resolve(&m.facts, UseContext::Preview, |_| Role::Cv);
-            let key = (60, "- い".to_owned());
+            let cell = l.cells().expect("引ける").as_slice()[0].id;
+            let key = (cell, "- い".to_owned());
             let c = r
                 .candidates()
                 .iter()
@@ -5340,7 +5358,10 @@ mod m5_tests {
             );
         }
         assert_eq!(sounded[0], sounded[1], "録る順を替えても鳴る綴りは同じ");
-        assert!(sounded[0].contains(&(60, "- い".to_owned())));
+        let mut l = Ledger::open_in_memory().expect("開ける");
+        record_two_producers(&mut l, true);
+        let cell = l.cells().expect("引ける").as_slice()[0].id;
+        assert!(sounded[0].contains(&(cell, "- い".to_owned())));
     }
 
     /// 被覆は、解いた結果の鍵と台帳の被覆で一致する。
@@ -5351,11 +5372,11 @@ mod m5_tests {
         record_two_producers(&mut l, true);
         let m = l.material_facts().expect("引ける");
         let r = resolve(&m.facts, UseContext::Preview, |_| Role::Cv);
-        let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
-        for (tone, alias) in r.covered() {
-            by_tone.entry(*tone).or_default().insert(alias.clone());
+        let mut by_cell: BTreeMap<SubbankId, BTreeSet<String>> = BTreeMap::new();
+        for (cell, alias) in r.covered() {
+            by_cell.entry(*cell).or_default().insert(alias.clone());
         }
-        assert_eq!(by_tone, l.covered_aliases_by_tone().expect("引ける"));
+        assert_eq!(by_cell, l.covered_aliases_by_cell().expect("引ける"));
         // 読み取りの版固定の経路も同じ事実を返す。
         assert_eq!(m.tones, l.recording_tones().expect("引ける"));
     }
@@ -5423,11 +5444,20 @@ mod m5_tests {
         let g3 = format!("{}@G3", list[0].id);
         adopt(&mut l, sid, &g3);
 
-        let by_tone = l.covered_aliases_by_tone().expect("引ける");
-        assert_eq!(by_tone.len(), 1, "録った音高だけが出る");
-        assert!(by_tone.contains_key(&55));
+        let by_cell = l.covered_aliases_by_cell().expect("引ける");
+        assert_eq!(by_cell.len(), 1, "録った枠だけが出る");
+        let cells = l.cells().expect("引ける");
+        let at = |tone: i32| {
+            cells
+                .as_slice()
+                .iter()
+                .find(|c| c.tone == tone)
+                .expect("枠がある")
+                .id
+        };
+        assert!(by_cell.contains_key(&at(55)));
         // 音高を跨いで混ぜない。1音高だけ録り終えても他は空のまま。
-        assert!(!by_tone.contains_key(&62));
+        assert!(!by_cell.contains_key(&at(62)));
     }
 
     /// 見出しの被覆は、設定した音高のすべてで録れた単位だけ（`TR-RCL-26`）。

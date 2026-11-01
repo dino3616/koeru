@@ -112,14 +112,25 @@ pub fn character_yaml(bank: &VoiceBank, profile: Profile, has_icon: bool) -> Str
     if bank.is_multi_pitch() {
         // 担う範囲は `prefix.map` と同じ floor 割り当てから作る（`TR-PKG-04`）。
         // 区画が自分で範囲を持つと、2箇所が別々の割り当てを宣言する。
-        let assigned = tone::assigned_ranges(&recorded_tones(bank));
+        //
+        // 割り当ては声色ごとに閉じる（`DEC-RCL-018`）。 声色をまたいで床を探すと、
+        // 別の声色の素材が担う範囲に入る。 同じ声色の同じ高さに方式違いの区画が並ぶときは、
+        // 先に並んだ1つだけが範囲を持つ——同じ範囲を2つの区画が宣言すると、
+        // 読み手がどちらで鳴らすかを決められない。
         y.line("subbanks:");
-        for s in &bank.subbanks {
+        for (i, s) in bank.subbanks.iter().enumerate() {
             y.indented(1, &format!("- color: {}", quote(&s.color)));
             y.indented(2, &format!("prefix: {}", quote(&s.prefix)));
             y.indented(2, &format!("suffix: {}", quote(&s.suffix)));
+            let first_here = s.tone.is_some_and(|t| {
+                !bank.subbanks[..i]
+                    .iter()
+                    .any(|p| p.voice_color == s.voice_color && p.tone == Some(t))
+            });
+            let assigned = tone::assigned_ranges(&recorded_tones(bank, &s.voice_color));
             let owned = s
                 .tone
+                .filter(|_| first_here)
                 .and_then(|t| assigned.iter().find(|(r, _)| *r == t))
                 .map(|(_, v)| tone::ranges(v))
                 .unwrap_or_default();
@@ -147,16 +158,22 @@ pub fn prefix_map(bank: &VoiceBank) -> Option<String> {
     if !bank.is_multi_pitch() {
         return None;
     }
-    let tones = recorded_tones(bank);
+    // 音源ルートの `prefix.map` が書けるのは1つの声色の割り当てだけ（UTAU は1つの高さに
+    // 接尾辞を1つしか持てない）。 並びの先頭の区画の声色を書く。 どの声色を書くかは
+    // 決まっていない（`Q-PKG-004`）ので、決まるまで、歌わせる声色の既定（`Cells::default_color`）
+    // と同じものにする。
+    let voice = &bank.subbanks.first()?.voice_color;
+    let tones = recorded_tones(bank, voice);
     if tones.is_empty() {
         return None;
     }
     // 綴りは区画が持つ。 収録音高から引き直す——区画の並び順に出すと、
     // 区画を足したときに全体の並びが動いて差分が読めなくなる。
+    // 同じ高さに区画が複数あれば、先に並んだものの綴り。
     let affix = |recorded: i32| {
         bank.subbanks
             .iter()
-            .find(|s| s.tone == Some(recorded))
+            .find(|s| s.voice_color == *voice && s.tone == Some(recorded))
             .map_or_else(
                 || tone::default_affix(recorded),
                 |s| (s.prefix.clone(), s.suffix.clone()),
@@ -165,9 +182,17 @@ pub fn prefix_map(bank: &VoiceBank) -> Option<String> {
     Some(tone::prefix_map_body(&tones, affix, NEWLINE))
 }
 
-/// 区画が名乗っている収録音高（`TR-REC-25`）。
-fn recorded_tones(bank: &VoiceBank) -> Vec<i32> {
-    bank.subbanks.iter().filter_map(|s| s.tone).collect()
+/// 同じ声色の区画が名乗っている収録音高（`TR-REC-25`）。 低い順で、重複しない。
+fn recorded_tones(bank: &VoiceBank, voice: &Option<String>) -> Vec<i32> {
+    let mut tones: Vec<i32> = bank
+        .subbanks
+        .iter()
+        .filter(|s| s.voice_color == *voice)
+        .filter_map(|s| s.tone)
+        .collect();
+    tones.sort_unstable();
+    tones.dedup();
+    tones
 }
 
 /// YAML を素直に組み立てる小さな道具。
@@ -271,6 +296,7 @@ mod tests {
         Subbank {
             folder: folder.map(str::to_owned),
             color: folder.unwrap_or_default().to_owned(),
+            voice_color: None,
             prefix: prefix.to_owned(),
             suffix: String::new(),
             tone: tones.first().copied(),
@@ -288,7 +314,7 @@ mod tests {
             distribution_name: "koeru".to_owned(),
             character: character(),
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![57],
             subbanks,
             rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),

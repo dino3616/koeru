@@ -649,7 +649,7 @@ mod tests {
                 ..Character::default()
             },
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![57],
             subbanks,
             rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
@@ -660,6 +660,7 @@ mod tests {
         Subbank {
             folder: folder.map(str::to_owned),
             color: folder.unwrap_or_default().to_owned(),
+            voice_color: None,
             prefix: prefix.to_owned(),
             suffix: String::new(),
             tone: None,

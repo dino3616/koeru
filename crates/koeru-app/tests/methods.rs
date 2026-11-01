@@ -193,6 +193,7 @@ fn 多音階は音高ごとに区画を分ける() {
             Subbank {
                 folder: Some(name.clone()),
                 color: name.clone(),
+                voice_color: None,
                 prefix: String::new(),
                 suffix: name,
                 tone: Some(*t),
@@ -207,7 +208,7 @@ fn 多音階は音高ごとに区画を分ける() {
             ..Character::default()
         },
         readme: Readme::default(),
-        method: koeru_core::alias::Method::Sequential,
+        methods: vec![koeru_core::alias::Method::Sequential],
         tones: vec![55, 62, 69],
         subbanks,
         rules: koeru_core::presamp::Rules::builtin(koeru_core::inventory::UnitSet::Core),

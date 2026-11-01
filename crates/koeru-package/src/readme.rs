@@ -26,6 +26,18 @@ const fn method_label(m: Method) -> &'static str {
     }
 }
 
+/// 収録方式の表示（`DEC-PKG-015`, `DEC-RCL-018`）。 方式が1つなら、その名前だけ。
+///
+/// 枠ごとに方式が違う音源は、並びの順に「 / 」で繋ぐ。 1つに畳むと、受け取った人が
+/// 一部の区画の綴りを読み違える。
+fn methods_label(methods: &[Method]) -> String {
+    methods
+        .iter()
+        .map(|m| method_label(*m))
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
 /// 収録音高の表示（`DEC-PKG-015`）。 音名を低い順に並べる。
 ///
 /// 単音階でも出す。 何の高さで録ったかは、受け取った人が音域を決める手がかりになる。
@@ -57,7 +69,7 @@ pub fn readme_txt(bank: &VoiceBank, contents: &[String]) -> String {
     out.always("音源名", &bank.character.name);
     out.written("制作者名義", bank.character.author.as_deref());
     out.written("バージョン", bank.character.version.as_deref());
-    out.always("収録方式", method_label(bank.method));
+    out.always("収録方式", &methods_label(&bank.methods));
     out.always("収録音高", &tones_label(&bank.tones));
     out.written("推奨音域", r.tone_range_note.as_deref());
     out.written("キャラクター設定", r.character_note.as_deref());
@@ -148,7 +160,7 @@ mod tests {
                 ..Character::default()
             },
             readme: Readme::default(),
-            method: Method::Single,
+            methods: vec![Method::Single],
             tones: vec![57],
             subbanks: Vec::new(),
             rules: koeru_model::presamp::Rules::builtin(koeru_model::inventory::UnitSet::Core),
