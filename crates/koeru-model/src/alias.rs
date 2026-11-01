@@ -23,6 +23,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::id::SubbankId;
 use crate::inventory::{Unit, UnitSet, units};
 use crate::mora::{Mora, MoraKind};
 use crate::presamp::Rules;
@@ -58,6 +59,10 @@ pub struct Resolved {
     pub rank: usize,
     /// どの収録音高の素材で当たったか。 区画を分けない解決では `None`。
     pub tone: Option<i32>,
+    /// どの枠の素材で当たったか（`DEC-RCL-018`）。 枠を分けない解決では `None`。
+    ///
+    /// 同じ高さに、方式の違う枠も声色の違う枠も並ぶので、高さだけでは素材の持ち主が決まらない。
+    pub cell: Option<SubbankId>,
     /// floor の収録音高から何段降りたか。 0 が floor（`DEC-SYN-014`）。
     ///
     /// 0 より大きければ、第一候補でも「代替」（`TR-RCL-20`）。
@@ -75,8 +80,41 @@ impl Resolved {
 /// 1音符が素材を探す区画の並び（`DEC-SYN-014`）。
 ///
 /// 先頭が floor の区画で、そこから下へ降りる。 区画を分けない解決では
-/// `(None, 持っている集合)` の1つだけ。
+/// `(None, 持っている集合)` の1つだけ。 方式は並び全体で1つ。
+/// 枠ごとに方式が違うときは [`Lane`] の並びで解く。
 pub type Chain<'a> = Vec<(Option<i32>, &'a BTreeSet<String>)>;
+
+/// 1音符が素材を探す枠1つ（`DEC-RCL-018`, `DEC-SYN-014`）。
+///
+/// 候補の順（`TR-SYN-12`）は方式で決まり、方式は枠が持つ。 枠ごとに方式が違う音源でも、
+/// 解決はこの1つの定義を通る（`TR-RCL-20`）。
+#[derive(Debug, Clone, Copy)]
+pub struct Lane<'a> {
+    /// 収録音高。 枠を分けない解決では `None`。
+    pub tone: Option<i32>,
+    /// 枠。 枠を分けない解決では `None`。
+    pub cell: Option<SubbankId>,
+    /// この枠の方式。
+    pub method: Method,
+    /// この枠が持っているエイリアス。
+    pub available: &'a BTreeSet<String>,
+}
+
+/// 1音符が素材を探す枠の並び。 先頭が floor の枠で、そこから下へ降りる（`DEC-SYN-014`）。
+pub type Lanes<'a> = Vec<Lane<'a>>;
+
+/// 方式が並び全体で1つの [`Chain`] を、枠の並びへ写す。
+fn lanes_of<'a>(method: Method, chain: &Chain<'a>) -> Lanes<'a> {
+    chain
+        .iter()
+        .map(|(tone, available)| Lane {
+            tone: *tone,
+            cell: None,
+            method,
+            available,
+        })
+        .collect()
+}
 
 /// 解決できなかった音符。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,16 +158,41 @@ pub fn resolve_in(
     req: &Request<'_>,
     chain: &Chain<'_>,
 ) -> Result<Resolved, Missing> {
-    let tried = candidates(rules, method, req);
-    for (step, (tone, available)) in chain.iter().enumerate() {
-        for (rank, c) in tried.iter().enumerate() {
-            if available.contains(c) {
-                return Ok(Resolved {
-                    alias: c.clone(),
-                    rank,
-                    tone: *tone,
-                    step,
-                });
+    resolve_lanes(rules, req, &lanes_of(method, chain))
+}
+
+/// 枠の並びから、1音符を解決する（`TR-RCL-20`, `DEC-RCL-018`, `DEC-SYN-014`）。
+///
+/// 解決の本体。 [`resolve_in`] は方式が1つの並びをここへ写すだけ。
+///
+/// 候補の順は枠の方式で決まる。 **1つの枠の中で候補を尽くしてから、次の枠へ降りる。**
+/// Normal が CVVC で Growl が単独音のように方式が違っても、同じ規則で探す。
+///
+/// 解決できなかったときの `tried` は、探した枠の候補を、出てきた順に重ならないよう並べたもの。
+pub fn resolve_lanes(
+    rules: &Rules,
+    req: &Request<'_>,
+    lanes: &[Lane<'_>],
+) -> Result<Resolved, Missing> {
+    let mut tried: Vec<String> = Vec::new();
+    for (step, lane) in lanes.iter().enumerate() {
+        let here = candidates(rules, lane.method, req);
+        if let Some((rank, c)) = here
+            .iter()
+            .enumerate()
+            .find(|(_, c)| lane.available.contains(*c))
+        {
+            return Ok(Resolved {
+                alias: c.clone(),
+                rank,
+                tone: lane.tone,
+                cell: lane.cell,
+                step,
+            });
+        }
+        for c in here {
+            if !tried.contains(&c) {
+                tried.push(c);
             }
         }
     }
@@ -171,6 +234,21 @@ pub fn required_entries(
     moras: &[Mora],
     breaks: &BTreeSet<usize>,
 ) -> BTreeSet<(usize, String)> {
+    required_entries_with(rules, |_| method, moras, breaks)
+}
+
+/// 方式がモーラごとに違うときの [`required_entries`]（`DEC-RCL-018`）。
+///
+/// `method_of(i)` はモーラ `i` のノートを受け持つ枠の方式。 CV の綴りはその枠の方式で
+/// 決まる。 渡りは直前のモーラの尾に乗るので（`TR-SYN-12`）、直前のモーラを受け持つ枠が
+/// CVVC のときだけ要る。
+#[must_use]
+pub fn required_entries_with(
+    rules: &Rules,
+    method_of: impl Fn(usize) -> Method,
+    moras: &[Mora],
+    breaks: &BTreeSet<usize>,
+) -> BTreeSet<(usize, String)> {
     let mut out = BTreeSet::new();
     let mut prev_vowel: Option<String> = None;
 
@@ -194,7 +272,7 @@ pub fn required_entries(
             lyric: unit,
             previous_vowel: prev_vowel.as_deref(),
         };
-        if let Some(first) = candidates(rules, method, &req).first() {
+        if let Some(first) = candidates(rules, method_of(i), &req).first() {
             out.insert((i, first.clone()));
         }
         /*
@@ -204,13 +282,14 @@ pub fn required_entries(
           （`TR-RCL-16`）に VC が1つも入らず、**録っても渡りが鳴らない音源**が
           できる。CVVC を選んだ意味が無くなる。
         */
-        if method == Method::Cvvc
+        // 直前の母音があるなら、直前のモーラがある。
+        let owner = i.saturating_sub(1);
+        if method_of(owner) == Method::Cvvc
             && let Some(prev) = prev_vowel.as_deref()
         {
             let c = rules.consonant_of(unit);
             if !c.is_empty() {
-                // 直前の母音があるなら、直前のモーラがある。
-                out.insert((i.saturating_sub(1), rules.vc(prev, c)));
+                out.insert((owner, rules.vc(prev, c)));
             }
         }
         prev_vowel = non_empty(rules.vowel_of(unit)).map(str::to_owned);
@@ -339,7 +418,7 @@ pub fn resolve_phrase(
 /// フレーズ全体を、モーラごとの区画の並びで解決する（`TR-RCL-20`, `DEC-SYN-014`）。
 ///
 /// `chain_of(i)` はモーラ `i` のノートが使える区画を、floor から下へ並べたもの。
-/// 候補の順は [`resolve_in`]。
+/// 方式は並び全体で1つ。 枠ごとに方式が違うときは [`resolve_phrase_lanes`]。
 ///
 /// 渡りは、その尾に乗る直前のモーラの区画から引く。 同じ順で探し、
 /// どこにも無ければ挟まない（`TR-SYN-12`）。
@@ -354,6 +433,33 @@ pub fn resolve_phrase_in<'a, F>(
 ) -> Vec<PhraseEntry>
 where
     F: Fn(usize) -> Chain<'a>,
+{
+    resolve_phrase_lanes(
+        rules,
+        moras,
+        |i| lanes_of(method, &chain_of(i)),
+        set,
+        breaks,
+    )
+}
+
+/// フレーズ全体を、モーラごとの枠の並びで解決する（`TR-RCL-20`, `DEC-RCL-018`, `DEC-SYN-014`）。
+///
+/// 解決の本体。 `lanes_of(i)` はモーラ `i` のノートが使える枠を、floor から下へ並べたもの。
+/// 枠ごとに方式が違ってよい。 候補の順は [`resolve_lanes`]。
+///
+/// 渡りは、その尾に乗る直前のモーラの枠から引く。 同じ順で探し、どこにも無ければ挟まない
+/// （`TR-SYN-12`）。 渡りを持つのは CVVC の枠だけなので、探すのもその枠に限る。
+#[must_use]
+pub fn resolve_phrase_lanes<'a, F>(
+    rules: &Rules,
+    moras: &[Mora],
+    chain_of: F,
+    set: UnitSet,
+    breaks: &BTreeSet<usize>,
+) -> Vec<PhraseEntry>
+where
+    F: Fn(usize) -> Lanes<'a>,
 {
     let table = units(set);
     let mut out: Vec<PhraseEntry> = Vec::new();
@@ -382,7 +488,7 @@ where
                             lyric: kana,
                             previous_vowel: prev_vowel.as_deref(),
                         };
-                        resolve_in(rules, method, &req, &chain_of(i))
+                        resolve_lanes(rules, &req, &chain_of(i))
                     });
                 out.push(main(match unit {
                     Some(Ok(r)) => PhraseUnit::Sound(r),
@@ -416,8 +522,7 @@ where
 
           綴りが無ければ挟まない（`TR-SYN-12`）。
         */
-        if method == Method::Cvvc
-            && let Some(prev) = prev_vowel.as_deref()
+        if let Some(prev) = prev_vowel.as_deref()
             && let Some(consonant) = non_empty(rules.consonant_of(unit))
             && let Some(owner) = out.last().map(|e| e.mora)
         {
@@ -425,13 +530,14 @@ where
             let hit = chain_of(owner)
                 .into_iter()
                 .enumerate()
-                .find(|(_, (_, available))| available.contains(&alias));
-            if let Some((step, (tone, _))) = hit {
+                .find(|(_, lane)| lane.method == Method::Cvvc && lane.available.contains(&alias));
+            if let Some((step, lane)) = hit {
                 out.push(PhraseEntry {
                     unit: PhraseUnit::Sound(Resolved {
                         alias,
                         rank: 0,
-                        tone,
+                        tone: lane.tone,
+                        cell: lane.cell,
                         step,
                     }),
                     mora: owner,
@@ -444,7 +550,7 @@ where
             lyric: unit,
             previous_vowel: prev_vowel.as_deref(),
         };
-        out.push(main(match resolve_in(rules, method, &req, &chain_of(i)) {
+        out.push(main(match resolve_lanes(rules, &req, &chain_of(i)) {
             Ok(r) => PhraseUnit::Sound(r),
             Err(e) => PhraseUnit::Missing(e),
         }));
@@ -669,6 +775,7 @@ mod tests {
                 alias: "い".to_owned(),
                 rank: 0,
                 tone: None,
+                cell: None,
                 step: 0,
             })
         );
@@ -887,5 +994,100 @@ mod tests {
             assert!(got.iter().all(|e| e.is_main()), "{method:?}");
             assert_eq!(got.len(), 2, "{method:?}");
         }
+    }
+
+    /// 枠ごとに方式が違うとき、候補の順は探している枠の方式で決まる（`DEC-RCL-018`）。
+    ///
+    /// 上の枠は単独音で何も持たず、下の枠が連続音。 下の枠では連続音の綴り（`a か`）で探す。
+    /// **方式を並び全体で1つにしていた**ときは、下の枠も単独音の綴りで探し、`a か` を
+    /// 持っていても見つけなかった。
+    #[test]
+    fn 候補の順は探している枠の方式で決まる() {
+        let m = parse("あか", UnitSet::Core).expect("読める");
+        let empty = BTreeSet::new();
+        let seq = have(&["- あ", "a か"]);
+        let got = resolve_phrase_lanes(
+            &builtin_rules(),
+            &m,
+            |_| {
+                vec![
+                    Lane {
+                        tone: Some(62),
+                        cell: Some(SubbankId::new(1)),
+                        method: Method::Single,
+                        available: &empty,
+                    },
+                    Lane {
+                        tone: Some(55),
+                        cell: Some(SubbankId::new(2)),
+                        method: Method::Sequential,
+                        available: &seq,
+                    },
+                ]
+            },
+            UnitSet::Core,
+            &BTreeSet::new(),
+        );
+        let PhraseUnit::Sound(ka) = &got[1].unit else {
+            panic!("鳴る: {got:?}")
+        };
+        assert_eq!(ka.alias, "a か");
+        assert_eq!(ka.cell, Some(SubbankId::new(2)), "鳴らす素材の持ち主の枠");
+        assert_eq!((ka.tone, ka.step), (Some(55), 1));
+    }
+
+    /// 渡りは CVVC の枠からだけ引く（`TR-SYN-12`, `DEC-RCL-018`）。
+    ///
+    /// 単独音の枠が渡りと同じ綴りを持っていても、渡りは挟まない。
+    #[test]
+    fn 渡りは_cvvc_の枠からだけ引く() {
+        let rules = builtin_rules();
+        let m = parse("あか", UnitSet::Core).expect("読める");
+        let vc = rules.vc("a", rules.consonant_of("か"));
+        let cvvc = have(&["- あ", "か", vc.as_str()]);
+        let single = have(&["あ", "か", vc.as_str()]);
+        let run = |method: Method, owned: &BTreeSet<String>| {
+            resolve_phrase_lanes(
+                &rules,
+                &m,
+                |_| {
+                    vec![Lane {
+                        tone: Some(60),
+                        cell: Some(SubbankId::new(1)),
+                        method,
+                        available: owned,
+                    }]
+                },
+                UnitSet::Core,
+                &BTreeSet::new(),
+            )
+        };
+        let transitions =
+            |got: &[PhraseEntry]| got.iter().filter(|e| e.role == Role::Transition).count();
+        assert_eq!(transitions(&run(Method::Cvvc, &cvvc)), 1);
+        assert_eq!(transitions(&run(Method::Single, &single)), 0);
+    }
+
+    /// 要る綴りは、そのノートを受け持つ枠の方式で決まる（`TR-RCL-15`, `DEC-RCL-018`）。
+    #[test]
+    fn 必要な綴りはモーラごとの方式で決まる() {
+        let rules = builtin_rules();
+        let m = parse("あか", UnitSet::Core).expect("読める");
+        let need = required_entries_with(
+            &rules,
+            |i| {
+                if i == 0 {
+                    Method::Single
+                } else {
+                    Method::Sequential
+                }
+            },
+            &m,
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            need,
+            BTreeSet::from([(0, "あ".to_owned()), (1, "a か".to_owned())])
+        );
     }
 }

@@ -3,7 +3,9 @@
 //! 枠そのものは台帳が持つ（`koeru_core::db`）。 ここに置くのは、枠の並びから
 //! 決まることだけ。 合成側の区画（`prefix.map` を読んだもの）とは別のもの。
 
-use crate::tone::{PREFIX_MAP_HIGH, PREFIX_MAP_LOW};
+use crate::alias::Method;
+use crate::id::SubbankId;
+use crate::tone::{self, PREFIX_MAP_HIGH, PREFIX_MAP_LOW};
 
 /// 声色（`TR-RCL-28`）。 本人が打つ名前で、綴りが同じなら同じ声色。
 ///
@@ -118,10 +120,159 @@ pub fn default_ranges(subbanks: &[(Option<&VoiceColor>, i32)]) -> Vec<ToneRange>
         .collect()
 }
 
+/// 素材を探すときに見る枠1つ（`DEC-RCL-018`）。 声色・方式・収録音階は、枠が持つ属性。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cell {
+    pub id: SubbankId,
+    /// `None` は声色なし。
+    pub voice_color: Option<VoiceColor>,
+    pub method: Method,
+    /// 収録音階（MIDI）。
+    pub tone: i32,
+}
+
+/// 枠の並び（`TR-RCL-28`）。 並びは台帳の並び（録る順の既定）。
+///
+/// カバレッジ・歌えるか・試唱・書き出しが、同じ枠の選び方（[`Cells::chain`]）を通る
+/// （`TR-RCL-20`）。 素材の鍵は枠で持つので、声色や方式の違う枠が同じ高さにあっても、
+/// 収録済みの数は混ざらない。
+///
+/// 担当音域は、直していても読まない。 どの枠が歌うかは floor 割り当て（既定の担当音域と同じ）
+/// で決める。 直した範囲が重なる・隙間があるときの規則が決まっていない（`Q-RCL-005`）ので、
+/// 判定・試唱・書き出しが同じ規則を読めるようになるまで、どれも直した範囲を読まない。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cells(Vec<Cell>);
+
+impl Cells {
+    /// 台帳の並びのまま。
+    #[must_use]
+    pub const fn new(cells: Vec<Cell>) -> Self {
+        Self(cells)
+    }
+
+    /// 並びの順に。
+    #[must_use]
+    pub fn as_slice(&self) -> &[Cell] {
+        &self.0
+    }
+
+    /// 枠が1つも無い。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// 枠を識別子で引く。
+    #[must_use]
+    pub fn get(&self, id: SubbankId) -> Option<&Cell> {
+        self.0.iter().find(|c| c.id == id)
+    }
+
+    /// 曲を歌わせる声色の既定。 並びの先頭の枠の声色（`None` は声色なし）。
+    ///
+    /// 曲の判定と試唱が声色を指定されないときに使う。 声色を選ぶ口が画面に無い間は、
+    /// 本人が先頭に置いた枠の声色で歌う。
+    #[must_use]
+    pub fn default_color(&self) -> Option<&VoiceColor> {
+        self.0.first().and_then(|c| c.voice_color.as_ref())
+    }
+
+    /// その声色が持つ収録音階（昇順、重なりなし）。
+    #[must_use]
+    pub fn tones(&self, color: Option<&VoiceColor>) -> Vec<i32> {
+        let mut tones: Vec<i32> = self
+            .0
+            .iter()
+            .filter(|c| c.voice_color.as_ref() == color)
+            .map(|c| c.tone)
+            .collect();
+        tones.sort_unstable();
+        tones.dedup();
+        tones
+    }
+
+    /// その声色で、あるノートが素材を探す枠の順（`TR-RCL-20`, `DEC-SYN-014`）。
+    ///
+    /// floor の収録音階の枠から始めて、下の音階へ1段ずつ。 同じ音階に方式の違う枠が
+    /// あれば、並びの順に1つずつ試す。 先頭が、そのノートを受け持つ枠。
+    ///
+    /// その声色の枠が無ければ空。
+    #[must_use]
+    pub fn chain(&self, color: Option<&VoiceColor>, midi: i32) -> Vec<&Cell> {
+        let tones = self.tones(color);
+        let Some(floor) = tone::floor_tone(&tones, midi) else {
+            return Vec::new();
+        };
+        tones
+            .iter()
+            .rev()
+            .filter(|t| **t <= floor)
+            .flat_map(|t| {
+                self.0
+                    .iter()
+                    .filter(move |c| c.voice_color.as_ref() == color && c.tone == *t)
+            })
+            .collect()
+    }
+
+    /// そのノートを受け持つ枠。 [`Cells::chain`] の先頭。
+    #[must_use]
+    pub fn owner(&self, color: Option<&VoiceColor>, midi: i32) -> Option<&Cell> {
+        self.chain(color, midi).into_iter().next()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use koeru_failure::Failure;
+
+    fn cell(id: i32, color: Option<&str>, method: Method, tone: i32) -> Cell {
+        Cell {
+            id: SubbankId::new(id),
+            voice_color: color.and_then(VoiceColor::parse),
+            method,
+            tone,
+        }
+    }
+
+    fn ids(cells: &[&Cell]) -> Vec<i32> {
+        cells.iter().map(|c| c.id.get()).collect()
+    }
+
+    /// 声色の違う枠は、同じ高さでも互いの鎖に入らない。 同じ高さの枠は並びの順に試す。
+    #[test]
+    fn 鎖は声色の中で_floor_から下へ_同じ高さの枠は並びの順() {
+        let cells = Cells::new(vec![
+            cell(1, None, Method::Cvvc, 62),
+            cell(2, Some("Growl"), Method::Single, 62),
+            cell(3, None, Method::Single, 55),
+            cell(4, None, Method::Sequential, 62),
+            cell(5, Some("Growl"), Method::Single, 69),
+        ]);
+        assert_eq!(ids(&cells.chain(None, 70)), [1, 4, 3], "62 の2枠を並びの順に、次に 55");
+        assert_eq!(ids(&cells.chain(None, 61)), [3], "floor は 55");
+        assert_eq!(ids(&cells.chain(None, 20)), [3], "最低音階より下は最低音階が受け持つ");
+        let growl = VoiceColor::parse("Growl");
+        assert_eq!(ids(&cells.chain(growl.as_ref(), 70)), [5, 2]);
+        assert_eq!(cells.owner(growl.as_ref(), 64).map(|c| c.id.get()), Some(2));
+        assert!(cells.chain(VoiceColor::parse("Soft").as_ref(), 60).is_empty());
+        assert_eq!(cells.default_color(), None, "先頭の枠は声色なし");
+        assert_eq!(cells.tones(None), [55, 62]);
+    }
+
+    #[test]
+    fn 先頭の枠の声色が既定() {
+        let cells = Cells::new(vec![
+            cell(1, Some("Growl"), Method::Single, 60),
+            cell(2, None, Method::Cvvc, 60),
+        ]);
+        assert_eq!(
+            cells.default_color().map(VoiceColor::as_str),
+            Some("Growl")
+        );
+        assert!(Cells::default().default_color().is_none());
+    }
 
     fn color(s: &str) -> VoiceColor {
         VoiceColor::parse(s).expect("空でない")

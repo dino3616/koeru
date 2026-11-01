@@ -18,9 +18,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::alias::{self, Method};
+use crate::id::SubbankId;
 use crate::inventory::UnitSet;
 use crate::mora::{self, Mora};
 use crate::presamp::Rules;
+use crate::subbank::{Cells, VoiceColor};
 use crate::tone;
 
 /// 曲の1ノート（`TR-RCL-12` (a)(b)）。
@@ -233,54 +235,72 @@ impl Song {
         self.notes.get(i).map(|n| n.midi + self.transpose)
     }
 
-    /// 必要単位を（floor の収録音高, エイリアス）の組で（`TR-RCL-15`, `DEC-SYN-014`）。
+    /// 必要単位を（受け持つ枠, エイリアス）の組で（`TR-RCL-15`, `TR-RCL-26`, `DEC-SYN-014`）。
     ///
-    /// 単音階でも音高を付ける。 区画が1つなので、全部同じ音高になる。
+    /// ノートを受け持つ枠は、`color` の声色で floor の収録音階にある枠（[`Cells::owner`]）。
+    /// 綴りはその枠の方式で決まる——Normal が CVVC で Growl が単独音のように、枠ごとに
+    /// 要る綴りが違う。 単音階の1枠だけの音源でも、鍵は枠になる。
     #[must_use]
-    pub fn required_by_tone(
+    pub fn required_by_cell(
         &self,
         rules: &Rules,
-        method: Method,
         set: UnitSet,
-        tones: &[i32],
-    ) -> BTreeSet<(i32, String)> {
+        cells: &Cells,
+        color: Option<&VoiceColor>,
+    ) -> BTreeSet<(SubbankId, String)> {
         let Some(m) = self.moras(set) else {
             return BTreeSet::new();
         };
-        alias::required_entries(rules, method, &m, &self.phrase_breaks(set))
-            .into_iter()
-            .filter_map(|(i, a)| Some((tone::floor_tone(tones, self.sounding_midi(i)?)?, a)))
-            .collect()
+        let owner = |i: usize| {
+            self.sounding_midi(i)
+                .and_then(|midi| cells.owner(color, midi))
+        };
+        alias::required_entries_with(
+            rules,
+            // 受け持つ枠が無いノートの綴りは、下の `owner(i)?` で落ちる。 方式は使われない。
+            |i| owner(i).map_or(Method::Single, |c| c.method),
+            &m,
+            &self.phrase_breaks(set),
+        )
+        .into_iter()
+        .filter_map(|(i, a)| Some((owner(i)?.id, a)))
+        .collect()
     }
 
-    /// 収録音高ごとの手持ちで、ノートごとに解決する（`TR-RCL-20`, `DEC-SYN-014`）。
+    /// 枠ごとの手持ちで、ノートごとに解決する（`TR-RCL-20`, `DEC-RCL-018`, `DEC-SYN-014`）。
     ///
-    /// 各ノートは floor の区画から下へ探す（[`tone::chain`]）。 歌えるかの判定も
-    /// 試唱もここを通る——別々に解くと、「完全」と出たノートが鳴らない。
+    /// 各ノートは `color` の声色の、floor の枠から下へ探す（[`Cells::chain`]）。 候補の順は
+    /// 探す枠の方式で決まる。 歌えるかの判定も試唱もここを通る——別々に解くと、
+    /// 「完全」と出たノートが鳴らない。
     ///
     /// 歌詞を読めなければ `None`。
     #[must_use]
-    pub fn resolve_by_tone(
+    pub fn resolve_by_cell(
         &self,
         rules: &Rules,
-        method: Method,
         set: UnitSet,
-        tones: &[i32],
-        have: &BTreeMap<i32, BTreeSet<String>>,
+        cells: &Cells,
+        color: Option<&VoiceColor>,
+        have: &BTreeMap<SubbankId, BTreeSet<String>>,
     ) -> Option<Vec<alias::PhraseEntry>> {
         let moras = self.moras(set)?;
         let empty = BTreeSet::new();
-        Some(alias::resolve_phrase_in(
+        Some(alias::resolve_phrase_lanes(
             rules,
-            method,
             &moras,
             |i| {
                 let midi = self
                     .sounding_midi(i)
                     .unwrap_or(crate::preset::DEFAULT_TONE_MIDI);
-                tone::chain(tones, midi)
+                cells
+                    .chain(color, midi)
                     .into_iter()
-                    .map(|t| (Some(t), have.get(&t).unwrap_or(&empty)))
+                    .map(|c| alias::Lane {
+                        tone: Some(c.tone),
+                        cell: Some(c.id),
+                        method: c.method,
+                        available: have.get(&c.id).unwrap_or(&empty),
+                    })
                     .collect()
             },
             set,
@@ -575,28 +595,36 @@ pub struct SongStatus {
 /// 追加項目数が同じ曲は、総モーラ数の少ない順に並べる（`TR-RCL-17`）。
 /// 短い曲のほうが、最初の1曲としては手が届く。
 ///
-/// `covered` は収録音高ごとの収録済みエイリアス（`TR-RCL-26`）。 単音階では
-/// 鍵が1つ。必要単位は（収録音高, エイリアス）の組で数え、解決はノートごとに
-/// そのノートが使える区画だけで行う（`DEC-SYN-014`）。
+/// `covered` は枠ごとの収録済みエイリアス（`TR-RCL-26`）。 必要単位は（受け持つ枠, エイリアス）
+/// の組で数え、解決はノートごとにそのノートが使える枠だけで行う（`DEC-SYN-014`）。
+/// 歌うのは `color` の声色。 枠ごとに方式が違ってよい（`DEC-RCL-018`）。
+///
+/// `full_lists` は枠ごとの録音リスト（その枠の方式プリセットが作るもの）。 あと何行かは、
+/// 枠ごとにその枠のリストの部分集合として数える。
 ///
 /// **音高を跨いだ和集合で数えていた。** 多音階で D4 だけ録り終えると、
 /// A3 のノートが D4 の綴りで「完全」と出て、試唱では鳴らなかった。
+/// **音高で鍵を持っていた。** 声色や方式の違う枠が同じ高さにあると、収録済みの数が混ざった。
 #[must_use]
 pub fn status_of(
     songs: &[(String, Song)],
     rules: &Rules,
-    method: Method,
-    covered: &BTreeMap<i32, BTreeSet<String>>,
+    cells: &Cells,
+    color: Option<&VoiceColor>,
+    covered: &BTreeMap<SubbankId, BTreeSet<String>>,
     set: UnitSet,
-    full_list: &[crate::reclist::Row],
-    tones: &[i32],
+    full_lists: &BTreeMap<SubbankId, Vec<crate::reclist::Row>>,
 ) -> Vec<SongStatus> {
+    let tones = cells.tones(color);
+    let tones = tones.as_slice();
     let mut out: Vec<SongStatus> = songs
         .iter()
         .map(|(id, song)| {
-            let required = song.required_by_tone(rules, method, set, tones);
-            let have = |(t, a): &(i32, String)| covered.get(t).is_some_and(|s| s.contains(a));
-            let still: BTreeSet<&(i32, String)> = required.iter().filter(|p| !have(p)).collect();
+            let required = song.required_by_cell(rules, set, cells, color);
+            let have =
+                |(c, a): &(SubbankId, String)| covered.get(c).is_some_and(|s| s.contains(a));
+            let still: BTreeSet<&(SubbankId, String)> =
+                required.iter().filter(|p| !have(p)).collect();
             let missing = still.len();
 
             // 音域外はエイリアスが揃っていても歌えない（`TR-RCL-22`）。
@@ -608,7 +636,7 @@ pub fn status_of(
                 Singability::Complete
             } else {
                 let resolvable = song
-                    .resolve_by_tone(rules, method, set, tones, covered)
+                    .resolve_by_cell(rules, set, cells, color, covered)
                     .is_some_and(|p| p.iter().all(alias::PhraseEntry::is_playable));
                 if resolvable {
                     Singability::WithFallback
@@ -618,14 +646,18 @@ pub fn status_of(
             };
 
             // あと何行かを、フルリストの部分集合として数える（`TR-RCL-16`）。
-            // 音高ごとに独立した行集合なので（`TR-RCL-26`）、音高ごとに数えて足す。
-            let mut by_tone: BTreeMap<i32, BTreeSet<String>> = BTreeMap::new();
-            for (t, a) in &still {
-                by_tone.entry(*t).or_default().insert(a.clone());
+            // 枠ごとに独立した行集合なので（`TR-RCL-26`）、枠ごとに、その枠の方式と
+            // リストで数えて足す。
+            let mut by_cell: BTreeMap<SubbankId, BTreeSet<String>> = BTreeMap::new();
+            for (c, a) in &still {
+                by_cell.entry(*c).or_default().insert(a.clone());
             }
             let (mut missing_rows, mut seconds) = (0, 0.0);
-            for want in by_tone.values() {
-                let plan = crate::plan::rows_to_cover(rules, method, want, full_list);
+            for (cell, want) in &by_cell {
+                let (Some(here), Some(list)) = (cells.get(*cell), full_lists.get(cell)) else {
+                    continue;
+                };
+                let plan = crate::plan::rows_to_cover(rules, here.method, want, list);
                 missing_rows += plan.rows.len();
                 seconds += plan.seconds;
             }
@@ -772,6 +804,47 @@ mod tests {
         crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる")
     }
 
+    /// 声色なしの枠が、収録音高ごとに1つ。 枠の識別子は収録音高と同じ番号にする。
+    fn cells_at(method: Method, tones: &[i32]) -> Cells {
+        Cells::new(
+            tones
+                .iter()
+                .map(|t| crate::subbank::Cell {
+                    id: SubbankId::new(*t),
+                    voice_color: None,
+                    method,
+                    tone: *t,
+                })
+                .collect(),
+        )
+    }
+
+    /// 方式が1つの音源の状態。 収録音高ごとの手持ちを、同じ番号の枠へ渡す。
+    fn status_at(
+        songs: &[(String, Song)],
+        method: Method,
+        covered: &BTreeMap<i32, BTreeSet<String>>,
+        tones: &[i32],
+    ) -> Vec<SongStatus> {
+        let covered = covered
+            .iter()
+            .map(|(t, s)| (SubbankId::new(*t), s.clone()))
+            .collect();
+        let lists = tones
+            .iter()
+            .map(|t| (SubbankId::new(*t), full_list()))
+            .collect();
+        status_of(
+            songs,
+            &builtin_rules(),
+            &cells_at(method, tones),
+            None,
+            &covered,
+            UnitSet::Core,
+            &lists,
+        )
+    }
+
     #[test]
     fn 音域と総モーラ数を出す() {
         let s = song("test", &["さ", "く", "ら"]);
@@ -794,13 +867,10 @@ mod tests {
     #[test]
     fn 全部揃えば完全() {
         let s = song("さくら", &["さ", "く", "ら"]);
-        let got = status_of(
+        let got = status_at(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
-            &builtin_rules(),
             Method::Single,
             &in_tone(60, have(&["さ", "く", "ら"])),
-            UnitSet::Core,
-            &full_list(),
             &[60],
         );
         assert_eq!(got[0].singability, Singability::Complete);
@@ -812,13 +882,10 @@ mod tests {
     #[test]
     fn 単独音で足りなければ不可() {
         let s = song("さくら", &["さ", "く", "ら"]);
-        let got = status_of(
+        let got = status_at(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
-            &builtin_rules(),
             Method::Single,
             &in_tone(60, have(&["さ", "ら"])),
-            UnitSet::Core,
-            &full_list(),
             &[60],
         );
         assert_eq!(got[0].singability, Singability::Unavailable);
@@ -832,13 +899,10 @@ mod tests {
         let s = song("さくら", &["さ", "く", "ら"]);
         // 連続音の第一候補（`- さ` / `a く` / `u ら`）は持っていないが、
         // 素の `さ` `く` `ら` は持っている。
-        let got = status_of(
+        let got = status_at(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
-            &builtin_rules(),
             Method::Sequential,
             &in_tone(60, have(&["さ", "く", "ら"])),
-            UnitSet::Core,
-            &full_list(),
             &[60],
         );
         assert_eq!(got[0].singability, Singability::WithFallback);
@@ -853,17 +917,14 @@ mod tests {
         let far = song("遠い", &["な", "に", "ぬ", "ね"]);
         let short_tie = song("短い", &["は"]);
 
-        let got = status_of(
+        let got = status_at(
             &[
                 ("far".to_owned(), far),
                 ("near".to_owned(), near),
                 ("short".to_owned(), short_tie),
             ],
-            &builtin_rules(),
             Method::Single,
             &in_tone(60, have(&["さ", "く"])),
-            UnitSet::Core,
-            &full_list(),
             &[60],
         );
         assert_eq!(got[0].title, "近い", "0項目で歌える");
@@ -875,13 +936,10 @@ mod tests {
     #[test]
     fn 不足は件数で出す() {
         let s = song("さくら", &["さ", "く", "ら"]);
-        let got = status_of(
+        let got = status_at(
             std::slice::from_ref(&("s1".to_owned(), s.clone())),
-            &builtin_rules(),
             Method::Single,
             &BTreeMap::new(),
-            UnitSet::Core,
-            &full_list(),
             &[60],
         );
         assert_eq!(got[0].missing_units, 3);
@@ -904,18 +962,149 @@ mod tests {
             [(55, have(&["- あ", "か"])), (62, have(&["- あ", "a か"]))]
                 .into_iter()
                 .collect();
-        let got = status_of(
+        let got = status_at(
             std::slice::from_ref(&("s1".to_owned(), s)),
-            &builtin_rules(),
             Method::Sequential,
             &covered,
-            UnitSet::Core,
-            &full_list(),
             &[55, 62],
         );
         assert_eq!(got[0].singability, Singability::WithFallback);
         assert_eq!((got[0].covered, got[0].required), (1, 2));
         assert_eq!(got[0].missing_units, 1, "G3 の a か が足りない");
+    }
+
+    /// 枠ごとに方式が違う音源でも、同じ解決で歌える（`TR-RCL-20`, `DEC-RCL-018`）。
+    ///
+    /// 低い枠（G3）が単独音、高い枠（D4）が連続音。 低いノートは単独音の綴りで、高いノートは
+    /// 連続音の綴りで要求される。 **方式を音源に1つ持っていた**ときは、どちらかの綴りを
+    /// 全ノートに要求していた。
+    #[test]
+    fn 枠ごとの方式で必要な綴りが決まる() {
+        let low = crate::subbank::Cell {
+            id: SubbankId::new(1),
+            voice_color: None,
+            method: Method::Single,
+            tone: 55,
+        };
+        let high = crate::subbank::Cell {
+            id: SubbankId::new(2),
+            voice_color: None,
+            method: Method::Sequential,
+            tone: 67,
+        };
+        let cells = Cells::new(vec![low, high]);
+        // 1音目は G3 の枠、2音目は D5 の枠が受け持つ。
+        let mut s = song("あか", &["あ", "か"]);
+        s.notes[0].midi = 57;
+        s.notes[1].midi = 69;
+        let need = s.required_by_cell(&builtin_rules(), UnitSet::Core, &cells, None);
+        assert_eq!(
+            need,
+            BTreeSet::from([
+                (SubbankId::new(1), "あ".to_owned()),
+                (SubbankId::new(2), "a か".to_owned()),
+            ]),
+            "単独音の枠は素の綴り、連続音の枠は文脈つきの綴り"
+        );
+
+        // 両方の枠が自分の方式の綴りを持てば歌える。 不足は持っていない枠ごとに数える。
+        let held: BTreeMap<SubbankId, BTreeSet<String>> = [
+            (SubbankId::new(1), have(&["あ"])),
+            (SubbankId::new(2), have(&["a か"])),
+        ]
+        .into_iter()
+        .collect();
+        let lists: BTreeMap<SubbankId, Vec<crate::reclist::Row>> = [
+            (SubbankId::new(1), full_list()),
+            (SubbankId::new(2), full_list()),
+        ]
+        .into_iter()
+        .collect();
+        let songs = [("s1".to_owned(), s)];
+        let got = status_of(
+            &songs,
+            &builtin_rules(),
+            &cells,
+            None,
+            &held,
+            UnitSet::Core,
+            &lists,
+        );
+        assert_eq!(got[0].singability, Singability::Complete);
+        assert_eq!((got[0].covered, got[0].required), (2, 2));
+
+        // 連続音の枠が `a か` を持たなければ、その枠の1単位が足りない。 単独音の枠は影響しない。
+        let mut short = held;
+        short.insert(SubbankId::new(2), BTreeSet::new());
+        let got = status_of(
+            &songs,
+            &builtin_rules(),
+            &cells,
+            None,
+            &short,
+            UnitSet::Core,
+            &lists,
+        );
+        assert_eq!(got[0].missing_units, 1);
+        assert_eq!(
+            got[0].singability,
+            Singability::Unavailable,
+            "降りた先の単独音の枠にも `か` は無い"
+        );
+
+        // 降りた先の単独音の枠が `か` を持っていれば、その方式の綴りで代替して歌える。
+        let mut fallback = short;
+        fallback.insert(SubbankId::new(1), have(&["あ", "か"]));
+        let got = status_of(
+            &songs,
+            &builtin_rules(),
+            &cells,
+            None,
+            &fallback,
+            UnitSet::Core,
+            &lists,
+        );
+        assert_eq!(got[0].singability, Singability::WithFallback);
+        assert_eq!(got[0].missing_units, 1, "必要な `a か` は連続音の枠に無いまま");
+    }
+
+    /// 声色の違う枠は、同じ高さでも収録済みが混ざらない（`TR-RCL-26`）。
+    #[test]
+    fn 声色が違えば同じ高さでも別に数える() {
+        let color = VoiceColor::parse("Growl");
+        let cells = Cells::new(vec![
+            crate::subbank::Cell {
+                id: SubbankId::new(1),
+                voice_color: None,
+                method: Method::Single,
+                tone: 60,
+            },
+            crate::subbank::Cell {
+                id: SubbankId::new(2),
+                voice_color: color.clone(),
+                method: Method::Single,
+                tone: 60,
+            },
+        ]);
+        let s = song("さく", &["さ", "く"]);
+        // 声色なしの枠だけが全部録ってある。
+        let held: BTreeMap<SubbankId, BTreeSet<String>> = [(SubbankId::new(1), have(&["さ", "く"]))]
+            .into_iter()
+            .collect();
+        let lists: BTreeMap<SubbankId, Vec<crate::reclist::Row>> = [
+            (SubbankId::new(1), full_list()),
+            (SubbankId::new(2), full_list()),
+        ]
+        .into_iter()
+        .collect();
+        let songs = [("s1".to_owned(), s)];
+        let status = |c: Option<&VoiceColor>| {
+            status_of(&songs, &builtin_rules(), &cells, c, &held, UnitSet::Core, &lists)
+        };
+        assert_eq!(status(None)[0].singability, Singability::Complete);
+        let growl = &status(color.as_ref())[0];
+        assert_eq!(growl.singability, Singability::Unavailable, "Growl の枠は空");
+        assert_eq!(growl.missing_units, 2);
     }
 
     /// 読めない歌詞の曲は必要集合が空になる。 一部だけ読めた形で先へ進めない。
@@ -1163,16 +1352,27 @@ mod range_tests {
             default_portamento_ms: 0.0,
             transpose: 0,
         };
+        let cells = Cells::new(vec![crate::subbank::Cell {
+            id: SubbankId::new(60),
+            voice_color: None,
+            method: Method::Single,
+            tone: 60,
+        }]);
         let got = status_of(
             std::slice::from_ref(&("s1".to_owned(), s)),
             &builtin_rules(),
-            Method::Single,
-            &[(60, ["あ".to_owned()].into_iter().collect())]
+            &cells,
+            None,
+            &[(SubbankId::new(60), ["あ".to_owned()].into_iter().collect())]
                 .into_iter()
                 .collect(),
             UnitSet::Core,
-            &crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる"),
-            &[60],
+            &[(
+                SubbankId::new(60),
+                crate::reclist::generate_single(UnitSet::Core, 5).expect("生成できる"),
+            )]
+            .into_iter()
+            .collect(),
         );
         assert_eq!(got[0].missing_units, 0, "エイリアスは揃っている");
         assert_eq!(got[0].singability, Singability::Unavailable);
