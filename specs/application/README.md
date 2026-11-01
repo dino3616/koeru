@@ -161,7 +161,7 @@ tauri-specta の 84 のコマンド（`crates/koeru-app/src/lib.rs` の登録）
 | `guide_tempo` | `RecordingFacet.guideTempo`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Query |
 | `set_guide_tempo` | `Mutation.setGuideTempo`。 刷新のあいだの例外で足した（`DEC-PLT-061`）。 入力の `lease`・`operationId` は運ばず、それを照合する枝（`ProjectLeaseExpired`・`OperationIdReused`）と `receipt` も返さない | Mutation |
 | `privacy` | `Query.privacy`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Query |
-| `choose_privacy_consent` | `Mutation.choosePrivacyConsent`。 刷新のあいだの例外で足した（`DEC-PLT-061`） | Mutation |
+| `choose_privacy_consent` | `Mutation.choosePrivacyConsent`。 刷新のあいだの例外で足した（`DEC-PLT-061`）。 口では入力の `operationId` を運ばず、それを照合する枝（`OperationIdReused`）と `receipt` も返さない | Mutation |
 
 コマンドの外で消えるもの。 `finish_take` が返していた波形のサムネイルは
 `Query.waveformWindow` を小さい画素数で読む。 行と確認の `key`（結合した文字列）は

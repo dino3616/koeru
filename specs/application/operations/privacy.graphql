@@ -14,8 +14,17 @@ fragment PrivacyPanel_PrivacySettings on PrivacySettings {
   lastSentAt
 }
 
-mutation ChoosePrivacyConsent($subject: ConsentSubject!, $granted: Boolean!) {
-  choosePrivacyConsent(input: { subject: $subject, granted: $granted }) {
+mutation ChoosePrivacyConsent(
+  $operationId: OperationId!
+  $subject: ConsentSubject!
+  $granted: Boolean!
+) {
+  choosePrivacyConsent(
+    input: { operationId: $operationId, subject: $subject, granted: $granted }
+  ) {
+    receipt {
+      ...Receipt_MutationReceipt
+    }
     outcome {
       __typename
       ... on PrivacyConsentChosen {

@@ -32,22 +32,27 @@ enum ConsentSubject {
   CRASH_REPORTS
 }
 
+# 遅れて届いた「同意する」の再送が、その間の撤回を上書きしないよう、`operationId` で照合する。
+# 受領証の `revision` は同意の版で、project の版ではない。
+
 extend type Mutation {
   "1つの同意を本人が選ぶ。 もう片方は動かない（`TR-PKG-57`）。"
   choosePrivacyConsent(input: ChoosePrivacyConsentInput!): ChoosePrivacyConsentPayload!
 }
 
 input ChoosePrivacyConsentInput {
+  operationId: OperationId!
   subject: ConsentSubject!
   "false は、同意していたものを撤回する。 訊いていないものは `NOT_ASKED` のまま。"
   granted: Boolean!
 }
 
 type ChoosePrivacyConsentPayload {
+  receipt: MutationReceipt!
   outcome: ChoosePrivacyConsentOutcome!
 }
 
-union ChoosePrivacyConsentOutcome = PrivacyConsentChosen | StorageProblem
+union ChoosePrivacyConsentOutcome = PrivacyConsentChosen | StorageProblem | OperationIdReused
 
 type PrivacyConsentChosen {
   privacy: PrivacySettings!

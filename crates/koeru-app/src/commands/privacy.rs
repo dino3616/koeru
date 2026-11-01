@@ -3,6 +3,8 @@
 //!
 //! 型と欄の名前は SDL（`specs/application/schema/privacy.graphql`）に合わせる。
 //! 画面の型名が SDL の型名になり、GraphQL へ移すときに画面の側を書き換えずに済む。
+//! 入力の `operationId` と payload の `receipt`、`OperationIdReused` の枝は運ばない
+//! （`specs/application/README.md` の移行表）。
 //!
 //! 状態は `AppState` の外に置く（Tauri の別の managed state）。 `studio` のロックを
 //! 取らないので、テイクの確定中でも設定の面が待たされない。
