@@ -390,6 +390,30 @@ export const commands = {
 	 *  渡すのは連番だけ。 在り処は Rust が台帳から引く。
 	 */
 	revealRelease: (seq: number) => typedError<null, AppError>(__TAURI_INVOKE("reveal_release", { seq })),
+	/**  配布物を足した順で（`DistributionFacet.distributions`）。 少なくとも1つ。 */
+	distributions: () => typedError<Distribution[], AppError>(__TAURI_INVOKE("distributions")),
+	/**  配布物を写して足す（`Mutation.duplicateDistribution`、`TR-PKG-58`）。 名前は「〇〇 のコピー」。 */
+	duplicateDistribution: (input: DuplicateDistributionInput) => typedError<DuplicateDistributionPayload, AppError>(__TAURI_INVOKE("duplicate_distribution", { input })),
+	/**
+	 *  配布物の名前・入れる枠・担当音域・規約・下書きの番号を直す（`Mutation.reviseDistribution`、
+	 *  `TR-PKG-58`〜`TR-PKG-60`）。 渡したものだけ変える。
+	 * 
+	 *  担当音域を直しても、枠の担当音域は変わらない（`TR-PKG-59`）。
+	 */
+	reviseDistribution: (input: ReviseDistributionInput) => typedError<ReviseDistributionPayload, AppError>(__TAURI_INVOKE("revise_distribution", { input })),
+	/**
+	 *  配布物を消す（`Mutation.removeDistribution`、`TR-PKG-58`）。 書き出しの記録と ZIP は残す
+	 *  （`TR-PKG-44`）。 最後の1つは消せない。
+	 */
+	removeDistribution: (input: RemoveDistributionInput) => typedError<RemoveDistributionPayload, AppError>(__TAURI_INVOKE("remove_distribution", { input })),
+	/**
+	 *  配布物と版を選んで書き出す（`Mutation.prepareExport` → `Mutation.commitExport`、
+	 *  `TR-PKG-58`、`TR-PKG-60`）。
+	 * 
+	 *  書き出し済みの番号を選ぶと、同じ番号で記録を1件足す。 前の ZIP は消さない
+	 *  （`DEC-PKG-018`、`TR-PKG-44`）。
+	 */
+	exportDistribution: (input: ExportDistributionInput) => typedError<ExportDistributionPayload, AppError>(__TAURI_INVOKE("export_distribution", { input })),
 	/**
 	 *  テイクに名前を付ける・変える・消す（`Mutation.renameTake`）。
 	 * 
@@ -520,6 +544,53 @@ export type DeviceView = {
 	name: string,
 };
 
+/**  名前を付けて残す配布物（`Distribution`）。 */
+export type Distribution = {
+	/**  `DistributionId`。 wire では文字列で、画面は中身を解釈しない。 */
+	id: string,
+	name: string,
+	/**  音源ルートフォルダ名（`DEC-PKG-008`）。 配布物のあいだで重ならない。 */
+	archiveName: string,
+	/**  入れる枠。 並びは `subbanks` と同じ。 */
+	subbanks: PackagedSubbank[],
+	/**  声色ごとに、入れた枠のどれも受け持たない高さ（`TR-PKG-59`）。 */
+	uncovered: UncoveredRange[],
+	/**  この配布物だけの利用規約。 `null` なら音源の規約。 */
+	terms: string | null,
+	/**  次に書き出す版の番号（`TR-PKG-60`）。 下書きが無ければ `null`。 */
+	draftVersion: string | null,
+	/**  この配布物の書き出し。 新しい順。 */
+	releases: Release[],
+	/**
+	 *  最後に書き出したあとに採用が変わった、入れた枠の行（`TR-PKG-61`）。
+	 *  書き出していなければ `null`。
+	 */
+	rowsChangedSinceRelease: number | null,
+};
+
+export type DistributionAdded = {
+	distribution: Distribution,
+};
+
+/**  フォルダ名が別の配布物と重なった（`DistributionConflict`）。 */
+export type DistributionConflict = {
+	code: string,
+	class: FailureClass,
+	commit: FailureOutcome,
+	actions: FailureAction[],
+	message: string,
+	existing: string,
+};
+
+export type DistributionRemoved = {
+	/**  消した配布物の `DistributionId`。 */
+	distribution: string,
+};
+
+export type DistributionRevised = {
+	distribution: Distribution,
+};
+
 /**  下位方式の書き出し1件（`TR-PKG-24`, `TR-PKG-25`）。 */
 export type DowngradeView = {
 	/**  書き出す作り方。 */
@@ -534,6 +605,26 @@ export type DowngradeView = {
 	 *  いちばん警告したい場面で嘘をつく。小数なら 2^53 バイトまで正確に届く。
 	 */
 	bytes: Finite,
+};
+
+export type DuplicateDistributionInput = {
+	/**  写す元の `DistributionId`。 */
+	source: string,
+};
+
+/**  `DuplicateDistributionOutcome` の union。 */
+export type DuplicateDistributionOutcome = {
+	__typename: "DistributionAdded",
+} & DistributionAdded | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type DuplicateDistributionPayload = {
+	outcome: DuplicateDistributionOutcome,
 };
 
 /**  画面へ返す、いま流れている音の包絡（`TR-REC-43`）。 */
@@ -566,6 +657,39 @@ export type EnvelopeView = {
 	 *  （`react-conventions`）、回数としては受け取りにくい。
 	 */
 	clipped_runs: number,
+};
+
+export type ExportDistributionInput = {
+	/**  省くと先頭の配布物。 */
+	distribution: string | null,
+	/**
+	 *  省くと下書きの番号。 下書きが無ければ、最後の版の末尾を1つ上げた番号。
+	 *  書き出し済みの番号なら、同じ番号で記録を1件足す（`TR-PKG-60`）。
+	 */
+	version: string | null,
+	/**  省くと音源の方式。 下位の方式なら独立した音源として出す（`TR-PKG-24`）。 */
+	method: RecordingMethod | null,
+};
+
+/**
+ *  `PrepareExportOutcome` と `CommitExportOutcome` を1つにしたもの。 計画を作ってから確定する
+ *  2手を、ここでは1回の呼び出しで行う。
+ * 
+ *  書き出せない理由（被覆・検証・確認の残り）は `ExportBlocked` ではなく失敗（`AppError`）で
+ *  返る。 何が足りないかは `package_state` が持つ。
+ */
+export type ExportDistributionOutcome = {
+	__typename: "ReleasePublished",
+} & ReleasePublished | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem;
+
+export type ExportDistributionPayload = {
+	outcome: ExportDistributionOutcome,
 };
 
 /**
@@ -867,6 +991,19 @@ export type PackageStateView = {
 	downgrades: DowngradeView[],
 };
 
+/**  配布物が入れる枠1つ（`PackagedSubbank`）。 */
+export type PackagedSubbank = {
+	subbank: Subbank,
+	/**  この配布物で書く担当音域（`TR-PKG-59`）。 `edited` はこの配布物で直したときだけ true。 */
+	toneRange: ToneRange,
+};
+
+export type PackagedSubbankInput = {
+	subbank: string,
+	/**  省くと枠の担当音域（`TR-RCL-31`）。 直してもこの配布物にだけ効く（`TR-PKG-59`）。 */
+	toneRange: ToneRangeInput | null,
+};
+
 /**  確定したテイクの音高の記録（`PitchTrack`）。 */
 export type PitchTrack = {
 	/**  格子の間隔（マスターの標本数）。 `hz` の `i` 番目はテイクの先頭から `hop` × `i` 標本。 */
@@ -1007,6 +1144,28 @@ export type ReferenceNotFound = {
 	message: string,
 };
 
+/**  書き出しの記録1件（`Release`）。 在り処は持たない（`TR-PKG-45`）。 */
+export type Release = {
+	/**  `ReleaseId`。 wire では文字列で、画面は中身を解釈しない。 `reveal_release` に渡す連番。 */
+	id: string,
+	/**  書き出した配布物（`DistributionId`）。 配布物を消しても記録は残る（`TR-PKG-44`）。 */
+	distribution: string,
+	/**  同じ配布物の中で、同じ番号の記録が並ぶことがある（`TR-PKG-60`）。 */
+	version: string,
+	method: RecordingMethod,
+	aliasCount: number,
+	validation: ReleaseValidation,
+	archiveName: string,
+	releasedAt: string,
+};
+
+export type ReleasePublished = {
+	release: Release,
+};
+
+/**  書き出しの記録の検証の結果（`ReleaseValidation`）。 */
+export type ReleaseValidation = "PASSED" | "PASSED_WITH_WARNINGS" | "NOT_RUN";
+
 /**  書き出しの履歴1件（`TR-PKG-44`）。 */
 export type ReleaseView = {
 	seq: number,
@@ -1016,6 +1175,27 @@ export type ReleaseView = {
 	validation: string,
 	archive_name: string,
 	released_at: string,
+};
+
+export type RemoveDistributionInput = {
+	distribution: string,
+};
+
+/**  `RemoveDistributionOutcome` の union。 最後の1つを消そうとすると `ActionRejected`。 */
+export type RemoveDistributionOutcome = {
+	__typename: "DistributionRemoved",
+} & DistributionRemoved | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type RemoveDistributionPayload = {
+	outcome: RemoveDistributionOutcome,
 };
 
 /**  画面は消えるテイクの数を示して確認を取り、その数を `acknowledgedTakes` に入れる。 */
@@ -1149,6 +1329,48 @@ export type ReviewSummaryView = {
 	/**  その方式の到達水準。 */
 	reach: string,
 	exported: boolean,
+};
+
+export type ReviseDistributionInput = {
+	distribution: string,
+	name: string | null,
+	/**  配布物のあいだで重なると `DistributionConflict`。 */
+	archiveName: string | null,
+	/**  渡すと入れる枠をこれに置き換える。 空にはできない。 */
+	subbanks: PackagedSubbankInput[] | null,
+	terms: string | null,
+	/**  この配布物の規約を消し、音源の規約に戻す。 */
+	clearTerms: boolean | null,
+	/**  書き出し済みの番号とは重ねない。 */
+	draftVersion: string | null,
+	/**  下書きを消す。 書き出し済みの版は消えない。 */
+	clearDraftVersion: boolean | null,
+};
+
+/**
+ *  `ReviseDistributionOutcome` の union。 下書きの番号が書き出し済みの番号と重なると
+ *  `ActionRejected`。
+ */
+export type ReviseDistributionOutcome = {
+	__typename: "DistributionRevised",
+} & DistributionRevised | {
+	__typename: "DistributionConflict",
+} & DistributionConflict | {
+	__typename: "ActionRejected",
+} & Problem | {
+	__typename: "InvalidRequest",
+} & InvalidRequest | {
+	__typename: "ReferenceNotFound",
+} & Problem | {
+	__typename: "RevisionConflict",
+} & RevisionConflict | {
+	__typename: "ProjectLeaseExpired",
+} & Problem | {
+	__typename: "OperationIdReused",
+} & OperationIdReused;
+
+export type ReviseDistributionPayload = {
+	outcome: ReviseDistributionOutcome,
 };
 
 /**  省いた欄は変えない。 声色を声色なしへ戻すときは `clearVoiceColor` を使う。 */
@@ -1588,6 +1810,14 @@ export type ToneSuggestionView = {
 	why: string,
 	/**  音高（MIDI）。名前は画面が `tone_name` で引く。 */
 	midi: number[],
+};
+
+/**  入れた枠のどれも受け持たない高さ（`UncoveredRange`）。 */
+export type UncoveredRange = {
+	/**  `null` は声色なし。 */
+	voiceColor: string | null,
+	low: Tone,
+	high: Tone,
 };
 
 /**  CP932 で書けない箇所（`TR-PKG-17`）。 */

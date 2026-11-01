@@ -38,6 +38,7 @@ use koeru_failure::Class;
 use koeru_runtime::ProjectRuntime;
 use koeru_runtime::jobs::JobRuntime;
 
+pub mod distribution;
 pub mod subbank;
 
 use crate::error::{AppError, Result};

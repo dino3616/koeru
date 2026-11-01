@@ -43,12 +43,13 @@ use crate::song::{Note, Provenance, Song};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
-use koeru_model::id::{RowId, SubbankId, TakeId};
+use koeru_model::id::{DistributionId, RowId, SubbankId, TakeId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub mod guide;
 pub mod intent;
+pub mod shelf;
 pub mod song_import;
 pub mod subbank;
 
@@ -2650,6 +2651,9 @@ impl Ledger {
     /// 同じ番号のリリースが2つできる。返るのは確定したレコード。
     ///
     /// 書き出し先の名前は過去のものと衝突しない（連番が先頭に付く）。
+    ///
+    /// 記録と、書き出した時点の採用テイク（`TR-PKG-61`）、下書きの繰り上げ（`TR-PKG-60`）は
+    /// 同じトランザクションで足す。
     #[tracing::instrument(skip(self, r))]
     pub fn record_release(&mut self, r: &NewRelease, ext: &str) -> Result<Release> {
         let next = releases::table
@@ -2660,23 +2664,30 @@ impl Ledger {
             + 1;
         let name = archive_name(next, &r.version, ext);
 
-        diesel::insert_into(releases::table)
-            .values((
-                releases::seq.eq(next),
-                releases::version.eq(&r.version),
-                releases::method.eq(r.method.as_str()),
-                releases::alias_count.eq(r.alias_count),
-                releases::validation.eq(r.validation.as_str()),
-                releases::oto_hash.eq(&r.oto_hash),
-                releases::terms_hash.eq(&r.terms_hash),
-                releases::archive_name.eq(&name),
-                releases::released_at.eq(&r.released_at),
-            ))
-            .execute(&mut self.conn)
+        self.conn
+            .transaction(|c| {
+                diesel::insert_into(releases::table)
+                    .values((
+                        releases::seq.eq(next),
+                        releases::distribution_id.eq(r.distribution.get()),
+                        releases::version.eq(&r.version),
+                        releases::method.eq(r.method.as_str()),
+                        releases::alias_count.eq(r.alias_count),
+                        releases::validation.eq(r.validation.as_str()),
+                        releases::oto_hash.eq(&r.oto_hash),
+                        releases::terms_hash.eq(&r.terms_hash),
+                        releases::archive_name.eq(&name),
+                        releases::released_at.eq(&r.released_at),
+                    ))
+                    .execute(c)?;
+                shelf::snapshot_adoptions(c, next)?;
+                shelf::after_release(c, r.distribution, &r.version)
+            })
             .map_err(db("record_release"))?;
 
         Ok(Release {
             seq: next,
+            distribution: r.distribution,
             version: r.version.clone(),
             method: r.method,
             alias_count: r.alias_count,
@@ -2712,6 +2723,7 @@ impl Ledger {
             .order(releases::seq.asc())
             .select((
                 releases::seq,
+                releases::distribution_id,
                 releases::version,
                 releases::method,
                 releases::alias_count,
@@ -2722,6 +2734,7 @@ impl Ledger {
                 releases::released_at,
             ))
             .load::<(
+                i32,
                 i32,
                 String,
                 String,
@@ -2739,6 +2752,7 @@ impl Ledger {
             .map(
                 |(
                     seq,
+                    distribution_id,
                     version,
                     method,
                     alias_count,
@@ -2749,6 +2763,7 @@ impl Ledger {
                     released_at,
                 )| Release {
                     seq,
+                    distribution: DistributionId::new(distribution_id),
                     version,
                     // 保存した方式名が読めなくても履歴は出す。
                     // 読めないものを落とすと、その回に何を配ったかが辿れなくなる。
@@ -5004,6 +5019,7 @@ mod tests {
 
     fn new_release(version: &str) -> NewRelease {
         NewRelease {
+            distribution: DistributionId::new(1),
             version: version.into(),
             method: Method::Single,
             alias_count: 102,

@@ -291,3 +291,295 @@ fn 連続音から単独音へ降りて書き出せる() {
         .sum();
     assert_eq!(estimated, copied, "概算は実際に複製する素材と同じ");
 }
+
+// ## 配布物と版（`DEC-PKG-018`）
+
+use koeru_app_lib::studio::{DistributionDenied, PackagedSubbankChange, ReviseDistribution};
+use koeru_core::db::shelf::DistributionRefusal;
+
+/// 配布物が1つだった頃の画面は、フォルダ名と版を音源の設定として読み書きする。
+/// それが先頭の配布物（既定の「すべて」）の値として残る。
+#[test]
+fn 旧い設定の口は先頭の配布物へ書く() {
+    let mut studio = seeded("shelf-legacy");
+    let before = studio.distributions().expect("引ける");
+    assert_eq!(before.len(), 1, "増やさない人の画面は今と同じ");
+    assert_eq!(before[0].name, "すべて");
+    assert_eq!(before[0].draft_version.as_deref(), Some("1.0.0"));
+
+    let mut d = studio.package_settings().expect("引ける");
+    d.distribution_name = "Koeru-A".to_owned();
+    d.version = Some("v2".to_owned());
+    studio.set_package_settings(&d).expect("保存できる");
+
+    let after = studio.distributions().expect("引ける");
+    assert_eq!(after[0].archive_name, "Koeru-A");
+    assert_eq!(after[0].draft_version.as_deref(), Some("v2"));
+    let again = studio.package_settings().expect("引ける");
+    assert_eq!(again.distribution_name, "Koeru-A");
+    assert_eq!(again.version.as_deref(), Some("v2"));
+}
+
+/// `TR-PKG-60`。版は配布物ごとに数え、書き出し済みの番号を選ぶと、同じ番号で記録が1件増える。
+/// 前の ZIP は消えない（`TR-PKG-44`）。
+#[test]
+fn 版は配布物ごとに数え_書き出し済みの番号を選ぶと記録が1件増える() {
+    let mut studio = seeded("shelf-versions");
+    let all = studio.distributions().expect("引ける")[0].id;
+    let copy = studio
+        .duplicate_distribution(all)
+        .expect("書ける")
+        .expect("写せる")
+        .id;
+
+    let first = studio
+        .export_distribution(Some(copy), None, None)
+        .expect("台帳を書ける")
+        .expect("書き出せる");
+    assert_eq!(first.release.distribution, copy);
+    assert_eq!(first.release.version, "1.0.0", "写した配布物は最初の版から");
+    let shelf = studio.distributions().expect("引ける");
+    assert_eq!(shelf[1].draft_version.as_deref(), Some("1.0.1"));
+    assert_eq!(
+        shelf[0].draft_version.as_deref(),
+        Some("1.0.0"),
+        "別の配布物の版は動かない"
+    );
+    assert_eq!(shelf[1].releases.len(), 1);
+    assert!(shelf[0].releases.is_empty());
+
+    // 書き出し済みの番号を選んで出し直す。 下書きは動かない。
+    let again = studio
+        .export_distribution(Some(copy), Some("1.0.0"), None)
+        .expect("台帳を書ける")
+        .expect("書き出せる");
+    assert_eq!(again.release.version, "1.0.0");
+    assert_ne!(again.release.seq, first.release.seq);
+    assert!(first.written.zip.is_file(), "前の ZIP は消えない");
+    assert!(again.written.zip.is_file());
+    let shelf = studio.distributions().expect("引ける");
+    assert_eq!(shelf[1].releases.len(), 2);
+    assert_eq!(shelf[1].draft_version.as_deref(), Some("1.0.1"));
+}
+
+/// 配布物を消しても、書き出しの記録は残る。 最後の1つは消せない。
+#[test]
+fn 配布物を消しても記録は残り_最後の1つは消せない() {
+    let mut studio = seeded("shelf-remove");
+    let all = studio.distributions().expect("引ける")[0].id;
+    assert_eq!(
+        studio.remove_distribution(all).expect("台帳を書ける"),
+        Err(DistributionDenied::Refused(DistributionRefusal::LastOne))
+    );
+
+    let copy = studio
+        .duplicate_distribution(all)
+        .expect("書ける")
+        .expect("写せる")
+        .id;
+    studio
+        .export_distribution(Some(copy), None, None)
+        .expect("台帳を書ける")
+        .expect("書き出せる");
+    studio
+        .remove_distribution(copy)
+        .expect("台帳を書ける")
+        .expect("消せる");
+
+    assert_eq!(studio.distributions().expect("引ける").len(), 1);
+    let kept = studio.releases().expect("引ける");
+    assert_eq!(kept.len(), 1, "記録は残る");
+    assert_eq!(kept[0].distribution, copy);
+}
+
+/// 指した配布物が無ければ何も書かない。
+#[test]
+fn 無い配布物へは書き出さない() {
+    let mut studio = seeded("shelf-unknown");
+    let ghost = koeru_model::id::DistributionId::new(99);
+    let denied = studio
+        .export_distribution(Some(ghost), None, None)
+        .expect("台帳を読める")
+        .expect_err("断ること");
+    assert_eq!(
+        denied,
+        DistributionDenied::Refused(DistributionRefusal::UnknownDistribution)
+    );
+    assert!(studio.releases().expect("引ける").is_empty());
+}
+
+/// `TR-PKG-61`。書き出していなければ「分からない」、書き出した直後は0。
+#[test]
+fn 書き出したあとに採用が変わった行は_書き出すまで数えない() {
+    let mut studio = seeded("shelf-changed");
+    assert_eq!(
+        studio.distributions().expect("引ける")[0].rows_changed_since_release,
+        None
+    );
+    studio.export_package().expect("書き出せる");
+    assert_eq!(
+        studio.distributions().expect("引ける")[0].rows_changed_since_release,
+        Some(0)
+    );
+}
+
+/// `TR-PKG-59`。入れる枠を外すと、外した枠が受け持っていた高さが空く。 直した範囲はその配布物にだけ
+/// 効き、枠の担当音域は変わらない。
+#[test]
+fn 担当音域は配布物の書き出しに限って直せる() {
+    let mut studio = Studio::open(library("shelf-ranges")).expect("ライブラリを開ける");
+    let id = studio
+        .create_project_with("多音階", "single", &[55, 62, 69])
+        .expect("作れる");
+    studio.open_project(id).expect("開ける");
+    let subbanks = studio.subbanks().expect("読める");
+    let all = studio.distributions().expect("引ける")[0].id;
+    assert_eq!(studio.distributions().expect("引ける")[0].subbanks.len(), 3);
+    assert!(
+        studio.distributions().expect("引ける")[0]
+            .uncovered
+            .is_empty()
+    );
+
+    let copy = studio
+        .duplicate_distribution(all)
+        .expect("書ける")
+        .expect("写せる")
+        .id;
+    // 中の枠を外す。
+    let outer = [
+        PackagedSubbankChange {
+            subbank: subbanks[0].id,
+            range: None,
+        },
+        PackagedSubbankChange {
+            subbank: subbanks[2].id,
+            range: None,
+        },
+    ];
+    let trimmed = studio
+        .revise_distribution(
+            copy,
+            &ReviseDistribution {
+                subbanks: Some(&outer),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("書ける")
+        .expect("直せる");
+    assert_eq!(trimmed.uncovered.len(), 1, "真ん中の高さが空く");
+    assert_eq!(
+        (trimmed.uncovered[0].1.low, trimmed.uncovered[0].1.high),
+        (subbanks[1].range.low, subbanks[1].range.high)
+    );
+
+    // 下の枠の範囲を伸ばして空きを埋める。 その配布物にだけ効く。
+    let stretched = [
+        PackagedSubbankChange {
+            subbank: subbanks[0].id,
+            range: Some((subbanks[0].range.low, subbanks[1].range.high)),
+        },
+        PackagedSubbankChange {
+            subbank: subbanks[2].id,
+            range: None,
+        },
+    ];
+    let filled = studio
+        .revise_distribution(
+            copy,
+            &ReviseDistribution {
+                subbanks: Some(&stretched),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("書ける")
+        .expect("直せる");
+    assert!(filled.uncovered.is_empty());
+    assert!(filled.subbanks[0].range_edited);
+    assert!(!filled.subbanks[1].range_edited);
+
+    let still = studio.subbanks().expect("読める");
+    assert_eq!(
+        still[0].range, subbanks[0].range,
+        "枠の担当音域は変わらない"
+    );
+    assert!(still.iter().all(|s| !s.range_edited));
+    let untouched = studio.distributions().expect("引ける");
+    assert!(untouched[0].subbanks.iter().all(|m| !m.range_edited));
+    assert!(untouched[0].uncovered.is_empty());
+}
+
+/// 配布物の入力の誤りと断りは、何も書かずに値で返る（`DEC-PLT-038`）。
+#[test]
+fn 配布物の直しの誤りは何も書かずに断る() {
+    let mut studio = seeded("shelf-denied");
+    let all = studio.distributions().expect("引ける")[0].id;
+    let copy = studio
+        .duplicate_distribution(all)
+        .expect("書ける")
+        .expect("写せる");
+    let first_name = studio.distributions().expect("引ける")[0]
+        .archive_name
+        .clone();
+
+    let empty = studio
+        .revise_distribution(
+            copy.id,
+            &ReviseDistribution {
+                subbanks: Some(&[]),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("台帳を書ける");
+    assert_eq!(
+        empty.expect_err("断ること"),
+        DistributionDenied::Invalid(koeru_app_lib::studio::Violation {
+            field: "subbanks",
+            code: "distribution.no_subbanks",
+        })
+    );
+
+    let bad = studio
+        .revise_distribution(
+            copy.id,
+            &ReviseDistribution {
+                archive_name: Some("こえる🎤"),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("台帳を書ける")
+        .expect_err("断ること");
+    assert!(matches!(bad, DistributionDenied::Invalid(v) if v.field == "archiveName"));
+
+    // 自分のフォルダ名へ書き直すのは重なりではない。 別の配布物のものは重なる。
+    studio
+        .revise_distribution(
+            copy.id,
+            &ReviseDistribution {
+                archive_name: Some(&copy.archive_name),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("台帳を書ける")
+        .expect("通る");
+    let taken = studio
+        .revise_distribution(
+            copy.id,
+            &ReviseDistribution {
+                name: Some("変えた名前"),
+                archive_name: Some(&first_name),
+                ..ReviseDistribution::default()
+            },
+        )
+        .expect("台帳を書ける")
+        .expect_err("断ること");
+    assert_eq!(
+        taken,
+        DistributionDenied::Refused(DistributionRefusal::Conflict { existing: all })
+    );
+    assert_ne!(
+        studio.distributions().expect("引ける")[1].name,
+        "変えた名前",
+        "断るときは何も書かない"
+    );
+}

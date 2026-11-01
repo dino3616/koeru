@@ -77,13 +77,44 @@ export type {
 import type {
   AppError,
   ChoosePrivacyConsentInput,
+  DuplicateDistributionInput,
   EnvelopeView,
+  ExportDistributionInput,
   MicModeView,
   PackageSettingsView,
+  RemoveDistributionInput,
+  ReviseDistributionInput,
   SetGuideTempoInput,
   SongSelection,
 } from "~/lib/bindings.gen";
 import type { RenameTakeInput } from "~/lib/bindings.gen";
+
+/* 配布物と版。 刷新のあいだ SDL の型名のまま運ぶ（`DEC-PLT-061`、`DEC-PKG-018`）。 */
+export type {
+  Distribution,
+  DistributionAdded,
+  DistributionConflict,
+  DistributionRemoved,
+  DistributionRevised,
+  DuplicateDistributionInput,
+  DuplicateDistributionOutcome,
+  DuplicateDistributionPayload,
+  ExportDistributionInput,
+  ExportDistributionOutcome,
+  ExportDistributionPayload,
+  PackagedSubbank,
+  PackagedSubbankInput,
+  Release,
+  ReleasePublished,
+  ReleaseValidation,
+  RemoveDistributionInput,
+  RemoveDistributionOutcome,
+  RemoveDistributionPayload,
+  ReviseDistributionInput,
+  ReviseDistributionOutcome,
+  ReviseDistributionPayload,
+  UncoveredRange,
+} from "~/lib/bindings.gen";
 
 /* テイクの名前と音高の記録。 刷新のあいだ SDL の型名のまま運ぶ（`DEC-PLT-061`）。 */
 export type {
@@ -280,6 +311,20 @@ export const api = {
   releases: () => unwrap(commands.releases()),
   /** 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。 */
   revealRelease: (seq: number) => unwrap(commands.revealRelease(seq)),
+  /** 名前を付けて残す配布物を、足した順に（`TR-PKG-58`）。 少なくとも1つ。 版は `releases` と `draftVersion`。 */
+  distributions: () => unwrap(commands.distributions()),
+  /** 配布物を写して足す（`TR-PKG-58`）。 */
+  duplicateDistribution: (input: DuplicateDistributionInput) =>
+    unwrap(commands.duplicateDistribution(input)),
+  /** 名前・入れる枠・担当音域・規約・下書きの番号を直す。 渡したものだけ変わる。 */
+  reviseDistribution: (input: ReviseDistributionInput) =>
+    unwrap(commands.reviseDistribution(input)),
+  /** 配布物を消す。 書き出しの記録と ZIP は残る。 最後の1つは結果の枝で断られる。 */
+  removeDistribution: (input: RemoveDistributionInput) =>
+    unwrap(commands.removeDistribution(input)),
+  /** 配布物と版を選んで書き出す。 書き出し済みの番号なら、同じ番号で記録が1件増える（`TR-PKG-60`）。 */
+  exportDistribution: (input: ExportDistributionInput) =>
+    unwrap(commands.exportDistribution(input)),
   /** 同意と送った記録（`TR-PKG-54`）。 project を開かずに読める。 */
   privacy: () => unwrap(commands.privacy()),
   /** 1つの同意を選ぶ（`TR-PKG-57`）。 保存できなかったことは結果の枝で返る。 */
