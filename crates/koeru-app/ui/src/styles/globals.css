@@ -280,6 +280,50 @@
     var(--voice-image, light-dark(var(--voice-fill-light), var(--voice-fill-dark))) 14%,
     var(--slate-2)
   );
+
+  /*
+   * 主ボタンの塗りと、hover・押している状態の2段（`DEC-PLT-062`）。
+   *
+   * 声の色を借りるが、声が無い音源では slate 11 に落とす。 `voice` のままだと
+   * `--voice-fill-*` が未定義のとき宣言ごと無効になり、**塗りが透明になって
+   * `voice-ink` の字だけが地に残る。** 内側の `var()` に代わりの値を置けば、
+   * 無効にならずに段へ落ちる。
+   *
+   * hover と押している状態は、塗りを slate 12 へ寄せる。 字は `voice-ink`
+   * （slate 1）から動かないので、明るい面では塗りが暗くなり、暗い面では明るくなって、
+   * どちらも比が上がる向きになる。 `brightness()` は使わない（上の段の説明を参照）。
+   *
+   * 式を3つに書いている。 `voice` と同じ理由で、`var(--color-primary)` から引くと
+   * 音源ごとに差した値が届かない。
+   */
+  --background-color-primary: var(
+    --voice-image,
+    light-dark(var(--voice-fill-light, var(--slate-11)), var(--voice-fill-dark, var(--slate-11)))
+  );
+  --background-color-primary-hover: color-mix(
+    in oklab,
+    var(
+        --voice-image,
+        light-dark(
+          var(--voice-fill-light, var(--slate-11)),
+          var(--voice-fill-dark, var(--slate-11))
+        )
+      )
+      80%,
+    var(--slate-12)
+  );
+  --background-color-primary-active: color-mix(
+    in oklab,
+    var(
+        --voice-image,
+        light-dark(
+          var(--voice-fill-light, var(--slate-11)),
+          var(--voice-fill-dark, var(--slate-11))
+        )
+      )
+      60%,
+    var(--slate-12)
+  );
 }
 
 .light {

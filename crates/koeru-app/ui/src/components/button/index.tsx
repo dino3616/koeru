@@ -9,17 +9,30 @@ import { type VariantProps, cn, tv } from "~/lib/tv";
  * `tv` に入れるのは値で変わるものだけ。 静的なクラスは下の JSX に直接書く
  * ——`base` に入れると、見た目を読むのに2箇所を行き来することになる。
  *
- * 押せるものに色相を与えない（`docs/reports/ux/direction.md`）。 塗りは段 11、
- * 字は段 1。色相を持ってよいのは声と状態色（red / amber）だけなので、
- * 「押せる」を色で言わず、塗りの有無で言う。
+ * 押せるものに色相を与えない（`docs/reports/ux/direction.md`）。 色相を持って
+ * よいのは声と状態色（red / amber）だけなので、「押せる」を色で言わず、
+ * 塗りと輪郭の有無で言う。
+ *
+ * - `primary` — 主。 1画面に1つ。 声の色で塗り、字は `voice-ink`。 声が無い音源では
+ *   slate 11 に落ちる（`DEC-PLT-062`、塗りの式は `globals.css` の `bg-primary`）
+ * - `secondary` — 副。 輪郭だけ
+ * - `ghost` — 小。 地に溶けて、hover で面が出るだけ
+ * - `danger` — red で塗る。 主・副・小の3種の外。 録音を止める操作が使っている
+ *
+ * 押している間は、面を1段進める。 `danger` は塗りが段 12 で行き止まりなので進めない。
+ *
+ * 太さも variant が持つ。 主だけ `font-black` で、ほかは `font-semibold`。 base に
+ * 置くと、どちらが効くかを `cn` の畳みの向きに預けることになる。
  */
 const button = tv({
   variants: {
     variant: {
-      primary: "bg-slate-11 text-slate-1 hover:bg-slate-12",
-      secondary: "border border-slate-7 bg-slate-3 text-slate-12 hover:bg-slate-4",
-      ghost: "text-slate-11 hover:bg-slate-3 hover:text-slate-12",
-      danger: "bg-red-11 text-slate-1 hover:bg-red-12",
+      primary:
+        "bg-primary font-black text-voice-ink hover:bg-primary-hover active:bg-primary-active",
+      secondary:
+        "border border-line-strong font-semibold text-1 hover:bg-surface-2 active:bg-surface-3",
+      ghost: "font-semibold text-1 hover:bg-surface-2 active:bg-surface-3",
+      danger: "bg-red-11 font-semibold text-slate-1 hover:bg-red-12",
     },
     size: {
       // 高さは 44px 以上を既定にする（`TR-PLT-31` の操作対象の大きさ）。
@@ -68,7 +81,7 @@ export const Button = ({ variant, size, asChild = false, className, ...props }: 
   return (
     <Comp
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-semibold disabled:pointer-events-none disabled:opacity-45",
+        "inline-flex items-center justify-center gap-2 rounded-lg disabled:pointer-events-none disabled:opacity-45",
         button({ variant, size }),
         className,
       )}
