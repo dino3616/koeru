@@ -668,6 +668,17 @@ impl Ledger {
     }
 }
 
+impl super::LedgerSnapshot {
+    /// 枠を並びの順で。 [`Ledger::subbanks`] と同じ形で、このスナップショットの版から読む。
+    ///
+    /// # Errors
+    ///
+    /// 台帳を読めない、方式の表記を知らない（[`LedgerError::UnknownSubbankMethod`]）。
+    pub fn subbanks(&mut self) -> Result<Vec<SubbankRecord>> {
+        load(self.conn())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -312,8 +312,8 @@ runner = 'cargo'
 package = 'koeru-runtime'
 target = 'read_session'
 platforms = ['macos', 'linux', 'windows']
-min_cases = 8
-contracts = ['DEC-PLT-044', 'DEC-PLT-043', 'DEC-PLT-034']
+min_cases = 11
+contracts = ['DEC-PLT-044', 'DEC-PLT-043', 'DEC-PLT-034', 'DEC-RCL-018']
 
 [[suite]]
 id = 'SUITE-RUNTIME-003'

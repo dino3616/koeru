@@ -35,6 +35,7 @@ use std::time::Instant;
 
 use koeru_core::analysis::TakeAnalysis;
 use koeru_core::capture;
+use koeru_core::db::subbank::SubbankRecord;
 use koeru_core::db::{LedgerSnapshot, MaterialFacts, Revision, RowTakes, Take};
 use koeru_core::song::Song;
 use koeru_model::id::TakeId;
@@ -170,6 +171,7 @@ pub struct ProjectReadSession {
     review: OnceLock<Arc<ReviewFacet>>,
     repertoire: OnceLock<Arc<RepertoireFacet>>,
     materials: OnceLock<Arc<MaterialsFacet>>,
+    subbanks: OnceLock<Arc<Vec<SubbankRecord>>>,
 }
 
 impl std::fmt::Debug for ProjectReadSession {
@@ -200,6 +202,7 @@ impl ProjectReadSession {
             review: OnceLock::new(),
             repertoire: OnceLock::new(),
             materials: OnceLock::new(),
+            subbanks: OnceLock::new(),
         }
     }
 
@@ -313,6 +316,21 @@ impl ProjectReadSession {
         let material = self.timed(|| self.with_snapshot(LedgerSnapshot::material_facts))?;
         let arc = Arc::new(MaterialsFacet { material });
         Ok(Arc::clone(self.materials.get_or_init(|| arc)))
+    }
+
+    /// サブバンクの枠を並びの順で（`DEC-RCL-018`）。 [`Self::materials`] と同じ版から読むので、
+    /// 試唱の途中に枠が足されても消されても、解いた素材と枠の一覧はずれない。
+    ///
+    /// # Errors
+    ///
+    /// スナップショットを読めない。
+    pub fn subbanks(&self) -> Result<Arc<Vec<SubbankRecord>>, RuntimeError> {
+        if let Some(f) = self.subbanks.get() {
+            return Ok(Arc::clone(f));
+        }
+        let subbanks = self.timed(|| self.with_snapshot(LedgerSnapshot::subbanks))?;
+        let arc = Arc::new(subbanks);
+        Ok(Arc::clone(self.subbanks.get_or_init(|| arc)))
     }
 
     /// 解析値をテイク1件ぶん、同じ版から引く。
