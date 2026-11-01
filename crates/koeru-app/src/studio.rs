@@ -4586,7 +4586,10 @@ impl Studio {
         // 音階の数だけ並び、受け取った UTAU は1つしか見ない
         // ——**音域を広げるために録った音階が、まるごと鳴らない。**
         // 音高ごとに分かれた `oto.ini` は配布パッケージが出す（`TR-PKG-04`）。
-        if self.writer()?.recording_tones()?.len() > 1 {
+        //
+        // 数えるのは音階ではなく枠（`DEC-RCL-018`）。 同じ高さに声色や方式の違う枠が並んでも、
+        // 平らな `oto.ini` では同じ綴りが重なる。
+        if self.writer()?.cells()?.as_slice().len() > 1 {
             return Err(AppError::new(
                 "review.multi_pitch_oto_ini",
                 Class::Rejected,
