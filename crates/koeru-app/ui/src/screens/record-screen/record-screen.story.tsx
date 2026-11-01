@@ -201,7 +201,7 @@ export const 待機: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(await c.findByRole("img", { name: "か き く け こ" })).toBeVisible();
-    const tempoUp = c.getByRole("button", { name: "テンポを上げる" });
+    const tempoUp = c.getByRole("button", { name: "BPM を上げる" });
     await expect(tempoUp.closest("header")).not.toBeNull();
     await expect(tempoUp).toBeEnabled();
     await expect((await sidebarToggle(canvasElement)).getAttribute("aria-expanded")).toBe("true");
@@ -226,7 +226,7 @@ export const ボタンだけで録る: Story = {
 
     await waitFor(() => expect(c.getByRole("button", { name: "止める" })).toBeVisible());
     await expect(api.startTake).toHaveBeenCalledWith(null);
-    await expect(c.getByRole("button", { name: "テンポを上げる" })).toBeDisabled();
+    await expect(c.getByRole("button", { name: "BPM を上げる" })).toBeDisabled();
     await expect((await sidebarToggle(canvasElement)).getAttribute("aria-expanded")).toBe("false");
 
     // 止めるのも Tab で届くボタン。 確定したら台帳を読み直し、次の行へ進む。
@@ -273,8 +273,8 @@ export const 録音中: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(await c.findByRole("button", { name: "止める" })).toBeVisible();
-    await expect(c.getByRole("button", { name: "テンポを下げる" })).toBeDisabled();
-    await expect(c.getByRole("combobox", { name: "マイク" })).toBeDisabled();
+    await expect(c.getByRole("button", { name: "BPM を下げる" })).toBeDisabled();
+    await expect(c.getByRole("combobox", { name: "入力デバイス" })).toBeDisabled();
     await waitFor(async () =>
       expect((await sidebarToggle(canvasElement)).getAttribute("aria-expanded")).toBe("false"),
     );

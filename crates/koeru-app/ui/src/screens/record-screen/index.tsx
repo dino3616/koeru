@@ -112,7 +112,7 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
    * 録り直しても動かない——録ったものをその場で確かめられる。
    */
   const [chosenRow, setChosenRow] = useState<string | null>(initialRow);
-  /** 行を絞っている曲。 */
+  /** 目標にしている曲。 */
   const [songId, setSongId] = useState<string | null>(null);
   /**
    * 選んでいるマイク（`TR-REC-03`）。 初期値は Rust から取る。 画面だけで持つと、
@@ -179,15 +179,14 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
   /** 枠の行だけ。 並びは台帳のまま。 */
   const rows = subbank === null ? allRows : allRows.filter((r) => r.subbank === subbank);
   /*
-   * 曲で絞る（`TR-RCL-17`）。 その曲を歌うために、あと録る行。
+   * 目標の曲に要る行（`TR-RCL-17`）。 その曲を歌うために、あと録る行。 一覧は絞らず、
+   * 印を付ける——並びと位置が変わらないので、録っている場所を見失わない（S04）。
    *
-   * 読めなくても一覧は成り立つので `useQuery`。 読んでいるあいだは絞らない。
+   * 読めなくても一覧は成り立つので `useQuery`。 読んでいるあいだは印を付けない。
    */
   const plan = useQuery({ ...songPlanQuery(id, songId ?? ""), enabled: songId !== null });
-  const listed =
-    songId === null || plan.data === undefined
-      ? rows
-      : rows.filter((r) => plan.data.rows.some((p) => p.row_id === r.row_id));
+  const songRowIds = new Set(songId === null ? [] : (plan.data?.rows.map((p) => p.row_id) ?? []));
+  const listed = rows;
 
   /*
    * 次に録る行は Rust が決める。 枠を指していれば、その枠の録る順の先頭。
@@ -313,17 +312,16 @@ const RecordBody = ({ id, subbank, initialRow }: RecordBodyProps) => {
         {status}
       </p>
 
-      <div className="flex min-h-0 border-r border-line py-3 pl-2">
-        <RecordSidebar
-          songs={songs.map((s) => songItem(s))}
-          rows={listed.map(rowItem)}
-          selectedRowId={center?.row_id ?? null}
-          onSelectRow={setChosenRow}
-          selectedSongId={songId}
-          onSelectSong={setSongId}
-          onPlaySong={(song) => sing.mutate(song)}
-        />
-      </div>
+      <RecordSidebar
+        songs={songs.map(songItem)}
+        rows={listed.map(rowItem)}
+        selectedRowId={center?.row_id ?? null}
+        onSelectRow={setChosenRow}
+        selectedSongId={songId}
+        songRowIds={songRowIds}
+        onSelectSong={setSongId}
+        onPlaySong={(song) => sing.mutate(song)}
+      />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto px-10 py-6">
         <RecordStage

@@ -19,12 +19,13 @@ export const songState = (
   return { status: "remaining", rows: view.missing_rows };
 };
 
-/** 音域は `SongView` に無い。 画面が持っているときだけ渡す。 */
-export const songItem = (view: SongView, range: string | null = null): SidebarSong => ({
+/** 音域は今のキーを当てた両端（`SongView.range`）。 音高を持たない曲は出さない。 */
+export const songItem = (view: SongView): SidebarSong => ({
   id: view.id,
   title: view.title,
-  range,
+  range: view.range === null ? null : `${view.range.low.name}–${view.range.high.name}`,
   state: songState(view),
+  progress: view.required === 0 ? 1 : view.covered / view.required,
 });
 
 const ROW_STATUSES: readonly RowStatus[] = ["unrecorded", "recorded", "needs_retake", "excluded"];

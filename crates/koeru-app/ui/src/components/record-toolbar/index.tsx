@@ -1,6 +1,6 @@
-import type { CSSProperties } from "react";
+import { type CSSProperties, useId } from "react";
 
-import { Button } from "~/components/button";
+import { Icon, type IconName } from "~/components/icon";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "~/components/select";
 import type { DeviceView, GuideTempo } from "~/lib/ipc";
 import { RECORDING_ORDERS, recordingOrderLabel } from "~/lib/labels";
@@ -32,7 +32,10 @@ type RecordToolbarProps = {
 
 /**
  * 収録の画面のツールバーの右端（`ShellToolbarEnd` に入れる）。 左から
- * カバレッジ・録る順・テンポ・マイク。 骨格は S04。
+ * カバレッジ・区切り・収録順・BPM・入力デバイス。 寸法は S04 のボードのまま。
+ *
+ * 字の大きさと色はツールバーの帯（13px の `text-2`）から受ける。 ここで決めるのは
+ * 値の字（`text-1`）と、札の中の 12px だけ。
  *
  * 録る順は常に見えるところに出す（`TR-SYN-19`）。 「次に何を録るか」が
  * 理由もなく変わったように見えないため。
@@ -41,7 +44,6 @@ type RecordToolbarProps = {
  * （`DEC-REC-012`）。 数は Rust から受け、画面で決めない。
  *
  * 並べすぎると、ツールバーの左のパンくずが先に縮む（`ShellToolbarEnd`）。
- * 字は最小にして、名前は読み上げのほうで言う。
  */
 export const RecordToolbar = ({
   coverage,
@@ -55,80 +57,122 @@ export const RecordToolbar = ({
   locked,
   pending = false,
 }: RecordToolbarProps) => {
+  const orderId = useId();
+  const tempoId = useId();
   const percent = coverage.total === 0 ? 0 : Math.round((coverage.done / coverage.total) * 100);
   const lower = tempo.bpm - tempo.stepBpm;
   const higher = tempo.bpm + tempo.stepBpm;
   const still = locked || pending;
 
   return (
-    <div className="flex h-full items-center gap-3">
-      <p className="flex items-center gap-2 text-xs text-2">
+    <div className="flex items-center gap-2.5 whitespace-nowrap">
+      <p className="flex items-center gap-2">
         カバレッジ
-        <span className="font-mono text-md text-1 tabular-nums">{percent}%</span>
+        <span className="font-mono text-1 tabular-nums">{percent}%</span>
         {/* 値は字が持つ。 帯は見た目だけ。 */}
-        <span aria-hidden="true" className="h-1.5 w-12 overflow-hidden rounded-full bg-surface-3">
+        <span aria-hidden="true" className="h-1 w-18 overflow-hidden rounded-full bg-surface-3">
           <span
-            className="block h-full w-(--filled) rounded-full bg-voice"
+            className="block h-full w-(--filled) bg-voice"
             // 埋まり具合は数で変わる。 変わる値は変数で渡し、当てるのはクラス。
             style={{ "--filled": `${percent}%` } as CSSProperties}
           />
         </span>
       </p>
 
-      <Select value={mode} onValueChange={onModeChange} disabled={still}>
-        <SelectTrigger size="sm" aria-label="録る順">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {RECORDING_ORDERS.map((m) => (
-            <SelectItem key={m} value={m}>
-              {recordingOrderLabel(m)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-line" />
 
-      <div role="group" aria-label="ガイドのテンポ" className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="テンポを下げる"
-          disabled={still || lower < tempo.minBpm}
-          onClick={() => onTempoChange(lower)}
-        >
-          −
-        </Button>
-        <span className="min-w-14 text-center font-mono text-md text-1 tabular-nums">
-          {tempo.bpm}
-          <span className="ml-1 text-xs text-2">BPM</span>
+      <div className="flex items-center gap-4">
+        <span className="flex items-center gap-2">
+          <span id={orderId}>収録順</span>
+          <Select value={mode} onValueChange={onModeChange} disabled={still}>
+            <SelectTrigger size="sm" aria-labelledby={orderId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RECORDING_ORDERS.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {recordingOrderLabel(m)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label="テンポを上げる"
-          disabled={still || higher > tempo.maxBpm}
-          onClick={() => onTempoChange(higher)}
-        >
-          ＋
-        </Button>
-      </div>
 
-      <Select
-        value={deviceId ?? ""}
-        onValueChange={onDeviceChange}
-        disabled={still || devices.length === 0}
-      >
-        <SelectTrigger size="sm" aria-label="マイク">
-          <SelectValue placeholder={devices.length === 0 ? "マイクがありません" : "マイクを選ぶ"} />
-        </SelectTrigger>
-        <SelectContent>
-          {devices.map((d) => (
-            <SelectItem key={d.id} value={d.id}>
-              {d.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <span className="flex items-center gap-2">
+          <span id={tempoId}>BPM</span>
+          <span
+            role="group"
+            aria-labelledby={tempoId}
+            className="flex h-7 items-center rounded-md border border-line bg-surface-1"
+          >
+            <Step
+              icon="minus"
+              label="BPM を下げる"
+              disabled={still || lower < tempo.minBpm}
+              onClick={() => onTempoChange(lower)}
+            />
+            <span className="w-9 border-x border-line text-center font-mono text-xs leading-6.5 text-1 tabular-nums">
+              {tempo.bpm}
+            </span>
+            <Step
+              icon="plus"
+              label="BPM を上げる"
+              disabled={still || higher > tempo.maxBpm}
+              onClick={() => onTempoChange(higher)}
+            />
+          </span>
+        </span>
+
+        <Select
+          value={deviceId ?? ""}
+          onValueChange={onDeviceChange}
+          disabled={still || devices.length === 0}
+        >
+          <SelectTrigger size="sm" aria-label="入力デバイス">
+            <span aria-hidden="true" className="flex text-2">
+              <Icon name="mic" size={13} />
+            </span>
+            <SelectValue
+              placeholder={devices.length === 0 ? "マイクがありません" : "マイクを選ぶ"}
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {devices.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 };
+
+/**
+ * テンポの1刻み。 群の枠の内側に収まる 24×26 の的（S04）。
+ *
+ * `Button` を使わない。 群が枠と面を持ち、刻みは枠の中の区画として描くので、
+ * 角丸も縁も要らない。 `TR-PLT-31` の 24px は満たす。
+ */
+const Step = ({
+  icon,
+  label,
+  disabled,
+  onClick,
+}: {
+  icon: IconName;
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    aria-label={label}
+    disabled={disabled}
+    onClick={onClick}
+    className="flex h-6.5 w-6 items-center justify-center text-2 enabled:hover:text-1 disabled:opacity-45"
+  >
+    <Icon name={icon} size={14} />
+  </button>
+);

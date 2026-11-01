@@ -188,8 +188,8 @@ export const SongBank = ({ voiceId, onImported }: SongBankProps) => {
       <hr className="h-px border-0 bg-slate-6" />
 
       {/*
-        「外す」が何をするかを1行で言う。 工程の名前（曲バンク）では書かない
-        ——画面の言葉は「歌いたい曲から」で揃えてある（`RecordingOrder`）。
+        「外す」が何をするかを1行で言う。 録る順の名前（曲バンク優先）を借りずに、
+        起きることで書く。
       */}
       <p className="text-xs text-slate-11">
         外した曲は「あと何音で歌えるか」の数えから抜けます。曲そのものは消えません。

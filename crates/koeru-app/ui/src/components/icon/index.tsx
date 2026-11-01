@@ -22,6 +22,7 @@ export type IconName =
   | "tree-open"
   | "tree-closed"
   | "check"
+  | "retake"
   | "play-small"
   | "play"
   | "to-start"
@@ -148,6 +149,13 @@ const SHAPES: Record<IconName, Shape> = {
     cap: "round",
     join: "round",
     body: <path d="m4.5 10.5 3.5 3.5 7.5-8" />,
+  },
+  // 要録り直し。 ボードは描いていないので、✓ と同じ枠と太さで三角を置く。
+  retake: {
+    viewBox: 20,
+    stroke: 2,
+    join: "round",
+    body: <path d="M10 4.5 16 15.5H4Z" />,
   },
   "play-small": { viewBox: 10, stroke: null, body: <path d="M2.5 1.2 L8.6 5 L2.5 8.8 Z" /> },
   play: { viewBox: 20, stroke: null, body: <path d="M6 4l10 6-10 6Z" /> },
