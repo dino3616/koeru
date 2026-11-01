@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect } from "storybook/test";
 
 import { Button } from "~/components/button";
-import { voiceStyle } from "~/lib/voice-color";
+import { IMAGE_COLORS, type ImageColor, voiceStyle } from "~/lib/voice-color";
 
 /*
  * 配色の段を、実際に描いて測る（`TR-PLT-25`、`TR-PLT-28`）。
@@ -21,8 +21,9 @@ import { voiceStyle } from "~/lib/voice-color";
  * 塗りは段 11、その hover は段 12。ここにも出さない——出すと、
  * 使わないと決めた段の違反を毎回報告することになる。
  *
- * **cyan と jade はもう無い。** 色相を持ってよいのは声・red・amber だけ
+ * **jade はもう無い。** 色相を持ってよいのは声・red・amber だけ
  * （`docs/reports/ux/direction.md`）。押せるものの塗りもフォーカス環も無彩色。
+ * cyan はイメージカラーとしてだけ戻る（`DEC-PLT-062`）。
  */
 const meta = { title: "配色/段" } satisfies Meta;
 export default meta;
@@ -57,23 +58,51 @@ const TEXT_ON_SURFACE = [
  *
  * 片方だけ見ると、もう片方で 4.5:1 を割っていることに気づけない。
  */
-export const 字と面: Story = {
-  render: () => (
-    <div className="flex gap-5">
-      {(["light", "dark"] as const).map((theme) => (
-        <div key={theme} className={`${theme} bg-slate-1 p-3`}>
-          <p className="pb-2 text-sm text-slate-12">{theme === "light" ? "明るい面" : "暗い面"}</p>
-          <div className="flex flex-col gap-2">
-            {TEXT_ON_SURFACE.map(({ fg, bg, label }) => (
-              <p key={label} className={`${bg} ${fg} px-3 py-2 text-sm`}>
-                {label}
-              </p>
-            ))}
-          </div>
+const TextPairs = ({ pairs }: { pairs: readonly { fg: string; bg: string; label: string }[] }) => (
+  <div className="flex gap-5">
+    {(["light", "dark"] as const).map((theme) => (
+      <div key={theme} className={`${theme} bg-slate-1 p-3`}>
+        <p className="pb-2 text-sm text-slate-12">{theme === "light" ? "明るい面" : "暗い面"}</p>
+        <div className="flex flex-col gap-2">
+          {pairs.map(({ fg, bg, label }) => (
+            <p key={label} className={`${bg} ${fg} px-3 py-2 text-sm`}>
+              {label}
+            </p>
+          ))}
         </div>
-      ))}
-    </div>
-  ),
+      </div>
+    ))}
+  </div>
+);
+
+export const 字と面: Story = {
+  render: () => <TextPairs pairs={TEXT_ON_SURFACE} />,
+};
+
+/**
+ * 役割の名前で書いた字と面（`DEC-PLT-062`）。
+ *
+ * 段は上と同じだが、部品はこれから役割の名前で書かれる。 名前のほうで測っておかないと、
+ * 役割の対応を書き換えたときに、どの組み合わせが割れたかが出ない。
+ *
+ * 字の3段目は無い。 記録が置かないと決めたので、ここにも出さない。
+ */
+const ROLE_TEXT_ON_SURFACE = [
+  { fg: "text-1", bg: "bg-bg", label: "text-1 / bg" },
+  { fg: "text-1", bg: "bg-surface-1", label: "text-1 / surface-1" },
+  { fg: "text-1", bg: "bg-surface-2", label: "text-1 / surface-2" },
+  { fg: "text-1", bg: "bg-surface-2-hover", label: "text-1 / surface-2 hover" },
+  { fg: "text-1", bg: "bg-surface-3", label: "text-1 / surface-3" },
+  { fg: "text-2", bg: "bg-bg", label: "text-2 / bg" },
+  { fg: "text-2", bg: "bg-surface-1", label: "text-2 / surface-1" },
+  { fg: "text-2", bg: "bg-surface-2", label: "text-2 / surface-2" },
+  { fg: "text-2", bg: "bg-surface-2-hover", label: "text-2 / surface-2 hover" },
+  { fg: "text-2", bg: "bg-surface-3", label: "text-2 / surface-3" },
+  { fg: "text-slate-1", bg: "bg-rec", label: "rec の上の字" },
+] as const;
+
+export const 役割の字と面: Story = {
+  render: () => <TextPairs pairs={ROLE_TEXT_ON_SURFACE} />,
 };
 
 /*
@@ -166,7 +195,7 @@ export const 非テキストの比: Story = {
           <p className="pb-2 text-sm text-slate-12">{theme === "light" ? "明るい面" : "暗い面"}</p>
           {NON_TEXT.map(({ fg, bg, label }) => (
             <div key={label} className={`${bg} mb-2 flex items-center gap-2 p-2`} data-bg={label}>
-              <span className={`${fg} inline-block size-4 rounded`} data-fg={label} />
+              <span className={`${fg} inline-block size-4 rounded-md`} data-fg={label} />
               <span className="text-xs text-slate-12">{label}</span>
             </div>
           ))}
@@ -241,6 +270,9 @@ const over = (
  *
  * 透明な面は「面が無い」であって黒ではない。 `ghost` の面を黒として測ると、
  * 比が実際より大きく出る。
+ *
+ * 読めない記法は透明として返す。 canvas は読めない値を黙って捨て、既定の黒で
+ * 塗る。暗い面ではその黒に明るい字が載って、測れていないのに 4.5:1 を超える。
  */
 const colorOf = (
   el: Element,
@@ -251,6 +283,7 @@ const colorOf = (
   probe.height = 1;
   const ctx = probe.getContext("2d", { willReadFrequently: true });
   if (ctx === null) return [0, 0, 0, 1];
+  ctx.fillStyle = "rgb(0 0 0 / 0)";
   ctx.fillStyle = getComputedStyle(el)[prop];
   ctx.fillRect(0, 0, 1, 1);
   const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
@@ -345,7 +378,7 @@ export const 声の色: Story = {
                       <span
                         key={hue}
                         data-fg={label}
-                        className="koeru-voice-fill inline-block size-4 rounded"
+                        className="koeru-voice-fill inline-block size-4 rounded-md"
                         /* 返すのは `--voice-*` だけ。別ファイルの関数なので読めない。 */
                         // oxlint-disable-next-line shadcn/no-inline-styles
                         style={voiceStyle({
@@ -382,5 +415,146 @@ export const 声の色: Story = {
       const seen = new Set(swatches.map((s) => getComputedStyle(s).backgroundColor));
       await expect(seen.size).toBe(swatches.length);
     }
+  },
+};
+
+/*
+ * 声の塗りと、その上の字（`DEC-PLT-062`）。
+ *
+ * 主ボタンは `voice` で塗って `voice-ink` の字を載せる。 選択中の行は `voice-wash` に
+ * `text-1` を載せる。 声から作る色は `voiceStyle` の塗りの帯を通り、
+ * イメージカラーは Radix の段 11 をそのまま使う。
+ *
+ * **`voice-wash` に `text-2` は載らない。** 明るい面で暗い声（帯の下端）を混ぜると、
+ * 4.5:1 をわずかに割る。測って分かった。 `DEC-PLT-062` は選択中の行の字の段を
+ * 決めていないので、`text-2` を載せる部品を作る前に記録で決める。
+ *
+ * 字は描かずに、要素の `color` と `background-color` の比を測る。 描くと axe も当たり、
+ * 下の [`KNOWN_SHORT`] で story ごと落ちる。届かないことは消さずに数える。
+ *
+ * 測るのは3つ。
+ *
+ * 1. 字と塗りが 4.5:1
+ * 2. `voice` が地と面の上で 3:1（声の点や顔の代替は、字の無い図として出る）
+ * 3. 色がそもそも解決しているか。`light-dark()` か変数が外れると塗りは透明になり、
+ *    透明を黒として測ると暗い面で比が通ってしまう
+ */
+
+/**
+ * 4.5:1 に届かないと分かっている組み合わせ。
+ *
+ * 明るい面の teal の段 11 は、slate 1 を載せても slate 12 を載せても届かない。
+ * `DEC-PLT-062` の覆る条件に当たる。記録を見直すまでここに置き、届くように
+ * なったらこの一覧と合わなくなって落ちる。
+ */
+const KNOWN_SHORT = ["light teal voice-ink"] as const;
+
+/**
+ * 声から作る色を測る位置（明度, 彩度）。
+ *
+ * 四隅と中央。 塗りの帯が割れやすいのは、明るい面では明るく鮮やかな隅、
+ * 暗い面では暗く鮮やかな隅で、明度と彩度を揃えて動かすと後者を通らない。
+ */
+const CORNERS = [
+  [0, 0],
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [0.5, 0.5],
+] as const;
+
+const VOICE_SAMPLES: readonly {
+  name: string;
+  color: { hue: number; chroma: number; lightness: number } | null;
+  image: ImageColor | null;
+}[] = [
+  ...HUES.flatMap((hue) =>
+    CORNERS.map(([lightness, chroma]) => ({
+      name: `${hue}° L${lightness} C${chroma}`,
+      color: { hue, chroma, lightness },
+      image: null,
+    })),
+  ),
+  ...IMAGE_COLORS.map((image) => ({ name: image, color: null, image })),
+];
+
+/** 1つの声につき描く、字と塗りの組の数と、地と面の組の数。 */
+const PAIRS_PER_SAMPLE = 2;
+const SURFACES_PER_SAMPLE = 3;
+
+export const 声の塗りと字: Story = {
+  render: () => (
+    <div className="flex gap-5">
+      {(["light", "dark"] as const).map((theme) => (
+        <div key={theme} className={`${theme} bg-slate-1 p-3`}>
+          <p className="pb-2 text-sm text-slate-12">{theme === "light" ? "明るい面" : "暗い面"}</p>
+          <div className="flex flex-col gap-1">
+            {VOICE_SAMPLES.map(({ name, color, image }) => {
+              const key = `${theme} ${name}`;
+              return (
+                <div
+                  key={key}
+                  className="flex items-center gap-1"
+                  /* 返すのは `--voice-*` だけ。別ファイルの関数なので読めない。 */
+                  // oxlint-disable-next-line shadcn/no-inline-styles
+                  style={voiceStyle(color, image)}
+                >
+                  <span
+                    data-pair={`${key} voice-ink`}
+                    className="inline-block h-4 w-6 rounded-md bg-voice text-voice-ink"
+                  />
+                  <span
+                    data-pair={`${key} text-1 / voice-wash`}
+                    className="inline-block h-4 w-6 rounded-md bg-voice-wash text-1"
+                  />
+                  <span data-surface={`${key} bg`} className="bg-bg p-1">
+                    <span className="block size-2 rounded-full bg-voice" />
+                  </span>
+                  <span data-surface={`${key} surface-1`} className="bg-surface-1 p-1">
+                    <span className="block size-2 rounded-full bg-voice" />
+                  </span>
+                  <span data-surface={`${key} surface-2`} className="bg-surface-2 p-1">
+                    <span className="block size-2 rounded-full bg-voice" />
+                  </span>
+                  <span className="text-xs text-slate-12">{name}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const pairs = [...canvasElement.querySelectorAll("[data-pair]")];
+    const surfaces = [...canvasElement.querySelectorAll("[data-surface]")];
+    await expect(pairs.length).toBe(2 * VOICE_SAMPLES.length * PAIRS_PER_SAMPLE);
+    await expect(surfaces.length).toBe(2 * VOICE_SAMPLES.length * SURFACES_PER_SAMPLE);
+
+    const short: string[] = [];
+    for (const el of pairs) {
+      const label = el.getAttribute("data-pair") ?? "";
+      const [fr, fg, fb, fa] = colorOf(el, "color");
+      const [br, bg, bb, ba] = colorOf(el, "backgroundColor");
+      if (fa === 0 || ba === 0) short.push(`${label}（色が解決していない）`);
+      else if (contrast([fr, fg, fb], [br, bg, bb]) < 4.5) short.push(label);
+    }
+    await expect(short).toEqual([...KNOWN_SHORT]);
+
+    const low: string[] = [];
+    for (const surface of surfaces) {
+      const label = surface.getAttribute("data-surface") ?? "";
+      const dot = surface.firstElementChild;
+      if (dot === null) {
+        low.push(`${label}（点が無い）`);
+        continue;
+      }
+      const [dr, dg, db, da] = colorOf(dot, "backgroundColor");
+      const [sr, sg, sb] = colorOf(surface, "backgroundColor");
+      const r = contrast([dr, dg, db], [sr, sg, sb]);
+      if (da === 0) low.push(`${label}（色が解決していない）`);
+      else if (r < 3) low.push(`${label}: ${r.toFixed(2)}:1（要 3）`);
+    }
+    await expect(low).toEqual([]);
   },
 };

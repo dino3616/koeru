@@ -27,17 +27,25 @@ import type { VoiceView } from "~/lib/ipc";
  * # 両方の面ぶんを渡す
  *
  * `theme.js` はクラスを付け替えるだけなので、片方だけ焼き込むと切り替えに
- * 追従しない。明暗2つの色を変数として渡し、どちらを使うかは `globals.css` の
- * `.dark` が選ぶ。
+ * 追従しない。明暗2つの色を変数として渡し、どちらを使うかは `globals.css` が選ぶ
+ * （環は `.dark`、`voice` の役割は `light-dark()`）。
  *
  * # 色が無いときは変数を置かない
  *
  * まだ1つも録れていない音源に声は無い。 そのとき環は1本も描かれないので、
  * 色を決める必要も無い。既定値で塗ると「灰色の声」という状態を作ってしまう。
+ *
+ * # 本人が選んだイメージカラーが勝つ
+ *
+ * 11色の対応は `DEC-PLT-062`。 段 11 を Radix から引くだけなので、明暗は
+ * Radix の `.dark` がそのまま選ぶ。どちらの帯も通らない。
  */
 
+/** 明度と彩度の幅。 */
+type Band = { lightnessLo: number; lightnessHi: number; chromaLo: number };
+
 /**
- * 面ごとの明度と彩度の幅。
+ * 環の帯。面ごとの明度と彩度の幅。
  *
  * 明度は実測で選んだ。 段 1〜3 のどの面に載せても 3:1 を満たす帯
  * （`TR-PLT-28` の非テキスト）。測っているのは `styles/palette.story.tsx`。
@@ -47,7 +55,36 @@ import type { VoiceView } from "~/lib/ipc";
 const SURFACES = {
   light: { lightnessLo: 0.42, lightnessHi: 0.58, chromaLo: 0.04 },
   dark: { lightnessLo: 0.62, lightnessHi: 0.8, chromaLo: 0.05 },
-} as const;
+} as const satisfies Record<string, Band>;
+
+/**
+ * 字を載せる塗りの帯。 主ボタンの塗りは環と別の帯を持つ（`DEC-PLT-062`）。
+ *
+ * 環の帯のままだと、`voice-ink` の字が 4.5:1 に届かない。 明るい面では上端の
+ * 明るい色、暗い面では下端の紫で割る。 色相と、帯の中の位置は環と同じものを使う。
+ * 測っているのは `styles/palette.story.tsx`。
+ */
+const FILLS = {
+  light: { lightnessLo: 0.42, lightnessHi: 0.52, chromaLo: 0.04 },
+  dark: { lightnessLo: 0.66, lightnessHi: 0.8, chromaLo: 0.05 },
+} as const satisfies Record<string, Band>;
+
+/** 本人が選べるイメージカラー。 Radix の色相の名前で持つ。 */
+export const IMAGE_COLORS = [
+  "lime",
+  "green",
+  "teal",
+  "cyan",
+  "sky",
+  "blue",
+  "indigo",
+  "violet",
+  "purple",
+  "plum",
+  "pink",
+] as const;
+
+export type ImageColor = (typeof IMAGE_COLORS)[number];
 
 /**
  * sRGB に収まる最大の彩度に対して、どこまで使うか。
@@ -99,9 +136,9 @@ const maxChroma = (lightness: number, hue: number): number => {
   return lo;
 };
 
-/** 面1つぶんの色を組み立てる。 */
-const colorOn = (surface: keyof typeof SURFACES, color: VoiceView): string => {
-  const { lightnessLo, lightnessHi, chromaLo } = SURFACES[surface];
+/** 帯1つぶんの色を組み立てる。 */
+const colorOn = (band: Band, color: VoiceView): string => {
+  const { lightnessLo, lightnessHi, chromaLo } = band;
   const lightness = lightnessLo + (lightnessHi - lightnessLo) * color.lightness;
   // 下端を割らない。 いちばん狭い色相では、上限が下端より低くなりうる。
   const chromaHi = Math.max(chromaLo, maxChroma(lightness, color.hue) * GAMUT_MARGIN);
@@ -109,11 +146,24 @@ const colorOn = (surface: keyof typeof SURFACES, color: VoiceView): string => {
   return `oklch(${lightness.toFixed(4)} ${chroma.toFixed(4)} ${color.hue})`;
 };
 
-/** 声の色を当てる要素へ渡す style。色が無ければ空。 */
-export const voiceStyle = (color: VoiceView | null): CSSProperties =>
-  color === null
-    ? {}
-    : ({
-        "--voice-light": colorOn("light", color),
-        "--voice-dark": colorOn("dark", color),
-      } as CSSProperties);
+/**
+ * 声の色を当てる要素へ渡す style。 その要素の下が音源1つぶんになる。
+ *
+ * イメージカラーが無いときも `--voice-image` を打ち消す。 打ち消さないと、
+ * 外側の音源が選んだ色を受け継いで、別の音源がその色で塗られる。
+ */
+export const voiceStyle = (
+  color: VoiceView | null,
+  image: ImageColor | null = null,
+): CSSProperties =>
+  ({
+    ...(color === null
+      ? {}
+      : {
+          "--voice-light": colorOn(SURFACES.light, color),
+          "--voice-dark": colorOn(SURFACES.dark, color),
+          "--voice-fill-light": colorOn(FILLS.light, color),
+          "--voice-fill-dark": colorOn(FILLS.dark, color),
+        }),
+    "--voice-image": image === null ? "initial" : `var(--${image}-11)`,
+  }) as CSSProperties;

@@ -37,8 +37,26 @@
  * 声・危険（red）・注意（amber）。 それ以外はすべて無彩色にする
  * （`docs/reports/ux/direction.md`、`DEC-PLT-022` に追記）。**押せるものにも
  * 色相を与えない**ので、塗りは `slate-11`、フォーカス環も `slate-12`。
- * cyan と jade はもう読んでいないので、束ねるのをやめた——
- * 段だけ用意しておくと、使ってよいものに見える。
+ * 例外は主ボタンだけで、声の色を借りる（`DEC-PLT-062`）。
+ *
+ * イメージカラーの11色相も読み込むが、ユーティリティには出さない。
+ * 段だけ用意しておくと、使ってよいものに見える。 声の色としてだけ、
+ * `lib/voice-color.ts` の `voiceStyle` を通って画面に出る。 cyan もここでだけ戻る。
+ *
+ * # 役割
+ *
+ * 刷新のボード（P6）の役割を Radix の段へ写したもの。対応表は `DEC-PLT-062`。
+ * 段の名前で書いてある今の部品は、移すまで `slate-*` のまま動く。
+ *
+ * 役割はプロパティごとの名前空間に出す。 面は `bg-surface-1`、線は `border-line`、
+ * 字は `text-1` になる。`--color-*` に置くと `bg-text-1` のような、
+ * 段の意味に反する組み合わせまで作れてしまう。 色相を持つ `rec`・`attention`・
+ * `voice` と `voice-ink` だけは塗り・字・線のどれにも使うので `--color-*` に置く。
+ *
+ * **字の3段目は置かない**（`DEC-PLT-062`）。 P6 にはあるが、当たる段が無い。
+ *
+ * 声の役割は環と別の明度の帯から作る。 環は非テキストの 3:1 で選んだ帯で、
+ * 主ボタンの字を載せると 4.5:1 に届かない色相がある。帯は `lib/voice-color.ts`。
  *
  * # 明暗の切り替え
  *
@@ -50,13 +68,28 @@
  * 持っているので、CSS だけで差し替えるには60個の値を手で写すことになる——
  * 写しは必ず片方だけ古くなる（禁止事項6）。切り替えは `theme.js` 1箇所に集める。
  *
+ * 声の色だけは段ではなく、音源ごとに明暗2つの値で届く。 どちらを使うかは
+ * `light-dark()` が使う要素の上で選ぶので、`.light` / `.dark` に `color-scheme` を
+ * 持たせてある。`:root` で選ぶと、音源ごとに差した値が届かない（下の声の色を参照）。
+ *
  * # 大きさは決まった段だけを使う
  *
- * 余白は4段（`docs/reports/ux/direction.md`）。Tailwind のユーティリティでは
- * `2`（0.5rem）/ `3`（0.75rem）/ `5`（1.25rem）/ `8`（2rem）に当たる。
- * 文字は4段で、`text-4xl`（2.25rem・読み上げるフレーズ）/ `text-xl`（画面の名前）/
- * `text-sm`（本文と領域の名前）/ `text-xs`（補助と単位）。
- * ここで新しいトークンを作らない——同じ規則が2箇所に書かれることになる。
+ * 文字・余白・角丸の段は `DEC-PLT-062`。 段の外の値を書けないように、
+ * Tailwind の既定の段は消して、決めた段だけを置く。
+ *
+ * 文字は Tailwind の名前を残す。 値が同じ段は今の部品がそのまま使える。
+ * Tailwind に無い段は `text-md` と呼ぶ。 名前は `cn` が文字の大きさと
+ * 見分けられる形から選んだ——`text-xs-plus` のような名前だと字の色と
+ * 見なされ、`cn("text-xs-plus text-1")` が片方を消す。
+ *
+ * 余白は消さない。 Tailwind の `--spacing` の倍数がそのまま決めた段になる
+ * （`1` / `2` / `3` / `4` / `5` / `6` / `8` / `10` / `14`）。 同じ尺度を幅と高さも
+ * 使っているので、段だけに絞ると `size-4` や `h-11` まで消える。
+ *
+ * 太さは3つ。 `font-normal` / `font-semibold` / `font-black`。
+ *
+ * 段に無い値を今の部品が使っているものは、移行の別名として今の値のまま残す。
+ * 部品を移したら消す。
  *
  * # 相対単位
  *
@@ -70,11 +103,37 @@
 @import "@radix-ui/colors/amber.css";
 @import "@radix-ui/colors/amber-dark.css";
 
+/* イメージカラー（`DEC-PLT-062`）。 ユーティリティには出さない。 */
+@import "@radix-ui/colors/lime.css";
+@import "@radix-ui/colors/lime-dark.css";
+@import "@radix-ui/colors/green.css";
+@import "@radix-ui/colors/green-dark.css";
+@import "@radix-ui/colors/teal.css";
+@import "@radix-ui/colors/teal-dark.css";
+@import "@radix-ui/colors/cyan.css";
+@import "@radix-ui/colors/cyan-dark.css";
+@import "@radix-ui/colors/sky.css";
+@import "@radix-ui/colors/sky-dark.css";
+@import "@radix-ui/colors/blue.css";
+@import "@radix-ui/colors/blue-dark.css";
+@import "@radix-ui/colors/indigo.css";
+@import "@radix-ui/colors/indigo-dark.css";
+@import "@radix-ui/colors/violet.css";
+@import "@radix-ui/colors/violet-dark.css";
+@import "@radix-ui/colors/purple.css";
+@import "@radix-ui/colors/purple-dark.css";
+@import "@radix-ui/colors/plum.css";
+@import "@radix-ui/colors/plum-dark.css";
+@import "@radix-ui/colors/pink.css";
+@import "@radix-ui/colors/pink-dark.css";
+
 /*
  * 本文の書体を同梱する（`DEC-PLT-026`、台帳は `CMP-131`）。
  *
  * 3 OS で顔を揃えるために持ち込む。 OS の既定に任せると、同じ画面が
  * ヒラギノ・游ゴシック・Noto の3つの顔で出る。
+ *
+ * 刷新のボードが描いている書体には変えない（`DEC-PLT-062`）。
  *
  * `font-display: swap` にする。 4.3MB あるので、読み終わるまで
  * 字が出ないと起動が黙る。先に代替で描いて、届いたら差し替える。
@@ -94,6 +153,55 @@
   --font-sans:
     "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "SF Mono", "Cascadia Mono", ui-monospace, monospace;
+
+  --font-weight-*: initial;
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+  --font-weight-black: 900;
+
+  /* 行の高さは、値を変えていない段では Tailwind の既定のまま。 */
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: calc(1 / 0.75);
+  --text-md: 0.8125rem;
+  --text-md--line-height: calc(1.25 / 0.8125);
+  --text-sm: 0.875rem;
+  --text-sm--line-height: calc(1.25 / 0.875);
+  --text-base: 1rem;
+  --text-base--line-height: calc(1.5 / 1);
+  --text-xl: 1.25rem;
+  --text-xl--line-height: calc(1.75 / 1.25);
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: calc(2 / 1.5);
+  --text-3xl: 2rem;
+  --text-3xl--line-height: calc(2.5 / 2);
+  /* 移行の別名。 読み上げるフレーズが段（`text-7xl`）へ移ったら消す。 */
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: calc(2.5 / 2.25);
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: calc(5.5 / 4.5);
+
+  /*
+   * 角丸は Tailwind の名前の順に段を入れる。 値を残さないので、今の部品の
+   * `rounded-lg` / `rounded-xl` もこの段で描かれる。
+   */
+  --radius-*: initial;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+
+  /*
+   * 窓の骨組み。 字が入るので相対単位で持つ（`TR-PLT-34`）。
+   *
+   * `cn` はこの名前を幅として知らない。 `w-sidebar` を持つ部品に外から
+   * `w-*` を通すと、畳まれずに両方残る。幅を注入させる部品には置かない。
+   */
+  --width-sidebar: 15.5rem;
+  --width-sidebar-collapsed: 4rem;
+  --height-toolbar: 3.25rem;
 }
 
 /*
@@ -142,6 +250,44 @@
   --color-amber-10: var(--amber-10);
   --color-amber-11: var(--amber-11);
   --color-amber-12: var(--amber-12);
+
+  /* 役割（`DEC-PLT-062`）。 */
+  --background-color-bg: var(--slate-1);
+  --background-color-surface-1: var(--slate-2);
+  --background-color-surface-2: var(--slate-3);
+  --background-color-surface-2-hover: var(--slate-4);
+  --background-color-surface-3: var(--slate-4);
+  --border-color-line: var(--slate-6);
+  --border-color-line-strong: var(--slate-7);
+  --text-color-1: var(--slate-12);
+  --text-color-2: var(--slate-11);
+  --color-rec: var(--red-11);
+  --color-attention: var(--amber-11);
+
+  /*
+   * 声。 選んだイメージカラーがあればそれが勝つ（`DEC-PLT-062`）。
+   *
+   * 式を2箇所に書いている。 `voice-wash` から `var(--color-voice)` で引くと、
+   * その変数を `:root` で解決することになり、音源ごとに差した値が届かない。
+   *
+   * 既定値を持たせない。 声が無い音源で何で塗るかは、使う側が決める
+   * （主ボタンは `slate-11`）。ここで灰色を入れると「灰色の声」になる。
+   */
+  --color-voice: var(--voice-image, light-dark(var(--voice-fill-light), var(--voice-fill-dark)));
+  --color-voice-ink: var(--slate-1);
+  --background-color-voice-wash: color-mix(
+    in oklab,
+    var(--voice-image, light-dark(var(--voice-fill-light), var(--voice-fill-dark))) 14%,
+    var(--slate-2)
+  );
+}
+
+.light {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 /*
@@ -163,15 +309,17 @@
  *
  * 声が無い音源には class を付けない。 そのとき環は描かれないので、
  * 下の既定値は画面に出ない。
+ *
+ * 選んだイメージカラーは環の色にも勝つ（`DEC-PLT-062`）。形は声から作るまま。
  */
 .koeru-voice-stroke,
 .koeru-voice-fill {
-  --voice: var(--voice-light, currentColor);
+  --voice: var(--voice-image, var(--voice-light, currentColor));
 }
 
 .dark .koeru-voice-stroke,
 .dark .koeru-voice-fill {
-  --voice: var(--voice-dark, currentColor);
+  --voice: var(--voice-image, var(--voice-dark, currentColor));
 }
 
 .koeru-voice-stroke {
@@ -199,6 +347,7 @@ body {
 
 /*
  * フォーカスは常に見える（`TR-PLT-27`）。既定の outline を消さない。
+ * 段・太さ・離し方は `DEC-PLT-062`。
  *
  * 段 12 を使う。 Radix が「フォーカス環」に充てているのは段 8 だが、
  * 面 1〜3 のどれに乗っても 3:1 を満たすのは上の段のほう（`TR-PLT-28`）。
