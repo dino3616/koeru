@@ -114,7 +114,7 @@ fn preset(field: &'static str, id: &str) -> SubbankAnswer<MethodPreset> {
     koeru_core::preset::by_id(id).ok_or_else(|| invalid(field, "preset.unknown"))
 }
 
-const fn range_violation(e: ToneRangeError) -> Violation {
+pub(super) const fn range_violation(e: ToneRangeError) -> Violation {
     let code = match e {
         ToneRangeError::OutOfRange => "subbank.tone_range_out_of_range",
         ToneRangeError::Inverted => "subbank.tone_range_inverted",

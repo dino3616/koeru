@@ -82,6 +82,11 @@ use crate::take_analysis::{
     TakeAnalysisInput, TakeAnalysisOutput, TakeFacts, consistency_reading,
 };
 
+mod distribution;
+pub use distribution::{
+    DistributionAnswer, DistributionDenied, DistributionSummary, PackagedSubbankChange,
+    PackagedSubbankSummary, ReviseDistribution,
+};
 mod subbank;
 pub use subbank::{
     AddSubbank, ReviseSubbank, SubbankAnswer, SubbankDenied, SubbankRemoval, SubbankSummary,
@@ -216,6 +221,28 @@ fn non_nfc_names() -> AppError {
         Class::Rejected,
         "受け取る側で見つからなくなる名前が残っている",
     )
+}
+
+/// 先頭の配布物へ書こうとした設定が、台帳に断られた。 画面が配布物を意識しない旧い口のための失敗。
+fn refused_package_settings(r: koeru_core::db::shelf::DistributionRefusal) -> AppError {
+    use koeru_core::db::shelf::DistributionRefusal as R;
+    match r {
+        R::Conflict { .. } => AppError::new(
+            "package.archive_name_taken",
+            Class::Conflict,
+            "その配布名は別の配布物が使っている",
+        ),
+        R::VersionTaken => AppError::new(
+            "package.version_taken",
+            Class::Rejected,
+            "その版は、この配布物でもう書き出している",
+        ),
+        R::UnknownDistribution | R::UnknownSubbank | R::LastOne => AppError::new(
+            "package.unexpected_refusal",
+            Class::Internal,
+            "配布の設定が想定していない理由で断られた",
+        ),
+    }
 }
 
 fn unknown_slot() -> AppError {
@@ -1226,6 +1253,14 @@ impl Studio {
             runtime.writer(&lease)?.put_presamp_snapshot(&t)?;
             t
         };
+        // 配布物のフォルダ名の既定は表示名から作る（`DEC-PKG-008`）。 SQL の移行では作れないので、
+        // まだ決まっていない配布物へここで入れる。 決まっているものには触れない。
+        let display_name = dir.read_manifest()?.display_name;
+        runtime
+            .writer(&lease)?
+            .fill_default_archive_name(&koeru_core::names::default_distribution_name(
+                &display_name,
+            ))?;
         // フォルダの控えが書き換えられていれば戻し、中身を別名で残す。
         let presamp_restored = dir.restore_presamp(&snapshot)?;
         if presamp_restored.is_some() {
@@ -3422,7 +3457,22 @@ impl Studio {
     #[tracing::instrument(skip(self, d))]
     pub fn set_package_settings(&mut self, d: &koeru_core::db::Distribution) -> Result<()> {
         packaging::check_settings(d)?;
-        self.writer()?.set_distribution(d)?;
+        let mut ledger = self.writer()?;
+        // フォルダ名と下書きの版は配布物ごとの値（`DEC-PKG-018`）。 配布物が1つだった頃の画面は
+        // これを音源の設定として読み書きするので、先頭の配布物へ書く。 断られたら何も書かない。
+        if let Some(first) = ledger.distributions()?.into_iter().next() {
+            let version = d.version.as_deref().filter(|v| !v.is_empty());
+            let change = koeru_core::db::shelf::DistributionRevision {
+                archive_name: Some(&d.distribution_name),
+                draft_version: version,
+                clear_draft_version: version.is_none(),
+                ..Default::default()
+            };
+            if let Err(refusal) = ledger.revise_distribution(first.id, &change)? {
+                return Err(refused_package_settings(refusal));
+            }
+        }
+        ledger.set_distribution(d)?;
         Ok(())
     }
 
@@ -3474,18 +3524,10 @@ impl Studio {
     /// （`TR-PKG-44`）——**2箇所で打たせると、配布物と履歴で違う値になる。**
     #[tracing::instrument(skip(self))]
     pub fn export_package(&mut self) -> Result<packaging::Exported> {
-        // 原音設定の確認が残っているうちは出さない（`INV-ALN-003`）。
-        // `oto.ini` 単体の書き出しと同じ関門。
-        self.ensure_otos_ready()?;
-        let pre = self.preflight()?;
-        if !pre.may_export() {
-            return Err(non_nfc_names());
-        }
-        let dir = self.opened()?.dir().clone();
-        let manifest = dir.read_manifest()?;
-        let at = now_rfc3339();
-        let rules = self.current_rules()?;
-        packaging::export(&dir, &mut *self.writer()?, &rules, &manifest, &at)
+        // 先頭の配布物を、その下書きの番号で（`DEC-PKG-018`）。 配布物と版を選ぶ口は
+        // `export_distribution`。
+        let target = self.first_target()?;
+        self.export_package_to(&target)
     }
 
     /// 下位方式へ書き出す（`TR-PKG-23`, `TR-PKG-24`, `TR-PKG-25`）。
@@ -3502,16 +3544,8 @@ impl Studio {
     /// 検証に通らない、包めない。
     #[tracing::instrument(skip(self), fields(method = method.as_str()))]
     pub fn export_downgrade(&mut self, method: Method) -> Result<packaging::Exported> {
-        self.ensure_otos_ready()?;
-        let pre = self.preflight()?;
-        if !pre.may_export() {
-            return Err(non_nfc_names());
-        }
-        let dir = self.opened()?.dir().clone();
-        let manifest = dir.read_manifest()?;
-        let at = now_rfc3339();
-        let rules = self.current_rules()?;
-        packaging::export_downgrade(&dir, &mut *self.writer()?, &rules, &manifest, method, &at)
+        let target = self.first_target()?;
+        self.export_downgrade_to(method, &target)
     }
 
     /// 書き出したものを、OS のファイルマネージャで見せる（`TR-PKG-45`）。

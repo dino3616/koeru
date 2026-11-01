@@ -161,11 +161,14 @@ fn insert_subbank(
             subbanks::ordinal.eq(ordinal),
         ))
         .execute(c)?;
-    subbanks::table
+    let id = subbanks::table
         .select(subbanks::id)
         .order(subbanks::id.desc())
         .first(c)
-        .map(SubbankId::new)
+        .map(SubbankId::new)?;
+    // 枠をすべて入れている配布物は、増えた枠も入れる（`TR-PKG-58`）。
+    super::shelf::join_covering(c, id)?;
+    Ok(id)
 }
 
 /// 同じ声色・方式・収録音階の枠（`TR-RCL-28`）。 `except` は自分を除くため。

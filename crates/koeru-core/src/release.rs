@@ -7,6 +7,7 @@
 //! リリースレコードは不変で、これはスキーマのトリガが止める
 //! （`migrations/2026-08-30-020000_releases`）。規律に頼らない。
 
+use koeru_model::id::DistributionId;
 use sha2::{Digest as _, Sha256};
 
 use crate::project::Method;
@@ -50,6 +51,8 @@ impl Validation {
 pub struct Release {
     /// 単調増加する連番。採番は DB が持つ。
     pub seq: i32,
+    /// 書き出した配布物（`TR-PKG-58`）。 配布物を消しても記録は残る。
+    pub distribution: DistributionId,
     /// ユーザーが付けたバージョン文字列。
     pub version: String,
     /// 含めた方式。
@@ -71,6 +74,8 @@ pub struct Release {
 /// 書き出す前に用意する内容。`seq` と `archive_name` は DB が決める。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewRelease {
+    /// 書き出す配布物（`TR-PKG-58`）。
+    pub distribution: DistributionId,
     /// ユーザーが付けたバージョン文字列。
     pub version: String,
     /// 含めた方式。
@@ -248,6 +253,7 @@ mod tests {
     fn release(hash: &str) -> Release {
         Release {
             seq: 1,
+            distribution: DistributionId::new(1),
             version: "v1".into(),
             method: Method::Single,
             alias_count: 102,
