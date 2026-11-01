@@ -14,6 +14,7 @@ use tauri::State;
 use koeru_failure::Class;
 use koeru_model::id::SubbankId;
 
+use super::problem::{InputViolation, InvalidRequest, Problem};
 use super::{AppState, count, lock};
 use crate::error::{AppError, FailureAction, FailureClass, FailureOutcome, Result};
 use crate::studio::{
@@ -141,35 +142,6 @@ fn voice_colors_of(subbanks: Vec<Subbank>) -> Vec<VoiceColor> {
     out
 }
 
-/// 予期できる失敗の共通の形（`Problem`）。 欄だけを持つ枝はこれを運ぶ。
-///
-/// 分類・確定の状態・次の手の値は [`AppError`] と同じ小文字の語で運ぶ。 SDL の大文字の値へ
-/// 揃えるのは GraphQL へ移すとき。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-pub struct Problem {
-    pub code: &'static str,
-    pub class: FailureClass,
-    pub commit: FailureOutcome,
-    pub actions: Vec<FailureAction>,
-    pub message: String,
-}
-
-impl Problem {
-    fn of(e: &AppError) -> Self {
-        Self {
-            code: e.code,
-            class: e.class,
-            commit: e.outcome,
-            actions: vec![e.action],
-            message: e.message.clone(),
-        }
-    }
-
-    fn new(code: &'static str, class: Class, message: &'static str) -> Self {
-        Self::of(&AppError::new(code, class, message))
-    }
-}
-
 /// 同じ声色・方式・収録音階の枠が、もうある（`SubbankConflict`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 pub struct SubbankConflict {
@@ -193,24 +165,6 @@ pub struct RevisionConflict {
     pub message: String,
     pub expected: String,
     pub actual: String,
-}
-
-/// 入力が不正（`InvalidRequest`）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-pub struct InvalidRequest {
-    pub code: &'static str,
-    pub class: FailureClass,
-    pub commit: FailureOutcome,
-    pub actions: Vec<FailureAction>,
-    pub message: String,
-    pub violations: Vec<InputViolation>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
-pub struct InputViolation {
-    /// 入力の中の場所。 欄の名前を . でつなぐ。
-    pub field: &'static str,
-    pub code: &'static str,
 }
 
 /// 同じ操作の識別子で、違う要求が来た（`OperationIdReused`）。
@@ -249,14 +203,7 @@ fn invalid(violations: Vec<InputViolation>) -> InvalidRequest {
         Class::InvalidInput,
         "入力が正しくない",
     );
-    InvalidRequest {
-        code: p.code,
-        class: p.class,
-        commit: p.commit,
-        actions: p.actions,
-        message: p.message,
-        violations,
-    }
+    InvalidRequest::of(p, violations)
 }
 
 fn violation(v: Violation) -> InvalidRequest {
